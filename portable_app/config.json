@@ -1,0 +1,5 @@
+{
+  "default_output": "output",
+  "default_model": "models/sam2.1_hiera_base_plus.pt",
+  "default_baseline": 30
+}

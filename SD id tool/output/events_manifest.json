@@ -1,0 +1,825 @@
+{
+  "events": [
+    {
+      "event_id": "event_0001",
+      "start_idx": 1428,
+      "end_idx": 1487,
+      "duration_frames": 60,
+      "duration_sec": null,
+      "baseline_start_idx": 1398,
+      "baseline_end_idx": 1427
+    }
+  ],
+  "frames": [
+    {
+      "event_id": "event_0001",
+      "role": "baseline",
+      "frame_idx": 1398,
+      "frame_name": "Capture37568.tif",
+      "source_path": "/Users/claydunford/Downloads/Video 12/Capture37568.tif",
+      "output_path": "/Users/claydunford/Development/IOS-Analysis-Code/Python/SD id tool/output/event_0001/baseline/001398_Capture37568.tif",
+      "timestamp_sec": null
+    },
+    {
+      "event_id": "event_0001",
+      "role": "baseline",
+      "frame_idx": 1399,
+      "frame_name": "Capture37569.tif",
+      "source_path": "/Users/claydunford/Downloads/Video 12/Capture37569.tif",
+      "output_path": "/Users/claydunford/Development/IOS-Analysis-Code/Python/SD id tool/output/event_0001/baseline/001399_Capture37569.tif",
+      "timestamp_sec": null
+    },
+    {
+      "event_id": "event_0001",
+      "role": "baseline",
+      "frame_idx": 1400,
+      "frame_name": "Capture37570.tif",
+      "source_path": "/Users/claydunford/Downloads/Video 12/Capture37570.tif",
+      "output_path": "/Users/claydunford/Development/IOS-Analysis-Code/Python/SD id tool/output/event_0001/baseline/001400_Capture37570.tif",
+      "timestamp_sec": null
+    },
+    {
+      "event_id": "event_0001",
+      "role": "baseline",
+      "frame_idx": 1401,
+      "frame_name": "Capture37571.tif",
+      "source_path": "/Users/claydunford/Downloads/Video 12/Capture37571.tif",
+      "output_path": "/Users/claydunford/Development/IOS-Analysis-Code/Python/SD id tool/output/event_0001/baseline/001401_Capture37571.tif",
+      "timestamp_sec": null
+    },
+    {
+      "event_id": "event_0001",
+      "role": "baseline",
+      "frame_idx": 1402,
+      "frame_name": "Capture37572.tif",
+      "source_path": "/Users/claydunford/Downloads/Video 12/Capture37572.tif",
+      "output_path": "/Users/claydunford/Development/IOS-Analysis-Code/Python/SD id tool/output/event_0001/baseline/001402_Capture37572.tif",
+      "timestamp_sec": null
+    },
+    {
+      "event_id": "event_0001",
+      "role": "baseline",
+      "frame_idx": 1403,
+      "frame_name": "Capture37573.tif",
+      "source_path": "/Users/claydunford/Downloads/Video 12/Capture37573.tif",
+      "output_path": "/Users/claydunford/Development/IOS-Analysis-Code/Python/SD id tool/output/event_0001/baseline/001403_Capture37573.tif",
+      "timestamp_sec": null
+    },
+    {
+      "event_id": "event_0001",
+      "role": "baseline",
+      "frame_idx": 1404,
+      "frame_name": "Capture37574.tif",
+      "source_path": "/Users/claydunford/Downloads/Video 12/Capture37574.tif",
+      "output_path": "/Users/claydunford/Development/IOS-Analysis-Code/Python/SD id tool/output/event_0001/baseline/001404_Capture37574.tif",
+      "timestamp_sec": null
+    },
+    {
+      "event_id": "event_0001",
+      "role": "baseline",
+      "frame_idx": 1405,
+      "frame_name": "Capture37575.tif",
+      "source_path": "/Users/claydunford/Downloads/Video 12/Capture37575.tif",
+      "output_path": "/Users/claydunford/Development/IOS-Analysis-Code/Python/SD id tool/output/event_0001/baseline/001405_Capture37575.tif",
+      "timestamp_sec": null
+    },
+    {
+      "event_id": "event_0001",
+      "role": "baseline",
+      "frame_idx": 1406,
+      "frame_name": "Capture37576.tif",
+      "source_path": "/Users/claydunford/Downloads/Video 12/Capture37576.tif",
+      "output_path": "/Users/claydunford/Development/IOS-Analysis-Code/Python/SD id tool/output/event_0001/baseline/001406_Capture37576.tif",
+      "timestamp_sec": null
+    },
+    {
+      "event_id": "event_0001",
+      "role": "baseline",
+      "frame_idx": 1407,
+      "frame_name": "Capture37577.tif",
+      "source_path": "/Users/claydunford/Downloads/Video 12/Capture37577.tif",
+      "output_path": "/Users/claydunford/Development/IOS-Analysis-Code/Python/SD id tool/output/event_0001/baseline/001407_Capture37577.tif",
+      "timestamp_sec": null
+    },
+    {
+      "event_id": "event_0001",
+      "role": "baseline",
+      "frame_idx": 1408,
+      "frame_name": "Capture37578.tif",
+      "source_path": "/Users/claydunford/Downloads/Video 12/Capture37578.tif",
+      "output_path": "/Users/claydunford/Development/IOS-Analysis-Code/Python/SD id tool/output/event_0001/baseline/001408_Capture37578.tif",
+      "timestamp_sec": null
+    },
+    {
+      "event_id": "event_0001",
+      "role": "baseline",
+      "frame_idx": 1409,
+      "frame_name": "Capture37579.tif",
+      "source_path": "/Users/claydunford/Downloads/Video 12/Capture37579.tif",
+      "output_path": "/Users/claydunford/Development/IOS-Analysis-Code/Python/SD id tool/output/event_0001/baseline/001409_Capture37579.tif",
+      "timestamp_sec": null
+    },
+    {
+      "event_id": "event_0001",
+      "role": "baseline",
+      "frame_idx": 1410,
+      "frame_name": "Capture37580.tif",
+      "source_path": "/Users/claydunford/Downloads/Video 12/Capture37580.tif",
+      "output_path": "/Users/claydunford/Development/IOS-Analysis-Code/Python/SD id tool/output/event_0001/baseline/001410_Capture37580.tif",
+      "timestamp_sec": null
+    },
+    {
+      "event_id": "event_0001",
+      "role": "baseline",
+      "frame_idx": 1411,
+      "frame_name": "Capture37581.tif",
+      "source_path": "/Users/claydunford/Downloads/Video 12/Capture37581.tif",
+      "output_path": "/Users/claydunford/Development/IOS-Analysis-Code/Python/SD id tool/output/event_0001/baseline/001411_Capture37581.tif",
+      "timestamp_sec": null
+    },
+    {
+      "event_id": "event_0001",
+      "role": "baseline",
+      "frame_idx": 1412,
+      "frame_name": "Capture37582.tif",
+      "source_path": "/Users/claydunford/Downloads/Video 12/Capture37582.tif",
+      "output_path": "/Users/claydunford/Development/IOS-Analysis-Code/Python/SD id tool/output/event_0001/baseline/001412_Capture37582.tif",
+      "timestamp_sec": null
+    },
+    {
+      "event_id": "event_0001",
+      "role": "baseline",
+      "frame_idx": 1413,
+      "frame_name": "Capture37583.tif",
+      "source_path": "/Users/claydunford/Downloads/Video 12/Capture37583.tif",
+      "output_path": "/Users/claydunford/Development/IOS-Analysis-Code/Python/SD id tool/output/event_0001/baseline/001413_Capture37583.tif",
+      "timestamp_sec": null
+    },
+    {
+      "event_id": "event_0001",
+      "role": "baseline",
+      "frame_idx": 1414,
+      "frame_name": "Capture37584.tif",
+      "source_path": "/Users/claydunford/Downloads/Video 12/Capture37584.tif",
+      "output_path": "/Users/claydunford/Development/IOS-Analysis-Code/Python/SD id tool/output/event_0001/baseline/001414_Capture37584.tif",
+      "timestamp_sec": null
+    },
+    {
+      "event_id": "event_0001",
+      "role": "baseline",
+      "frame_idx": 1415,
+      "frame_name": "Capture37585.tif",
+      "source_path": "/Users/claydunford/Downloads/Video 12/Capture37585.tif",
+      "output_path": "/Users/claydunford/Development/IOS-Analysis-Code/Python/SD id tool/output/event_0001/baseline/001415_Capture37585.tif",
+      "timestamp_sec": null
+    },
+    {
+      "event_id": "event_0001",
+      "role": "baseline",
+      "frame_idx": 1416,
+      "frame_name": "Capture37586.tif",
+      "source_path": "/Users/claydunford/Downloads/Video 12/Capture37586.tif",
+      "output_path": "/Users/claydunford/Development/IOS-Analysis-Code/Python/SD id tool/output/event_0001/baseline/001416_Capture37586.tif",
+      "timestamp_sec": null
+    },
+    {
+      "event_id": "event_0001",
+      "role": "baseline",
+      "frame_idx": 1417,
+      "frame_name": "Capture37587.tif",
+      "source_path": "/Users/claydunford/Downloads/Video 12/Capture37587.tif",
+      "output_path": "/Users/claydunford/Development/IOS-Analysis-Code/Python/SD id tool/output/event_0001/baseline/001417_Capture37587.tif",
+      "timestamp_sec": null
+    },
+    {
+      "event_id": "event_0001",
+      "role": "baseline",
+      "frame_idx": 1418,
+      "frame_name": "Capture37588.tif",
+      "source_path": "/Users/claydunford/Downloads/Video 12/Capture37588.tif",
+      "output_path": "/Users/claydunford/Development/IOS-Analysis-Code/Python/SD id tool/output/event_0001/baseline/001418_Capture37588.tif",
+      "timestamp_sec": null
+    },
+    {
+      "event_id": "event_0001",
+      "role": "baseline",
+      "frame_idx": 1419,
+      "frame_name": "Capture37589.tif",
+      "source_path": "/Users/claydunford/Downloads/Video 12/Capture37589.tif",
+      "output_path": "/Users/claydunford/Development/IOS-Analysis-Code/Python/SD id tool/output/event_0001/baseline/001419_Capture37589.tif",
+      "timestamp_sec": null
+    },
+    {
+      "event_id": "event_0001",
+      "role": "baseline",
+      "frame_idx": 1420,
+      "frame_name": "Capture37590.tif",
+      "source_path": "/Users/claydunford/Downloads/Video 12/Capture37590.tif",
+      "output_path": "/Users/claydunford/Development/IOS-Analysis-Code/Python/SD id tool/output/event_0001/baseline/001420_Capture37590.tif",
+      "timestamp_sec": null
+    },
+    {
+      "event_id": "event_0001",
+      "role": "baseline",
+      "frame_idx": 1421,
+      "frame_name": "Capture37591.tif",
+      "source_path": "/Users/claydunford/Downloads/Video 12/Capture37591.tif",
+      "output_path": "/Users/claydunford/Development/IOS-Analysis-Code/Python/SD id tool/output/event_0001/baseline/001421_Capture37591.tif",
+      "timestamp_sec": null
+    },
+    {
+      "event_id": "event_0001",
+      "role": "baseline",
+      "frame_idx": 1422,
+      "frame_name": "Capture37592.tif",
+      "source_path": "/Users/claydunford/Downloads/Video 12/Capture37592.tif",
+      "output_path": "/Users/claydunford/Development/IOS-Analysis-Code/Python/SD id tool/output/event_0001/baseline/001422_Capture37592.tif",
+      "timestamp_sec": null
+    },
+    {
+      "event_id": "event_0001",
+      "role": "baseline",
+      "frame_idx": 1423,
+      "frame_name": "Capture37593.tif",
+      "source_path": "/Users/claydunford/Downloads/Video 12/Capture37593.tif",
+      "output_path": "/Users/claydunford/Development/IOS-Analysis-Code/Python/SD id tool/output/event_0001/baseline/001423_Capture37593.tif",
+      "timestamp_sec": null
+    },
+    {
+      "event_id": "event_0001",
+      "role": "baseline",
+      "frame_idx": 1424,
+      "frame_name": "Capture37594.tif",
+      "source_path": "/Users/claydunford/Downloads/Video 12/Capture37594.tif",
+      "output_path": "/Users/claydunford/Development/IOS-Analysis-Code/Python/SD id tool/output/event_0001/baseline/001424_Capture37594.tif",
+      "timestamp_sec": null
+    },
+    {
+      "event_id": "event_0001",
+      "role": "baseline",
+      "frame_idx": 1425,
+      "frame_name": "Capture37595.tif",
+      "source_path": "/Users/claydunford/Downloads/Video 12/Capture37595.tif",
+      "output_path": "/Users/claydunford/Development/IOS-Analysis-Code/Python/SD id tool/output/event_0001/baseline/001425_Capture37595.tif",
+      "timestamp_sec": null
+    },
+    {
+      "event_id": "event_0001",
+      "role": "baseline",
+      "frame_idx": 1426,
+      "frame_name": "Capture37596.tif",
+      "source_path": "/Users/claydunford/Downloads/Video 12/Capture37596.tif",
+      "output_path": "/Users/claydunford/Development/IOS-Analysis-Code/Python/SD id tool/output/event_0001/baseline/001426_Capture37596.tif",
+      "timestamp_sec": null
+    },
+    {
+      "event_id": "event_0001",
+      "role": "baseline",
+      "frame_idx": 1427,
+      "frame_name": "Capture37597.tif",
+      "source_path": "/Users/claydunford/Downloads/Video 12/Capture37597.tif",
+      "output_path": "/Users/claydunford/Development/IOS-Analysis-Code/Python/SD id tool/output/event_0001/baseline/001427_Capture37597.tif",
+      "timestamp_sec": null
+    },
+    {
+      "event_id": "event_0001",
+      "role": "event",
+      "frame_idx": 1428,
+      "frame_name": "Capture37598.tif",
+      "source_path": "/Users/claydunford/Downloads/Video 12/Capture37598.tif",
+      "output_path": "/Users/claydunford/Development/IOS-Analysis-Code/Python/SD id tool/output/event_0001/event_extent/001428_Capture37598.tif",
+      "timestamp_sec": null
+    },
+    {
+      "event_id": "event_0001",
+      "role": "event",
+      "frame_idx": 1429,
+      "frame_name": "Capture37599.tif",
+      "source_path": "/Users/claydunford/Downloads/Video 12/Capture37599.tif",
+      "output_path": "/Users/claydunford/Development/IOS-Analysis-Code/Python/SD id tool/output/event_0001/event_extent/001429_Capture37599.tif",
+      "timestamp_sec": null
+    },
+    {
+      "event_id": "event_0001",
+      "role": "event",
+      "frame_idx": 1430,
+      "frame_name": "Capture37600.tif",
+      "source_path": "/Users/claydunford/Downloads/Video 12/Capture37600.tif",
+      "output_path": "/Users/claydunford/Development/IOS-Analysis-Code/Python/SD id tool/output/event_0001/event_extent/001430_Capture37600.tif",
+      "timestamp_sec": null
+    },
+    {
+      "event_id": "event_0001",
+      "role": "event",
+      "frame_idx": 1431,
+      "frame_name": "Capture37601.tif",
+      "source_path": "/Users/claydunford/Downloads/Video 12/Capture37601.tif",
+      "output_path": "/Users/claydunford/Development/IOS-Analysis-Code/Python/SD id tool/output/event_0001/event_extent/001431_Capture37601.tif",
+      "timestamp_sec": null
+    },
+    {
+      "event_id": "event_0001",
+      "role": "event",
+      "frame_idx": 1432,
+      "frame_name": "Capture37602.tif",
+      "source_path": "/Users/claydunford/Downloads/Video 12/Capture37602.tif",
+      "output_path": "/Users/claydunford/Development/IOS-Analysis-Code/Python/SD id tool/output/event_0001/event_extent/001432_Capture37602.tif",
+      "timestamp_sec": null
+    },
+    {
+      "event_id": "event_0001",
+      "role": "event",
+      "frame_idx": 1433,
+      "frame_name": "Capture37603.tif",
+      "source_path": "/Users/claydunford/Downloads/Video 12/Capture37603.tif",
+      "output_path": "/Users/claydunford/Development/IOS-Analysis-Code/Python/SD id tool/output/event_0001/event_extent/001433_Capture37603.tif",
+      "timestamp_sec": null
+    },
+    {
+      "event_id": "event_0001",
+      "role": "event",
+      "frame_idx": 1434,
+      "frame_name": "Capture37604.tif",
+      "source_path": "/Users/claydunford/Downloads/Video 12/Capture37604.tif",
+      "output_path": "/Users/claydunford/Development/IOS-Analysis-Code/Python/SD id tool/output/event_0001/event_extent/001434_Capture37604.tif",
+      "timestamp_sec": null
+    },
+    {
+      "event_id": "event_0001",
+      "role": "event",
+      "frame_idx": 1435,
+      "frame_name": "Capture37605.tif",
+      "source_path": "/Users/claydunford/Downloads/Video 12/Capture37605.tif",
+      "output_path": "/Users/claydunford/Development/IOS-Analysis-Code/Python/SD id tool/output/event_0001/event_extent/001435_Capture37605.tif",
+      "timestamp_sec": null
+    },
+    {
+      "event_id": "event_0001",
+      "role": "event",
+      "frame_idx": 1436,
+      "frame_name": "Capture37606.tif",
+      "source_path": "/Users/claydunford/Downloads/Video 12/Capture37606.tif",
+      "output_path": "/Users/claydunford/Development/IOS-Analysis-Code/Python/SD id tool/output/event_0001/event_extent/001436_Capture37606.tif",
+      "timestamp_sec": null
+    },
+    {
+      "event_id": "event_0001",
+      "role": "event",
+      "frame_idx": 1437,
+      "frame_name": "Capture37607.tif",
+      "source_path": "/Users/claydunford/Downloads/Video 12/Capture37607.tif",
+      "output_path": "/Users/claydunford/Development/IOS-Analysis-Code/Python/SD id tool/output/event_0001/event_extent/001437_Capture37607.tif",
+      "timestamp_sec": null
+    },
+    {
+      "event_id": "event_0001",
+      "role": "event",
+      "frame_idx": 1438,
+      "frame_name": "Capture37608.tif",
+      "source_path": "/Users/claydunford/Downloads/Video 12/Capture37608.tif",
+      "output_path": "/Users/claydunford/Development/IOS-Analysis-Code/Python/SD id tool/output/event_0001/event_extent/001438_Capture37608.tif",
+      "timestamp_sec": null
+    },
+    {
+      "event_id": "event_0001",
+      "role": "event",
+      "frame_idx": 1439,
+      "frame_name": "Capture37609.tif",
+      "source_path": "/Users/claydunford/Downloads/Video 12/Capture37609.tif",
+      "output_path": "/Users/claydunford/Development/IOS-Analysis-Code/Python/SD id tool/output/event_0001/event_extent/001439_Capture37609.tif",
+      "timestamp_sec": null
+    },
+    {
+      "event_id": "event_0001",
+      "role": "event",
+      "frame_idx": 1440,
+      "frame_name": "Capture37610.tif",
+      "source_path": "/Users/claydunford/Downloads/Video 12/Capture37610.tif",
+      "output_path": "/Users/claydunford/Development/IOS-Analysis-Code/Python/SD id tool/output/event_0001/event_extent/001440_Capture37610.tif",
+      "timestamp_sec": null
+    },
+    {
+      "event_id": "event_0001",
+      "role": "event",
+      "frame_idx": 1441,
+      "frame_name": "Capture37611.tif",
+      "source_path": "/Users/claydunford/Downloads/Video 12/Capture37611.tif",
+      "output_path": "/Users/claydunford/Development/IOS-Analysis-Code/Python/SD id tool/output/event_0001/event_extent/001441_Capture37611.tif",
+      "timestamp_sec": null
+    },
+    {
+      "event_id": "event_0001",
+      "role": "event",
+      "frame_idx": 1442,
+      "frame_name": "Capture37612.tif",
+      "source_path": "/Users/claydunford/Downloads/Video 12/Capture37612.tif",
+      "output_path": "/Users/claydunford/Development/IOS-Analysis-Code/Python/SD id tool/output/event_0001/event_extent/001442_Capture37612.tif",
+      "timestamp_sec": null
+    },
+    {
+      "event_id": "event_0001",
+      "role": "event",
+      "frame_idx": 1443,
+      "frame_name": "Capture37613.tif",
+      "source_path": "/Users/claydunford/Downloads/Video 12/Capture37613.tif",
+      "output_path": "/Users/claydunford/Development/IOS-Analysis-Code/Python/SD id tool/output/event_0001/event_extent/001443_Capture37613.tif",
+      "timestamp_sec": null
+    },
+    {
+      "event_id": "event_0001",
+      "role": "event",
+      "frame_idx": 1444,
+      "frame_name": "Capture37614.tif",
+      "source_path": "/Users/claydunford/Downloads/Video 12/Capture37614.tif",
+      "output_path": "/Users/claydunford/Development/IOS-Analysis-Code/Python/SD id tool/output/event_0001/event_extent/001444_Capture37614.tif",
+      "timestamp_sec": null
+    },
+    {
+      "event_id": "event_0001",
+      "role": "event",
+      "frame_idx": 1445,
+      "frame_name": "Capture37615.tif",
+      "source_path": "/Users/claydunford/Downloads/Video 12/Capture37615.tif",
+      "output_path": "/Users/claydunford/Development/IOS-Analysis-Code/Python/SD id tool/output/event_0001/event_extent/001445_Capture37615.tif",
+      "timestamp_sec": null
+    },
+    {
+      "event_id": "event_0001",
+      "role": "event",
+      "frame_idx": 1446,
+      "frame_name": "Capture37616.tif",
+      "source_path": "/Users/claydunford/Downloads/Video 12/Capture37616.tif",
+      "output_path": "/Users/claydunford/Development/IOS-Analysis-Code/Python/SD id tool/output/event_0001/event_extent/001446_Capture37616.tif",
+      "timestamp_sec": null
+    },
+    {
+      "event_id": "event_0001",
+      "role": "event",
+      "frame_idx": 1447,
+      "frame_name": "Capture37617.tif",
+      "source_path": "/Users/claydunford/Downloads/Video 12/Capture37617.tif",
+      "output_path": "/Users/claydunford/Development/IOS-Analysis-Code/Python/SD id tool/output/event_0001/event_extent/001447_Capture37617.tif",
+      "timestamp_sec": null
+    },
+    {
+      "event_id": "event_0001",
+      "role": "event",
+      "frame_idx": 1448,
+      "frame_name": "Capture37618.tif",
+      "source_path": "/Users/claydunford/Downloads/Video 12/Capture37618.tif",
+      "output_path": "/Users/claydunford/Development/IOS-Analysis-Code/Python/SD id tool/output/event_0001/event_extent/001448_Capture37618.tif",
+      "timestamp_sec": null
+    },
+    {
+      "event_id": "event_0001",
+      "role": "event",
+      "frame_idx": 1449,
+      "frame_name": "Capture37619.tif",
+      "source_path": "/Users/claydunford/Downloads/Video 12/Capture37619.tif",
+      "output_path": "/Users/claydunford/Development/IOS-Analysis-Code/Python/SD id tool/output/event_0001/event_extent/001449_Capture37619.tif",
+      "timestamp_sec": null
+    },
+    {
+      "event_id": "event_0001",
+      "role": "event",
+      "frame_idx": 1450,
+      "frame_name": "Capture37620.tif",
+      "source_path": "/Users/claydunford/Downloads/Video 12/Capture37620.tif",
+      "output_path": "/Users/claydunford/Development/IOS-Analysis-Code/Python/SD id tool/output/event_0001/event_extent/001450_Capture37620.tif",
+      "timestamp_sec": null
+    },
+    {
+      "event_id": "event_0001",
+      "role": "event",
+      "frame_idx": 1451,
+      "frame_name": "Capture37621.tif",
+      "source_path": "/Users/claydunford/Downloads/Video 12/Capture37621.tif",
+      "output_path": "/Users/claydunford/Development/IOS-Analysis-Code/Python/SD id tool/output/event_0001/event_extent/001451_Capture37621.tif",
+      "timestamp_sec": null
+    },
+    {
+      "event_id": "event_0001",
+      "role": "event",
+      "frame_idx": 1452,
+      "frame_name": "Capture37622.tif",
+      "source_path": "/Users/claydunford/Downloads/Video 12/Capture37622.tif",
+      "output_path": "/Users/claydunford/Development/IOS-Analysis-Code/Python/SD id tool/output/event_0001/event_extent/001452_Capture37622.tif",
+      "timestamp_sec": null
+    },
+    {
+      "event_id": "event_0001",
+      "role": "event",
+      "frame_idx": 1453,
+      "frame_name": "Capture37623.tif",
+      "source_path": "/Users/claydunford/Downloads/Video 12/Capture37623.tif",
+      "output_path": "/Users/claydunford/Development/IOS-Analysis-Code/Python/SD id tool/output/event_0001/event_extent/001453_Capture37623.tif",
+      "timestamp_sec": null
+    },
+    {
+      "event_id": "event_0001",
+      "role": "event",
+      "frame_idx": 1454,
+      "frame_name": "Capture37624.tif",
+      "source_path": "/Users/claydunford/Downloads/Video 12/Capture37624.tif",
+      "output_path": "/Users/claydunford/Development/IOS-Analysis-Code/Python/SD id tool/output/event_0001/event_extent/001454_Capture37624.tif",
+      "timestamp_sec": null
+    },
+    {
+      "event_id": "event_0001",
+      "role": "event",
+      "frame_idx": 1455,
+      "frame_name": "Capture37625.tif",
+      "source_path": "/Users/claydunford/Downloads/Video 12/Capture37625.tif",
+      "output_path": "/Users/claydunford/Development/IOS-Analysis-Code/Python/SD id tool/output/event_0001/event_extent/001455_Capture37625.tif",
+      "timestamp_sec": null
+    },
+    {
+      "event_id": "event_0001",
+      "role": "event",
+      "frame_idx": 1456,
+      "frame_name": "Capture37626.tif",
+      "source_path": "/Users/claydunford/Downloads/Video 12/Capture37626.tif",
+      "output_path": "/Users/claydunford/Development/IOS-Analysis-Code/Python/SD id tool/output/event_0001/event_extent/001456_Capture37626.tif",
+      "timestamp_sec": null
+    },
+    {
+      "event_id": "event_0001",
+      "role": "event",
+      "frame_idx": 1457,
+      "frame_name": "Capture37627.tif",
+      "source_path": "/Users/claydunford/Downloads/Video 12/Capture37627.tif",
+      "output_path": "/Users/claydunford/Development/IOS-Analysis-Code/Python/SD id tool/output/event_0001/event_extent/001457_Capture37627.tif",
+      "timestamp_sec": null
+    },
+    {
+      "event_id": "event_0001",
+      "role": "event",
+      "frame_idx": 1458,
+      "frame_name": "Capture37628.tif",
+      "source_path": "/Users/claydunford/Downloads/Video 12/Capture37628.tif",
+      "output_path": "/Users/claydunford/Development/IOS-Analysis-Code/Python/SD id tool/output/event_0001/event_extent/001458_Capture37628.tif",
+      "timestamp_sec": null
+    },
+    {
+      "event_id": "event_0001",
+      "role": "event",
+      "frame_idx": 1459,
+      "frame_name": "Capture37629.tif",
+      "source_path": "/Users/claydunford/Downloads/Video 12/Capture37629.tif",
+      "output_path": "/Users/claydunford/Development/IOS-Analysis-Code/Python/SD id tool/output/event_0001/event_extent/001459_Capture37629.tif",
+      "timestamp_sec": null
+    },
+    {
+      "event_id": "event_0001",
+      "role": "event",
+      "frame_idx": 1460,
+      "frame_name": "Capture37630.tif",
+      "source_path": "/Users/claydunford/Downloads/Video 12/Capture37630.tif",
+      "output_path": "/Users/claydunford/Development/IOS-Analysis-Code/Python/SD id tool/output/event_0001/event_extent/001460_Capture37630.tif",
+      "timestamp_sec": null
+    },
+    {
+      "event_id": "event_0001",
+      "role": "event",
+      "frame_idx": 1461,
+      "frame_name": "Capture37631.tif",
+      "source_path": "/Users/claydunford/Downloads/Video 12/Capture37631.tif",
+      "output_path": "/Users/claydunford/Development/IOS-Analysis-Code/Python/SD id tool/output/event_0001/event_extent/001461_Capture37631.tif",
+      "timestamp_sec": null
+    },
+    {
+      "event_id": "event_0001",
+      "role": "event",
+      "frame_idx": 1462,
+      "frame_name": "Capture37632.tif",
+      "source_path": "/Users/claydunford/Downloads/Video 12/Capture37632.tif",
+      "output_path": "/Users/claydunford/Development/IOS-Analysis-Code/Python/SD id tool/output/event_0001/event_extent/001462_Capture37632.tif",
+      "timestamp_sec": null
+    },
+    {
+      "event_id": "event_0001",
+      "role": "event",
+      "frame_idx": 1463,
+      "frame_name": "Capture37633.tif",
+      "source_path": "/Users/claydunford/Downloads/Video 12/Capture37633.tif",
+      "output_path": "/Users/claydunford/Development/IOS-Analysis-Code/Python/SD id tool/output/event_0001/event_extent/001463_Capture37633.tif",
+      "timestamp_sec": null
+    },
+    {
+      "event_id": "event_0001",
+      "role": "event",
+      "frame_idx": 1464,
+      "frame_name": "Capture37634.tif",
+      "source_path": "/Users/claydunford/Downloads/Video 12/Capture37634.tif",
+      "output_path": "/Users/claydunford/Development/IOS-Analysis-Code/Python/SD id tool/output/event_0001/event_extent/001464_Capture37634.tif",
+      "timestamp_sec": null
+    },
+    {
+      "event_id": "event_0001",
+      "role": "event",
+      "frame_idx": 1465,
+      "frame_name": "Capture37635.tif",
+      "source_path": "/Users/claydunford/Downloads/Video 12/Capture37635.tif",
+      "output_path": "/Users/claydunford/Development/IOS-Analysis-Code/Python/SD id tool/output/event_0001/event_extent/001465_Capture37635.tif",
+      "timestamp_sec": null
+    },
+    {
+      "event_id": "event_0001",
+      "role": "event",
+      "frame_idx": 1466,
+      "frame_name": "Capture37636.tif",
+      "source_path": "/Users/claydunford/Downloads/Video 12/Capture37636.tif",
+      "output_path": "/Users/claydunford/Development/IOS-Analysis-Code/Python/SD id tool/output/event_0001/event_extent/001466_Capture37636.tif",
+      "timestamp_sec": null
+    },
+    {
+      "event_id": "event_0001",
+      "role": "event",
+      "frame_idx": 1467,
+      "frame_name": "Capture37637.tif",
+      "source_path": "/Users/claydunford/Downloads/Video 12/Capture37637.tif",
+      "output_path": "/Users/claydunford/Development/IOS-Analysis-Code/Python/SD id tool/output/event_0001/event_extent/001467_Capture37637.tif",
+      "timestamp_sec": null
+    },
+    {
+      "event_id": "event_0001",
+      "role": "event",
+      "frame_idx": 1468,
+      "frame_name": "Capture37638.tif",
+      "source_path": "/Users/claydunford/Downloads/Video 12/Capture37638.tif",
+      "output_path": "/Users/claydunford/Development/IOS-Analysis-Code/Python/SD id tool/output/event_0001/event_extent/001468_Capture37638.tif",
+      "timestamp_sec": null
+    },
+    {
+      "event_id": "event_0001",
+      "role": "event",
+      "frame_idx": 1469,
+      "frame_name": "Capture37639.tif",
+      "source_path": "/Users/claydunford/Downloads/Video 12/Capture37639.tif",
+      "output_path": "/Users/claydunford/Development/IOS-Analysis-Code/Python/SD id tool/output/event_0001/event_extent/001469_Capture37639.tif",
+      "timestamp_sec": null
+    },
+    {
+      "event_id": "event_0001",
+      "role": "event",
+      "frame_idx": 1470,
+      "frame_name": "Capture37640.tif",
+      "source_path": "/Users/claydunford/Downloads/Video 12/Capture37640.tif",
+      "output_path": "/Users/claydunford/Development/IOS-Analysis-Code/Python/SD id tool/output/event_0001/event_extent/001470_Capture37640.tif",
+      "timestamp_sec": null
+    },
+    {
+      "event_id": "event_0001",
+      "role": "event",
+      "frame_idx": 1471,
+      "frame_name": "Capture37641.tif",
+      "source_path": "/Users/claydunford/Downloads/Video 12/Capture37641.tif",
+      "output_path": "/Users/claydunford/Development/IOS-Analysis-Code/Python/SD id tool/output/event_0001/event_extent/001471_Capture37641.tif",
+      "timestamp_sec": null
+    },
+    {
+      "event_id": "event_0001",
+      "role": "event",
+      "frame_idx": 1472,
+      "frame_name": "Capture37642.tif",
+      "source_path": "/Users/claydunford/Downloads/Video 12/Capture37642.tif",
+      "output_path": "/Users/claydunford/Development/IOS-Analysis-Code/Python/SD id tool/output/event_0001/event_extent/001472_Capture37642.tif",
+      "timestamp_sec": null
+    },
+    {
+      "event_id": "event_0001",
+      "role": "event",
+      "frame_idx": 1473,
+      "frame_name": "Capture37643.tif",
+      "source_path": "/Users/claydunford/Downloads/Video 12/Capture37643.tif",
+      "output_path": "/Users/claydunford/Development/IOS-Analysis-Code/Python/SD id tool/output/event_0001/event_extent/001473_Capture37643.tif",
+      "timestamp_sec": null
+    },
+    {
+      "event_id": "event_0001",
+      "role": "event",
+      "frame_idx": 1474,
+      "frame_name": "Capture37644.tif",
+      "source_path": "/Users/claydunford/Downloads/Video 12/Capture37644.tif",
+      "output_path": "/Users/claydunford/Development/IOS-Analysis-Code/Python/SD id tool/output/event_0001/event_extent/001474_Capture37644.tif",
+      "timestamp_sec": null
+    },
+    {
+      "event_id": "event_0001",
+      "role": "event",
+      "frame_idx": 1475,
+      "frame_name": "Capture37645.tif",
+      "source_path": "/Users/claydunford/Downloads/Video 12/Capture37645.tif",
+      "output_path": "/Users/claydunford/Development/IOS-Analysis-Code/Python/SD id tool/output/event_0001/event_extent/001475_Capture37645.tif",
+      "timestamp_sec": null
+    },
+    {
+      "event_id": "event_0001",
+      "role": "event",
+      "frame_idx": 1476,
+      "frame_name": "Capture37646.tif",
+      "source_path": "/Users/claydunford/Downloads/Video 12/Capture37646.tif",
+      "output_path": "/Users/claydunford/Development/IOS-Analysis-Code/Python/SD id tool/output/event_0001/event_extent/001476_Capture37646.tif",
+      "timestamp_sec": null
+    },
+    {
+      "event_id": "event_0001",
+      "role": "event",
+      "frame_idx": 1477,
+      "frame_name": "Capture37647.tif",
+      "source_path": "/Users/claydunford/Downloads/Video 12/Capture37647.tif",
+      "output_path": "/Users/claydunford/Development/IOS-Analysis-Code/Python/SD id tool/output/event_0001/event_extent/001477_Capture37647.tif",
+      "timestamp_sec": null
+    },
+    {
+      "event_id": "event_0001",
+      "role": "event",
+      "frame_idx": 1478,
+      "frame_name": "Capture37648.tif",
+      "source_path": "/Users/claydunford/Downloads/Video 12/Capture37648.tif",
+      "output_path": "/Users/claydunford/Development/IOS-Analysis-Code/Python/SD id tool/output/event_0001/event_extent/001478_Capture37648.tif",
+      "timestamp_sec": null
+    },
+    {
+      "event_id": "event_0001",
+      "role": "event",
+      "frame_idx": 1479,
+      "frame_name": "Capture37649.tif",
+      "source_path": "/Users/claydunford/Downloads/Video 12/Capture37649.tif",
+      "output_path": "/Users/claydunford/Development/IOS-Analysis-Code/Python/SD id tool/output/event_0001/event_extent/001479_Capture37649.tif",
+      "timestamp_sec": null
+    },
+    {
+      "event_id": "event_0001",
+      "role": "event",
+      "frame_idx": 1480,
+      "frame_name": "Capture37650.tif",
+      "source_path": "/Users/claydunford/Downloads/Video 12/Capture37650.tif",
+      "output_path": "/Users/claydunford/Development/IOS-Analysis-Code/Python/SD id tool/output/event_0001/event_extent/001480_Capture37650.tif",
+      "timestamp_sec": null
+    },
+    {
+      "event_id": "event_0001",
+      "role": "event",
+      "frame_idx": 1481,
+      "frame_name": "Capture37651.tif",
+      "source_path": "/Users/claydunford/Downloads/Video 12/Capture37651.tif",
+      "output_path": "/Users/claydunford/Development/IOS-Analysis-Code/Python/SD id tool/output/event_0001/event_extent/001481_Capture37651.tif",
+      "timestamp_sec": null
+    },
+    {
+      "event_id": "event_0001",
+      "role": "event",
+      "frame_idx": 1482,
+      "frame_name": "Capture37652.tif",
+      "source_path": "/Users/claydunford/Downloads/Video 12/Capture37652.tif",
+      "output_path": "/Users/claydunford/Development/IOS-Analysis-Code/Python/SD id tool/output/event_0001/event_extent/001482_Capture37652.tif",
+      "timestamp_sec": null
+    },
+    {
+      "event_id": "event_0001",
+      "role": "event",
+      "frame_idx": 1483,
+      "frame_name": "Capture37653.tif",
+      "source_path": "/Users/claydunford/Downloads/Video 12/Capture37653.tif",
+      "output_path": "/Users/claydunford/Development/IOS-Analysis-Code/Python/SD id tool/output/event_0001/event_extent/001483_Capture37653.tif",
+      "timestamp_sec": null
+    },
+    {
+      "event_id": "event_0001",
+      "role": "event",
+      "frame_idx": 1484,
+      "frame_name": "Capture37654.tif",
+      "source_path": "/Users/claydunford/Downloads/Video 12/Capture37654.tif",
+      "output_path": "/Users/claydunford/Development/IOS-Analysis-Code/Python/SD id tool/output/event_0001/event_extent/001484_Capture37654.tif",
+      "timestamp_sec": null
+    },
+    {
+      "event_id": "event_0001",
+      "role": "event",
+      "frame_idx": 1485,
+      "frame_name": "Capture37655.tif",
+      "source_path": "/Users/claydunford/Downloads/Video 12/Capture37655.tif",
+      "output_path": "/Users/claydunford/Development/IOS-Analysis-Code/Python/SD id tool/output/event_0001/event_extent/001485_Capture37655.tif",
+      "timestamp_sec": null
+    },
+    {
+      "event_id": "event_0001",
+      "role": "event",
+      "frame_idx": 1486,
+      "frame_name": "Capture37656.tif",
+      "source_path": "/Users/claydunford/Downloads/Video 12/Capture37656.tif",
+      "output_path": "/Users/claydunford/Development/IOS-Analysis-Code/Python/SD id tool/output/event_0001/event_extent/001486_Capture37656.tif",
+      "timestamp_sec": null
+    },
+    {
+      "event_id": "event_0001",
+      "role": "event",
+      "frame_idx": 1487,
+      "frame_name": "Capture37657.tif",
+      "source_path": "/Users/claydunford/Downloads/Video 12/Capture37657.tif",
+      "output_path": "/Users/claydunford/Development/IOS-Analysis-Code/Python/SD id tool/output/event_0001/event_extent/001487_Capture37657.tif",
+      "timestamp_sec": null
+    }
+  ]
+}

@@ -1,0 +1,215 @@
+import json
+import os
+from typing import List, Optional, Tuple
+
+import cv2
+import matplotlib
+import numpy as np
+import pandas as pd
+
+# Use non-interactive backend to avoid Tk/matplotlib event-loop conflicts.
+matplotlib.use("Agg", force=True)
+import matplotlib.pyplot as plt
+
+
+def load_binary_masks(mask_dir: str, frame_names: List[str], start_idx: int, end_idx: int) -> List[np.ndarray]:
+    masks: List[np.ndarray] = []
+    for frame_idx in range(start_idx, end_idx + 1):
+        original_name = frame_names[frame_idx]
+        mask_path = os.path.join(mask_dir, f"Mask_{original_name}")
+        if not os.path.exists(mask_path):
+            masks.append(None)
+            continue
+        img = cv2.imread(mask_path, cv2.IMREAD_GRAYSCALE)
+        if img is None:
+            masks.append(None)
+            continue
+        masks.append(img > 0)
+    return masks
+
+
+def extract_primary_boundary(mask: np.ndarray) -> Optional[np.ndarray]:
+    if mask is None:
+        return None
+    binary = (mask > 0).astype(np.uint8)
+    if np.count_nonzero(binary) == 0:
+        return None
+
+    contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+    if not contours:
+        return None
+    contour = max(contours, key=cv2.contourArea)
+    if contour is None or len(contour) < 3:
+        return None
+    contour_xy = contour[:, 0, :]
+    x = contour_xy[:, 0].astype(np.float64)
+    y = contour_xy[:, 1].astype(np.float64)
+    return np.column_stack((y, x))
+
+
+def smooth_boundary_fft(boundary_xy: np.ndarray, n_keep: int = 25) -> np.ndarray:
+    if boundary_xy is None or len(boundary_xy) < 3:
+        return boundary_xy
+
+    x = boundary_xy[:, 1]
+    y = boundary_xy[:, 0]
+    z = x + 1j * y
+    z_fft = np.fft.fft(z)
+
+    n = len(z_fft)
+    if 2 * n_keep >= n:
+        return boundary_xy
+
+    z_fft[n_keep : n - n_keep] = 0
+    z_smooth = np.fft.ifft(z_fft)
+    x_smooth = np.real(z_smooth)
+    y_smooth = np.imag(z_smooth)
+    return np.column_stack((y_smooth, x_smooth))
+
+
+def compute_frame_metrics(boundaries: List[Optional[np.ndarray]], min_dist_px: float = 2.0) -> dict:
+    n = len(boundaries)
+    areas_px = np.full(n, np.nan, dtype=np.float64)
+    avg_dist_px = np.full(n, np.nan, dtype=np.float64)
+
+    for i, b in enumerate(boundaries):
+        if b is None or len(b) < 3:
+            continue
+        contour = b[:, [1, 0]].astype(np.float32).reshape(-1, 1, 2)
+        area_val = cv2.contourArea(contour)
+        if area_val > 0:
+            areas_px[i] = area_val
+
+    for q in range(1, n):
+        inner_b = boundaries[q - 1]
+        outer_b = boundaries[q]
+        if inner_b is None or outer_b is None:
+            continue
+        outer_xy = outer_b[:, [1, 0]].astype(np.float64)
+        if len(inner_b) < 3 or len(outer_xy) == 0:
+            continue
+
+        # Method 1: signed-distance sampling of frame q against frame q-1 boundary.
+        inner_contour = inner_b[:, [1, 0]].astype(np.float32).reshape(-1, 1, 2)
+        signed_to_prev = np.array(
+            [cv2.pointPolygonTest(inner_contour, (float(x), float(y)), True) for x, y in outer_xy],
+            dtype=np.float64,
+        )
+        outward_disp = np.maximum(0.0, -signed_to_prev)
+        active_disp = outward_disp[outward_disp > float(min_dist_px)]
+        if active_disp.size > 0:
+            avg_dist_px[q] = float(np.mean(active_disp))
+
+    return {
+        "areas_px": areas_px,
+        "avg_dist_px": avg_dist_px,
+    }
+
+
+def compute_scale(px_points: Tuple[Tuple[float, float], Tuple[float, float]], mm_length: float) -> dict:
+    (x1, y1), (x2, y2) = px_points
+    scale_bar_pixels = float(np.hypot(x2 - x1, y2 - y1))
+    px_per_mm = scale_bar_pixels / float(mm_length)
+    um_per_px = 1000.0 / px_per_mm
+    mm_per_px = 1.0 / px_per_mm
+    return {
+        "scale_bar_pixels": scale_bar_pixels,
+        "px_per_mm": px_per_mm,
+        "um_per_px": um_per_px,
+        "mm_per_px": mm_per_px,
+    }
+
+
+def compute_roi_metrics(
+    roi_mask: np.ndarray,
+    areas_px: np.ndarray,
+    avg_dist_px: np.ndarray,
+    px_per_mm: float,
+    sec_per_frame: float,
+) -> dict:
+    um_per_px = 1000.0 / px_per_mm
+    mm_per_px = 1.0 / px_per_mm
+    roi_pixels = int(np.count_nonzero(roi_mask))
+
+    speed_um_per_sec = (avg_dist_px * um_per_px) / float(sec_per_frame)
+    valid_speed = speed_um_per_sec[np.isfinite(speed_um_per_sec)]
+    overall_avg_speed = float(np.mean(valid_speed)) if valid_speed.size > 0 else np.nan
+
+    area_mm2 = areas_px * (mm_per_px**2)
+    valid_area_px = areas_px[np.isfinite(areas_px)]
+    max_area_px = float(np.max(valid_area_px)) if valid_area_px.size > 0 else np.nan
+    max_area_mm2 = max_area_px * (mm_per_px**2) if np.isfinite(max_area_px) else np.nan
+    relative_area_pct = (max_area_px / roi_pixels * 100.0) if roi_pixels > 0 and np.isfinite(max_area_px) else np.nan
+
+    return {
+        "roi_pixels": roi_pixels,
+        "roi_area_mm2": roi_pixels * (mm_per_px**2),
+        "speed_um_per_sec": speed_um_per_sec,
+        "overall_avg_speed_um_per_sec": overall_avg_speed,
+        "area_mm2": area_mm2,
+        "max_area_px": max_area_px,
+        "max_area_mm2": max_area_mm2,
+        "relative_area_pct": relative_area_pct,
+        "um_per_px": um_per_px,
+        "mm_per_px": mm_per_px,
+        "px_per_mm": px_per_mm,
+        "sec_per_frame": float(sec_per_frame),
+    }
+
+
+def write_metrics_outputs(output_dir: str, frame_metrics_df: pd.DataFrame, summary: dict) -> None:
+    os.makedirs(output_dir, exist_ok=True)
+    frame_metrics_df.to_csv(os.path.join(output_dir, "frame_metrics.csv"), index=False)
+    pd.DataFrame([summary]).to_csv(os.path.join(output_dir, "summary_metrics.csv"), index=False)
+    with open(os.path.join(output_dir, "summary_metrics.json"), "w", encoding="utf-8") as f:
+        json.dump(summary, f, indent=2)
+
+
+def generate_metrics_plots(output_dir: str, frame_metrics_df: pd.DataFrame, summary: dict) -> None:
+    os.makedirs(output_dir, exist_ok=True)
+
+    t = frame_metrics_df["time_sec"].to_numpy()
+    speed = frame_metrics_df["speed_um_per_sec"].to_numpy()
+    area_mm2 = frame_metrics_df["area_mm2"].to_numpy()
+    rel_area_pct = frame_metrics_df["relative_area_pct"].to_numpy()
+
+    plt.figure()
+    plt.plot(t, speed, color="k", linewidth=2)
+    plt.xlabel("Time (sec)")
+    plt.ylabel("Propagation Speed (um/sec)")
+    plt.title("Propagation Speed")
+    plt.tight_layout()
+    plt.savefig(os.path.join(output_dir, "propagation_speed.png"), dpi=150)
+    plt.close()
+
+    plt.figure()
+    plt.plot(t, area_mm2, color="k", linewidth=2)
+    plt.xlabel("Time (sec)")
+    plt.ylabel("Area (mm^2)")
+    plt.title("Area Recruited")
+    plt.tight_layout()
+    plt.savefig(os.path.join(output_dir, "area_mm2.png"), dpi=150)
+    plt.close()
+
+    plt.figure()
+    plt.plot(t, rel_area_pct, color="k", linewidth=2)
+    plt.xlabel("Time (sec)")
+    plt.ylabel("Area (% ROI)")
+    plt.title("Relative Area Recruited")
+    plt.tight_layout()
+    plt.savefig(os.path.join(output_dir, "area_relative_pct.png"), dpi=150)
+    plt.close()
+
+    fig, ax_left = plt.subplots()
+    ax_right = ax_left.twinx()
+    l1 = ax_right.plot(t, area_mm2, color="k", linewidth=2.5, linestyle="-", label="Area (mm^2)")
+    l2 = ax_left.plot(t, speed, color="k", linewidth=2.5, linestyle=":", label="Propagation Speed (um/sec)")
+    ax_left.set_xlabel("Time (sec)")
+    ax_left.set_ylabel("Propagation Speed (um/sec)")
+    ax_right.set_ylabel("Area (mm^2)")
+    lines = l1 + l2
+    labels = [l.get_label() for l in lines]
+    ax_left.legend(lines, labels, loc="upper center")
+    fig.tight_layout()
+    fig.savefig(os.path.join(output_dir, "area_speed_combo.png"), dpi=150)
+    plt.close(fig)
