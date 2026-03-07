@@ -10,6 +10,7 @@ from typing import Any
 import tkinter as tk
 from tkinter import filedialog, messagebox
 
+from app.core.frame_source import EagerFrameSource
 from app.core.project_fingerprint import fingerprints_match
 from app.core.project_migration import migrate_project_state
 from app.core.project_schema import validate_project_state, utc_now_iso
@@ -27,7 +28,8 @@ class ProjectLoadPlan:
     frames_raw: list
     frames_sub: list
     frames_sub_viz: list
-    event_states: dict[str, dict]
+    frame_source: Any
+    event_records: dict[str, Any]
     active_event_id: str
     roi_points: list
     roi_mask: Any
@@ -74,6 +76,8 @@ def save_project_to_path(app, target_path: str | Path, is_autosave: bool = False
         event_payloads=event_payloads,
         embed_images=bool(app._project_embed_images),
     )
+    if hasattr(app, "_emit_host_sync"):
+        app._emit_host_sync(reason="autosave" if is_autosave else "save")
     if not is_autosave:
         app.current_project_path = str(target_path)
         app.project_dirty = False
@@ -105,7 +109,8 @@ def save_project_as(app) -> None:
 
 
 def convert_to_project(app) -> None:
-    if app.frames_raw is None:
+    has_loaded_stack = bool(app._has_loaded_stack()) if hasattr(app, "_has_loaded_stack") else bool(app.frames_raw is not None)
+    if not has_loaded_stack:
         messagebox.showwarning("No Data", "Import images first before converting to a project.")
         return
     app.save_project_as()
@@ -197,7 +202,14 @@ def prepare_loaded_project(app, loaded, project_path) -> ProjectLoadPlan:
         frames_raw=frames_raw,
         frames_sub=frames_sub,
         frames_sub_viz=frames_sub_viz,
-        event_states=dict(loaded_actions.event_states),
+        frame_source=EagerFrameSource(
+            raw_frames=frames_raw,
+            subtracted_frames=frames_sub,
+            visual_frames=frames_sub_viz,
+            frame_names=list(frame_names),
+            source_paths=list(image_paths),
+        ),
+        event_records=dict(loaded_actions.event_records),
         active_event_id=str(loaded_actions.active_event_id),
         roi_points=safe_roi_points,
         roi_mask=roi_mask,
@@ -220,12 +232,12 @@ def apply_loaded_project_plan(app, plan: ProjectLoadPlan) -> None:
     )
 
     session_service = getattr(getattr(app, "app_context", None), "project_session_service", app.project_session_service)
-    app.event_states = dict(plan.event_states)
-    session_service.load_event_into_seg_state(
-        event_id=str(plan.active_event_id),
-        event_states=app.event_states,
-        seg_state=app.seg_state,
-    )
+    app.frame_source = plan.frame_source
+    app.analysis_workspace.bind_frame_source(plan.frame_source)
+    if getattr(app, "app_context", None) is not None:
+        app.app_context.frame_source = plan.frame_source
+    app.event_records = dict(plan.event_records)
+    app.analysis_workspace.open_event(str(plan.active_event_id))
     app.active_event_id = str(plan.active_event_id)
     app._propagation_committed_snapshot = None
     app.scale_px_per_mm = plan.global_state.get("scale_px_per_mm")
@@ -251,7 +263,8 @@ def apply_loaded_project_plan(app, plan: ProjectLoadPlan) -> None:
     app.tool_mode.set(str(plan.ui_state.get("active_tool", "select")))
     try:
         idx = int(plan.ui_state.get("last_frame", 0))
-        app.slider.set(max(0, min(len(app.frames_raw) - 1, idx)))
+        frame_count = app._get_frame_count() if hasattr(app, "_get_frame_count") else len(app.frames_raw)
+        app.slider.set(max(0, min(frame_count - 1, idx)))
     except Exception:
         pass
 
@@ -311,8 +324,9 @@ def maybe_prompt_autosave_recovery(app) -> None:
 
 
 def evaluate_new_project_requirements(app) -> NewProjectRequirements:
+    has_loaded_stack = bool(app._has_loaded_stack()) if hasattr(app, "_has_loaded_stack") else bool(app.frames_raw is not None)
     return NewProjectRequirements(
-        needs_discard_prompt=bool(app.frames_raw is not None and app.project_dirty),
+        needs_discard_prompt=bool(has_loaded_stack and app.project_dirty),
     )
 
 
@@ -337,8 +351,12 @@ def is_propagation_running(app) -> bool:
 
 
 def evaluate_close_requirements(app) -> CloseRequirements:
-    has_loaded_stack = app.frames_raw is not None and len(app.frames_raw) > 0
-    not_saved_as_project = has_loaded_stack and not bool(app.current_project_path)
+    if hasattr(app, "_has_loaded_stack"):
+        has_loaded_stack = bool(app._has_loaded_stack())
+    else:
+        has_loaded_stack = app.frames_raw is not None and len(app.frames_raw) > 0
+    host_mode = bool(getattr(app, "_host_mode", False))
+    not_saved_as_project = has_loaded_stack and not bool(app.current_project_path) and not host_mode
     return CloseRequirements(
         has_running_propagation=bool(app._is_propagation_running()),
         not_saved_as_project=bool(not_saved_as_project),
@@ -363,6 +381,10 @@ def on_close(app) -> None:
         if not proceed:
             return
 
+    if hasattr(app, "_shutdown_model_resources"):
+        app._shutdown_model_resources()
+    if hasattr(app, "_emit_host_sync"):
+        app._emit_host_sync(reason="close")
     app.autosave_manager.stop()
     app.inference_manager.stop()
     if app._ui_alive():

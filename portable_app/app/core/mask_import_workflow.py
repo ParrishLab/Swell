@@ -10,7 +10,12 @@ from app.core.mask_import import guess_mask_mapping
 
 def import_external_masks(app) -> None:
     """Import masks from files/folder, align them, and apply to active event."""
-    if app.frames_raw is None:
+    frames_raw = app._get_frames_raw() if hasattr(app, "_get_frames_raw") else app.frames_raw
+    frames_sub_viz = app._get_frames_sub_viz() if hasattr(app, "_get_frames_sub_viz") else app.frames_sub_viz
+    frame_count = app._get_frame_count() if hasattr(app, "_get_frame_count") else (len(frames_raw) if frames_raw is not None else 0)
+    frame_shape = app._get_frame_shape() if hasattr(app, "_get_frame_shape") else tuple(frames_raw[0].shape[:2])
+
+    if frames_raw is None or frame_count <= 0:
         messagebox.showwarning("No Data", "Import images first.")
         return
 
@@ -24,7 +29,7 @@ def import_external_masks(app) -> None:
         return
     if not masks:
         return
-    base_shape = app.frames_raw[0].shape[:2]
+    base_shape = frame_shape
     for m in masks:
         if tuple(m.shape[:2]) != tuple(base_shape):
             messagebox.showerror(
@@ -33,11 +38,10 @@ def import_external_masks(app) -> None:
             )
             return
 
-    frame_count = len(app.frames_raw)
     event_ranges = {}
-    for event_id, state in app.event_states.items():
-        start_idx = int(state.get("frame_start", 0))
-        end_idx = int(state.get("frame_end", max(0, frame_count - 1)))
+    for event_id, record in app.event_records.items():
+        start_idx = int(record.metadata.start_idx)
+        end_idx = int(record.metadata.end_idx)
         start_idx = max(0, min(start_idx, max(0, frame_count - 1)))
         end_idx = max(0, min(end_idx, max(0, frame_count - 1)))
         if end_idx < start_idx:
@@ -49,8 +53,8 @@ def import_external_masks(app) -> None:
         guessed_offset = 0
     offset = app.mask_import_dialog.ask_alignment(
         root=app.root,
-        frames_raw=app.frames_raw,
-        frames_sub_viz=app.frames_sub_viz,
+        frames_raw=frames_raw,
+        frames_sub_viz=frames_sub_viz,
         masks=masks,
         guessed_offset=int(guessed_offset),
     )
@@ -61,22 +65,8 @@ def import_external_masks(app) -> None:
         return
 
     event_id = str(app.active_event_id or "sd_event_001")
-    if event_id not in app.event_states:
-        app.event_states[event_id] = {
-            "id": event_id,
-            "label": event_id,
-            "points": {},
-            "paint_layers": {},
-            "masks_committed": {},
-            "masks_draft": None,
-            "use_draft": False,
-            "frame_start": 0,
-            "frame_end": max(0, frame_count - 1),
-            "propagation_completed": True,
-            "analysis_output_dir": None,
-        }
-    event_state = app.event_states[event_id]
-    committed = app.project_session_service.copy_masks_dict(event_state.get("masks_committed", {}))
+    event_record = app.project_session_service.ensure_event_record(event_id, frame_count, app.event_records)
+    committed = app.project_session_service.copy_masks_dict(event_record.analysis.masks_committed)
     applied = 0
     for idx, mask in enumerate(masks):
         frame_idx = offset + idx
@@ -88,20 +78,16 @@ def import_external_masks(app) -> None:
         messagebox.showwarning("Import Masks", "No masks were mapped into the current frame range.")
         return
 
-    event_state["masks_committed"] = committed
-    event_state["masks_draft"] = None
-    event_state["propagation_completed"] = True
+    event_record.analysis.masks_committed = committed
+    event_record.analysis.masks_draft = None
+    event_record.analysis.use_draft = False
+    event_record.metadata.propagation_completed = True
     start_idx, end_idx = app.project_session_service.event_mask_bounds(committed, frame_count)
-    event_state["frame_start"] = start_idx
-    event_state["frame_end"] = end_idx
+    event_record.metadata.start_idx = start_idx
+    event_record.metadata.end_idx = end_idx
 
     if event_id == app.active_event_id:
-        app.project_session_service.load_event_into_seg_state(
-            event_id=str(event_id),
-            event_states=app.event_states,
-            seg_state=app.seg_state,
-        )
-        app.active_event_id = str(event_id)
+        app.analysis_workspace.open_event(str(event_id))
         nonempty = app._collect_nonempty_final_mask_frames()
         app._set_propagated_frames(nonempty, mark_dirty=False)
         app.update_display()

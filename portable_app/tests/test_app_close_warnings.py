@@ -52,6 +52,22 @@ class AppCloseWarningsTests(unittest.TestCase):
         self.assertFalse(app.root.destroyed)
         self.assertFalse(app.autosave_manager.stopped)
 
+    @patch("app.app.messagebox.askyesno")
+    def test_host_mode_close_skips_unsaved_prompt_and_closes(self, ask_mock):
+        app = self._make_app()
+        app._is_propagation_running = lambda: False
+        app.frames_raw = [object()]
+        app.current_project_path = None
+        app._host_mode = True
+        app._shutdown_model_resources = lambda: setattr(app, "_shutdown_called", True)
+        app._emit_host_sync = lambda reason="": {"ok": True, "reason": reason}
+        app.on_close()
+        self.assertTrue(app.root.destroyed)
+        self.assertTrue(app.autosave_manager.stopped)
+        self.assertTrue(app.inference_manager.stopped)
+        self.assertTrue(getattr(app, "_shutdown_called", False))
+        ask_mock.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()

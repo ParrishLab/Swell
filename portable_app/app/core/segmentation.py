@@ -73,7 +73,7 @@ class SegmentationActions:
                 shutil.rmtree(self.temp_dir)
             os.makedirs(self.temp_dir)
 
-            if not self.frames_sub_viz:
+            if self.frames_sub_viz is None or len(self.frames_sub_viz) == 0:
                 raise RuntimeError("No frames loaded. Import images first.")
 
             self.log_info("Model", "Preparing temporary frames for SAM2...")

@@ -1,0 +1,29 @@
+{
+  "contract_version": 1,
+  "session_id": "session_abc",
+  "stack_id": "stack_abc",
+  "event_id": "event_9999",
+  "analysis_state_ref": {
+    "storage": "host_session",
+    "ref_id": "session_abc:event_9999"
+  },
+  "analysis": {
+    "masks_committed": {
+      "encoding": "npz_uint8_3d",
+      "frame_count": 10,
+      "shape": [64, 64],
+      "blob_ref": "blob://masks"
+    },
+    "masks_draft": null,
+    "prompts": {
+      "encoding": "portable_prompts_json",
+      "blob_ref": "blob://prompts"
+    },
+    "propagation_completed": true,
+    "analysis_output_dir": null
+  },
+  "ui_hints": {
+    "last_frame": 5,
+    "active_tool": "select"
+  }
+}

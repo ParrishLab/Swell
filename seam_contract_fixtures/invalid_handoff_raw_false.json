@@ -1,0 +1,33 @@
+{
+  "contract_version": 1,
+  "session": {
+    "session_id": "session_abc",
+    "project_path": null,
+    "active_event_id": "event_0001",
+    "dirty": false,
+    "metadata": {}
+  },
+  "stack": {
+    "stack_id": "stack_abc",
+    "frame_count": 12,
+    "frame_shape": [64, 64],
+    "frame_names": ["f1.tif"],
+    "source_paths": ["/tmp/f1.tif"],
+    "capabilities": {
+      "raw": false,
+      "subtracted": false,
+      "visual": false
+    }
+  },
+  "event": {
+    "event_id": "event_0001",
+    "label": "Event 1",
+    "start_idx": 1,
+    "end_idx": 3,
+    "flags": {}
+  },
+  "analysis_state_ref": {
+    "storage": "host_session",
+    "ref_id": "session_abc:event_0001"
+  }
+}

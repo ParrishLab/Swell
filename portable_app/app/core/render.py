@@ -129,7 +129,8 @@ class RenderActions:
 
     def _resize_maintain_aspect(self, pil_img, max_w, max_h):
         orig_w, orig_h = pil_img.size
-        self.display_ratio = min(max_w / orig_w, max_h / orig_h)
+        # Keep fit-to-canvas behavior but avoid aggressive upscaling on small images.
+        self.display_ratio = min(max_w / orig_w, max_h / orig_h, 1.0)
 
         mode = self.tool_mode.get()
         use_nearest = self.is_dragging and mode in ["brush", "eraser"]

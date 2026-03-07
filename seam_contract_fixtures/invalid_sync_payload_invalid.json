@@ -1,0 +1,18 @@
+{
+  "contract_version": 1,
+  "session_id": "session_abc",
+  "stack_id": "stack_abc",
+  "event_id": "event_0001",
+  "analysis_state_ref": {
+    "storage": "host_session",
+    "ref_id": "session_abc:event_0001"
+  },
+  "analysis": {
+    "prompts": {
+      "encoding": "portable_prompts_json",
+      "blob_ref": "blob://prompts"
+    },
+    "propagation_completed": true,
+    "analysis_output_dir": null
+  }
+}

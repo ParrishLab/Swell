@@ -15,5 +15,9 @@ class AppContext:
     mask_import_dialog: Any
     autosave_manager: Any
     session_state: Any | None = None
+    analysis_workspace: Any | None = None
+    frame_source: Any | None = None
     inference_manager: Any | None = None
     analysis_controller: Any | None = None
+    host_handoff: Any | None = None
+    host_sync_emitter: Any | None = None

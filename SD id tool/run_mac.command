@@ -2,7 +2,8 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-cd "$SCRIPT_DIR"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+cd "$REPO_ROOT"
 
 if [[ ! -x "$(command -v python3)" ]]; then
   echo "Error: python3 was not found in PATH."
@@ -21,11 +22,11 @@ fi
 
 source .venv/bin/activate
 
-if [[ -f "requirements.txt" ]]; then
+if [[ -f "requirements.merged.txt" ]]; then
   echo "Installing/updating dependencies..."
   python -m pip install --upgrade pip
-  pip install -r requirements.txt
+  pip install -r requirements.merged.txt
 fi
 
 echo "Launching GUI..."
-python main.py
+python "SD id tool/main.py"

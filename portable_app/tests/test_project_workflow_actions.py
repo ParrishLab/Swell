@@ -20,6 +20,15 @@ class ProjectWorkflowActionsTests(unittest.TestCase):
         self.assertTrue(req.has_running_propagation)
         self.assertTrue(req.not_saved_as_project)
 
+    def test_evaluate_close_requirements_host_mode_skips_unsaved_gate(self):
+        app = type("App", (), {})()
+        app.frames_raw = [object()]
+        app.current_project_path = None
+        app._host_mode = True
+        app._is_propagation_running = lambda: False
+        req = project_workflow.evaluate_close_requirements(app)
+        self.assertFalse(req.not_saved_as_project)
+
 
 if __name__ == "__main__":
     unittest.main()

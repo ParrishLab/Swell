@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 
@@ -9,6 +9,31 @@ import numpy as np
 from app.core.project_fingerprint import compute_file_fingerprint
 from app.core.project_schema import default_project_state, utc_now_iso
 from app.core.seg_state import SegmentationState
+
+
+@dataclass
+class EventMetadata:
+    event_id: str
+    label: str
+    start_idx: int
+    end_idx: int
+    analysis_output_dir: str | None = None
+    propagation_completed: bool = True
+
+
+@dataclass
+class EventAnalysisState:
+    points: dict[int, list[dict]] = field(default_factory=dict)
+    paint_layers: dict[int, dict[str, np.ndarray]] = field(default_factory=dict)
+    masks_committed: dict[int, np.ndarray] = field(default_factory=dict)
+    masks_draft: dict[int, np.ndarray] | None = None
+    use_draft: bool = False
+
+
+@dataclass
+class EventRecord:
+    metadata: EventMetadata
+    analysis: EventAnalysisState
 
 
 @dataclass
@@ -33,13 +58,13 @@ class SessionSnapshot:
     roi_mask: np.ndarray | None
     created_at: str
     current_image_source_paths: list[str]
-    event_states: dict[str, dict]
+    event_records: dict[str, EventRecord]
 
 
 @dataclass
 class LoadedSessionActions:
     active_event_id: str
-    event_states: dict[str, dict]
+    event_records: dict[str, EventRecord]
     scale_px_per_mm: Any
     roi_points: list
     roi_mask: np.ndarray | None
@@ -48,7 +73,7 @@ class LoadedSessionActions:
 
 @dataclass
 class PropagationTransition:
-    event_state: dict
+    event_record: EventRecord
     restored_masks: dict[int, np.ndarray] | None
 
 
@@ -120,56 +145,150 @@ class ProjectSessionService:
             images.append(entry)
         return {"images": images}
 
-    def sync_active_event_state(
+    def _default_event_record(self, event_id: str, frame_count: int) -> EventRecord:
+        label = "SD Event 1" if event_id == "sd_event_001" else event_id
+        return EventRecord(
+            metadata=EventMetadata(
+                event_id=str(event_id),
+                label=str(label),
+                start_idx=0,
+                end_idx=max(0, frame_count - 1),
+                analysis_output_dir=None,
+                propagation_completed=True,
+            ),
+            analysis=EventAnalysisState(),
+        )
+
+    def ensure_event_record(self, event_id: str, frame_count: int, event_records: dict[str, EventRecord] | None = None) -> EventRecord:
+        if event_records is None:
+            event_records = {}
+        event_id = str(event_id or "sd_event_001")
+        record = event_records.get(event_id)
+        if record is None:
+            record = self._default_event_record(event_id, frame_count)
+            event_records[event_id] = record
+        elif not isinstance(record, EventRecord):
+            record = self._coerce_event_record(event_id, record, frame_count)
+            event_records[event_id] = record
+        return record
+
+    def _coerce_event_record(self, event_id: str, raw: EventRecord | dict[str, Any], frame_count: int) -> EventRecord:
+        if isinstance(raw, EventRecord):
+            return raw
+        if isinstance(raw, dict) and "metadata" in raw and "analysis" in raw:
+            md = raw["metadata"]
+            an = raw["analysis"]
+            metadata = md if isinstance(md, EventMetadata) else EventMetadata(
+                event_id=str(getattr(md, "event_id", None) or md.get("event_id") or event_id),
+                label=str(getattr(md, "label", None) or md.get("label") or event_id),
+                start_idx=int(getattr(md, "start_idx", None) if hasattr(md, "start_idx") else md.get("start_idx", 0)),
+                end_idx=int(getattr(md, "end_idx", None) if hasattr(md, "end_idx") else md.get("end_idx", max(0, frame_count - 1))),
+                analysis_output_dir=getattr(md, "analysis_output_dir", None) if hasattr(md, "analysis_output_dir") else md.get("analysis_output_dir"),
+                propagation_completed=bool(getattr(md, "propagation_completed", True) if hasattr(md, "propagation_completed") else md.get("propagation_completed", True)),
+            )
+            analysis = an if isinstance(an, EventAnalysisState) else EventAnalysisState(
+                points=self.copy_points_dict(an.get("points", {})),
+                paint_layers=self.copy_paint_layers(an.get("paint_layers", {})),
+                masks_committed=self.copy_masks_dict(an.get("masks_committed", {})),
+                masks_draft=self.copy_masks_dict(an.get("masks_draft", {})) if an.get("masks_draft") is not None else None,
+                use_draft=bool(an.get("use_draft", False)),
+            )
+            return EventRecord(metadata=metadata, analysis=analysis)
+        raw = dict(raw or {})
+        return EventRecord(
+            metadata=EventMetadata(
+                event_id=str(raw.get("id", event_id)),
+                label=str(raw.get("label", event_id)),
+                start_idx=int(raw.get("frame_start", 0)),
+                end_idx=int(raw.get("frame_end", max(0, frame_count - 1))),
+                analysis_output_dir=raw.get("analysis_output_dir"),
+                propagation_completed=bool(raw.get("propagation_completed", True)),
+            ),
+            analysis=EventAnalysisState(
+                points=self.copy_points_dict(raw.get("points", {})),
+                paint_layers=self.copy_paint_layers(raw.get("paint_layers", {})),
+                masks_committed=self.copy_masks_dict(raw.get("masks_committed", {})),
+                masks_draft=self.copy_masks_dict(raw.get("masks_draft", {})) if raw.get("masks_draft") is not None else None,
+                use_draft=bool(raw.get("use_draft", False)),
+            ),
+        )
+
+    def coerce_event_records(self, event_records: dict[str, EventRecord | dict[str, Any]] | None, frame_count: int) -> dict[str, EventRecord]:
+        out: dict[str, EventRecord] = {}
+        for event_id, record in dict(event_records or {}).items():
+            out[str(event_id)] = self._coerce_event_record(str(event_id), record, frame_count)
+        if not out:
+            out["sd_event_001"] = self._default_event_record("sd_event_001", frame_count)
+        return out
+
+    def event_record_to_legacy_dict(self, record: EventRecord) -> dict[str, Any]:
+        return {
+            "id": record.metadata.event_id,
+            "label": record.metadata.label,
+            "points": self.copy_points_dict(record.analysis.points),
+            "paint_layers": self.copy_paint_layers(record.analysis.paint_layers),
+            "masks_committed": self.copy_masks_dict(record.analysis.masks_committed),
+            "masks_draft": self.copy_masks_dict(record.analysis.masks_draft or {}) if record.analysis.masks_draft is not None else None,
+            "use_draft": bool(record.analysis.use_draft),
+            "frame_start": int(record.metadata.start_idx),
+            "frame_end": int(record.metadata.end_idx),
+            "propagation_completed": bool(record.metadata.propagation_completed),
+            "analysis_output_dir": record.metadata.analysis_output_dir,
+        }
+
+    def event_records_to_legacy_dict(self, event_records: dict[str, EventRecord]) -> dict[str, dict[str, Any]]:
+        return {str(event_id): self.event_record_to_legacy_dict(record) for event_id, record in event_records.items()}
+
+    def sync_workspace_into_event(
         self,
         *,
         frame_count: int,
-        active_event_id: str,
+        event_id: str,
         seg_state: SegmentationState,
-        event_states: dict[str, dict],
-    ) -> dict[str, dict]:
-        event_id = str(active_event_id or "sd_event_001")
-        state = event_states.get(event_id, {})
-        state["id"] = event_id
-        state["label"] = str(state.get("label", event_id))
-        state["points"] = self.copy_points_dict(seg_state.points)
-        state["paint_layers"] = self.copy_paint_layers(seg_state.paint_layers)
-        if bool(state.get("use_draft")) and not bool(state.get("propagation_completed", True)):
-            state["masks_draft"] = self.copy_masks_dict(seg_state.masks_cache)
-            state["masks_committed"] = self.copy_masks_dict(state.get("masks_committed", {}))
+        event_records: dict[str, EventRecord],
+    ) -> dict[str, EventRecord]:
+        record = self.ensure_event_record(event_id, frame_count, event_records)
+        record.analysis.points = self.copy_points_dict(seg_state.points)
+        record.analysis.paint_layers = self.copy_paint_layers(seg_state.paint_layers)
+        if bool(record.analysis.use_draft) and not bool(record.metadata.propagation_completed):
+            record.analysis.masks_draft = self.copy_masks_dict(seg_state.masks_cache)
+            record.analysis.masks_committed = self.copy_masks_dict(record.analysis.masks_committed)
         else:
-            state["masks_committed"] = self.copy_masks_dict(seg_state.masks_cache)
-            if bool(state.get("propagation_completed", True)):
-                state["masks_draft"] = None
-            state["use_draft"] = False
-        start_idx, end_idx = self.event_mask_bounds(state["masks_committed"], frame_count)
-        state["frame_start"] = int(state.get("frame_start", start_idx))
-        state["frame_end"] = int(state.get("frame_end", end_idx))
-        state["propagation_completed"] = bool(state.get("propagation_completed", True))
-        state["analysis_output_dir"] = state.get("analysis_output_dir")
-        event_states[event_id] = state
-        return event_states
+            record.analysis.masks_committed = self.copy_masks_dict(seg_state.masks_cache)
+            if bool(record.metadata.propagation_completed):
+                record.analysis.masks_draft = None
+            record.analysis.use_draft = False
+        start_idx, end_idx = self.event_mask_bounds(record.analysis.masks_committed, frame_count)
+        if record.metadata.start_idx is None:
+            record.metadata.start_idx = start_idx
+        else:
+            record.metadata.start_idx = int(record.metadata.start_idx)
+        if record.metadata.end_idx is None:
+            record.metadata.end_idx = end_idx
+        else:
+            record.metadata.end_idx = int(record.metadata.end_idx)
+        return event_records
 
-    def load_event_into_seg_state(self, *, event_id: str, event_states: dict[str, dict], seg_state: SegmentationState) -> None:
-        state = event_states.get(event_id)
-        if state is None:
+    def load_event_into_workspace(self, *, event_id: str, event_records: dict[str, EventRecord], seg_state: SegmentationState) -> None:
+        record = event_records.get(event_id)
+        if record is None:
             return
         seg_state.points.clear()
-        for frame_idx, pt_list in state.get("points", {}).items():
+        for frame_idx, pt_list in record.analysis.points.items():
             seg_state.points[int(frame_idx)] = [
                 {"x": float(pt["x"]), "y": float(pt["y"]), "label": int(pt["label"])} for pt in pt_list
             ]
 
         seg_state.paint_layers.clear()
-        for frame_idx, layer in state.get("paint_layers", {}).items():
+        for frame_idx, layer in record.analysis.paint_layers.items():
             seg_state.paint_layers[int(frame_idx)] = {
                 "plus": np.asarray(layer.get("plus"), dtype=bool).copy(),
                 "minus": np.asarray(layer.get("minus"), dtype=bool).copy(),
             }
 
-        source_masks = state.get("masks_committed", {})
-        if bool(state.get("use_draft")) and state.get("masks_draft") is not None:
-            source_masks = state.get("masks_draft", {})
+        source_masks = record.analysis.masks_committed
+        if bool(record.analysis.use_draft) and record.analysis.masks_draft is not None:
+            source_masks = record.analysis.masks_draft
         seg_state.masks_cache.clear()
         for frame_idx, mask in source_masks.items():
             seg_state.masks_cache[int(frame_idx)] = np.asarray(mask, dtype=bool).copy()
@@ -177,22 +296,28 @@ class ProjectSessionService:
         seg_state.invalidate_user_frames()
         seg_state.invalidate_final_mask_frames()
 
+    def update_event_metadata(
+        self,
+        event_id: str,
+        event_records: dict[str, EventRecord],
+        *,
+        label: str | None = None,
+        start_idx: int | None = None,
+        end_idx: int | None = None,
+        analysis_output_dir: str | None = None,
+    ) -> None:
+        record = self.ensure_event_record(event_id, max(1, (end_idx + 1) if end_idx is not None else 1), event_records)
+        if label is not None:
+            record.metadata.label = str(label)
+        if start_idx is not None:
+            record.metadata.start_idx = int(start_idx)
+        if end_idx is not None:
+            record.metadata.end_idx = int(end_idx)
+        if analysis_output_dir is not None or analysis_output_dir is None:
+            record.metadata.analysis_output_dir = analysis_output_dir
+
     def build_payload(self, snapshot: SessionSnapshot) -> tuple[dict, dict, dict, dict]:
-        event_states = dict(snapshot.event_states or {})
-        if not event_states:
-            event_states["sd_event_001"] = {
-                "id": "sd_event_001",
-                "label": "SD Event 1",
-                "points": {},
-                "paint_layers": {},
-                "masks_committed": {},
-                "masks_draft": None,
-                "use_draft": False,
-                "frame_start": 0,
-                "frame_end": max(0, snapshot.frame_count - 1),
-                "propagation_completed": True,
-                "analysis_output_dir": None,
-            }
+        event_records = self.coerce_event_records(snapshot.event_records, snapshot.frame_count)
 
         state = default_project_state(app_version="1.3.0")
         state["created_at"] = snapshot.created_at
@@ -225,30 +350,29 @@ class ProjectSessionService:
         }
         images_manifest = self.build_image_manifest(snapshot.current_image_source_paths)
         event_payloads = {}
-        for event_id, ev_state in event_states.items():
-            event_id = str(event_id)
+        for event_id, record in event_records.items():
             prompts_state = SegmentationState()
-            prompts_state.points = self.copy_points_dict(ev_state.get("points", {}))
-            prompts_state.paint_layers = self.copy_paint_layers(ev_state.get("paint_layers", {}))
+            prompts_state.points = self.copy_points_dict(record.analysis.points)
+            prompts_state.paint_layers = self.copy_paint_layers(record.analysis.paint_layers)
             prompts = prompts_state.to_prompts_json(event_id)
-            committed = self.copy_masks_dict(ev_state.get("masks_committed", {}))
-            draft = ev_state.get("masks_draft")
+            committed = self.copy_masks_dict(record.analysis.masks_committed)
+            draft = record.analysis.masks_draft
             frame_start, frame_end = self.event_mask_bounds(committed, snapshot.frame_count)
-            frame_start = int(ev_state.get("frame_start", frame_start))
-            frame_end = int(ev_state.get("frame_end", frame_end))
-            propagation_completed = bool(ev_state.get("propagation_completed", True))
+            frame_start = int(record.metadata.start_idx if record.metadata.start_idx is not None else frame_start)
+            frame_end = int(record.metadata.end_idx if record.metadata.end_idx is not None else frame_end)
+            propagation_completed = bool(record.metadata.propagation_completed)
             masks_draft_ref = f"events/{event_id}/masks_draft.npz" if (draft is not None and not propagation_completed) else None
             state["events"].append(
                 {
                     "id": event_id,
-                    "label": str(ev_state.get("label", event_id)),
+                    "label": str(record.metadata.label),
                     "frame_start": frame_start,
                     "frame_end": frame_end,
                     "masks_ref": f"events/{event_id}/masks.npz",
                     "prompts_ref": f"events/{event_id}/prompts.json",
                     "masks_draft_ref": masks_draft_ref,
                     "propagation_completed": propagation_completed,
-                    "analysis_output_dir": ev_state.get("analysis_output_dir"),
+                    "analysis_output_dir": record.metadata.analysis_output_dir,
                 }
             )
             payload = {
@@ -274,7 +398,7 @@ class ProjectSessionService:
         choose_resume_draft: Callable[[str], bool],
         decode_rle: Callable[[dict], np.ndarray],
     ) -> LoadedSessionActions:
-        event_states: dict[str, dict] = {}
+        event_records: dict[str, EventRecord] = {}
         active_id = str(state.get("ui_state", {}).get("active_event_id", "sd_event_001"))
         for ev_spec in state.get("events", []):
             event_id = str(ev_spec.get("id", "sd_event_001"))
@@ -288,42 +412,34 @@ class ProjectSessionService:
             use_draft = False
             if draft and not propagation_completed:
                 use_draft = bool(choose_resume_draft(event_id))
-            event_states[event_id] = {
-                "id": event_id,
-                "label": str(ev_spec.get("label", event_id)),
-                "points": self.copy_points_dict(tmp_state.points),
-                "paint_layers": self.copy_paint_layers(tmp_state.paint_layers),
-                "masks_committed": committed,
-                "masks_draft": draft,
-                "use_draft": use_draft,
-                "frame_start": int(ev_spec.get("frame_start", 0)),
-                "frame_end": int(ev_spec.get("frame_end", max(0, frame_count - 1))),
-                "propagation_completed": propagation_completed,
-                "analysis_output_dir": ev_spec.get("analysis_output_dir"),
-            }
-        if not event_states:
-            event_states["sd_event_001"] = {
-                "id": "sd_event_001",
-                "label": "SD Event 1",
-                "points": {},
-                "paint_layers": {},
-                "masks_committed": {},
-                "masks_draft": None,
-                "use_draft": False,
-                "frame_start": 0,
-                "frame_end": max(0, frame_count - 1),
-                "propagation_completed": True,
-                "analysis_output_dir": None,
-            }
-        if active_id not in event_states:
-            active_id = next(iter(event_states.keys()))
+            event_records[event_id] = EventRecord(
+                metadata=EventMetadata(
+                    event_id=event_id,
+                    label=str(ev_spec.get("label", event_id)),
+                    start_idx=int(ev_spec.get("frame_start", 0)),
+                    end_idx=int(ev_spec.get("frame_end", max(0, frame_count - 1))),
+                    propagation_completed=propagation_completed,
+                    analysis_output_dir=ev_spec.get("analysis_output_dir"),
+                ),
+                analysis=EventAnalysisState(
+                    points=self.copy_points_dict(tmp_state.points),
+                    paint_layers=self.copy_paint_layers(tmp_state.paint_layers),
+                    masks_committed=committed,
+                    masks_draft=draft,
+                    use_draft=use_draft,
+                ),
+            )
+        if not event_records:
+            event_records["sd_event_001"] = self._default_event_record("sd_event_001", frame_count)
+        if active_id not in event_records:
+            active_id = next(iter(event_records.keys()))
 
         global_state = state.get("global", {})
         roi_points = []
         roi_mask = None
         return LoadedSessionActions(
             active_event_id=active_id,
-            event_states=event_states,
+            event_records=event_records,
             scale_px_per_mm=global_state.get("scale_px_per_mm"),
             roi_points=roi_points,
             roi_mask=roi_mask,
@@ -337,41 +453,36 @@ class ProjectSessionService:
         prop_start: int,
         prop_end: int,
         active_event_id: str,
-        event_states: dict[str, dict],
+        event_records: dict[str, EventRecord],
         current_masks: dict[int, np.ndarray],
         committed_snapshot: dict[int, np.ndarray] | None,
     ) -> PropagationTransition:
-        event_id = str(active_event_id or "sd_event_001")
-        if event_id not in event_states:
-            event_states[event_id] = {
-                "id": event_id,
-                "label": event_id,
-                "points": {},
-                "paint_layers": {},
-                "masks_committed": {},
-                "masks_draft": None,
-                "use_draft": False,
-                "frame_start": int(prop_start),
-                "frame_end": int(prop_end),
-                "propagation_completed": True,
-                "analysis_output_dir": None,
-            }
-        state = event_states[event_id]
+        record = self.ensure_event_record(active_event_id, max(int(prop_end) + 1, 1), event_records)
         restored = None
         if status == "started":
-            state["masks_committed"] = self.copy_masks_dict(current_masks)
-            state["propagation_completed"] = False
-            state["frame_start"] = int(prop_start)
-            state["frame_end"] = int(prop_end)
+            record.analysis.masks_committed = self.copy_masks_dict(current_masks)
+            record.metadata.propagation_completed = False
+            record.metadata.start_idx = int(prop_start)
+            record.metadata.end_idx = int(prop_end)
         elif status == "complete":
-            state["masks_committed"] = self.copy_masks_dict(current_masks)
-            state["masks_draft"] = None
-            state["use_draft"] = False
-            state["propagation_completed"] = True
+            record.analysis.masks_committed = self.copy_masks_dict(current_masks)
+            record.analysis.masks_draft = None
+            record.analysis.use_draft = False
+            record.metadata.propagation_completed = True
         elif status in ("stopped", "failed"):
-            state["masks_draft"] = self.copy_masks_dict(current_masks)
-            state["use_draft"] = False
-            state["propagation_completed"] = False
+            record.analysis.masks_draft = self.copy_masks_dict(current_masks)
+            record.analysis.use_draft = False
+            record.metadata.propagation_completed = False
             if committed_snapshot is not None:
                 restored = self.copy_masks_dict(committed_snapshot)
-        return PropagationTransition(event_state=state, restored_masks=restored)
+        return PropagationTransition(event_record=record, restored_masks=restored)
+
+    # Backward-compatible adapters while the rest of the app is migrated.
+    def sync_active_event_state(self, *, frame_count: int, active_event_id: str, seg_state: SegmentationState, event_states: dict[str, Any]) -> dict[str, dict[str, Any]]:
+        records = self.coerce_event_records(event_states, frame_count)
+        self.sync_workspace_into_event(frame_count=frame_count, event_id=active_event_id, seg_state=seg_state, event_records=records)
+        return self.event_records_to_legacy_dict(records)
+
+    def load_event_into_seg_state(self, *, event_id: str, event_states: dict[str, Any], seg_state: SegmentationState) -> None:
+        records = self.coerce_event_records(event_states, max(1, len(event_states) or 1))
+        self.load_event_into_workspace(event_id=event_id, event_records=records, seg_state=seg_state)
