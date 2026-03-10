@@ -2,7 +2,7 @@ import tkinter as tk
 from tkinter import ttk
 
 
-def build_preview_overlay(parent, on_start, on_drag, on_stop):
+def build_preview_overlay(parent, on_start, on_drag, on_stop, *, dark_theme: bool = True):
     preview_frame = ttk.Frame(parent, width=150, height=150, style="Preview.TFrame")
     preview_frame.pack_propagate(False)
     preview_frame.place(relx=1.0, rely=0.0, anchor="ne", x=-10, y=10)
@@ -22,8 +22,8 @@ def build_preview_overlay(parent, on_start, on_drag, on_stop):
         text="\u2199",
         font=("Arial", 16),
         cursor="fleur",
-        bg="#444",
-        fg="white",
+        bg="#444" if dark_theme else "#e6e9ee",
+        fg="white" if dark_theme else "#1f1f1f",
     )
     lbl_grip.place(relx=0.0, rely=1.0, anchor="sw", width=25, height=25)
 

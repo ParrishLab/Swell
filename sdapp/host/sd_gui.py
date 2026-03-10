@@ -7,7 +7,7 @@ from datetime import datetime
 from pathlib import Path
 from time import perf_counter
 import tkinter as tk
-from tkinter import filedialog, messagebox, simpledialog, ttk
+from tkinter import filedialog, messagebox, ttk
 
 import numpy as np
 from PIL import Image, ImageTk
@@ -62,11 +62,6 @@ class SDAnalyzerApp:
         self.baseline_pre_frames = DEFAULT_BASELINE_PRE_FRAMES
         self.input_var = tk.StringVar()
         self.output_var = tk.StringVar(value=str(Path.cwd() / "output"))
-        self._set_readers: dict[str, StackReader] = {}
-        self._set_stack_infos: dict[str, object] = {}
-        self._set_input_dirs: dict[str, str] = {}
-        self._sd_set_display_to_id: dict[str, str] = {}
-        self._sd_set_var = tk.StringVar(value="")
 
         self.tk_preview_image: ImageTk.PhotoImage | None = None
         self.max_log_lines = 500
@@ -223,22 +218,6 @@ class SDAnalyzerApp:
         self.tree.pack(fill="both", expand=True)
         self.tree.bind("<<TreeviewSelect>>", self._on_event_select)
 
-        set_frame = ttk.LabelFrame(right_top, text="SD Sets", padding=6)
-        set_frame.pack(fill="x", pady=(6, 0))
-        set_frame.columnconfigure(0, weight=1)
-        self.sd_set_combo = ttk.Combobox(set_frame, textvariable=self._sd_set_var, state="readonly")
-        self.sd_set_combo.grid(row=0, column=0, columnspan=3, sticky="ew", padx=2, pady=2)
-        self.sd_set_combo.bind("<<ComboboxSelected>>", self._on_sd_set_selected)
-        ttk.Button(set_frame, text="Create Set (Load Stack)", command=self._load_stack).grid(
-            row=1, column=0, sticky="ew", padx=2, pady=2
-        )
-        ttk.Button(set_frame, text="Rename Set", command=self._rename_active_sd_set).grid(
-            row=1, column=1, sticky="ew", padx=2, pady=2
-        )
-        ttk.Button(set_frame, text="Delete Set", command=self._delete_active_sd_set).grid(
-            row=1, column=2, sticky="ew", padx=2, pady=2
-        )
-
         action_frame = ttk.LabelFrame(right_top, text="Event Actions", padding=6)
         action_frame.pack(fill="x", pady=(6, 0))
         for col in range(2):
@@ -273,12 +252,11 @@ class SDAnalyzerApp:
         self.root.after(150, self._reset_main_layout)
         self._bind_main_keys()
         self._log_info("Application started in manual SD marking mode.")
-        self._refresh_sd_set_controls()
 
     def _build_menu(self) -> None:
         from shared_menu import build_shared_menu
 
-        build_shared_menu(self.root, self, mode="host")
+        build_shared_menu(self.root, self, mode="host", host_mode=False)
 
     def _browse_input(self) -> None:
         self._log_info("Input browse clicked.")
@@ -421,16 +399,16 @@ class SDAnalyzerApp:
         return self.browser_controller.save_session(path)
 
     def _new_project(self) -> None:
+        if not self.prepare_context_switch():
+            return
         self.browser_controller.reset_project()
         self.current_project_path = None
+        self.browser_controller.session.set_project_path(None)
         self.reader = None
         self.stack_info = None
         self.trace = None
         self.current_frame_idx = 0
         self.current_event_id = None
-        self._set_readers.clear()
-        self._set_stack_infos.clear()
-        self._set_input_dirs.clear()
         self._main_render_cache.clear()
         self._mini_raw_u8_cache.clear()
         self._mark_processed_cache.clear()
@@ -439,13 +417,12 @@ class SDAnalyzerApp:
         self.preview_label.configure(image="")
         self.preview_label_info.set("Frame: -")
         self._sync_event_projections()
-        self._refresh_sd_set_controls()
         self._set_status("New project created.")
         self._log_info("Project reset.")
 
     def _save_project(self) -> None:
-        if not self.browser_controller.list_sd_sets():
-            self._show_warning("Save Project", "No SD sets to save.")
+        if self.stack_info is None:
+            self._show_warning("Save Project", "Load a stack before saving.")
             return
         target = self.current_project_path
         if target is None:
@@ -463,6 +440,7 @@ class SDAnalyzerApp:
 
             def on_done() -> None:
                 self.current_project_path = state.project_path
+                self.browser_controller.session.set_project_path(self.current_project_path)
                 self._set_status(f"Saved project: {Path(self.current_project_path).name}")
                 self._log_info(f"Saved project to {self.current_project_path}.")
 
@@ -471,8 +449,8 @@ class SDAnalyzerApp:
         threading.Thread(target=worker, daemon=True).start()
 
     def _save_project_as(self) -> None:
-        if not self.browser_controller.list_sd_sets():
-            self._show_warning("Save Project", "No SD sets to save.")
+        if self.stack_info is None:
+            self._show_warning("Save Project", "Load a stack before saving.")
             return
         initial_dir = None
         initial_name = "session.sdproj"
@@ -504,6 +482,7 @@ class SDAnalyzerApp:
 
             def on_done() -> None:
                 self.current_project_path = state.project_path
+                self.browser_controller.session.set_project_path(self.current_project_path)
                 self._set_status(f"Saved project: {Path(self.current_project_path).name}")
                 self._log_info(f"Saved project as {self.current_project_path}.")
 
@@ -516,7 +495,6 @@ class SDAnalyzerApp:
             title="Open SD Project",
             filetypes=[
                 ("SD Project", "*.sdproj"),
-                ("Legacy Session", "*.sdsession"),
                 ("All files", "*.*"),
             ],
         )
@@ -525,154 +503,36 @@ class SDAnalyzerApp:
         self._open_project(path)
 
     def _open_project(self, path: str) -> None:
+        if not self.prepare_context_switch():
+            return
         try:
             state = self.browser_controller.open_session(path)
             self.current_project_path = state.project_path
-            self._set_readers.clear()
-            self._set_stack_infos.clear()
-            self._set_input_dirs.clear()
-            missing_dirs: list[str] = []
-            failed_sets: list[str] = []
-            for sd_set_id, sd_set in state.sd_sets.items():
-                stack_ref = sd_set.stack_ref
-                if stack_ref is None:
-                    continue
-                input_dir = str(stack_ref.input_dir or "")
-                if not input_dir:
-                    continue
-                self._set_input_dirs[str(sd_set_id)] = input_dir
-                if not Path(input_dir).exists():
-                    missing_dirs.append(f"{sd_set_id}: {input_dir}")
-                    continue
-                if not self._bind_reader_for_set(str(sd_set_id), input_dir, show_errors=False):
-                    failed_sets.append(str(sd_set_id))
-            self._refresh_sd_set_controls()
-            active_set_id = self.browser_controller.get_active_sd_set_id()
-            if active_set_id is not None:
-                self._activate_sd_set(active_set_id, prompt_on_missing=False)
-            if missing_dirs:
-                self._show_warning(
-                    "Open Project",
-                    "Some SD set folders are missing and were not rebound:\n\n" + "\n".join(missing_dirs),
-                )
-            if failed_sets:
-                self._show_warning(
-                    "Open Project",
-                    "Some SD sets failed to load from disk and need manual reload:\n\n" + "\n".join(failed_sets),
-                )
+            self.browser_controller.session.set_project_path(self.current_project_path)
+            stack_ref = state.stack_ref
+            if stack_ref is not None and str(stack_ref.input_dir or ""):
+                input_dir = str(stack_ref.input_dir)
+                if Path(input_dir).exists():
+                    reader = StackReader()
+                    info = reader.open_stack(input_dir)
+                    self.reader = reader
+                    self.stack_info = info
+                    self.browser_controller.bind_frame_source(reader)
+                    self._popup_engine.set_reader(reader)
+                    self.preview_scale.configure(from_=0, to=max(0, int(info.frame_count) - 1))
+                    frame_idx = 0
+                    active_event = self.browser_controller.selected_event()
+                    if active_event is not None:
+                        frame_idx = int(active_event.start_idx)
+                    self.preview_scale.set(frame_idx)
+                    self._update_preview(frame_idx)
+                else:
+                    self._show_warning("Open Project", f"Stack folder is missing and was not rebound:\n\n{input_dir}")
             self._set_status(f"Opened project: {Path(path).name}")
             self._log_info(f"Opened project from {path}.")
         except Exception as exc:
             self._log_error(f"Open project failed: {exc}")
             self._show_warning("Open Project", str(exc))
-
-    def _refresh_sd_set_controls(self) -> None:
-        sets = self.browser_controller.list_sd_sets()
-        self._sd_set_display_to_id = {}
-        values: list[str] = []
-        active_id = self.browser_controller.get_active_sd_set_id()
-        active_label = ""
-        for sd_set in sets:
-            display_name = str(sd_set.metadata.get("display_name", "")).strip() or str(sd_set.sd_set_id)
-            label = f"{display_name} [{sd_set.sd_set_id}]"
-            self._sd_set_display_to_id[label] = str(sd_set.sd_set_id)
-            values.append(label)
-            if str(sd_set.sd_set_id) == str(active_id):
-                active_label = label
-        if hasattr(self, "sd_set_combo"):
-            self.sd_set_combo["values"] = values
-            self._sd_set_var.set(active_label if active_label else (values[0] if values else ""))
-
-    def _on_sd_set_selected(self, _event=None) -> None:
-        label = self._sd_set_var.get()
-        sd_set_id = self._sd_set_display_to_id.get(label)
-        if not sd_set_id:
-            return
-        self._activate_sd_set(sd_set_id)
-
-    def _activate_sd_set(self, sd_set_id: str, prompt_on_missing: bool = True) -> None:
-        if not self.browser_controller.select_sd_set(sd_set_id):
-            return
-        if sd_set_id not in self._set_readers:
-            input_dir = self._set_input_dirs.get(sd_set_id)
-            if input_dir:
-                self._bind_reader_for_set(sd_set_id, input_dir, show_errors=prompt_on_missing)
-        reader = self._set_readers.get(sd_set_id)
-        info = self._set_stack_infos.get(sd_set_id)
-        if reader is not None and info is not None:
-            self.reader = reader
-            self._popup_engine.set_reader(reader)
-            self.stack_info = info
-            self.preview_scale.configure(from_=0, to=max(0, int(info.frame_count) - 1))
-            frame_idx = 0
-            active_event = self.browser_controller.selected_event()
-            if active_event is not None:
-                frame_idx = int(active_event.start_idx)
-            self.preview_scale.set(frame_idx)
-            self._update_preview(frame_idx)
-        else:
-            self.reader = None
-            self.stack_info = None
-            self.preview_label.configure(image="")
-            self.preview_label_info.set("Frame: -")
-        self._sync_event_projections()
-        self._refresh_sd_set_controls()
-        self._set_status(f"Active SD set: {sd_set_id}")
-
-    def _bind_reader_for_set(self, sd_set_id: str, input_dir: str, show_errors: bool = True) -> bool:
-        try:
-            reader = StackReader()
-            info = reader.open_stack(input_dir)
-            self._set_readers[sd_set_id] = reader
-            self._set_stack_infos[sd_set_id] = info
-            self._set_input_dirs[sd_set_id] = input_dir
-            self.browser_controller.bind_frame_source_for_set(sd_set_id, reader)
-            return True
-        except Exception as exc:
-            self._log_warn(f"Failed to bind SD set {sd_set_id} from {input_dir}: {exc}")
-            if show_errors:
-                self._show_warning("Missing SD Stack", f"Could not open stack for {sd_set_id}:\n{input_dir}\n\n{exc}")
-            return False
-
-    def _rename_active_sd_set(self) -> None:
-        active_id = self.browser_controller.get_active_sd_set_id()
-        if active_id is None:
-            self._show_warning("Rename SD Set", "No active SD set.")
-            return
-        current_name = active_id
-        for sd_set in self.browser_controller.list_sd_sets():
-            if sd_set.sd_set_id == active_id:
-                current_name = str(sd_set.metadata.get("display_name", "")).strip() or active_id
-                break
-        new_name = simpledialog.askstring("Rename SD Set", "Set display name:", initialvalue=current_name, parent=self.root)
-        if new_name is None:
-            return
-        if not self.browser_controller.rename_sd_set(active_id, new_name):
-            self._show_warning("Rename SD Set", "Unable to rename SD set.")
-            return
-        self._refresh_sd_set_controls()
-        self._set_status(f"Renamed SD set: {active_id}")
-
-    def _delete_active_sd_set(self) -> None:
-        active_id = self.browser_controller.get_active_sd_set_id()
-        if active_id is None:
-            self._show_warning("Delete SD Set", "No active SD set.")
-            return
-        if len(self.browser_controller.list_sd_sets()) <= 1:
-            self._show_warning("Delete SD Set", "At least one SD set must remain.")
-            return
-        if not messagebox.askyesno("Delete SD Set", f"Delete {active_id}?"):
-            return
-        if not self.browser_controller.delete_sd_set(active_id):
-            self._show_warning("Delete SD Set", "Unable to delete SD set.")
-            return
-        self._set_readers.pop(active_id, None)
-        self._set_stack_infos.pop(active_id, None)
-        self._set_input_dirs.pop(active_id, None)
-        next_active = self.browser_controller.get_active_sd_set_id()
-        self._refresh_sd_set_controls()
-        if next_active is not None:
-            self._activate_sd_set(next_active)
 
     def get_analysis_handoff_payload(self) -> dict | None:
         return self.browser_controller.handoff.selected_event_payload()
@@ -689,16 +549,85 @@ class SDAnalyzerApp:
         self._log_warn(f"Analysis sync rejected [{code}]: {message}")
         self._set_status(f"Analysis sync rejected: {code}")
 
-    def _on_analysis_state_update(self, event_id: str, analysis_payload: dict) -> None:
-        result = self.browser_controller.apply_direct_analysis_update(event_id, analysis_payload)
+    def _on_analysis_state_update(self, payload: dict) -> dict:
+        result = self.browser_controller.apply_direct_analysis_update(payload)
+        event_id = str(result.get("event_id", payload.get("event_id", "")))
         if bool(result.get("ok")):
             self._log_info(f"Analysis state updated for event {event_id}.")
             self._set_status(f"Analysis state saved: {event_id}")
-            return
+            return result
         code = str(result.get("code", "PAYLOAD_INVALID"))
         message = str(result.get("message", "Unknown analysis update error."))
         self._log_warn(f"Analysis update rejected [{code}]: {message}")
         self._set_status(f"Analysis update rejected: {code}")
+        return result
+
+    def _on_analysis_sync_result(self, result: dict) -> None:
+        if not isinstance(result, dict):
+            return
+        if bool(result.get("ok")):
+            return
+        code = str(result.get("code", "PAYLOAD_INVALID"))
+        message = str(result.get("message", "Host rejected sync update."))
+        self._log_warn(f"Analysis window reported host rejection [{code}]: {message}")
+
+    def _on_analysis_project_saved(self, project_path: str) -> None:
+        try:
+            resolved = str(Path(project_path).expanduser().resolve())
+        except Exception:
+            resolved = str(project_path)
+        self.current_project_path = resolved
+        self.browser_controller.session.set_project_path(resolved)
+        self._set_status(f"Project path updated from analysis: {Path(resolved).name}")
+        self._log_info(f"Analysis set host project save target to {resolved}.")
+
+    def _save_project_from_analysis(self, project_path: str) -> dict:
+        state = self.save_host_session(project_path)
+        resolved = str(Path(state.project_path).expanduser().resolve())
+        self.current_project_path = resolved
+        self.browser_controller.session.set_project_path(resolved)
+        self._set_status(f"Saved project from analysis: {Path(resolved).name}")
+        self._log_info(f"Host canonical save completed from analysis window: {resolved}.")
+        return {
+            "ok": True,
+            "project_path": resolved,
+        }
+
+    def close_analysis_windows_with_prompt(self) -> dict:
+        refs = list(self.analysis_window_manager.list_windows())
+        if not refs:
+            self._analysis_windows.clear()
+            return {"ok": True}
+        dirty_refs = [ref for ref in refs if bool(getattr(ref.app, "project_dirty", False))]
+        if dirty_refs:
+            count = len(dirty_refs)
+            response = messagebox.askyesnocancel(
+                "Open Analysis Windows",
+                (
+                    f"{count} analysis window(s) have unsaved changes.\n\n"
+                    "Yes = Save and continue\n"
+                    "No = Continue without saving\n"
+                    "Cancel = Abort"
+                ),
+            )
+            if response is None:
+                return {"ok": False, "reason": "cancelled"}
+            if response is True:
+                for ref in dirty_refs:
+                    try:
+                        ref.app.save_project()
+                    except Exception as exc:
+                        self._show_warning("Context Switch", f"Failed to save analysis window before switching:\n{exc}")
+                        return {"ok": False, "reason": "save_failed"}
+                    if bool(getattr(ref.app, "project_dirty", False)):
+                        return {"ok": False, "reason": "save_cancelled"}
+        self.analysis_window_manager.close_all()
+        self._analysis_windows.clear()
+        return {"ok": True}
+
+    def prepare_context_switch(self) -> bool:
+        result = self.close_analysis_windows_with_prompt()
+        return bool(result.get("ok"))
 
     def _load_analysis_app_class(self):
         from sdapp.analysis.ui.window import SDSegmentationApp
@@ -714,11 +643,8 @@ class SDAnalyzerApp:
             self._show_warning("Analyze SD", "Select an event first.")
             return
 
-        active_set_id = self.browser_controller.get_active_sd_set_id()
-        if active_set_id is None:
-            self._show_warning("Analyze SD", "No active SD set.")
-            return
-        if self.analysis_window_manager.focus_event_window(active_set_id, active_event_id):
+        window_scope = "__project__"
+        if self.analysis_window_manager.focus_event_window(window_scope, active_event_id):
             self._set_status(f"Focused analysis workspace for {active_event_id}.")
             return
 
@@ -757,7 +683,10 @@ class SDAnalyzerApp:
             open_result = app.open_from_host_context(
                 context,
                 frame_source=frame_source,
-                on_analysis_update=lambda payload, eid=active_event_id: self._on_analysis_state_update(eid, payload),
+                on_analysis_update=self._on_analysis_state_update,
+                on_project_saved=self._on_analysis_project_saved,
+                on_sync_result=self._on_analysis_sync_result,
+                on_host_project_save=self._save_project_from_analysis,
                 sync_emitter=None,
             )
             if not bool(open_result.get("ok")):
@@ -766,15 +695,20 @@ class SDAnalyzerApp:
                 win.destroy()
                 self._show_warning("Analyze SD", f"Open failed ({code}).\n{message}")
                 return
-            self.analysis_window_manager.open_event_window(active_set_id, active_event_id, win, app)
+            self.analysis_window_manager.open_event_window(window_scope, active_event_id, win, app)
             self._analysis_windows.append((win, app))
             from sdapp.shared.menu.factory import build_shared_menu
 
-            def _on_analysis_destroy(_event=None, sid=str(active_set_id), eid=str(active_event_id)) -> None:
+            def _on_analysis_destroy(_event=None, sid=str(window_scope), eid=str(active_event_id)) -> None:
                 self.analysis_window_manager.unregister(sid, eid)
+                self._analysis_windows = [
+                    (w, a)
+                    for (w, a) in self._analysis_windows
+                    if bool(hasattr(w, "winfo_exists") and w.winfo_exists())
+                ]
                 # Restore host menu when child window closes on macOS-style shared menu bars.
                 try:
-                    build_shared_menu(self.root, self, mode="host")
+                    build_shared_menu(self.root, self, mode="host", host_mode=False)
                 except Exception:
                     pass
 
@@ -797,6 +731,8 @@ class SDAnalyzerApp:
         folder = filedialog.askdirectory(title="Select Stack Folder")
         if not folder:
             self._log_info("Load Stack canceled: no input folder selected.")
+            return
+        if not self.prepare_context_switch():
             return
         self.input_var.set(folder)
         input_dir = folder
@@ -822,13 +758,8 @@ class SDAnalyzerApp:
         self.stack_info = info
         self.trace = None
         self.browser_controller.on_stack_loaded(reader, info)
-        active_set_id = self.browser_controller.get_active_sd_set_id()
-        if active_set_id is not None:
-            self._set_readers[str(active_set_id)] = reader
-            self._set_stack_infos[str(active_set_id)] = info
-            input_dir = str(getattr(self.stack_info, "input_dir", "") or self.input_var.get().strip())
-            if input_dir:
-                self._set_input_dirs[str(active_set_id)] = input_dir
+        self.current_project_path = None
+        self.browser_controller.session.set_project_path(None)
         self.current_event_id = None
         self.current_frame_idx = 0
         self._main_render_cache.clear()
@@ -842,7 +773,6 @@ class SDAnalyzerApp:
         self.preview_scale.configure(from_=0, to=max(0, info.frame_count - 1))
         self.preview_scale.set(0)
         self._update_preview(0)
-        self._refresh_sd_set_controls()
         self._redraw_main_overlay()
         self._set_status(f"Loaded {info.frame_count} frames ({info.frame_width}x{info.frame_height}, dtype={info.dtype})")
         self._log_info(

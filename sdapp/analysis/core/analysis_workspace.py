@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable, Any
 
+import numpy as np
+
 from sdapp.analysis.core.frame_source import FrameSource
 from sdapp.analysis.core.host_handoff import intake_host_handoff_payload
 from sdapp.analysis.core.project_session import ProjectSessionService, SessionSnapshot
@@ -48,6 +50,106 @@ class AnalysisWorkspaceController:
         self._on_event_opened = on_event_opened
         self._host_context: dict[str, Any] | None = None
         self._sync_emitter: Callable[[dict[str, Any]], None] | None = None
+
+    @staticmethod
+    def _normalize_frame_idx_to_local(
+        idx: int,
+        *,
+        frame_count: int,
+        scope_start: int | None,
+        scope_end: int | None,
+    ) -> int | None:
+        raw = int(idx)
+        if 0 <= raw < int(frame_count):
+            return raw
+        if scope_start is None or scope_end is None:
+            return None
+        if int(scope_start) <= raw <= int(scope_end):
+            local = int(raw) - int(scope_start)
+            if 0 <= local < int(frame_count):
+                return local
+        return None
+
+    def _normalize_prompts_to_local(
+        self,
+        prompts_payload: dict[str, Any],
+        *,
+        frame_count: int,
+        frame_shape: tuple[int, int],
+        scope_start: int | None,
+        scope_end: int | None,
+    ) -> tuple[dict[int, list[dict[str, Any]]], dict[int, dict[str, np.ndarray]]]:
+        tmp = SegmentationState()
+        tmp.load_prompts_json(prompts_payload, base_shape=frame_shape)
+        points: dict[int, list[dict[str, Any]]] = {}
+        paint_layers: dict[int, dict[str, np.ndarray]] = {}
+        for frame_idx, point_list in tmp.points.items():
+            local = self._normalize_frame_idx_to_local(
+                int(frame_idx),
+                frame_count=frame_count,
+                scope_start=scope_start,
+                scope_end=scope_end,
+            )
+            if local is None:
+                continue
+            points.setdefault(local, []).extend([dict(p) for p in list(point_list or [])])
+        for frame_idx, layer in tmp.paint_layers.items():
+            local = self._normalize_frame_idx_to_local(
+                int(frame_idx),
+                frame_count=frame_count,
+                scope_start=scope_start,
+                scope_end=scope_end,
+            )
+            if local is None:
+                continue
+            plus = np.asarray(layer.get("plus"), dtype=bool)
+            minus = np.asarray(layer.get("minus"), dtype=bool)
+            if plus.shape != frame_shape or minus.shape != frame_shape:
+                continue
+            existing = paint_layers.get(local)
+            if existing is None:
+                paint_layers[local] = {"plus": plus.copy(), "minus": minus.copy()}
+            else:
+                existing["plus"] = np.logical_or(existing["plus"], plus)
+                existing["minus"] = np.logical_or(existing["minus"], minus)
+        return points, paint_layers
+
+    def _normalize_masks_to_local(
+        self,
+        masks_payload: Any,
+        *,
+        frame_count: int,
+        scope_start: int | None,
+        scope_end: int | None,
+    ) -> dict[int, np.ndarray]:
+        if masks_payload is None:
+            return {}
+        if isinstance(masks_payload, dict):
+            out: dict[int, np.ndarray] = {}
+            for frame_idx, mask in masks_payload.items():
+                local = self._normalize_frame_idx_to_local(
+                    int(frame_idx),
+                    frame_count=frame_count,
+                    scope_start=scope_start,
+                    scope_end=scope_end,
+                )
+                if local is None:
+                    continue
+                arr = np.asarray(mask, dtype=bool)
+                if np.any(arr):
+                    out[local] = arr.copy()
+            return out
+
+        arr = np.asarray(masks_payload)
+        if arr.ndim != 3:
+            return {}
+        if arr.shape[0] == frame_count:
+            return self.session_service.array_to_masks_dict(arr, frame_count)
+        if scope_start is not None and scope_end is not None and arr.shape[0] > int(scope_end):
+            scoped = arr[int(scope_start) : int(scope_end) + 1]
+            if scoped.shape[0] == frame_count:
+                return self.session_service.array_to_masks_dict(scoped, frame_count)
+        return self.session_service.array_to_masks_dict(arr, frame_count)
 
     def bind_frame_source(self, frame_source: FrameSource | None) -> None:
         self.frame_source = frame_source
@@ -124,9 +226,14 @@ class AnalysisWorkspaceController:
         self._sync_emitter = sync_emitter
 
         flags = dict(event.get("flags", {})) if isinstance(event.get("flags"), dict) else {}
+        scope_start_raw = flags.get("analysis_scope_start_idx", event.get("start_idx", 0))
+        scope_end_raw = flags.get("analysis_scope_end_idx", event.get("end_idx", scope_start_raw))
+        scope_start = int(scope_start_raw) if scope_start_raw is not None else None
+        scope_end = int(scope_end_raw) if scope_end_raw is not None else None
         local_start = int(flags.get("analysis_local_event_start_idx", event.get("start_idx", 0)))
         local_end = int(flags.get("analysis_local_event_end_idx", event.get("end_idx", local_start)))
         frame_count = int(self.frame_source.frame_count)
+        frame_shape = tuple(int(v) for v in self.frame_source.frame_shape)
         records = self.session_state.event_records
         self.session_service.ensure_event_record(event_id, frame_count, records)
         self.session_service.update_event_metadata(
@@ -142,15 +249,24 @@ class AnalysisWorkspaceController:
             if record is not None:
                 prompts = initial_state.get("prompts")
                 if isinstance(prompts, dict):
-                    tmp = SegmentationState()
-                    tmp.load_prompts_json(prompts, base_shape=self.frame_source.frame_shape)
-                    record.analysis.points = self.session_service.copy_points_dict(tmp.points)
-                    record.analysis.paint_layers = self.session_service.copy_paint_layers(tmp.paint_layers)
+                    points, paint_layers = self._normalize_prompts_to_local(
+                        prompts,
+                        frame_count=frame_count,
+                        frame_shape=frame_shape,
+                        scope_start=scope_start,
+                        scope_end=scope_end,
+                    )
+                    record.analysis.points = self.session_service.copy_points_dict(points)
+                    record.analysis.paint_layers = self.session_service.copy_paint_layers(paint_layers)
                 masks_committed = initial_state.get("masks_committed")
                 if masks_committed is not None:
-                    arr = masks_committed
                     try:
-                        record.analysis.masks_committed = self.session_service.array_to_masks_dict(arr, frame_count)
+                        record.analysis.masks_committed = self._normalize_masks_to_local(
+                            masks_committed,
+                            frame_count=frame_count,
+                            scope_start=scope_start,
+                            scope_end=scope_end,
+                        )
                     except Exception:
                         pass
         self.open_event(event_id)

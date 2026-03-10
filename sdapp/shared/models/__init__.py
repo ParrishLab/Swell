@@ -1,7 +1,6 @@
 from sdapp.shared.models.state import (
     EventAnalysisState,
     EventMeta,
-    SDSetState,
     StackRef,
     UnifiedProjectState,
     clone_project_state,
@@ -10,7 +9,6 @@ from sdapp.shared.models.state import (
 __all__ = [
     "EventAnalysisState",
     "EventMeta",
-    "SDSetState",
     "StackRef",
     "UnifiedProjectState",
     "clone_project_state",

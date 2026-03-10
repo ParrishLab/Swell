@@ -11,9 +11,9 @@ from typing import Any
 
 import numpy as np
 
-from sdapp.shared.models import EventMeta, SDSetState, StackRef, UnifiedProjectState
+from sdapp.shared.models import EventMeta, StackRef, UnifiedProjectState
 
-HOST_PROJECT_SCHEMA_VERSION = 1
+HOST_PROJECT_SCHEMA_VERSION = 2
 HOST_PERSISTENCE_OWNER = "host_sdproj"
 
 
@@ -66,12 +66,14 @@ def _coerce_events(raw: Any) -> list[EventMeta]:
         if not isinstance(event, dict):
             continue
         try:
+            start = event.get("global_start_idx", event.get("start_idx", event.get("frame_start", 0)))
+            end = event.get("global_end_idx", event.get("end_idx", event.get("frame_end", 0)))
             out.append(
                 EventMeta(
                     event_id=str(event.get("event_id", event.get("id", ""))),
                     label=str(event.get("label", event.get("event_id", event.get("id", "")))),
-                    start_idx=int(event.get("start_idx", event.get("frame_start", 0))),
-                    end_idx=int(event.get("end_idx", event.get("frame_end", 0))),
+                    global_start_idx=int(start),
+                    global_end_idx=int(end),
                     flags=dict(event.get("flags", {})),
                 )
             )
@@ -95,46 +97,56 @@ class UnifiedProjectStore:
             with zipfile.ZipFile(tmp_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
                 manifest = {
                     "schema_version": HOST_PROJECT_SCHEMA_VERSION,
-                    "active_sd_set_id": state.active_sd_set_id,
+                    "active_event_id": state.active_event_id,
                     "metadata": dict(state.metadata),
                     "persistence": {"owner": HOST_PERSISTENCE_OWNER},
-                    "sd_sets": sorted(state.sd_sets.keys()),
                 }
                 _write_json(zf, "manifest.json", manifest)
-                for sd_set_id, sd_set in state.sd_sets.items():
-                    base = f"sd_sets/{sd_set_id}"
-                    _write_json(zf, f"{base}/stack.json", asdict(sd_set.stack_ref) if sd_set.stack_ref is not None else None)
-                    _write_json(zf, f"{base}/events.json", [asdict(event) for event in sd_set.events])
-                    sidecar_manifest: dict[str, Any] = {}
-                    for event_id, payload in dict(sd_set.analysis_sidecar).items():
-                        key = str(event_id)
-                        event_base = f"{base}/events/{key}"
-                        if not isinstance(payload, dict):
-                            sidecar_manifest[key] = payload
-                            continue
-                        entry: dict[str, Any] = {}
-                        prompts = payload.get("prompts")
-                        if isinstance(prompts, dict):
-                            prompts_ref = f"{event_base}/prompts.json"
-                            _write_json(zf, prompts_ref, prompts)
-                            entry["prompts_ref"] = prompts_ref
-                        masks_committed = payload.get("masks_committed")
-                        if masks_committed is not None:
-                            masks_ref = f"{event_base}/masks.npz"
-                            _write_npz(zf, masks_ref, masks_committed)
-                            entry["masks_committed_ref"] = masks_ref
-                        masks_draft = payload.get("masks_draft")
-                        if masks_draft is not None:
-                            draft_ref = f"{event_base}/masks_draft.npz"
-                            _write_npz(zf, draft_ref, masks_draft)
-                            entry["masks_draft_ref"] = draft_ref
-                        for k in ("propagation_completed", "analysis_output_dir", "encoding", "frame_count", "shape", "blob_ref"):
-                            if k in payload:
-                                entry[k] = payload.get(k)
-                        sidecar_manifest[key] = entry
-                    _write_json(zf, f"{base}/analysis_sidecar.json", sidecar_manifest)
-                    _write_json(zf, f"{base}/metadata.json", dict(sd_set.metadata))
-                    _write_json(zf, f"{base}/active_event.json", {"active_event_id": sd_set.active_event_id})
+                _write_json(zf, "stack.json", asdict(state.stack_ref) if state.stack_ref is not None else None)
+                _write_json(
+                    zf,
+                    "events.json",
+                    [
+                        {
+                            "event_id": str(event.event_id),
+                            "label": str(event.label),
+                            "global_start_idx": int(event.start_idx),
+                            "global_end_idx": int(event.end_idx),
+                            "flags": dict(event.flags),
+                        }
+                        for event in state.events
+                    ],
+                )
+
+                sidecar_manifest: dict[str, Any] = {}
+                for event_id, payload in dict(state.analysis_sidecar).items():
+                    key = str(event_id)
+                    event_base = f"events/{key}"
+                    if not isinstance(payload, dict):
+                        sidecar_manifest[key] = payload
+                        continue
+                    entry: dict[str, Any] = {}
+                    prompts = payload.get("prompts")
+                    if isinstance(prompts, dict):
+                        prompts_ref = f"{event_base}/prompts.json"
+                        _write_json(zf, prompts_ref, prompts)
+                        entry["prompts_ref"] = prompts_ref
+                    masks_committed = payload.get("masks_committed")
+                    if masks_committed is not None:
+                        masks_ref = f"{event_base}/masks.npz"
+                        _write_npz(zf, masks_ref, masks_committed)
+                        entry["masks_committed_ref"] = masks_ref
+                    masks_draft = payload.get("masks_draft")
+                    if masks_draft is not None:
+                        draft_ref = f"{event_base}/masks_draft.npz"
+                        _write_npz(zf, draft_ref, masks_draft)
+                        entry["masks_draft_ref"] = draft_ref
+                    for k in ("propagation_completed", "analysis_output_dir", "encoding", "frame_count", "shape", "blob_ref"):
+                        if k in payload:
+                            entry[k] = payload.get(k)
+                    sidecar_manifest[key] = entry
+
+                _write_json(zf, "analysis_sidecar.json", sidecar_manifest)
             tmp_path.replace(target)
         finally:
             if tmp_path.exists():
@@ -145,153 +157,47 @@ class UnifiedProjectStore:
         with zipfile.ZipFile(src, "r") as zf:
             manifest = _read_json(zf, "manifest.json", default={})
             if not isinstance(manifest, dict) or not manifest:
-                raise ValueError("Not a host multi-SD .sdproj container")
+                raise ValueError("Not a host .sdproj container")
             persistence = manifest.get("persistence", {}) if isinstance(manifest, dict) else {}
             owner = persistence.get("owner")
             if owner is not None and str(owner) != HOST_PERSISTENCE_OWNER:
                 raise ValueError(f"Unsupported persistence owner: {owner}")
-            active_sd_set_id = manifest.get("active_sd_set_id") if isinstance(manifest, dict) else None
+
+            stack_ref = _coerce_stack_ref(_read_json(zf, "stack.json", default=None))
+            events = _coerce_events(_read_json(zf, "events.json", default=[]))
             metadata = dict(manifest.get("metadata", {})) if isinstance(manifest, dict) else {}
-            sd_sets: dict[str, SDSetState] = {}
-            for sd_set_id in list(manifest.get("sd_sets", [])) if isinstance(manifest, dict) else []:
-                set_id = str(sd_set_id)
-                base = f"sd_sets/{set_id}"
-                stack_ref = _coerce_stack_ref(_read_json(zf, f"{base}/stack.json", default=None))
-                events = _coerce_events(_read_json(zf, f"{base}/events.json", default=[]))
-                sidecar_raw = _read_json(zf, f"{base}/analysis_sidecar.json", default={})
-                sidecar: dict[str, Any] = {}
-                if isinstance(sidecar_raw, dict):
-                    for event_id, entry in sidecar_raw.items():
-                        key = str(event_id)
-                        if not isinstance(entry, dict):
-                            sidecar[key] = entry
-                            continue
-                        loaded_entry = dict(entry)
-                        prompts_ref = loaded_entry.pop("prompts_ref", None)
-                        if isinstance(prompts_ref, str):
-                            loaded_entry["prompts"] = _read_json(zf, prompts_ref, default={})
-                        masks_ref = loaded_entry.pop("masks_committed_ref", None)
-                        if isinstance(masks_ref, str):
-                            masks = _read_npz(zf, masks_ref)
-                            if masks is not None:
-                                loaded_entry["masks_committed"] = masks
-                        draft_ref = loaded_entry.pop("masks_draft_ref", None)
-                        if isinstance(draft_ref, str):
-                            draft = _read_npz(zf, draft_ref)
-                            if draft is not None:
-                                loaded_entry["masks_draft"] = draft
-                        sidecar[key] = loaded_entry
-                set_meta = _read_json(zf, f"{base}/metadata.json", default={})
-                active_event = _read_json(zf, f"{base}/active_event.json", default={}).get("active_event_id")
-                sd_sets[set_id] = SDSetState(
-                    sd_set_id=set_id,
-                    stack_ref=stack_ref,
-                    events=events,
-                    active_event_id=str(active_event) if active_event is not None else None,
-                    analysis_sidecar=dict(sidecar) if isinstance(sidecar, dict) else {},
-                    metadata=dict(set_meta) if isinstance(set_meta, dict) else {},
-                )
+            active_event_id = manifest.get("active_event_id") if isinstance(manifest, dict) else None
+
+            sidecar_raw = _read_json(zf, "analysis_sidecar.json", default={})
+            sidecar: dict[str, Any] = {}
+            if isinstance(sidecar_raw, dict):
+                for event_id, entry in sidecar_raw.items():
+                    key = str(event_id)
+                    if not isinstance(entry, dict):
+                        sidecar[key] = entry
+                        continue
+                    loaded_entry = dict(entry)
+                    prompts_ref = loaded_entry.pop("prompts_ref", None)
+                    if isinstance(prompts_ref, str):
+                        loaded_entry["prompts"] = _read_json(zf, prompts_ref, default={})
+                    masks_ref = loaded_entry.pop("masks_committed_ref", None)
+                    if isinstance(masks_ref, str):
+                        masks = _read_npz(zf, masks_ref)
+                        if masks is not None:
+                            loaded_entry["masks_committed"] = masks
+                    draft_ref = loaded_entry.pop("masks_draft_ref", None)
+                    if isinstance(draft_ref, str):
+                        draft = _read_npz(zf, draft_ref)
+                        if draft is not None:
+                            loaded_entry["masks_draft"] = draft
+                    sidecar[key] = loaded_entry
+
             return UnifiedProjectState(
-                active_sd_set_id=str(active_sd_set_id) if active_sd_set_id is not None else None,
-                sd_sets=sd_sets,
+                stack_ref=stack_ref,
+                events=events,
+                active_event_id=str(active_event_id) if active_event_id is not None else None,
+                analysis_sidecar=sidecar,
                 project_path=str(src),
                 dirty=False,
                 metadata=metadata,
-            )
-
-    def load_legacy_sdsession(self, source_path: str | Path) -> UnifiedProjectState:
-        src = Path(source_path).expanduser().resolve()
-        payload = json.loads(src.read_text(encoding="utf-8"))
-        persistence = payload.get("persistence")
-        if isinstance(persistence, dict):
-            owner = persistence.get("owner")
-            if owner is not None and str(owner) not in ("host_sdsession", HOST_PERSISTENCE_OWNER):
-                raise ValueError(f"Unsupported persistence owner: {owner}")
-        sd_set_id = "sd_set_0001"
-        stack_ref = _coerce_stack_ref(payload.get("stack_ref"))
-        events = _coerce_events(payload.get("events", []))
-        metadata = dict(payload.get("metadata", {}))
-        sidecar = payload.get("analysis_sidecar")
-        if not isinstance(sidecar, dict):
-            sidecar = metadata.get("analysis_sidecar", {})
-        sd_set = SDSetState(
-            sd_set_id=sd_set_id,
-            stack_ref=stack_ref,
-            events=events,
-            active_event_id=payload.get("active_event_id"),
-            analysis_sidecar=dict(sidecar) if isinstance(sidecar, dict) else {},
-            metadata={},
-        )
-        return UnifiedProjectState(
-            active_sd_set_id=sd_set_id,
-            sd_sets={sd_set_id: sd_set},
-            project_path=str(src),
-            dirty=False,
-            metadata=metadata,
-        )
-
-    def load_legacy_host_sdproj(self, source_path: str | Path) -> UnifiedProjectState:
-        return self.load(source_path)
-
-    def load_legacy_portable_sdproj(self, source_path: str | Path) -> UnifiedProjectState:
-        src = Path(source_path).expanduser().resolve()
-        with zipfile.ZipFile(src, "r") as zf:
-            state = _read_json(zf, "project_state.json", default={})
-            images = _read_json(zf, "images.json", default={"images": []})
-            if not state:
-                raise ValueError("Invalid legacy .sdproj: missing project_state.json")
-            frame_count = 0
-            for ev in state.get("events", []):
-                try:
-                    frame_count = max(frame_count, int(ev.get("frame_end", 0)) + 1)
-                except Exception:
-                    continue
-            frame_h = 0
-            frame_w = 0
-            dtype = "uint8"
-            for ev in state.get("events", []):
-                event_id = str(ev.get("id", ""))
-                masks_ref = str(ev.get("masks_ref", f"events/{event_id}/masks.npz"))
-                try:
-                    with zf.open(masks_ref, "r") as f:
-                        with np.load(io.BytesIO(f.read())) as npz:
-                            arr = np.array(npz["masks"])
-                        if arr.ndim == 3:
-                            _, frame_h, frame_w = arr.shape
-                            frame_count = max(frame_count, int(arr.shape[0]))
-                            dtype = str(arr.dtype)
-                            break
-                except Exception:
-                    continue
-            first_image = ""
-            for img in images.get("images", []):
-                if isinstance(img, dict):
-                    first_image = str(img.get("absolute_path", "") or img.get("relative_path", ""))
-                    if first_image:
-                        break
-            input_dir = str(Path(first_image).parent) if first_image else ""
-            stack_ref = StackRef(
-                input_dir=input_dir,
-                frame_count=frame_count,
-                frame_height=frame_h,
-                frame_width=frame_w,
-                dtype=dtype,
-            )
-            events = _coerce_events(state.get("events", []))
-            active_event = state.get("ui_state", {}).get("active_event_id")
-            sd_set_id = "sd_set_0001"
-            sd_set = SDSetState(
-                sd_set_id=sd_set_id,
-                stack_ref=stack_ref,
-                events=events,
-                active_event_id=str(active_event) if active_event is not None else None,
-                analysis_sidecar={},
-                metadata={},
-            )
-            return UnifiedProjectState(
-                active_sd_set_id=sd_set_id,
-                sd_sets={sd_set_id: sd_set},
-                project_path=str(src),
-                dirty=False,
-                metadata={},
             )

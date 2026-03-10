@@ -14,7 +14,7 @@ def _resolve_command(app, candidates: Iterable[str]) -> MenuCommand | None:
     return None
 
 
-def build_shared_menu(root, app, *, mode: str) -> tk.Menu:
+def build_shared_menu(root, app, *, mode: str, host_mode: bool = False) -> tk.Menu:
     """Build a unified menu bar for both host and analysis windows."""
     menu = tk.Menu(root)
     file_menu = tk.Menu(menu, tearoff=False)
@@ -46,9 +46,18 @@ def build_shared_menu(root, app, *, mode: str) -> tk.Menu:
         "Import Folder...": {"host"},
         "Export Folder...": {"host"},
     }
+    host_mode_disabled_labels = {
+        "New Project",
+        "Open Project...",
+        "Convert to Project...",
+        "Recover Autosave...",
+    }
     for label, names in file_items:
         if label is None:
             file_menu.add_separator()
+            continue
+        if mode == "analysis" and bool(host_mode) and label in host_mode_disabled_labels:
+            file_menu.add_command(label=label, state="disabled")
             continue
         allowed = mode_allow.get(label)
         if allowed is not None and mode not in allowed:

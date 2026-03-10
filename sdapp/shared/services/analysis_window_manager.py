@@ -14,17 +14,20 @@ class AnalysisWindowManager:
     def __init__(self) -> None:
         self._windows: dict[tuple[str, str], AnalysisWindowRef] = {}
 
-    def get(self, sd_set_id: str, event_id: str) -> AnalysisWindowRef | None:
-        return self._windows.get((str(sd_set_id), str(event_id)))
+    def get(self, scope_id: str, event_id: str) -> AnalysisWindowRef | None:
+        return self._windows.get((str(scope_id), str(event_id)))
 
-    def open_event_window(self, sd_set_id: str, event_id: str, window, app) -> AnalysisWindowRef:
-        key = (str(sd_set_id), str(event_id))
+    def open_event_window(self, scope_id: str, event_id: str, window, app) -> AnalysisWindowRef:
+        key = (str(scope_id), str(event_id))
         ref = AnalysisWindowRef(key=key, window=window, app=app)
         self._windows[key] = ref
         return ref
 
-    def focus_event_window(self, sd_set_id: str, event_id: str) -> bool:
-        ref = self.get(sd_set_id, event_id)
+    def list_windows(self) -> list[AnalysisWindowRef]:
+        return list(self._windows.values())
+
+    def focus_event_window(self, scope_id: str, event_id: str) -> bool:
+        ref = self.get(scope_id, event_id)
         if ref is None:
             return False
         win = ref.window
@@ -37,8 +40,8 @@ class AnalysisWindowManager:
             return False
         return False
 
-    def close_event_window(self, sd_set_id: str, event_id: str) -> None:
-        key = (str(sd_set_id), str(event_id))
+    def close_event_window(self, scope_id: str, event_id: str) -> None:
+        key = (str(scope_id), str(event_id))
         ref = self._windows.pop(key, None)
         if ref is None:
             return
@@ -51,8 +54,8 @@ class AnalysisWindowManager:
         except Exception:
             pass
 
-    def unregister(self, sd_set_id: str, event_id: str) -> None:
-        self._windows.pop((str(sd_set_id), str(event_id)), None)
+    def unregister(self, scope_id: str, event_id: str) -> None:
+        self._windows.pop((str(scope_id), str(event_id)), None)
 
     def close_all(self) -> None:
         refs = list(self._windows.values())

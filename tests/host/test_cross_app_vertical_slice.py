@@ -107,7 +107,7 @@ def test_vertical_slice_stack_mismatch_rejected() -> None:
     assert rejected["code"] == ValidatorErrorCode.STACK_MISMATCH
 
 
-def test_vertical_slice_rejects_payload_from_non_active_sd_set() -> None:
+def test_vertical_slice_rejects_payload_from_previous_project_context() -> None:
     host = BrowserController()
     host.on_stack_loaded(FakeReader(), FakeStackInfo("/tmp/in_a"))
     event_a = host.create_event(start_idx=2, end_idx=5, frame_count=8)
@@ -128,4 +128,4 @@ def test_vertical_slice_rejects_payload_from_non_active_sd_set() -> None:
 
     rejected = host.apply_analysis_sync(sync_payload)
     assert rejected["ok"] is False
-    assert rejected["code"] == ValidatorErrorCode.STACK_MISMATCH
+    assert rejected["code"] == ValidatorErrorCode.SESSION_MISMATCH

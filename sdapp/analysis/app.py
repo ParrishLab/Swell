@@ -64,18 +64,33 @@ except ImportError:
 
 
 class PrintLogger:
-    def __init__(self, text_widget, root):
+    def __init__(self, text_widget, root, *, dark_theme: bool = True):
         self.text_widget = text_widget
         self.root = root
+        self.dark_theme = bool(dark_theme)
         self._init_tags()
 
     def _init_tags(self):
-        self.text_widget.tag_configure("level_default", foreground="#ffffff")
-        self.text_widget.tag_configure("level_info", foreground="#9ad0ff")
-        self.text_widget.tag_configure("level_success", foreground="#8ee58e")
-        self.text_widget.tag_configure("level_warn", foreground="#ffd27f")
-        self.text_widget.tag_configure("level_error", foreground="#ff9a9a")
-        self.text_widget.tag_configure("level_debug", foreground="#b9b9b9")
+        if self.dark_theme:
+            colors = {
+                "level_default": "#ffffff",
+                "level_info": "#9ad0ff",
+                "level_success": "#8ee58e",
+                "level_warn": "#ffd27f",
+                "level_error": "#ff9a9a",
+                "level_debug": "#b9b9b9",
+            }
+        else:
+            colors = {
+                "level_default": "#1f1f1f",
+                "level_info": "#1f4ea8",
+                "level_success": "#0f6b0f",
+                "level_warn": "#8a5b00",
+                "level_error": "#9f1d1d",
+                "level_debug": "#555555",
+            }
+        for tag, color in colors.items():
+            self.text_widget.tag_configure(tag, foreground=color)
 
     def _tag_for_message(self, message):
         stripped = message.lstrip()
@@ -225,6 +240,9 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         self._controls_hint_logged = False
         self._host_mode = bool(host_mode)
         self._host_analysis_updater = None
+        self._host_project_saved_notifier = None
+        self._host_sync_result_notifier = None
+        self._host_project_saver = None
 
         # Config
         self.config = AppConfig.load()
@@ -250,17 +268,20 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         )
 
         # UI Layout
-        apply_theme(self.root)
+        # Tk ttk styles are process-global. In integrated host mode, applying
+        # the analysis dark theme would restyle the host window as well.
+        if not self._host_mode:
+            apply_theme(self.root)
         self.setup_ui()
         if menu_builder is not None:
-            self._menu_bar = menu_builder(self.root, self, mode=menu_mode)
+            self._menu_bar = menu_builder(self.root, self, mode=menu_mode, host_mode=self._host_mode)
         else:
             self._setup_project_menu()
         self.root.bind("<FocusIn>", self._ensure_menu_bar_bound, add="+")
         self.btn_run.configure(state="disabled")
         self._validate_assets()
 
-        self.logger = PrintLogger(self.log_text, self.root)
+        self.logger = PrintLogger(self.log_text, self.root, dark_theme=not self._host_mode)
         sys.stdout = self.logger
         sys.stderr = self.logger
         self._cleanup_stale_autosave_temps()
@@ -1058,8 +1079,26 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
             payload = self.analysis_workspace.export_active_event_analysis_payload()
             if payload is not None:
                 try:
-                    self._host_analysis_updater(payload)
-                    self.log_debug("HostSync", f"Applied direct host update on {reason}.")
+                    result = self._host_analysis_updater(payload)
+                    if isinstance(result, dict):
+                        if bool(result.get("ok")):
+                            self.log_debug("HostSync", f"Applied direct host update on {reason}.")
+                        else:
+                            code = str(result.get("code", "PAYLOAD_INVALID"))
+                            message = str(result.get("message", "Host rejected update."))
+                            self.log_warn("HostSync", f"Host rejected update [{code}]: {message}")
+                            try:
+                                self.lbl_status.configure(text=f"Status: Host rejected sync ({code})", foreground="orange")
+                            except Exception:
+                                pass
+                        notifier = getattr(self, "_host_sync_result_notifier", None)
+                        if callable(notifier):
+                            try:
+                                notifier(result)
+                            except Exception:
+                                pass
+                    else:
+                        self.log_debug("HostSync", f"Applied direct host update on {reason}.")
                 except Exception as exc:
                     self.log_warn("HostSync", f"Direct host update failed: {exc}")
             return payload
@@ -1125,11 +1164,17 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         context: dict,
         frame_source=None,
         on_analysis_update=None,
+        on_project_saved=None,
+        on_sync_result=None,
+        on_host_project_save=None,
         sync_emitter=None,
     ):
         self._ensure_analysis_workspace()
         self._host_mode = True
         self._host_analysis_updater = on_analysis_update
+        self._host_project_saved_notifier = on_project_saved
+        self._host_sync_result_notifier = on_sync_result
+        self._host_project_saver = on_host_project_save
         scoped_source = frame_source
         if frame_source is not None:
             event = dict(context.get("event", {})) if isinstance(context, dict) else {}
@@ -1160,6 +1205,10 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
             self.root.after_idle(lambda: self.update_display(update_preview=True))
             self.root.after(120, lambda: self.update_display(update_preview=True))
             self.log_info("HostMode", "Host direct workspace initialized.")
+            try:
+                self.lbl_status.configure(text="Status: Host-bound mode (project managed by SD ID)", foreground="gray")
+            except Exception:
+                pass
         model_path = ""
         try:
             model_path = str(self.entry_model.get() or "").strip()
@@ -1176,6 +1225,9 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         self._ensure_analysis_workspace()
         self._host_mode = True
         self._host_analysis_updater = None
+        self._host_project_saved_notifier = None
+        self._host_sync_result_notifier = None
+        self._host_project_saver = None
         scoped_source = frame_source
         if frame_source is not None:
             event = dict(payload.get("event", {})) if isinstance(payload, dict) else {}

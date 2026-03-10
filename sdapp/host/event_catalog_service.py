@@ -46,8 +46,8 @@ class EventCatalogService:
         event = EventMeta(
             event_id=event_id,
             label=str(label if label is not None else event_id),
-            start_idx=int(start_idx),
-            end_idx=int(end_idx),
+            global_start_idx=int(start_idx),
+            global_end_idx=int(end_idx),
             flags={},
         )
         self._events[event_id] = event

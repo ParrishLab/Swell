@@ -7,6 +7,13 @@ from sdapp.analysis.ui.widgets import build_preview_overlay
 
 class LayoutBuilder:
     def setup_ui(self):
+        is_host_mode = bool(getattr(self, "_host_mode", False))
+        canvas_bg = "#f1f1f1" if is_host_mode else "#222222"
+        slider_overlay_bg = "#d4d7db" if is_host_mode else "#2a2b2f"
+        log_bg = "#ffffff" if is_host_mode else "#000000"
+        log_fg = "#1f1f1f" if is_host_mode else "#ffffff"
+        insert_cursor = "#1f1f1f" if is_host_mode else "#ffffff"
+
         # 1. Top Control Panel
         control_frame = ttk.LabelFrame(self.root, text="Configuration", padding=10)
         control_frame.pack(fill="x", padx=10, pady=5)
@@ -54,7 +61,7 @@ class LayoutBuilder:
         # Left Panel
         self.panel_left = ttk.LabelFrame(viz_frame, text="Interactive Selection (Global Norm)", padding=5)
         self.panel_left.pack(side="left", fill="both", expand=True)
-        self.canvas_left = tk.Canvas(self.panel_left, bg="#222", cursor="cross")
+        self.canvas_left = tk.Canvas(self.panel_left, bg=canvas_bg, cursor="cross")
         self.canvas_left.pack(fill="both", expand=True)
 
         # Mouse Bindings
@@ -67,13 +74,17 @@ class LayoutBuilder:
 
         # Preview Window (Top Right Overlay)
         self.preview_frame, self.canvas_preview, self.lbl_grip = build_preview_overlay(
-            self.canvas_left, self.start_resize_preview, self.do_resize_preview, self.stop_resize_preview
+            self.canvas_left,
+            self.start_resize_preview,
+            self.do_resize_preview,
+            self.stop_resize_preview,
+            dark_theme=not is_host_mode,
         )
 
         # Right Panel
         self.panel_right = ttk.LabelFrame(viz_frame, text="Reference View", padding=5)
         self.panel_right.pack(side="right", fill="both", expand=True)
-        self.canvas_right = tk.Canvas(self.panel_right, bg="#222")
+        self.canvas_right = tk.Canvas(self.panel_right, bg=canvas_bg)
         self.canvas_right.pack(fill="both", expand=True)
         self.canvas_right.bind("<Button-1>", self.on_right_canvas_click)
         self.canvas_right.bind("<Double-Button-1>", self.on_right_canvas_double_click)
@@ -94,7 +105,7 @@ class LayoutBuilder:
         self.slider_overlay = tk.Canvas(
             slider_wrap,
             height=12,
-            bg="#2a2b2f",
+            bg=slider_overlay_bg,
             highlightthickness=0,
             bd=0,
             cursor="hand2",
@@ -256,8 +267,8 @@ class LayoutBuilder:
             log_frame,
             height=6,
             state="disabled",
-            bg="#000000",
-            fg="#FFFFFF",
+            bg=log_bg,
+            fg=log_fg,
             font=("Consolas", 9),
         )
         self.log_text.pack(fill="both", expand=True)
@@ -277,10 +288,10 @@ class LayoutBuilder:
             self.entry_seconds_per_frame,
         ]:
             try:
-                text_widget.configure(insertbackground="#ffffff", insertwidth=2, insertontime=600, insertofftime=300)
+                text_widget.configure(insertbackground=insert_cursor, insertwidth=2, insertontime=600, insertofftime=300)
             except Exception:
                 try:
-                    text_widget.configure(insertcolor="#ffffff", insertwidth=2, insertontime=600, insertofftime=300)
+                    text_widget.configure(insertcolor=insert_cursor, insertwidth=2, insertontime=600, insertofftime=300)
                 except Exception:
                     pass
 

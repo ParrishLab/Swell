@@ -51,11 +51,30 @@ def setup_project_menu(app) -> None:
     """Configure the top-level File menu."""
     from sdapp.shared.menu.factory import build_shared_menu
 
-    app._menu_bar = build_shared_menu(app.root, app, mode="analysis")
+    app._menu_bar = build_shared_menu(app.root, app, mode="analysis", host_mode=bool(getattr(app, "_host_mode", False)))
 
 
 def save_project_to_path(app, target_path: str | Path, is_autosave: bool = False) -> None:
-    cleanup_stale_temp_files(Path(target_path).parent, pattern="*.sdproj.tmp", older_than_sec=86400)
+    target_path = Path(target_path).expanduser().resolve()
+    if bool(getattr(app, "_host_mode", False)) and callable(getattr(app, "_host_project_saver", None)) and not is_autosave:
+        if hasattr(app, "_emit_host_sync"):
+            app._emit_host_sync(reason="save")
+        state = app._host_project_saver(str(target_path))
+        if isinstance(state, dict):
+            path_from_state = state.get("project_path")
+            if isinstance(path_from_state, str) and path_from_state:
+                target_path = Path(path_from_state).expanduser().resolve()
+        app.current_project_path = str(target_path)
+        notifier = getattr(app, "_host_project_saved_notifier", None)
+        if callable(notifier):
+            try:
+                notifier(str(target_path))
+            except Exception:
+                pass
+        app.project_dirty = False
+        app.log_success("Project", f"Saved project: {target_path}")
+        return
+    cleanup_stale_temp_files(target_path.parent, pattern="*.sdproj.tmp", older_than_sec=86400)
     state, images_manifest, roi_data, event_payloads = app._build_project_payload()
     store = getattr(getattr(app, "app_context", None), "project_store", app.project_store)
     store.save(
@@ -70,6 +89,12 @@ def save_project_to_path(app, target_path: str | Path, is_autosave: bool = False
         app._emit_host_sync(reason="autosave" if is_autosave else "save")
     if not is_autosave:
         app.current_project_path = str(target_path)
+        notifier = getattr(app, "_host_project_saved_notifier", None)
+        if callable(notifier):
+            try:
+                notifier(str(target_path))
+            except Exception:
+                pass
         app.project_dirty = False
         app.log_success("Project", f"Saved project: {target_path}")
 
@@ -99,12 +124,13 @@ def save_project_as(app) -> None:
     )
     if not target:
         return
-    app._project_embed_images = bool(
-        messagebox.askyesno(
-            "Embed Images?",
-            "Embed source images inside project file?\n\nYes = larger but portable\nNo = reference-only",
+    if not bool(getattr(app, "_host_mode", False)):
+        app._project_embed_images = bool(
+            messagebox.askyesno(
+                "Embed Images?",
+                "Embed source images inside project file?\n\nYes = larger but portable\nNo = reference-only",
+            )
         )
-    )
     save_project_to_path(app, target, is_autosave=False)
 
 

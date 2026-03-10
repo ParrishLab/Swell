@@ -38,10 +38,10 @@ def test_window_manager_single_registration_focus_and_close() -> None:
     manager = AnalysisWindowManager()
     win = FakeWindow()
     app = FakeApp(win)
-    manager.open_event_window("sd_set_0001", "event_0001", win, app)
-    assert manager.focus_event_window("sd_set_0001", "event_0001") is True
+    manager.open_event_window("project", "event_0001", win, app)
+    assert manager.focus_event_window("project", "event_0001") is True
     assert win.lifted is True
     assert win.focused is True
-    manager.close_event_window("sd_set_0001", "event_0001")
+    manager.close_event_window("project", "event_0001")
     assert app.closed is True
-    assert manager.get("sd_set_0001", "event_0001") is None
+    assert manager.get("project", "event_0001") is None

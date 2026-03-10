@@ -6,61 +6,61 @@ import zipfile
 
 import numpy as np
 
+from sdapp.shared.models import EventMeta, StackRef, UnifiedProjectState
 from sdapp.shared.persistence import UnifiedProjectStore
 
 
-def test_legacy_sdsession_migrates_to_multi_sd_state(tmp_path) -> None:
-    payload = {
-        "stack_ref": {
-            "input_dir": "/tmp/in",
-            "frame_count": 5,
-            "frame_height": 16,
-            "frame_width": 16,
-            "dtype": "uint8",
-        },
-        "events": [
-            {"event_id": "event_0001", "label": "E1", "start_idx": 1, "end_idx": 3, "flags": {}},
-        ],
-        "active_event_id": "event_0001",
-        "analysis_sidecar": {"event_0001": {"prompts": {"points": []}}},
-        "metadata": {"session_id": "session_abc"},
-    }
-    src = tmp_path / "legacy.sdsession"
-    src.write_text(json.dumps(payload), encoding="utf-8")
-    store = UnifiedProjectStore()
-    state = store.load_legacy_sdsession(src)
-    assert state.active_sd_set_id == "sd_set_0001"
-    assert "sd_set_0001" in state.sd_sets
-    assert state.sd_sets["sd_set_0001"].active_event_id == "event_0001"
-
-
-def test_legacy_portable_sdproj_migrates(tmp_path) -> None:
-    src = tmp_path / "legacy_portable.sdproj"
-    masks = np.zeros((4, 8, 8), dtype=np.uint8)
-    state = {
-        "events": [
-            {
-                "id": "sd_event_001",
-                "label": "Event 1",
-                "frame_start": 0,
-                "frame_end": 3,
-                "masks_ref": "events/sd_event_001/masks.npz",
+def _state() -> UnifiedProjectState:
+    return UnifiedProjectState(
+        stack_ref=StackRef(
+            input_dir="/tmp/in",
+            frame_count=5,
+            frame_height=16,
+            frame_width=16,
+            dtype="uint8",
+        ),
+        events=[EventMeta(event_id="event_0001", label="E1", start_idx=1, end_idx=3, flags={})],
+        active_event_id="event_0001",
+        analysis_sidecar={
+            "event_0001": {
+                "prompts": {"points": []},
+                "masks_committed": np.zeros((3, 16, 16), dtype=np.uint8),
             }
-        ],
-        "ui_state": {"active_event_id": "sd_event_001"},
-    }
-    images = {"images": [{"id": "image_1", "absolute_path": "/tmp/frame_0001.tif"}]}
-    mem = io.BytesIO()
-    np.savez_compressed(mem, masks=masks)
-    with zipfile.ZipFile(src, "w", compression=zipfile.ZIP_DEFLATED) as zf:
-        zf.writestr("project_state.json", json.dumps(state))
-        zf.writestr("images.json", json.dumps(images))
-        zf.writestr("events/sd_event_001/masks.npz", mem.getvalue())
+        },
+        metadata={"session_id": "session_abc"},
+    )
 
+
+def test_canonical_sdproj_layout_is_single_stack(tmp_path) -> None:
     store = UnifiedProjectStore()
-    migrated = store.load_legacy_portable_sdproj(src)
-    assert migrated.active_sd_set_id == "sd_set_0001"
-    sd_set = migrated.sd_sets["sd_set_0001"]
-    assert sd_set.stack_ref is not None
-    assert sd_set.stack_ref.frame_count == 4
-    assert sd_set.active_event_id == "sd_event_001"
+    out = tmp_path / "single_stack.sdproj"
+    store.save(out, _state())
+
+    with zipfile.ZipFile(out, "r") as zf:
+        names = set(zf.namelist())
+        assert "manifest.json" in names
+        assert "stack.json" in names
+        assert "events.json" in names
+        assert "analysis_sidecar.json" in names
+        assert "events/event_0001/prompts.json" in names
+        assert "events/event_0001/masks.npz" in names
+        assert all(not name.startswith("sd_sets/") for name in names)
+
+        events = json.loads(zf.read("events.json").decode("utf-8"))
+        assert events[0]["global_start_idx"] == 1
+        assert events[0]["global_end_idx"] == 3
+
+
+def test_canonical_store_roundtrip_preserves_analysis_payload(tmp_path) -> None:
+    store = UnifiedProjectStore()
+    out = tmp_path / "roundtrip.sdproj"
+    store.save(out, _state())
+
+    loaded = store.load(out)
+    assert loaded.stack_ref is not None
+    assert loaded.stack_ref.frame_count == 5
+    assert loaded.active_event_id == "event_0001"
+    assert len(loaded.events) == 1
+    payload = loaded.analysis_sidecar["event_0001"]
+    assert payload["prompts"] == {"points": []}
+    assert payload["masks_committed"].shape == (3, 16, 16)

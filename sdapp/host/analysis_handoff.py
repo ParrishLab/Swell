@@ -17,13 +17,7 @@ def validate_handoff_payload(payload: dict) -> dict:
 def build_handoff_payload(event: EventMeta, frame_source: SDStackFrameSource, session: HostSessionState) -> dict:
     metadata = dict(session.metadata)
     session_id = str(metadata.get("session_id", "") or "")
-    active_set = session.active_sd_set
-    active_set_id = None if active_set is None else str(active_set.sd_set_id)
-    if active_set_id is not None:
-        metadata["active_sd_set_id"] = active_set_id
-    stack_id = ""
-    if active_set is not None:
-        stack_id = str(active_set.metadata.get("stack_id", "") or "")
+    stack_id = str(metadata.get("stack_id", "") or "")
     active_event_id = str(session.active_event_id or event.event_id)
     return {
         "contract_version": CONTRACT_VERSION,
