@@ -309,6 +309,8 @@ def recover_autosave(app) -> None:
 
 
 def maybe_prompt_autosave_recovery(app) -> None:
+    if bool(getattr(app, "_host_mode", False)):
+        return
     autosave_mgr = getattr(getattr(app, "app_context", None), "autosave_manager", app.autosave_manager)
     newer = autosave_mgr.newest_autosave_if_newer_than(app.current_project_path)
     if newer is None:

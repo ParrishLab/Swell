@@ -1,0 +1,60 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyd
+*.pyo
+*.so
+*.egg-info/
+.eggs/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Build / dist
+build/
+dist/
+*.whl
+
+# Logs
+*.log
+
+# App outputs / runtime artifacts
+output/
+**/output/
+metrics_analysis/
+**/metrics_analysis/
+*.sdproj.tmp
+**/*.sdproj.tmp
+autosaves/
+**/autosaves/
+sdproj_images_*/
+**/sdproj_images_*/
+
+# Temp
+.tmp/
+*.tmp
+
+# Misc
+.Rhistory
+__pycache__/
+
+# Local caches (optional)
+.cache/
+**/.cache/

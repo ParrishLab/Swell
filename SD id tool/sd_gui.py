@@ -237,11 +237,6 @@ class SDAnalyzerApp:
             row=2, column=0, columnspan=2, sticky="ew", padx=2, pady=(6, 2)
         )
 
-        bottom_header = ttk.Frame(right_bottom)
-        bottom_header.pack(fill="x")
-        ttk.Label(bottom_header, text="Drag divider above to resize Events/Logs").pack(side="left")
-        ttk.Button(bottom_header, text="Reset Layout", command=self._reset_right_layout).pack(side="right")
-
         logs_frame = ttk.LabelFrame(right_bottom, text="Logs", padding=6)
         logs_frame.pack(fill="both", expand=True, pady=(6, 0))
         clear_row = ttk.Frame(logs_frame)
@@ -254,7 +249,6 @@ class SDAnalyzerApp:
         log_scroll.pack(side="right", fill="y")
 
         self.root.after(150, self._reset_main_layout)
-        self.root.after(220, self._reset_right_layout)
         self._bind_main_keys()
         self._log_info("Application started in manual SD marking mode.")
         self._refresh_sd_set_controls()
@@ -298,17 +292,6 @@ class SDAnalyzerApp:
         self.log_text.delete("1.0", "end")
         self.log_text.configure(state="disabled")
         self._log_info("Logs cleared.")
-
-    def _reset_right_layout(self) -> None:
-        if not hasattr(self, "right_split"):
-            return
-        total = max(self.right_split.winfo_height(), self.root.winfo_height())
-        target = int(total * 0.62)
-        try:
-            self.right_split.sashpos(0, target)
-            self._log_info("Layout reset: Events/Logs split restored.")
-        except Exception:
-            pass
 
     def _reset_main_layout(self) -> None:
         if not hasattr(self, "body_split"):

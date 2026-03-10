@@ -1245,6 +1245,8 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         return project_workflow.recover_autosave(self)
 
     def _maybe_prompt_autosave_recovery(self):
+        if bool(getattr(self, "_host_mode", False)):
+            return None
         return project_workflow.maybe_prompt_autosave_recovery(self)
 
     def new_project(self):
