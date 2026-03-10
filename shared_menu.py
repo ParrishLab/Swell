@@ -1,0 +1,5 @@
+from __future__ import annotations
+
+from sdapp.shared.menu.factory import build_shared_menu
+
+__all__ = ["build_shared_menu"]

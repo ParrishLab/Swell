@@ -1,0 +1,43 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sdapp"
+version = "0.1.0"
+description = "Unified multi-window SD identification and analysis application."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+  "numpy",
+  "scipy",
+  "matplotlib",
+  "Pillow",
+  "tifffile",
+  "imagecodecs",
+  "opencv-python",
+  "scikit-image",
+  "pandas",
+]
+
+[project.optional-dependencies]
+model = [
+  "torch",
+  "hydra-core",
+  "sam2 @ git+https://github.com/facebookresearch/sam2.git",
+]
+dev = [
+  "pytest",
+]
+
+[project.scripts]
+sdapp = "sdapp.main:main"
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+include = ["sdapp*"]
+
+[tool.setuptools.package-data]
+sdapp = ["resources/**/*"]
