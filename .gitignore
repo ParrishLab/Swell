@@ -1,4 +1,4 @@
-# Python
+# Python caches/artifacts
 __pycache__/
 *.py[cod]
 *.pyd
@@ -9,14 +9,18 @@ __pycache__/
 .mypy_cache/
 .pytest_cache/
 .ruff_cache/
+.tox/
+.nox/
 .coverage
 .coverage.*
 htmlcov/
 
-# Virtual environments
+# Environments
 .venv/
 venv/
 ENV/
+.env
+.env.*
 
 # OS / editor
 .DS_Store
@@ -24,37 +28,43 @@ Thumbs.db
 .idea/
 .vscode/
 
-# Jupyter
-.ipynb_checkpoints/
-
 # Build / dist
 build/
 dist/
 *.whl
+pip-wheel-metadata/
 
-# Logs
+# Logs and temp
 *.log
+*.tmp
+.tmp/
+.cache/
+**/.cache/
 
-# App outputs / runtime artifacts
+# Jupyter
+.ipynb_checkpoints/
+
+# App runtime outputs
 output/
 **/output/
 metrics_analysis/
 **/metrics_analysis/
-*.sdproj.tmp
-**/*.sdproj.tmp
 autosaves/
 **/autosaves/
+*.sdproj.tmp
+**/*.sdproj.tmp
 sdproj_images_*/
 **/sdproj_images_*/
 
-# Temp
-.tmp/
-*.tmp
+# Model artifacts
+models/
+**/models/
+sdapp/resources/models/
+*.pt
+*.pth
+*.ckpt
+*.safetensors
+*.onnx
 
-# Misc
+# Local shell/history
 .Rhistory
-__pycache__/
-
-# Local caches (optional)
-.cache/
-**/.cache/
