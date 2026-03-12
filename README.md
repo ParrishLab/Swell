@@ -21,3 +21,7 @@ Or on macOS:
 - `docs/`: current architecture and decision docs.
 - `seam_contract_fixtures/`: shared v1 seam contract fixtures used by validators/tests.
 - `archive/legacy-integration/`: historical refactor notes and pre-cutover integration docs.
+
+## Dependencies
+
+- `pyproject.toml` is the single source of truth for dependencies.
