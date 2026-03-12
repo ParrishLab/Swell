@@ -41,6 +41,7 @@ except ImportError:
     )
 
 from sdapp.shared.services import AnalysisWindowManager
+from sdapp.shared.menu.factory import build_shared_menu
 
 
 class SDAnalyzerApp:
@@ -254,8 +255,6 @@ class SDAnalyzerApp:
         self._log_info("Application started in manual SD marking mode.")
 
     def _build_menu(self) -> None:
-        from shared_menu import build_shared_menu
-
         build_shared_menu(self.root, self, mode="host", host_mode=False)
 
     def _browse_input(self) -> None:
@@ -505,34 +504,51 @@ class SDAnalyzerApp:
     def _open_project(self, path: str) -> None:
         if not self.prepare_context_switch():
             return
-        try:
-            state = self.browser_controller.open_session(path)
-            self.current_project_path = state.project_path
-            self.browser_controller.session.set_project_path(self.current_project_path)
-            stack_ref = state.stack_ref
-            if stack_ref is not None and str(stack_ref.input_dir or ""):
-                input_dir = str(stack_ref.input_dir)
-                if Path(input_dir).exists():
-                    reader = StackReader()
-                    info = reader.open_stack(input_dir)
-                    self.reader = reader
-                    self.stack_info = info
-                    self.browser_controller.bind_frame_source(reader)
-                    self._popup_engine.set_reader(reader)
-                    self.preview_scale.configure(from_=0, to=max(0, int(info.frame_count) - 1))
-                    frame_idx = 0
-                    active_event = self.browser_controller.selected_event()
-                    if active_event is not None:
-                        frame_idx = int(active_event.start_idx)
-                    self.preview_scale.set(frame_idx)
-                    self._update_preview(frame_idx)
-                else:
-                    self._show_warning("Open Project", f"Stack folder is missing and was not rebound:\n\n{input_dir}")
-            self._set_status(f"Opened project: {Path(path).name}")
-            self._log_info(f"Opened project from {path}.")
-        except Exception as exc:
-            self._log_error(f"Open project failed: {exc}")
-            self._show_warning("Open Project", str(exc))
+        self._set_status("Opening project...")
+
+        def worker() -> None:
+            try:
+                state = self.browser_controller.open_session(path)
+                stack_info = None
+                reader = None
+                warning = None
+                stack_ref = state.stack_ref
+                if stack_ref is not None and str(stack_ref.input_dir or ""):
+                    input_dir = str(stack_ref.input_dir)
+                    if Path(input_dir).exists():
+                        reader = StackReader()
+                        stack_info = reader.open_stack(input_dir)
+                    else:
+                        warning = f"Stack folder is missing and was not rebound:\n\n{input_dir}"
+
+                def on_done() -> None:
+                    self.current_project_path = state.project_path
+                    self.browser_controller.session.set_project_path(self.current_project_path)
+                    if reader is not None and stack_info is not None:
+                        self.reader = reader
+                        self.stack_info = stack_info
+                        self.browser_controller.bind_frame_source(reader)
+                        self._popup_engine.set_reader(reader)
+                        self.preview_scale.configure(from_=0, to=max(0, int(stack_info.frame_count) - 1))
+                        frame_idx = 0
+                        active_event = self.browser_controller.selected_event()
+                        if active_event is not None:
+                            frame_idx = int(active_event.start_idx)
+                        self.preview_scale.set(frame_idx)
+                        self._update_preview(frame_idx)
+                    self._sync_event_projections()
+                    if warning:
+                        self._show_warning("Open Project", warning)
+                    self._set_status(f"Opened project: {Path(path).name}")
+                    self._log_info(f"Opened project from {path}.")
+
+                self.root.after(0, on_done)
+            except Exception as exc:
+                self.root.after(0, lambda: self._set_status("Open failed."))
+                self.root.after(0, lambda: self._log_error(f"Open project failed: {exc}"))
+                self.root.after(0, lambda: self._show_warning("Open Project", str(exc)))
+
+        threading.Thread(target=worker, daemon=True).start()
 
     def get_analysis_handoff_payload(self) -> dict | None:
         return self.browser_controller.handoff.selected_event_payload()
@@ -630,7 +646,7 @@ class SDAnalyzerApp:
         return bool(result.get("ok"))
 
     def _load_analysis_app_class(self):
-        from sdapp.analysis.ui.window import SDSegmentationApp
+        from sdapp.analysis.app import SDSegmentationApp
 
         return SDSegmentationApp
 
@@ -677,7 +693,6 @@ class SDAnalyzerApp:
             AppClass = self._load_analysis_app_class()
             win = tk.Toplevel(self.root)
             win.title(f"Analyze SD - {active_event_id}")
-            from sdapp.shared.menu.factory import build_shared_menu
 
             app = AppClass(win, menu_builder=build_shared_menu, menu_mode="analysis", host_mode=True)
             open_result = app.open_from_host_context(
@@ -697,7 +712,6 @@ class SDAnalyzerApp:
                 return
             self.analysis_window_manager.open_event_window(window_scope, active_event_id, win, app)
             self._analysis_windows.append((win, app))
-            from sdapp.shared.menu.factory import build_shared_menu
 
             def _on_analysis_destroy(_event=None, sid=str(window_scope), eid=str(active_event_id)) -> None:
                 self.analysis_window_manager.unregister(sid, eid)

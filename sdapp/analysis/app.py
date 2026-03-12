@@ -243,6 +243,9 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         self._host_project_saved_notifier = None
         self._host_sync_result_notifier = None
         self._host_project_saver = None
+        self._host_buffer_generation = 0
+        self._host_buffer_cache_key = None
+        self._host_buffer_sync_limit = 240
 
         # Config
         self.config = AppConfig.load()
@@ -1194,21 +1197,19 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         if not bool(result.get("ok")):
             return result
         if self.frame_source is not None:
-            self._prepare_host_mode_buffers(self.frame_source)
+            try:
+                ready = bool(
+                    self._prepare_host_mode_buffers(
+                        self.frame_source,
+                        on_ready_message="Host direct workspace initialized.",
+                    )
+                )
+            except TypeError:
+                ready = bool(self._prepare_host_mode_buffers(self.frame_source))
             if hasattr(self, "app_context") and self.app_context is not None:
                 self.app_context.frame_source = self.frame_source
-        if hasattr(self, "slider") and hasattr(self, "canvas_left"):
-            self._finalize_load_ui()
-            self.display_ratio = 1.0
-            self.img_offset_x = 0
-            self.img_offset_y = 0
-            self.root.after_idle(lambda: self.update_display(update_preview=True))
-            self.root.after(120, lambda: self.update_display(update_preview=True))
-            self.log_info("HostMode", "Host direct workspace initialized.")
-            try:
-                self.lbl_status.configure(text="Status: Host-bound mode (project managed by SD ID)", foreground="gray")
-            except Exception:
-                pass
+            if ready:
+                self._post_host_mode_open_ui("Host direct workspace initialized.")
         model_path = ""
         try:
             model_path = str(self.entry_model.get() or "").strip()
@@ -1248,17 +1249,19 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
             return result
 
         if self.frame_source is not None:
-            self._prepare_host_mode_buffers(self.frame_source)
+            try:
+                ready = bool(
+                    self._prepare_host_mode_buffers(
+                        self.frame_source,
+                        on_ready_message="Host-driven analysis workspace initialized.",
+                    )
+                )
+            except TypeError:
+                ready = bool(self._prepare_host_mode_buffers(self.frame_source))
             if hasattr(self, "app_context") and self.app_context is not None:
                 self.app_context.frame_source = self.frame_source
-        if hasattr(self, "slider") and hasattr(self, "canvas_left"):
-            self._finalize_load_ui()
-            self.display_ratio = 1.0
-            self.img_offset_x = 0
-            self.img_offset_y = 0
-            self.root.after_idle(lambda: self.update_display(update_preview=True))
-            self.root.after(120, lambda: self.update_display(update_preview=True))
-            self.log_info("HostMode", "Host-driven analysis workspace initialized.")
+            if ready:
+                self._post_host_mode_open_ui("Host-driven analysis workspace initialized.")
         model_path = ""
         try:
             model_path = str(self.entry_model.get() or "").strip()
@@ -1270,6 +1273,21 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         else:
             self.log_warn("HostMode", "No SAM2 model configured; model tools will remain disabled.")
         return result
+
+    def _post_host_mode_open_ui(self, message: str) -> None:
+        if not (hasattr(self, "slider") and hasattr(self, "canvas_left")):
+            return
+        self._finalize_load_ui()
+        self.display_ratio = 1.0
+        self.img_offset_x = 0
+        self.img_offset_y = 0
+        self.root.after_idle(lambda: self.update_display(update_preview=True))
+        self.root.after(120, lambda: self.update_display(update_preview=True))
+        self.log_info("HostMode", message)
+        try:
+            self.lbl_status.configure(text="Status: Host-bound mode (project managed by SD ID)", foreground="gray")
+        except Exception:
+            pass
 
     def _shutdown_model_resources(self):
         self.model_ready = False
@@ -1295,7 +1313,13 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         except Exception:
             pass
 
-    def _prepare_host_mode_buffers(self, frame_source):
+    def _prepare_host_mode_buffers(self, frame_source, on_ready_message: str | None = None):
+        if not hasattr(self, "_host_buffer_generation"):
+            self._host_buffer_generation = 0
+        if not hasattr(self, "_host_buffer_cache_key"):
+            self._host_buffer_cache_key = None
+        if not hasattr(self, "_host_buffer_sync_limit"):
+            self._host_buffer_sync_limit = 240
         frame_count = int(getattr(frame_source, "frame_count", 0) or 0)
         if frame_count <= 0:
             self.frames_raw = None
@@ -1303,7 +1327,8 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
             self.frames_sub_viz = None
             self.frame_names = []
             self._current_image_source_paths = []
-            return
+            self._host_buffer_cache_key = None
+            return True
 
         baseline_count = 30
         if hasattr(self, "spin_baseline"):
@@ -1311,15 +1336,59 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
                 baseline_count = int(self.spin_baseline.get())
             except Exception:
                 baseline_count = 30
-        raw_frames, frames_sub, frames_viz = build_visualization_stack(
-            frame_source,
-            baseline_frames=int(baseline_count),
-        )
-        self.frames_raw = raw_frames
-        self.frames_sub = frames_sub
-        self.frames_sub_viz = frames_viz
         self.frame_names = list(getattr(frame_source, "frame_names", []))
         self._current_image_source_paths = list(getattr(frame_source, "source_paths", []))
+        baseline_count = int(max(1, baseline_count))
+        cache_key = (
+            id(frame_source),
+            int(frame_count),
+            tuple(int(v) for v in getattr(frame_source, "frame_shape", (0, 0))),
+            int(baseline_count),
+        )
+        if self._host_buffer_cache_key == cache_key and self.frames_sub_viz is not None:
+            return True
+
+        sync_limit = int(getattr(self, "_host_buffer_sync_limit", 240))
+        if frame_count <= sync_limit:
+            raw_frames, frames_sub, frames_viz = build_visualization_stack(
+                frame_source,
+                baseline_frames=baseline_count,
+            )
+            self.frames_raw = raw_frames
+            self.frames_sub = frames_sub
+            self.frames_sub_viz = frames_viz
+            self._host_buffer_cache_key = cache_key
+            return True
+
+        self.frames_raw = None
+        self.frames_sub = None
+        self.frames_sub_viz = None
+        self._host_buffer_cache_key = None
+        self._host_buffer_generation += 1
+        generation = self._host_buffer_generation
+        self.log_info("HostMode", f"Preparing visualization cache in background ({frame_count} frames)...")
+
+        def _worker() -> None:
+            raw_frames, frames_sub, frames_viz = build_visualization_stack(
+                frame_source,
+                baseline_frames=baseline_count,
+            )
+
+            def _apply() -> None:
+                if generation != self._host_buffer_generation:
+                    return
+                self.frames_raw = raw_frames
+                self.frames_sub = frames_sub
+                self.frames_sub_viz = frames_viz
+                self._host_buffer_cache_key = cache_key
+                if self._ui_alive():
+                    self._post_host_mode_open_ui(on_ready_message or "Host workspace ready.")
+
+            if self._ui_alive():
+                self.root.after(0, _apply)
+
+        self._run_thread(_worker)
+        return False
 
     def recover_autosave(self):
         return project_workflow.recover_autosave(self)

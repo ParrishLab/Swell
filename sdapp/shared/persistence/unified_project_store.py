@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import io
-import json
 import os
 import tempfile
 import zipfile
@@ -9,40 +7,11 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
-import numpy as np
-
 from sdapp.shared.models import EventMeta, StackRef, UnifiedProjectState
+from sdapp.shared.persistence.zip_io import read_json, read_npz, write_json, write_npz
 
 HOST_PROJECT_SCHEMA_VERSION = 2
 HOST_PERSISTENCE_OWNER = "host_sdproj"
-
-
-def _read_json(zf: zipfile.ZipFile, arcname: str, default: Any) -> Any:
-    try:
-        with zf.open(arcname, "r") as f:
-            return json.loads(f.read().decode("utf-8"))
-    except KeyError:
-        return default
-
-
-def _write_json(zf: zipfile.ZipFile, arcname: str, payload: Any) -> None:
-    zf.writestr(arcname, json.dumps(payload, indent=2))
-
-
-def _write_npz(zf: zipfile.ZipFile, arcname: str, array: Any) -> None:
-    arr = np.asarray(array, dtype=np.uint8)
-    mem = io.BytesIO()
-    np.savez_compressed(mem, masks=arr)
-    zf.writestr(arcname, mem.getvalue())
-
-
-def _read_npz(zf: zipfile.ZipFile, arcname: str) -> np.ndarray | None:
-    try:
-        with zf.open(arcname, "r") as f:
-            with np.load(io.BytesIO(f.read())) as npz:
-                return np.array(npz["masks"])
-    except Exception:
-        return None
 
 
 def _coerce_stack_ref(raw: dict[str, Any] | None) -> StackRef | None:
@@ -101,9 +70,9 @@ class UnifiedProjectStore:
                     "metadata": dict(state.metadata),
                     "persistence": {"owner": HOST_PERSISTENCE_OWNER},
                 }
-                _write_json(zf, "manifest.json", manifest)
-                _write_json(zf, "stack.json", asdict(state.stack_ref) if state.stack_ref is not None else None)
-                _write_json(
+                write_json(zf, "manifest.json", manifest)
+                write_json(zf, "stack.json", asdict(state.stack_ref) if state.stack_ref is not None else None)
+                write_json(
                     zf,
                     "events.json",
                     [
@@ -129,24 +98,24 @@ class UnifiedProjectStore:
                     prompts = payload.get("prompts")
                     if isinstance(prompts, dict):
                         prompts_ref = f"{event_base}/prompts.json"
-                        _write_json(zf, prompts_ref, prompts)
+                        write_json(zf, prompts_ref, prompts)
                         entry["prompts_ref"] = prompts_ref
                     masks_committed = payload.get("masks_committed")
                     if masks_committed is not None:
                         masks_ref = f"{event_base}/masks.npz"
-                        _write_npz(zf, masks_ref, masks_committed)
+                        write_npz(zf, masks_ref, masks_committed)
                         entry["masks_committed_ref"] = masks_ref
                     masks_draft = payload.get("masks_draft")
                     if masks_draft is not None:
                         draft_ref = f"{event_base}/masks_draft.npz"
-                        _write_npz(zf, draft_ref, masks_draft)
+                        write_npz(zf, draft_ref, masks_draft)
                         entry["masks_draft_ref"] = draft_ref
                     for k in ("propagation_completed", "analysis_output_dir", "encoding", "frame_count", "shape", "blob_ref"):
                         if k in payload:
                             entry[k] = payload.get(k)
                     sidecar_manifest[key] = entry
 
-                _write_json(zf, "analysis_sidecar.json", sidecar_manifest)
+                write_json(zf, "analysis_sidecar.json", sidecar_manifest)
             tmp_path.replace(target)
         finally:
             if tmp_path.exists():
@@ -155,7 +124,7 @@ class UnifiedProjectStore:
     def load(self, source_path: str | Path) -> UnifiedProjectState:
         src = Path(source_path).expanduser().resolve()
         with zipfile.ZipFile(src, "r") as zf:
-            manifest = _read_json(zf, "manifest.json", default={})
+            manifest = read_json(zf, "manifest.json", default={})
             if not isinstance(manifest, dict) or not manifest:
                 raise ValueError("Not a host .sdproj container")
             persistence = manifest.get("persistence", {}) if isinstance(manifest, dict) else {}
@@ -163,12 +132,12 @@ class UnifiedProjectStore:
             if owner is not None and str(owner) != HOST_PERSISTENCE_OWNER:
                 raise ValueError(f"Unsupported persistence owner: {owner}")
 
-            stack_ref = _coerce_stack_ref(_read_json(zf, "stack.json", default=None))
-            events = _coerce_events(_read_json(zf, "events.json", default=[]))
+            stack_ref = _coerce_stack_ref(read_json(zf, "stack.json", default=None))
+            events = _coerce_events(read_json(zf, "events.json", default=[]))
             metadata = dict(manifest.get("metadata", {})) if isinstance(manifest, dict) else {}
             active_event_id = manifest.get("active_event_id") if isinstance(manifest, dict) else None
 
-            sidecar_raw = _read_json(zf, "analysis_sidecar.json", default={})
+            sidecar_raw = read_json(zf, "analysis_sidecar.json", default={})
             sidecar: dict[str, Any] = {}
             if isinstance(sidecar_raw, dict):
                 for event_id, entry in sidecar_raw.items():
@@ -179,15 +148,15 @@ class UnifiedProjectStore:
                     loaded_entry = dict(entry)
                     prompts_ref = loaded_entry.pop("prompts_ref", None)
                     if isinstance(prompts_ref, str):
-                        loaded_entry["prompts"] = _read_json(zf, prompts_ref, default={})
+                        loaded_entry["prompts"] = read_json(zf, prompts_ref, default={})
                     masks_ref = loaded_entry.pop("masks_committed_ref", None)
                     if isinstance(masks_ref, str):
-                        masks = _read_npz(zf, masks_ref)
+                        masks = read_npz(zf, masks_ref)
                         if masks is not None:
                             loaded_entry["masks_committed"] = masks
                     draft_ref = loaded_entry.pop("masks_draft_ref", None)
                     if isinstance(draft_ref, str):
-                        draft = _read_npz(zf, draft_ref)
+                        draft = read_npz(zf, draft_ref)
                         if draft is not None:
                             loaded_entry["masks_draft"] = draft
                     sidecar[key] = loaded_entry

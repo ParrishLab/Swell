@@ -8,6 +8,8 @@ class EventScopedFrameSource:
         self._base = base_source
         self._start = int(start_idx)
         self._end = int(end_idx)
+        self._frame_names_cache: list[str] | None = None
+        self._source_paths_cache: list[str] | None = None
         if self._end < self._start:
             self._start, self._end = self._end, self._start
         total = int(getattr(base_source, "frame_count", 0) or 0)
@@ -30,13 +32,17 @@ class EventScopedFrameSource:
 
     @property
     def frame_names(self) -> list[str]:
-        names = list(getattr(self._base, "frame_names", []))
-        return names[self._start : self._end + 1]
+        if self._frame_names_cache is None:
+            names = list(getattr(self._base, "frame_names", []))
+            self._frame_names_cache = names[self._start : self._end + 1]
+        return list(self._frame_names_cache)
 
     @property
     def source_paths(self) -> list[str]:
-        paths = list(getattr(self._base, "source_paths", []))
-        return paths[self._start : self._end + 1]
+        if self._source_paths_cache is None:
+            paths = list(getattr(self._base, "source_paths", []))
+            self._source_paths_cache = paths[self._start : self._end + 1]
+        return list(self._source_paths_cache)
 
     @property
     def capabilities(self) -> dict[str, bool]:

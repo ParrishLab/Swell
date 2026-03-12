@@ -1,16 +1,21 @@
 from __future__ import annotations
 
-import io
-import json
 import os
 import tempfile
-import time
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict
 
 import numpy as np
+from sdapp.shared.persistence.zip_io import (
+    cleanup_stale_temp_files,
+    fsync_parent_directory,
+    read_json,
+    read_npz_bytes,
+    write_json,
+    write_npz_bytes,
+)
 
 
 @dataclass
@@ -22,66 +27,8 @@ class LoadedProject:
     embedded_image_paths: Dict[str, str]
 
 
-def cleanup_stale_temp_files(
-    directory: str | Path,
-    pattern: str = "*.sdproj.tmp",
-    older_than_sec: float = 86400,
-) -> int:
-    base = Path(directory)
-    if not base.exists() or not base.is_dir():
-        return 0
-    cutoff = time.time() - max(0.0, float(older_than_sec))
-    removed = 0
-    for p in base.glob(pattern):
-        try:
-            if not p.is_file():
-                continue
-            if p.stat().st_mtime > cutoff:
-                continue
-            p.unlink()
-            removed += 1
-        except OSError:
-            continue
-    return removed
-
-
-def _write_json_to_zip(zf: zipfile.ZipFile, arcname: str, payload: Dict[str, Any]) -> None:
-    zf.writestr(arcname, json.dumps(payload, indent=2))
-
-
-def _read_json_from_zip(zf: zipfile.ZipFile, arcname: str, default: Dict[str, Any] | None = None) -> Dict[str, Any]:
-    try:
-        with zf.open(arcname, "r") as f:
-            return json.loads(f.read().decode("utf-8"))
-    except KeyError:
-        return {} if default is None else dict(default)
-
-
-def _write_npz_bytes(array: np.ndarray) -> bytes:
-    mem = io.BytesIO()
-    np.savez_compressed(mem, masks=array)
-    return mem.getvalue()
-
-
-def _read_npz_bytes(blob: bytes) -> np.ndarray:
-    with np.load(io.BytesIO(blob)) as npz:
-        return np.array(npz["masks"])
-
-
 def _fsync_parent_directory(target: Path) -> None:
-    # Best-effort directory fsync to harden rename durability.
-    dir_fd = None
-    try:
-        dir_fd = os.open(str(target.parent), os.O_RDONLY)
-        os.fsync(dir_fd)
-    except OSError:
-        pass
-    finally:
-        if dir_fd is not None:
-            try:
-                os.close(dir_fd)
-            except OSError:
-                pass
+    fsync_parent_directory(target)
 
 
 class ProjectStore:
@@ -103,9 +50,9 @@ class ProjectStore:
 
         try:
             with zipfile.ZipFile(tmp_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
-                _write_json_to_zip(zf, "project_state.json", project_state)
-                _write_json_to_zip(zf, "images.json", images_manifest)
-                _write_json_to_zip(zf, "roi.json", roi_data)
+                write_json(zf, "project_state.json", project_state)
+                write_json(zf, "images.json", images_manifest)
+                write_json(zf, "roi.json", roi_data)
 
                 embedded_map = {}
                 if embed_images:
@@ -120,19 +67,19 @@ class ProjectStore:
                         zf.write(src_path, arcname=arcname)
                         embedded_map[entry.get("id", src_path.name)] = arcname
                     if embedded_map:
-                        _write_json_to_zip(zf, "images_embedded.json", {"embedded": embedded_map})
+                        write_json(zf, "images_embedded.json", {"embedded": embedded_map})
 
                 for event_id, payload in event_payloads.items():
                     masks = np.array(payload.get("masks", np.zeros((0, 0, 0), dtype=np.uint8)), dtype=np.uint8)
                     masks_draft = payload.get("masks_draft")
                     prompts = payload.get("prompts", {})
-                    zf.writestr(f"events/{event_id}/masks.npz", _write_npz_bytes(masks))
+                    zf.writestr(f"events/{event_id}/masks.npz", write_npz_bytes(masks))
                     if masks_draft is not None:
                         zf.writestr(
                             f"events/{event_id}/masks_draft.npz",
-                            _write_npz_bytes(np.array(masks_draft, dtype=np.uint8)),
+                            write_npz_bytes(np.array(masks_draft, dtype=np.uint8)),
                         )
-                    _write_json_to_zip(zf, f"events/{event_id}/prompts.json", prompts)
+                    write_json(zf, f"events/{event_id}/prompts.json", prompts)
 
             with tmp_path.open("rb") as f:
                 os.fsync(f.fileno())
@@ -151,10 +98,10 @@ class ProjectStore:
             raise FileNotFoundError(f"Project not found: {src}")
 
         with zipfile.ZipFile(src, "r") as zf:
-            project_state = _read_json_from_zip(zf, "project_state.json")
-            images_manifest = _read_json_from_zip(zf, "images.json", default={"images": []})
-            roi_data = _read_json_from_zip(zf, "roi.json", default={})
-            embed_index = _read_json_from_zip(zf, "images_embedded.json", default={"embedded": {}})
+            project_state = read_json(zf, "project_state.json", default={})
+            images_manifest = read_json(zf, "images.json", default={"images": []})
+            roi_data = read_json(zf, "roi.json", default={})
+            embed_index = read_json(zf, "images_embedded.json", default={"embedded": {}})
 
             event_payloads: Dict[str, Dict[str, Any]] = {}
             for ev in project_state.get("events", []):
@@ -171,15 +118,15 @@ class ProjectStore:
                 prompts_data: Dict[str, Any] = {}
                 try:
                     with zf.open(masks_ref, "r") as f:
-                        masks_arr = _read_npz_bytes(f.read())
+                        masks_arr = read_npz_bytes(f.read())
                 except KeyError:
                     pass
                 try:
                     with zf.open(masks_draft_ref, "r") as f:
-                        masks_draft_arr = _read_npz_bytes(f.read())
+                        masks_draft_arr = read_npz_bytes(f.read())
                 except KeyError:
                     masks_draft_arr = None
-                prompts_data = _read_json_from_zip(zf, prompts_ref, default={})
+                prompts_data = read_json(zf, prompts_ref, default={})
                 event_payloads[event_id] = {
                     "masks": masks_arr,
                     "masks_draft": masks_draft_arr,
