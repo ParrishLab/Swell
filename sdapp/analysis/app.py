@@ -179,6 +179,7 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         self._host_project_saver = None
         self._host_project_path_provider = None
         self._host_log_notifier = None
+        self._host_processing_options = None
         self._saved_project_masks_by_event = {}
         self._host_buffer_generation = 0
         self._host_buffer_cache_key = None
@@ -267,7 +268,7 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
                 int(self.spin_analysis_start.get()) - 1,
                 int(self.spin_analysis_end.get()) - 1,
             ),
-            get_seconds_per_frame=lambda: float(self.seconds_per_frame_var.get()),
+            get_frames_per_sec=lambda: float(self.frames_per_sec_var.get()),
             get_scale_px_per_mm=lambda: self.scale_px_per_mm,
             set_scale_px_per_mm=lambda v: setattr(self, "scale_px_per_mm", v),
             get_scale_points=lambda: self.scale_points,
@@ -1214,10 +1215,18 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
                 self.current_project_path = str(Path(host_path).expanduser().resolve())
         event_id = ""
         if isinstance(context, dict):
-            event_id = str(dict(context.get("event", {})).get("event_id", "") or "")
+            event_payload = dict(context.get("event", {}))
+            event_id = str(event_payload.get("event_id", "") or "")
             analysis_state = context.get("analysis_state")
             if event_id:
                 self._saved_project_masks_by_event[str(event_id)] = self._analysis_payload_has_saved_masks(analysis_state)
+            flags = dict(event_payload.get("flags", {})) if isinstance(event_payload.get("flags"), dict) else {}
+            processing = dict(flags.get("analysis_processing", {})) if isinstance(flags.get("analysis_processing"), dict) else {}
+            self._host_processing_options = {
+                "apply_smoothing": bool(processing.get("smoothing", True)),
+                "apply_baseline_subtraction": bool(processing.get("baseline_subtraction", True)),
+                "apply_global_normalization": bool(processing.get("global_normalization", True)),
+            }
         scoped_source = frame_source
         if frame_source is not None:
             event = dict(context.get("event", {})) if isinstance(context, dict) else {}
@@ -1272,6 +1281,7 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         self._host_log_notifier = None
         self._host_project_saver = None
         self._host_project_path_provider = None
+        self._host_processing_options = None
         self._saved_project_masks_by_event = {}
         scoped_source = frame_source
         if frame_source is not None:
@@ -1282,6 +1292,12 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
             if scope_start is not None and scope_end is not None:
                 scoped_source = EventScopedFrameSource(frame_source, int(scope_start), int(scope_end))
             self.frame_source = scoped_source
+            processing = dict(flags.get("analysis_processing", {})) if isinstance(flags.get("analysis_processing"), dict) else {}
+            self._host_processing_options = {
+                "apply_smoothing": bool(processing.get("smoothing", True)),
+                "apply_baseline_subtraction": bool(processing.get("baseline_subtraction", True)),
+                "apply_global_normalization": bool(processing.get("global_normalization", True)),
+            }
         if self.frame_source is not None:
             self.analysis_workspace.bind_frame_source(self.frame_source)
         result = self.analysis_workspace.open_from_handoff_payload(
@@ -1383,14 +1399,36 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
                 baseline_count = int(self.spin_baseline.get())
             except Exception:
                 baseline_count = 30
+        if bool(getattr(self, "_host_mode", False)):
+            host_ctx = getattr(self.analysis_workspace, "_host_context", None)
+            if isinstance(host_ctx, dict):
+                event_payload = dict(host_ctx.get("event", {}))
+                flags = dict(event_payload.get("flags", {})) if isinstance(event_payload.get("flags"), dict) else {}
+                try:
+                    baseline_count = int(flags.get("baseline_pre_frames", baseline_count))
+                except Exception:
+                    pass
+            baseline_count = max(1, int(baseline_count))
+            if hasattr(self, "spin_baseline"):
+                try:
+                    self._set_spinbox_value(self.spin_baseline, baseline_count)
+                except Exception:
+                    pass
         self.frame_names = list(getattr(frame_source, "frame_names", []))
         self._current_image_source_paths = list(getattr(frame_source, "source_paths", []))
         baseline_count = int(max(1, baseline_count))
+        processing_opts = dict(getattr(self, "_host_processing_options", {}) or {})
+        apply_smoothing = bool(processing_opts.get("apply_smoothing", True))
+        apply_baseline_subtraction = bool(processing_opts.get("apply_baseline_subtraction", True))
+        apply_global_normalization = bool(processing_opts.get("apply_global_normalization", True))
         cache_key = (
             id(frame_source),
             int(frame_count),
             tuple(int(v) for v in getattr(frame_source, "frame_shape", (0, 0))),
             int(baseline_count),
+            bool(apply_smoothing),
+            bool(apply_baseline_subtraction),
+            bool(apply_global_normalization),
         )
         if self._host_buffer_cache_key == cache_key and self.frames_sub_viz is not None:
             return True
@@ -1400,6 +1438,9 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
             raw_frames, frames_sub, frames_viz = build_visualization_stack(
                 frame_source,
                 baseline_frames=baseline_count,
+                apply_smoothing=apply_smoothing,
+                apply_baseline_subtraction=apply_baseline_subtraction,
+                apply_global_normalization=apply_global_normalization,
             )
             self.frames_raw = raw_frames
             self.frames_sub = frames_sub
@@ -1419,6 +1460,9 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
             raw_frames, frames_sub, frames_viz = build_visualization_stack(
                 frame_source,
                 baseline_frames=baseline_count,
+                apply_smoothing=apply_smoothing,
+                apply_baseline_subtraction=apply_baseline_subtraction,
+                apply_global_normalization=apply_global_normalization,
             )
 
             def _apply() -> None:
@@ -1717,6 +1761,14 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
                 self._saved_project_masks_by_event = {}
             self._saved_project_masks_by_event[str(event_id)] = True
 
+    def _show_masks_saved_popup(self) -> None:
+        target = str(getattr(self, "current_project_path", "") or "").strip()
+        if target:
+            name = Path(target).name
+            messagebox.showinfo("Masks Saved", f"Current masks were saved to:\n{name}")
+            return
+        messagebox.showinfo("Masks Saved", "Current masks were saved.")
+
     def save_current_masks(self):
         if not self._collect_nonempty_final_mask_frames():
             messagebox.showwarning("No Masks", "Please generate masks first.")
@@ -1727,6 +1779,7 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
             self.save_project_as()
             if self.current_project_path and not bool(getattr(self, "project_dirty", False)):
                 self._mark_active_event_saved_masks_present()
+                self._show_masks_saved_popup()
             return
         if self._event_has_saved_masks_in_project():
             overwrite = messagebox.askyesno(
@@ -1739,6 +1792,7 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         self.save_project()
         if self.current_project_path and not bool(getattr(self, "project_dirty", False)):
             self._mark_active_event_saved_masks_present()
+            self._show_masks_saved_popup()
 
     def export_results(self):
         # Backward-compatible alias for older bindings.

@@ -35,7 +35,7 @@ class AnalysisController:
         get_nonempty_final_mask_frames,
         get_output_folder,
         get_export_range,
-        get_seconds_per_frame,
+        get_frames_per_sec,
         get_scale_px_per_mm,
         set_scale_px_per_mm,
         get_scale_points,
@@ -64,7 +64,7 @@ class AnalysisController:
         self.get_output_folder = get_output_folder
         self.get_export_range = get_export_range
         self.get_analysis_range = get_analysis_range
-        self.get_seconds_per_frame = get_seconds_per_frame
+        self.get_frames_per_sec = get_frames_per_sec
         self.get_scale_px_per_mm = get_scale_px_per_mm
         self.set_scale_px_per_mm = set_scale_px_per_mm
         self.get_scale_points = get_scale_points
@@ -410,11 +410,12 @@ class AnalysisController:
         analysis_end = max(0, min(int(analysis_end), total_frames - 1))
 
         try:
-            sec_per_frame = self.get_seconds_per_frame()
-            if sec_per_frame <= 0:
-                raise ValueError("Seconds/frame must be > 0")
+            frames_per_sec = float(self.get_frames_per_sec())
+            if frames_per_sec <= 0:
+                raise ValueError("Frames/sec must be > 0")
+            sec_per_frame = 1.0 / frames_per_sec
         except (TypeError, ValueError):
-            messagebox.showwarning("Invalid Input", "Seconds/frame must be a positive number.")
+            messagebox.showwarning("Invalid Input", "Frames/sec must be a positive number.")
             return
 
         selected_frame_indices = sorted(
@@ -523,6 +524,7 @@ class AnalysisController:
             "um_per_px": roi_metrics["um_per_px"],
             "mm_per_px": roi_metrics["mm_per_px"],
             "sec_per_frame": roi_metrics["sec_per_frame"],
+            "frames_per_sec": float(frames_per_sec),
             "range_start_frame": start_idx + 1,
             "range_end_frame": end_idx + 1,
         }

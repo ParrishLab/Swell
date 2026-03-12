@@ -21,7 +21,7 @@ class AnalysisControllerHelperTests(unittest.TestCase):
             get_output_folder=lambda: ".",
             get_export_range=lambda: (0, 0),
             get_analysis_range=lambda: (0, 0),
-            get_seconds_per_frame=lambda: 1.0,
+            get_frames_per_sec=lambda: 1.0,
             get_scale_px_per_mm=lambda: None,
             set_scale_px_per_mm=lambda _v: None,
             get_scale_points=lambda: None,

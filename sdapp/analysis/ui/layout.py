@@ -209,10 +209,10 @@ class LayoutBuilder:
         analysis_row2 = ttk.Frame(self.frame_analysis_body)
         analysis_row2.pack(side="top", fill="x", pady=1)
 
-        ttk.Label(analysis_row1, text="Sec/Frame:").pack(side="left", padx=2)
-        self.seconds_per_frame_var = tk.DoubleVar(value=1.0)
-        self.entry_seconds_per_frame = tk.Entry(analysis_row1, textvariable=self.seconds_per_frame_var, width=6)
-        self.entry_seconds_per_frame.pack(side="left", padx=2)
+        ttk.Label(analysis_row1, text="Frames/Sec:").pack(side="left", padx=2)
+        self.frames_per_sec_var = tk.DoubleVar(value=1.0)
+        self.entry_frames_per_sec = tk.Entry(analysis_row1, textvariable=self.frames_per_sec_var, width=6)
+        self.entry_frames_per_sec.pack(side="left", padx=2)
         self.btn_set_scale = ttk.Button(analysis_row1, text="Set Scale", command=self.start_scale_selection)
         self.btn_set_scale.pack(side="left", padx=3)
 
@@ -271,7 +271,7 @@ class LayoutBuilder:
             self.spin_export_end,
             self.spin_analysis_start,
             self.spin_analysis_end,
-            self.entry_seconds_per_frame,
+            self.entry_frames_per_sec,
         ]:
             try:
                 text_widget.configure(insertbackground=insert_cursor, insertwidth=2, insertontime=600, insertofftime=300)

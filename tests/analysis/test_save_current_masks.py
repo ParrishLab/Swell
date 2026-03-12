@@ -51,12 +51,18 @@ def test_save_current_masks_prompts_save_as_when_no_project(monkeypatch):
     app = _build_app()
     app._collect_nonempty_final_mask_frames = lambda: {2}
     save_as_calls: list[str] = []
+    info_calls: list[tuple[str, str]] = []
     app.save_project_as = lambda: save_as_calls.append("save_as")
+    monkeypatch.setattr(
+        "sdapp.analysis.app.messagebox.showinfo",
+        lambda title, text: info_calls.append((str(title), str(text))),
+    )
     monkeypatch.setattr("sdapp.analysis.app.messagebox.askyesno", lambda *_args, **_kwargs: True)
 
     app.save_current_masks()
 
     assert save_as_calls == ["save_as"]
+    assert info_calls == []
 
 
 def test_save_current_masks_uses_host_project_path_provider_without_save_as(monkeypatch):
@@ -66,8 +72,13 @@ def test_save_current_masks_uses_host_project_path_provider_without_save_as(monk
     app._host_project_path_provider = lambda: "/tmp/from_host.sdproj"
     save_calls: list[str] = []
     save_as_calls: list[str] = []
+    info_calls: list[tuple[str, str]] = []
     app.save_project = lambda: save_calls.append("save")
     app.save_project_as = lambda: save_as_calls.append("save_as")
+    monkeypatch.setattr(
+        "sdapp.analysis.app.messagebox.showinfo",
+        lambda title, text: info_calls.append((str(title), str(text))),
+    )
     monkeypatch.setattr("sdapp.analysis.app.messagebox.askyesno", lambda *_args, **_kwargs: True)
 
     app.save_current_masks()
@@ -75,6 +86,7 @@ def test_save_current_masks_uses_host_project_path_provider_without_save_as(monk
     assert app.current_project_path.endswith("from_host.sdproj")
     assert save_calls == ["save"]
     assert save_as_calls == []
+    assert info_calls
 
 
 def test_save_current_masks_saves_to_existing_project_without_overwrite_prompt(monkeypatch):
@@ -83,7 +95,12 @@ def test_save_current_masks_saves_to_existing_project_without_overwrite_prompt(m
     app._collect_nonempty_final_mask_frames = lambda: {1, 2}
     save_calls: list[str] = []
     ask_calls: list[str] = []
+    info_calls: list[tuple[str, str]] = []
     app.save_project = lambda: save_calls.append("save")
+    monkeypatch.setattr(
+        "sdapp.analysis.app.messagebox.showinfo",
+        lambda title, text: info_calls.append((str(title), str(text))),
+    )
     monkeypatch.setattr(
         "sdapp.analysis.app.messagebox.askyesno",
         lambda *_args, **_kwargs: ask_calls.append("ask") or True,
@@ -93,3 +110,4 @@ def test_save_current_masks_saves_to_existing_project_without_overwrite_prompt(m
 
     assert save_calls == ["save"]
     assert ask_calls == []
+    assert info_calls
