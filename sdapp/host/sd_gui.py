@@ -587,6 +587,18 @@ class SDAnalyzerApp:
         message = str(result.get("message", "Host rejected sync update."))
         self._log_warn(f"Analysis window reported host rejection [{code}]: {message}")
 
+    def _on_analysis_log_message(self, level: str, context: str, message: str) -> None:
+        lvl = str(level or "INFO").upper()
+        ctx = str(context or "Analysis")
+        text = f"[Analysis:{ctx}] {str(message or '')}".strip()
+        if lvl in {"ERROR"}:
+            self._log_error(text)
+            return
+        if lvl in {"WARN"}:
+            self._log_warn(text)
+            return
+        self._log_info(text)
+
     def _on_analysis_project_saved(self, project_path: str) -> None:
         try:
             resolved = str(Path(project_path).expanduser().resolve())
@@ -701,7 +713,9 @@ class SDAnalyzerApp:
                 on_analysis_update=self._on_analysis_state_update,
                 on_project_saved=self._on_analysis_project_saved,
                 on_sync_result=self._on_analysis_sync_result,
+                on_log_message=self._on_analysis_log_message,
                 on_host_project_save=self._save_project_from_analysis,
+                on_host_project_path=lambda: self.current_project_path,
                 sync_emitter=None,
             )
             if not bool(open_result.get("ok")):

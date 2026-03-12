@@ -28,6 +28,9 @@ class AppCloseWarningsTests(unittest.TestCase):
         app.inference_manager = _MgrStub()
         app.cleanup_temp_files = lambda: None
         app._ui_alive = lambda: True
+        app.project_dirty = False
+        app._collect_nonempty_final_mask_frames = lambda: set()
+        app.save_current_masks = lambda: None
         return app
 
     @patch("sdapp.analysis.app.messagebox.askyesno")
@@ -67,6 +70,44 @@ class AppCloseWarningsTests(unittest.TestCase):
         self.assertTrue(app.inference_manager.stopped)
         self.assertTrue(getattr(app, "_shutdown_called", False))
         ask_mock.assert_not_called()
+
+    @patch("sdapp.analysis.app.messagebox.askyesnocancel")
+    @patch("sdapp.analysis.app.messagebox.askyesno")
+    def test_close_prompts_to_save_unsaved_masks_and_cancels(self, ask_yesno_mock, ask_ync_mock):
+        app = self._make_app()
+        app._is_propagation_running = lambda: False
+        app.frames_raw = [object()]
+        app.current_project_path = "/tmp/proj.sdproj"
+        app.project_dirty = True
+        app._collect_nonempty_final_mask_frames = lambda: {1, 2}
+        ask_ync_mock.return_value = None
+        app.on_close()
+        self.assertFalse(app.root.destroyed)
+        self.assertFalse(app.autosave_manager.stopped)
+        ask_yesno_mock.assert_not_called()
+
+    @patch("sdapp.analysis.app.messagebox.askyesnocancel")
+    @patch("sdapp.analysis.app.messagebox.askyesno")
+    def test_close_prompts_to_save_unsaved_masks_and_runs_save_flow(self, ask_yesno_mock, ask_ync_mock):
+        app = self._make_app()
+        app._is_propagation_running = lambda: False
+        app.frames_raw = [object()]
+        app.current_project_path = "/tmp/proj.sdproj"
+        app.project_dirty = True
+        app._collect_nonempty_final_mask_frames = lambda: {1}
+        called = []
+
+        def _save():
+            called.append("save")
+            app.project_dirty = False
+
+        app.save_current_masks = _save
+        ask_ync_mock.return_value = True
+        app.on_close()
+        self.assertEqual(called, ["save"])
+        self.assertTrue(app.root.destroyed)
+        self.assertTrue(app.autosave_manager.stopped)
+        ask_yesno_mock.assert_not_called()
 
 
 if __name__ == "__main__":

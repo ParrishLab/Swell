@@ -59,6 +59,14 @@ class AppAnalysisRangeStateTests(unittest.TestCase):
         self.assertEqual(int(app.spin_analysis_start.get()), 4)
         self.assertEqual(int(app.spin_analysis_end.get()), 8)
 
+    def test_recompute_works_with_frame_source_when_frames_raw_not_materialized(self):
+        app = self._make_app_for_recompute({3, 7})
+        app.frames_raw = None
+        app._get_frame_count = lambda: 20
+        app._recompute_slider_jump_markers()
+        self.assertEqual(int(app.spin_prop_start.get()), 4)
+        self.assertEqual(int(app.spin_prop_end.get()), 8)
+
     def test_manual_edit_locks_analysis_range(self):
         app = self._make_app_for_recompute({3, 7})
         app._set_spinbox_value(app.spin_analysis_start, 2)

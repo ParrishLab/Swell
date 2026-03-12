@@ -64,90 +64,24 @@ except ImportError:
 
 
 class PrintLogger:
-    def __init__(self, text_widget, root, *, dark_theme: bool = True):
-        self.text_widget = text_widget
+    def __init__(self, root, *, message_sink=None):
         self.root = root
-        self.dark_theme = bool(dark_theme)
-        self._init_tags()
-
-    def _init_tags(self):
-        if self.dark_theme:
-            colors = {
-                "level_default": "#ffffff",
-                "level_info": "#9ad0ff",
-                "level_success": "#8ee58e",
-                "level_warn": "#ffd27f",
-                "level_error": "#ff9a9a",
-                "level_debug": "#b9b9b9",
-            }
-        else:
-            colors = {
-                "level_default": "#1f1f1f",
-                "level_info": "#1f4ea8",
-                "level_success": "#0f6b0f",
-                "level_warn": "#8a5b00",
-                "level_error": "#9f1d1d",
-                "level_debug": "#555555",
-            }
-        for tag, color in colors.items():
-            self.text_widget.tag_configure(tag, foreground=color)
-
-    def _tag_for_message(self, message):
-        stripped = message.lstrip()
-        if stripped.startswith("[ERROR]"):
-            return "level_error"
-        if stripped.startswith("[WARN]"):
-            return "level_warn"
-        if stripped.startswith("[SUCCESS]"):
-            return "level_success"
-        if stripped.startswith("[DEBUG]"):
-            return "level_debug"
-        if stripped.startswith("[INFO]"):
-            return "level_info"
-        return "level_default"
-
-    def _insert_colored(self, message):
-        text = str(message)
-        if text == "":
-            return
-        chunks = text.splitlines(keepends=True)
-        if not chunks:
-            chunks = [text]
-        for chunk in chunks:
-            tag = self._tag_for_message(chunk)
-            self.text_widget.insert(tk.END, chunk, (tag,))
+        self._message_sink = message_sink
 
     def write(self, message):
         if "NSOpenPanel" in message and "method identifier" in message:
             return
-        self.root.after(0, self._append_text, message)
-
-    def _append_text(self, message):
-        self.text_widget.configure(state="normal")
-        self._insert_colored(message)
-        self.text_widget.see(tk.END)
-        self.text_widget.configure(state="disabled")
+        if self._message_sink is None:
+            return
+        self.root.after(0, lambda: self._message_sink(str(message), False))
 
     def write_progress(self, message):
-        self.root.after(0, self._replace_last_line, message)
-
-    def _replace_last_line(self, message):
-        self.text_widget.configure(state="normal")
-        try:
-            normalized = str(message).rstrip("\r\n")
-            self.text_widget.delete("end-2l linestart", "end-1c")
-            self._insert_colored(normalized + "\n")
-        except tk.TclError:
-            # Fallback to append-only behavior if replacement fails.
-            fallback = str(message)
-            if not fallback.endswith("\n"):
-                fallback += "\n"
-            self._insert_colored(fallback)
-        self.text_widget.see(tk.END)
-        self.text_widget.configure(state="disabled")
+        if self._message_sink is None:
+            return
+        self.root.after(0, lambda: self._message_sink(str(message), True))
 
     def flush(self):
-        pass
+        return None
 
 
 class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderActions, UndoActions):
@@ -243,9 +177,13 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         self._host_project_saved_notifier = None
         self._host_sync_result_notifier = None
         self._host_project_saver = None
+        self._host_project_path_provider = None
+        self._host_log_notifier = None
+        self._saved_project_masks_by_event = {}
         self._host_buffer_generation = 0
         self._host_buffer_cache_key = None
         self._host_buffer_sync_limit = 240
+        self._loading_task_count = 0
 
         # Config
         self.config = AppConfig.load()
@@ -281,12 +219,10 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         else:
             self._setup_project_menu()
         self.root.bind("<FocusIn>", self._ensure_menu_bar_bound, add="+")
-        self.btn_run.configure(state="disabled")
+        self.btn_save_masks.configure(state="disabled")
         self._validate_assets()
 
-        self.logger = PrintLogger(self.log_text, self.root, dark_theme=not self._host_mode)
-        sys.stdout = self.logger
-        sys.stderr = self.logger
+        self.logger = PrintLogger(self.root, message_sink=self._on_logger_message)
         self._cleanup_stale_autosave_temps()
         self.progress_logger = PropagationProgressLogger(
             write_progress=self.logger.write_progress,
@@ -306,7 +242,7 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
             update_display=self.update_display,
             recompute_markers=self._recompute_slider_jump_markers,
             set_propagated_frames=self._set_propagated_frames,
-            set_status=lambda text, color: self.lbl_status.configure(text=text, foreground=color),
+            set_status=self._set_runtime_status,
             prop_log_start=self._prop_log_start,
             prop_log_tick=self._prop_log_tick,
             prop_log_finish=self._prop_log_finish,
@@ -506,16 +442,96 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
     # Helpers
     # ========================================================================
 
+    def _set_loading_indicator(self, loading: bool, text: str = "Working...") -> None:
+        if not hasattr(self, "loading_status_var") or not hasattr(self, "loading_bar"):
+            return
+        if bool(loading):
+            self.loading_status_var.set(str(text or "Working..."))
+            if not self.loading_bar.winfo_ismapped():
+                self.loading_bar.pack(fill="x", padx=6, pady=(0, 6))
+            self.loading_bar.start(8)
+            return
+        self.loading_bar.stop()
+        if self.loading_bar.winfo_ismapped():
+            self.loading_bar.pack_forget()
+        self.loading_status_var.set("Idle")
+
+    def _set_activity_message(self, text: str) -> None:
+        if not hasattr(self, "loading_status_var"):
+            return
+        self.loading_status_var.set(str(text or "Idle"))
+
+    def _begin_loading_task(self, text: str = "Working...") -> None:
+        self._loading_task_count = int(getattr(self, "_loading_task_count", 0)) + 1
+        self._set_loading_indicator(True, text)
+
+    def _end_loading_task(self) -> None:
+        self._loading_task_count = max(0, int(getattr(self, "_loading_task_count", 0)) - 1)
+        if self._loading_task_count == 0:
+            self._set_loading_indicator(False)
+
+    def _on_logger_message(self, message: str, is_progress: bool = False) -> None:
+        text = str(message or "").strip()
+        if not text:
+            return
+        lines = [line.strip() for line in text.splitlines() if line.strip()]
+        for line in lines:
+            level = "INFO"
+            context = "Analysis"
+            body = line
+            if line.startswith("[") and "]" in line:
+                first = line[1 : line.find("]")]
+                rest = line[line.find("]") + 1 :].strip()
+                if first in {"INFO", "WARN", "ERROR", "SUCCESS", "DEBUG"}:
+                    level = first
+                    body = rest
+                    if body.startswith("[") and "]" in body:
+                        context = body[1 : body.find("]")]
+                        body = body[body.find("]") + 1 :].strip()
+                elif first:
+                    context = first
+            if callable(getattr(self, "_host_log_notifier", None)):
+                try:
+                    self._host_log_notifier(level, context, body)
+                except Exception:
+                    pass
+            if bool(is_progress) and context == "Propagation":
+                self._set_loading_indicator(True, body or "Propagating...")
+
+    def _set_runtime_status(self, text: str, color: str) -> None:
+        status = str(text or "")
+        self._set_activity_message(status)
+        if "Propagating" in status:
+            self._set_loading_indicator(True, status)
+            return
+        if status in {"Propagation Complete", "Propagation Stopped", "Propagation Error"}:
+            if self._loading_task_count <= 0:
+                if hasattr(self, "loading_bar"):
+                    self.loading_bar.stop()
+                    if self.loading_bar.winfo_ismapped():
+                        self.loading_bar.pack_forget()
+
     def _set_busy(self, is_busy, status_text, color):
         self.lbl_status.configure(text=status_text, foreground=color)
         self.btn_import.configure(state="disabled" if is_busy else "normal")
-        if is_busy:
-            self.btn_run.configure(state="disabled")
-        else:
-            self.btn_run.configure(state="normal" if self.model_ready else "disabled")
+        self._set_loading_indicator(bool(is_busy), str(status_text).replace("Status:", "").strip() or "Working...")
+        if hasattr(self, "btn_save_masks"):
+            if is_busy:
+                self.btn_save_masks.configure(state="disabled")
+            else:
+                self.btn_save_masks.configure(state="normal" if self._has_loaded_stack() else "disabled")
 
-    def _run_thread(self, target):
-        threading.Thread(target=target, daemon=True).start()
+    def _run_thread(self, target, *, loading_text: str = "Working..."):
+        self._begin_loading_task(loading_text)
+
+        def _wrapped() -> None:
+            try:
+                target()
+            finally:
+                if self._ui_alive():
+                    self.root.after(0, self._end_loading_task)
+
+        threading.Thread(target=_wrapped, daemon=True).start()
 
     def _apply_runtime_icon(self):
         try:
@@ -679,7 +695,7 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
             if not self._controls_hint_logged:
                 self.log_info(
                     "App",
-                    "Import image sequence to enable tools, propagation, export, and analysis.",
+                    "Import image sequence to enable tools, propagation, mask save, and analysis.",
                 )
                 self._controls_hint_logged = True
 
@@ -714,7 +730,10 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         if lvl == "DEBUG" and self._is_release_branch:
             return
         ctx = f"[{context}]" if context else ""
-        print(f"[{lvl}]{ctx} {message}")
+        line = f"[{lvl}]{ctx} {message}"
+        self._on_logger_message(line, False)
+        if not bool(getattr(self, "_host_mode", False)):
+            print(line)
 
     def log_info(self, context, message):
         self.log("INFO", context, message)
@@ -1169,7 +1188,9 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         on_analysis_update=None,
         on_project_saved=None,
         on_sync_result=None,
+        on_log_message=None,
         on_host_project_save=None,
+        on_host_project_path=None,
         sync_emitter=None,
     ):
         self._ensure_analysis_workspace()
@@ -1177,7 +1198,26 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         self._host_analysis_updater = on_analysis_update
         self._host_project_saved_notifier = on_project_saved
         self._host_sync_result_notifier = on_sync_result
+        self._host_log_notifier = on_log_message
         self._host_project_saver = on_host_project_save
+        self._host_project_path_provider = on_host_project_path
+        if isinstance(context, dict):
+            project_path = context.get("project_path")
+            if isinstance(project_path, str) and project_path.strip():
+                self.current_project_path = str(Path(project_path).expanduser().resolve())
+        if not self.current_project_path and callable(self._host_project_path_provider):
+            try:
+                host_path = self._host_project_path_provider()
+            except Exception:
+                host_path = None
+            if isinstance(host_path, str) and host_path.strip():
+                self.current_project_path = str(Path(host_path).expanduser().resolve())
+        event_id = ""
+        if isinstance(context, dict):
+            event_id = str(dict(context.get("event", {})).get("event_id", "") or "")
+            analysis_state = context.get("analysis_state")
+            if event_id:
+                self._saved_project_masks_by_event[str(event_id)] = self._analysis_payload_has_saved_masks(analysis_state)
         scoped_source = frame_source
         if frame_source is not None:
             event = dict(context.get("event", {})) if isinstance(context, dict) else {}
@@ -1196,6 +1236,7 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         )
         if not bool(result.get("ok")):
             return result
+        self._sync_saved_mask_overlay_state()
         if self.frame_source is not None:
             try:
                 ready = bool(
@@ -1228,7 +1269,10 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         self._host_analysis_updater = None
         self._host_project_saved_notifier = None
         self._host_sync_result_notifier = None
+        self._host_log_notifier = None
         self._host_project_saver = None
+        self._host_project_path_provider = None
+        self._saved_project_masks_by_event = {}
         scoped_source = frame_source
         if frame_source is not None:
             event = dict(payload.get("event", {})) if isinstance(payload, dict) else {}
@@ -1247,6 +1291,7 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         )
         if not bool(result.get("ok")):
             return result
+        self._sync_saved_mask_overlay_state()
 
         if self.frame_source is not None:
             try:
@@ -1278,6 +1323,8 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         if not (hasattr(self, "slider") and hasattr(self, "canvas_left")):
             return
         self._finalize_load_ui()
+        # Finalize resets propagation range spinboxes; re-apply saved-mask-derived ranges.
+        self._sync_saved_mask_overlay_state()
         self.display_ratio = 1.0
         self.img_offset_x = 0
         self.img_offset_y = 0
@@ -1593,56 +1640,109 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         self._mark_project_dirty("delete_point")
 
     # ========================================================================
-    # EXPORT RESULTS (BINARY)
+    # SAVE CURRENT MASKS
     # ========================================================================
 
-    def export_results(self):
-        if not self.masks_cache and not self.paint_layers:
-            messagebox.showwarning("No Masks", "Please generate masks first.")
+    def _analysis_payload_has_saved_masks(self, payload) -> bool:
+        if not isinstance(payload, dict):
+            return False
+        masks_committed = payload.get("masks_committed")
+        if masks_committed is not None:
+            if isinstance(masks_committed, dict):
+                for mask in masks_committed.values():
+                    if mask is not None and np.any(np.asarray(mask)):
+                        return True
+            else:
+                arr = np.asarray(masks_committed)
+                if arr.size > 0 and np.any(arr):
+                    return True
+        masks_draft = payload.get("masks_draft")
+        if masks_draft is not None:
+            if isinstance(masks_draft, dict):
+                for mask in masks_draft.values():
+                    if mask is not None and np.any(np.asarray(mask)):
+                        return True
+            else:
+                arr = np.asarray(masks_draft)
+                if arr.size > 0 and np.any(arr):
+                    return True
+        return False
+
+    def _event_has_saved_masks_in_project(self) -> bool:
+        event_id = str(getattr(self, "active_event_id", "") or "")
+        if not event_id:
+            return False
+        if bool(getattr(self, "_host_mode", False)):
+            return bool(dict(getattr(self, "_saved_project_masks_by_event", {}) or {}).get(event_id, False))
+        record = dict(getattr(self, "event_records", {}) or {}).get(event_id)
+        if record is None:
+            return False
+        analysis = getattr(record, "analysis", None)
+        committed = getattr(analysis, "masks_committed", None)
+        if isinstance(committed, dict):
+            for mask in committed.values():
+                if mask is not None and np.any(np.asarray(mask)):
+                    return True
+        draft = getattr(analysis, "masks_draft", None)
+        if isinstance(draft, dict):
+            for mask in draft.values():
+                if mask is not None and np.any(np.asarray(mask)):
+                    return True
+        return False
+
+    def _sync_project_path_from_host(self) -> None:
+        if not bool(getattr(self, "_host_mode", False)):
+            return
+        provider = getattr(self, "_host_project_path_provider", None)
+        if not callable(provider):
+            return
+        try:
+            host_path = provider()
+        except Exception:
+            host_path = None
+        if isinstance(host_path, str) and host_path.strip():
+            self.current_project_path = str(Path(host_path).expanduser().resolve())
+
+    def _sync_saved_mask_overlay_state(self) -> None:
+        try:
+            nonempty = self._collect_nonempty_final_mask_frames()
+            self._set_propagated_frames(nonempty, mark_dirty=False)
+        except Exception:
             return
 
-        try:
-            output_folder = self.entry_output.get()
-            if output_folder and not os.path.isabs(output_folder):
-                output_folder = os.path.join(self.app_root, output_folder)
-            mask_dir = os.path.join(output_folder, "binary_masks")
-            if not os.path.exists(mask_dir):
-                os.makedirs(mask_dir)
+    def _mark_active_event_saved_masks_present(self) -> None:
+        event_id = str(getattr(self, "active_event_id", "") or "")
+        if event_id:
+            if not isinstance(getattr(self, "_saved_project_masks_by_event", None), dict):
+                self._saved_project_masks_by_event = {}
+            self._saved_project_masks_by_event[str(event_id)] = True
 
-            self.log_info("Export", "Started binary mask export.")
-
-            total_frames = self._get_frame_count()
-            export_start, export_end = self._parse_clamped_frame_range(
-                self.spin_export_start,
-                self.spin_export_end,
-                total_frames,
+    def save_current_masks(self):
+        if not self._collect_nonempty_final_mask_frames():
+            messagebox.showwarning("No Masks", "Please generate masks first.")
+            return
+        self._sync_project_path_from_host()
+        if not self.current_project_path:
+            self.log_info("Project", "No host project is active. Prompting Save Project As for mask save.")
+            self.save_project_as()
+            if self.current_project_path and not bool(getattr(self, "project_dirty", False)):
+                self._mark_active_event_saved_masks_present()
+            return
+        if self._event_has_saved_masks_in_project():
+            overwrite = messagebox.askyesno(
+                "Overwrite Existing Masks?",
+                "Masks already exist for this SD event. Saving will overwrite the stored masks in this project.\n\nContinue?",
             )
+            if not overwrite:
+                self.log_info("Project", "Save Current Masks canceled by user (overwrite declined).")
+                return
+        self.save_project()
+        if self.current_project_path and not bool(getattr(self, "project_dirty", False)):
+            self._mark_active_event_saved_masks_present()
 
-            self.log_info("Export", f"Exporting frames {export_start + 1}-{export_end + 1}.")
-
-            for frame_idx in range(export_start, export_end + 1):
-                mask = self._compose_final_mask_for_frame(frame_idx)
-                if mask is None:
-                    mask = np.zeros(self._get_frame_shape(), dtype=bool)
-
-                original_name = self.frame_names[frame_idx]
-                output_name = f"Mask_{original_name}"
-                output_path = os.path.join(mask_dir, output_name)
-
-                binary_output = mask.astype(np.uint8) * 255
-                cv2.imwrite(output_path, binary_output)
-            exported_count = (export_end - export_start + 1) if export_end >= export_start else 0
-            self.log_success(
-                "Export",
-                f"Completed binary mask export ({exported_count} frames). Output: {output_folder}",
-            )
-            messagebox.showinfo("Success", "Export Complete! Binary masks saved.")
-
-        except Exception as e:
-            self.log_error("Export", f"Export failed: {e}")
-            import traceback
-
-            traceback.print_exc()
+    def export_results(self):
+        # Backward-compatible alias for older bindings.
+        return self.save_current_masks()
 
     # ========================================================================
     # MISC

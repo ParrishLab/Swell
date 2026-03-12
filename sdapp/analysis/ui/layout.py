@@ -10,8 +10,6 @@ class LayoutBuilder:
         is_host_mode = bool(getattr(self, "_host_mode", False))
         canvas_bg = "#f1f1f1" if is_host_mode else "#222222"
         slider_overlay_bg = "#d4d7db" if is_host_mode else "#2a2b2f"
-        log_bg = "#ffffff" if is_host_mode else "#000000"
-        log_fg = "#1f1f1f" if is_host_mode else "#ffffff"
         insert_cursor = "#1f1f1f" if is_host_mode else "#ffffff"
 
         # 1. Top Control Panel
@@ -235,43 +233,31 @@ class LayoutBuilder:
         self.btn_run_metrics = ttk.Button(analysis_row2, text="Run Metrics", command=self.run_metrics_analysis)
         self.btn_run_metrics.pack(side="left", padx=3)
 
-        export_section = ttk.LabelFrame(self.right_controls, text="Export")
+        export_section = ttk.LabelFrame(self.right_controls, text="Masks")
         export_section.pack(side="left")
-        self.btn_export_toggle = ttk.Button(export_section, text="Export ▸", width=16, command=self._toggle_export_panel)
-        self.btn_export_toggle.pack(fill="x", padx=4, pady=(4, 2))
-        self.frame_export_body = ttk.Frame(export_section)
-        export_row = ttk.Frame(self.frame_export_body)
-        export_row.pack(fill="x")
-        ttk.Label(export_row, text="Start:").pack(side="left", padx=2)
-        self.spin_export_start = tk.Spinbox(export_row, from_=1, to=10000, width=5)
-        self.spin_export_start.pack(side="left", padx=2)
-        self._set_spinbox_value(self.spin_export_start, 1)
-        for event_name in ("<KeyRelease>", "<<Increment>>", "<<Decrement>>", "<MouseWheel>", "<ButtonRelease-1>"):
-            self.spin_export_start.bind(event_name, self._on_export_range_user_edit)
-        ttk.Label(export_row, text="End:").pack(side="left", padx=2)
-        self.spin_export_end = tk.Spinbox(export_row, from_=1, to=10000, width=5)
-        self.spin_export_end.pack(side="left", padx=2)
-        self._set_spinbox_value(self.spin_export_end, 100)
-        for event_name in ("<KeyRelease>", "<<Increment>>", "<<Decrement>>", "<MouseWheel>", "<ButtonRelease-1>"):
-            self.spin_export_end.bind(event_name, self._on_export_range_user_edit)
-        self.btn_run = ttk.Button(export_row, text="\U0001F4BE EXPORT", width=10, command=self.export_results)
-        self.btn_run.pack(side="left", padx=5)
+        self.btn_save_masks = ttk.Button(
+            export_section,
+            text="Save Current Masks",
+            width=18,
+            command=self.save_current_masks,
+        )
+        self.btn_save_masks.pack(fill="x", padx=4, pady=(4, 4))
 
-        self._set_export_panel(False)
+        # Keep export-range spinboxes for internal state compatibility, but hide them from UI.
+        self.spin_export_start = tk.Spinbox(self.root, from_=1, to=10000, width=5)
+        self.spin_export_end = tk.Spinbox(self.root, from_=1, to=10000, width=5)
+        self._set_spinbox_value(self.spin_export_start, 1)
+        self._set_spinbox_value(self.spin_export_end, 100)
+
         self._set_analysis_panel(False)
 
-        # 4. Logs
-        log_frame = ttk.LabelFrame(self.root, text="Logs", height=100)
-        log_frame.pack(fill="x", padx=10, pady=5)
-        self.log_text = tk.Text(
-            log_frame,
-            height=6,
-            state="disabled",
-            bg=log_bg,
-            fg=log_fg,
-            font=("Consolas", 9),
-        )
-        self.log_text.pack(fill="both", expand=True)
+        # 4. Activity indicator (replaces analysis-local log pane)
+        activity_frame = ttk.LabelFrame(self.root, text="Activity", height=64)
+        activity_frame.pack(fill="x", padx=10, pady=5)
+        self.loading_status_var = tk.StringVar(value="Idle")
+        self.loading_status_label = ttk.Label(activity_frame, textvariable=self.loading_status_var, foreground="#4d6f8a")
+        self.loading_status_label.pack(anchor="w", padx=6, pady=(2, 2))
+        self.loading_bar = ttk.Progressbar(activity_frame, mode="indeterminate")
 
         # Ensure a visible blinking text cursor in ttk Entry/Spinbox controls.
         for text_widget in [

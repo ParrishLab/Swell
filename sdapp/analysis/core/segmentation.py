@@ -71,7 +71,7 @@ class SegmentationActions:
                 self.log_warn("Model", "SAM2 package not installed; model tools remain disabled.")
                 self.inference_manager.on_model_unloaded()
                 if self._ui_alive():
-                    self.root.after(0, lambda: self.lbl_status.configure(text="Status: SAM2 missing", foreground="orange"))
+                    self.root.after(0, lambda: self._set_activity_message("SAM2 missing"))
                 return
 
             if self.frames_sub_viz is None:
@@ -153,8 +153,9 @@ class SegmentationActions:
             self.inference_manager.on_model_ready(self.predictor, self.inference_state)
             self.log_success("Model", "SAM2 model is ready.")
             if self._ui_alive():
-                self.root.after(0, lambda: self.lbl_status.configure(text="Status: Model Ready", foreground="green"))
-                self.root.after(0, lambda: self.btn_run.configure(state="normal"))
+                self.root.after(0, lambda: self._set_activity_message("Model Ready"))
+                if hasattr(self, "btn_save_masks"):
+                    self.root.after(0, lambda: self.btn_save_masks.configure(state="normal"))
                 self.root.after(0, self._process_pending_points)
 
         except Exception as e:
@@ -165,7 +166,7 @@ class SegmentationActions:
                 runtime.status.message = msg
             self.inference_manager.on_model_unloaded()
             if self._ui_alive():
-                self.root.after(0, lambda: self.lbl_status.configure(text="Status: Model Error", foreground="red"))
+                self.root.after(0, lambda: self._set_activity_message("Model Error"))
                 self.root.after(
                     0, lambda m=msg: messagebox.showerror("Model Init Error", f"Failed to initialize SAM2 Model:\n{m}")
                 )

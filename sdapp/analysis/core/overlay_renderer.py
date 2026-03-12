@@ -10,7 +10,8 @@ import tkinter as tk
 def recompute_slider_jump_markers(app) -> None:
     """Recompute marker metadata and keep range spinboxes synchronized."""
     t0 = time.perf_counter()
-    if app.frames_raw is None:
+    frame_count = app._get_frame_count() if hasattr(app, "_get_frame_count") else len(app.frames_raw or [])
+    if frame_count <= 0:
         app.slider_jump_markers = {}
         redraw_slider_overlay(app)
         return
@@ -87,7 +88,7 @@ def recompute_slider_jump_markers(app) -> None:
 
 def find_clicked_marker_frame(app, x_px: float) -> int | None:
     """Resolve click position on overlay canvas to nearest marker frame."""
-    if not app.slider_jump_markers or app.frames_raw is None:
+    if not app.slider_jump_markers:
         return None
 
     if app._slider_marker_bounds:
@@ -124,10 +125,9 @@ def redraw_slider_overlay(app) -> None:
 
     canvas.create_rectangle(0, 0, w, h, fill="#2a2b2f", outline="")
 
-    if app.frames_raw is None or len(app.frames_raw) == 0:
+    total = app._get_frame_count() if hasattr(app, "_get_frame_count") else len(app.frames_raw or [])
+    if total <= 0:
         return
-
-    total = len(app.frames_raw)
     marker_positions = []
     for frame_idx, marker_type in sorted(app.slider_jump_markers.items()):
         x = app._frame_to_overlay_x(frame_idx, width=w, total_frames=total)

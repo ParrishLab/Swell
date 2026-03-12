@@ -71,3 +71,15 @@ def test_apply_direct_analysis_update_rejects_missing_event_id() -> None:
     result = host.apply_direct_analysis_update({"analysis": {"prompts": {}}})
     assert result["ok"] is False
     assert result["code"] == "PAYLOAD_INVALID"
+
+
+def test_host_context_for_event_includes_project_path() -> None:
+    host = BrowserController()
+    host.on_stack_loaded(_FakeReader(), _FakeStackInfo())
+    event = host.create_event(start_idx=0, end_idx=1, frame_count=6)
+    host.session.set_project_path("/tmp/active_project.sdproj")
+
+    context = host.host_context_for_event(event.event_id)
+
+    assert context["project_path"] is not None
+    assert str(context["project_path"]).endswith("active_project.sdproj")

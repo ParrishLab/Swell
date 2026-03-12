@@ -1,5 +1,4 @@
 import os
-import threading
 from pathlib import Path
 
 import cv2
@@ -162,7 +161,7 @@ class IOActions:
         self._set_busy(True, "Status: Loading...", "orange")
         self.log_info("Import", f"Started import from: {source_label}")
         self._current_image_source_paths = [str(Path(p)) for p in image_files]
-        threading.Thread(target=self._process_stack, args=(list(image_files),), daemon=True).start()
+        self._run_thread(lambda: self._process_stack(list(image_files)), loading_text="Loading image stack...")
 
     def _collect_image_files_from_folder(self, input_folder):
         image_files = []
@@ -265,7 +264,8 @@ class IOActions:
 
         except Exception as e:
             self.log_error("Import", f"Import failed: {e}")
-            self.root.after(0, lambda: self.btn_run.configure(state="disabled"))
+            if hasattr(self, "btn_save_masks"):
+                self.root.after(0, lambda: self.btn_save_masks.configure(state="disabled"))
             self.root.after(0, lambda: self.lbl_status.configure(text=f"Error: {str(e)}", foreground="red"))
             self.root.after(0, lambda: self._set_busy(False, "Status: Error", "red"))
 

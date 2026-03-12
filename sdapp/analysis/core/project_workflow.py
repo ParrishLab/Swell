@@ -409,6 +409,25 @@ def on_close(app) -> None:
         if not proceed:
             return
 
+    has_unsaved_masks = bool(getattr(app, "project_dirty", False))
+    if has_unsaved_masks and hasattr(app, "_collect_nonempty_final_mask_frames"):
+        try:
+            has_unsaved_masks = bool(app._collect_nonempty_final_mask_frames())
+        except Exception:
+            has_unsaved_masks = bool(getattr(app, "project_dirty", False))
+    if has_unsaved_masks and callable(getattr(app, "save_current_masks", None)):
+        response = messagebox.askyesnocancel(
+            "Unsaved Masks",
+            "Current masks have unsaved changes.\n\nSave masks before closing?",
+        )
+        if response is None:
+            return
+        if response is True:
+            app.save_current_masks()
+            if bool(getattr(app, "project_dirty", False)):
+                # Save was canceled or failed; keep window open.
+                return
+
     if hasattr(app, "_shutdown_model_resources"):
         app._shutdown_model_resources()
     if hasattr(app, "_emit_host_sync"):

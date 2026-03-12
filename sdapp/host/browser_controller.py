@@ -175,6 +175,7 @@ class BrowserController:
         return {
             "session_id": self.session.get_session_id(),
             "stack_id": self.session.get_stack_id(),
+            "project_path": state.project_path,
             "event": {
                 "event_id": event.event_id,
                 "label": event.label,
