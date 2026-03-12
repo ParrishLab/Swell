@@ -21,6 +21,9 @@ def build_shared_menu(root, app, *, mode: str, host_mode: bool = False) -> tk.Me
     config_menu = tk.Menu(menu, tearoff=False)
 
     file_items = [
+        ("Import Folder...", ("_load_stack",)),
+        ("Export Folder...", ("_browse_output", "browse_output")),
+        (None, None),
         ("New Project", ("new_project", "_new_project")),
         ("Open Project...", ("open_project", "_open_project_dialog", "open_session")),
         ("Save Project", ("save_project", "_save_project", "save_session")),
@@ -28,9 +31,6 @@ def build_shared_menu(root, app, *, mode: str, host_mode: bool = False) -> tk.Me
         ("Convert to Project...", ("convert_to_project",)),
         ("Import External Masks...", ("import_external_masks",)),
         ("Recover Autosave...", ("recover_autosave",)),
-        (None, None),
-        ("Import Folder...", ("_load_stack",)),
-        ("Export Folder...", ("_browse_output", "browse_output")),
         (None, None),
         ("Exit", ("_on_root_close", "on_close")),
     ]

@@ -34,7 +34,15 @@ def export_analysis(
     trace: Optional[TraceResult] = None,
     selected_event_ids: Optional[Iterable[str]] = None,
     progress_callback: Optional[Callable[[dict], None]] = None,
+    *,
+    include_event_images: bool = True,
+    include_baseline_images: bool = True,
+    include_binary_masks: bool = False,
+    analysis_sidecar: Optional[dict[str, dict]] = None,
 ) -> dict:
+    if not bool(include_event_images) and not bool(include_baseline_images):
+        raise ValueError("At least one of include_event_images or include_baseline_images must be enabled.")
+
     out_dir = Path(output_dir).expanduser().resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -50,15 +58,16 @@ def export_analysis(
 
     manifest_records: list[ExportRecord] = []
     event_summaries: list[dict] = []
+    masks_exported = 0
     total_frames_to_export = 0
     for event in selected_events:
         baseline_end = int(event.start_idx) - 1
-        if baseline_end >= 0:
+        if bool(include_baseline_images) and baseline_end >= 0:
             baseline_start = max(0, baseline_end - int(baseline_pre_frames) + 1)
             baseline_count = baseline_end - baseline_start + 1
         else:
             baseline_count = 0
-        event_count = max(0, event.end_idx - event.start_idx + 1)
+        event_count = max(0, event.end_idx - event.start_idx + 1) if bool(include_event_images) else 0
         total_frames_to_export += baseline_count + event_count
     frame_progress = 0
     progress_lock = Lock()
@@ -77,18 +86,25 @@ def export_analysis(
         event_dir = out_dir / event.event_id
         baseline_dir = event_dir / "baseline"
         extent_dir = event_dir / "event_extent"
-        baseline_dir.mkdir(parents=True, exist_ok=True)
-        extent_dir.mkdir(parents=True, exist_ok=True)
+        if bool(include_baseline_images):
+            baseline_dir.mkdir(parents=True, exist_ok=True)
+        if bool(include_event_images):
+            extent_dir.mkdir(parents=True, exist_ok=True)
+        masks_dir: Path | None = None
+        if bool(include_binary_masks):
+            masks_dir = event_dir / "binary_masks"
+            masks_dir.mkdir(parents=True, exist_ok=True)
 
         baseline_end = int(event.start_idx) - 1
         baseline_start: int | None = None
         event_records: list[tuple[int, str, ExportRecord]] = []
-        if baseline_end >= 0:
+        if bool(include_baseline_images) and baseline_end >= 0:
             baseline_start = max(0, baseline_end - int(baseline_pre_frames) + 1)
             baseline_indices = list(range(baseline_start, baseline_end + 1))
         else:
             baseline_indices = []
-        event_indices = list(range(event.start_idx, event.end_idx + 1))
+        event_indices = list(range(event.start_idx, event.end_idx + 1)) if bool(include_event_images) else []
+        export_indices = set(baseline_indices + event_indices)
 
         work_items: list[tuple[int, str, int]] = []
         for frame_idx in baseline_indices:
@@ -124,6 +140,24 @@ def export_analysis(
         event_records.sort(key=lambda x: (0 if x[1] == "baseline" else 1, x[0]))
         manifest_records.extend([rec for _idx, _role, rec in event_records])
 
+        if masks_dir is not None:
+            event_sidecar = dict((analysis_sidecar or {}).get(str(event.event_id), {}) or {})
+            mask_map = _build_event_global_mask_map(
+                event=event,
+                masks_payload=event_sidecar.get("masks_committed"),
+                baseline_pre_frames=int(baseline_pre_frames),
+            )
+            for frame_idx in sorted(export_indices):
+                mask = mask_map.get(int(frame_idx))
+                if mask is None:
+                    continue
+                if not np.any(mask):
+                    continue
+                role = "baseline" if int(frame_idx) in baseline_indices else "event"
+                mask_name = f"{int(frame_idx):06d}_{role}_mask.tiff"
+                _write_mask(masks_dir / mask_name, mask)
+                masks_exported += 1
+
         summary = event_to_dict(event)
         summary["baseline_start_idx"] = baseline_start
         summary["baseline_end_idx"] = baseline_end if baseline_end >= 0 else None
@@ -138,9 +172,55 @@ def export_analysis(
         "output_dir": str(out_dir),
         "events_exported": len(selected_events),
         "frames_exported": len(manifest_records),
+        "masks_exported": int(masks_exported),
         "manifest_csv": str(out_dir / "events_manifest.csv"),
         "manifest_json": str(out_dir / "events_manifest.json"),
     }
+
+
+def _build_event_global_mask_map(
+    *,
+    event: EventCandidate,
+    masks_payload,
+    baseline_pre_frames: int,
+) -> dict[int, np.ndarray]:
+    out: dict[int, np.ndarray] = {}
+    if masks_payload is None:
+        return out
+    if isinstance(masks_payload, dict):
+        for raw_idx, mask in masks_payload.items():
+            try:
+                idx = int(raw_idx)
+            except Exception:
+                continue
+            arr = np.asarray(mask, dtype=bool)
+            if arr.ndim != 2:
+                continue
+            out[idx] = arr.copy()
+        return out
+
+    arr = np.asarray(masks_payload)
+    if arr.ndim != 3:
+        return out
+    frame_count = int(arr.shape[0])
+    if frame_count <= 0:
+        return out
+
+    # If payload looks global, keep indices as-is; otherwise treat it as event-scope local.
+    if frame_count > int(event.end_idx):
+        for idx in range(frame_count):
+            mask = np.asarray(arr[idx], dtype=bool)
+            if mask.ndim == 2:
+                out[int(idx)] = mask
+        return out
+
+    scope_start = max(0, int(event.start_idx) - int(max(0, baseline_pre_frames)))
+    for local_idx in range(frame_count):
+        global_idx = scope_start + int(local_idx)
+        mask = np.asarray(arr[local_idx], dtype=bool)
+        if mask.ndim == 2:
+            out[int(global_idx)] = mask
+    return out
 
 
 def _export_frame(
@@ -198,6 +278,11 @@ def _write_frame(path: Path, frame: np.ndarray, ext: str) -> None:
 
     img = Image.fromarray(frame)
     img.save(path)
+
+
+def _write_mask(path: Path, mask: np.ndarray) -> None:
+    mask_u8 = np.where(np.asarray(mask, dtype=bool), 255, 0).astype(np.uint8)
+    tifffile.imwrite(str(path), mask_u8)
 
 
 def _write_trace_data_csv(path: Path, trace: TraceResult) -> None:

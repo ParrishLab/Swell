@@ -1336,11 +1336,15 @@ class SDAnalyzerApp:
     def _apply_popup_range_bounds(self, start_idx: int, end_idx: int) -> None:
         if self.stack_info is None or self._mark_scale is None:
             return
+        # Keep the selected popup frame valid by preventing range collapse past current.
+        current_idx = int(self._mark_popup_current_idx)
+        start_idx = min(int(start_idx), current_idx)
+        end_idx = max(int(end_idx), current_idx)
         start_idx, end_idx, clamped_current, _removed = clamp_popup_range(
             start_idx,
             end_idx,
             int(self.stack_info.frame_count),
-            self._mark_popup_current_idx,
+            current_idx,
             self._mark_processed_cache,
         )
         self._mark_popup_local_start = start_idx
@@ -2000,8 +2004,12 @@ class SDAnalyzerApp:
             self._log_warn("Export Selected blocked: no events selected.")
             messagebox.showwarning("Export", "Select one or more events in the table.")
             return
+        options = self._prompt_export_options(ids)
+        if options is None:
+            self._log_info("Export canceled from options dialog.")
+            return
         self._log_info(f"Preparing export for {len(ids)} selected event(s).")
-        self._run_export(ids)
+        self._run_export(ids, options=options)
 
     def _export_all(self) -> None:
         self._log_info("Export All clicked.")
@@ -2009,32 +2017,157 @@ class SDAnalyzerApp:
             self._log_warn("Export All blocked: no events available.")
             messagebox.showwarning("Export", "No events to export.")
             return
+        event_ids = [event.event_id for event in self.events]
+        options = self._prompt_export_options(event_ids)
+        if options is None:
+            self._log_info("Export canceled from options dialog.")
+            return
         self._log_info(f"Preparing export for all {len(self.events)} event(s).")
-        self._run_export([event.event_id for event in self.events])
+        self._run_export(event_ids, options=options)
 
-    def _run_export(self, event_ids: list[str]) -> None:
+    def _has_binary_masks_for_events(self, event_ids: list[str]) -> bool:
+        try:
+            sidecar = dict(self.browser_controller.session.state().analysis_sidecar or {})
+        except Exception:
+            return False
+        for event_id in [str(v) for v in event_ids]:
+            payload = sidecar.get(event_id)
+            if not isinstance(payload, dict):
+                continue
+            masks = payload.get("masks_committed")
+            if masks is None:
+                continue
+            if isinstance(masks, dict):
+                for mask in masks.values():
+                    arr = np.asarray(mask, dtype=bool)
+                    if arr.ndim == 2 and np.any(arr):
+                        return True
+                continue
+            arr = np.asarray(masks)
+            if arr.ndim == 3 and arr.size > 0 and np.any(arr):
+                return True
+        return False
+
+    def _prompt_export_options(self, event_ids: list[str]) -> dict[str, bool] | None:
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Export Options")
+        dialog.transient(self.root)
+        dialog.grab_set()
+        dialog.resizable(False, False)
+        dialog.geometry("+%d+%d" % (self.root.winfo_rootx() + 120, self.root.winfo_rooty() + 120))
+
+        include_event_var = tk.BooleanVar(value=True)
+        include_baseline_var = tk.BooleanVar(value=True)
+        include_masks_var = tk.BooleanVar(value=True)
+        output_dir_var = tk.StringVar(value=self.output_var.get().strip())
+        result: dict[str, str | bool] | None = None
+        has_masks = self._has_binary_masks_for_events(event_ids)
+
+        shell = ttk.Frame(dialog, padding=12)
+        shell.pack(fill="both", expand=True)
+        ttk.Label(shell, text=f"Choose export items for {len(event_ids)} event(s):").pack(anchor="w")
+
+        output_row = ttk.Frame(shell)
+        output_row.pack(fill="x", pady=(6, 10))
+        ttk.Label(output_row, text="Output folder").pack(side="left")
+        output_entry = ttk.Entry(output_row, textvariable=output_dir_var)
+        output_entry.pack(side="left", fill="x", expand=True, padx=(8, 8))
+
+        def _browse_output_dir() -> None:
+            initial = output_dir_var.get().strip() or self.output_var.get().strip() or str(Path.cwd())
+            folder = filedialog.askdirectory(parent=dialog, title="Select Export Folder", initialdir=initial)
+            if folder:
+                output_dir_var.set(str(folder))
+
+        ttk.Button(output_row, text="Browse...", command=_browse_output_dir).pack(side="left")
+
+        checks = ttk.Frame(shell)
+        checks.pack(fill="x", pady=(0, 10))
+        ttk.Checkbutton(checks, text="Event images", variable=include_event_var).pack(anchor="w")
+        ttk.Checkbutton(checks, text="Baseline images", variable=include_baseline_var).pack(anchor="w")
+        masks_check = ttk.Checkbutton(checks, text="Binary masks", variable=include_masks_var)
+        masks_check.pack(anchor="w")
+        if not has_masks:
+            include_masks_var.set(False)
+            masks_check.configure(state="disabled")
+            tip = tk.Toplevel(dialog)
+            tip.withdraw()
+            tip.overrideredirect(True)
+            tip_label = ttk.Label(tip, text="No binary masks exist for the selected events.", padding=6, relief="solid")
+            tip_label.pack()
+
+            def _show_tip(event) -> None:
+                x = int(event.x_root) + 10
+                y = int(event.y_root) + 10
+                tip.geometry(f"+{x}+{y}")
+                tip.deiconify()
+                tip.lift()
+
+            def _hide_tip(_event=None) -> None:
+                tip.withdraw()
+
+            masks_check.bind("<Enter>", _show_tip)
+            masks_check.bind("<Leave>", _hide_tip)
+            masks_check.bind("<Destroy>", lambda _e: tip.destroy())
+
+        buttons = ttk.Frame(shell)
+        buttons.pack(fill="x")
+
+        def _cancel() -> None:
+            dialog.destroy()
+
+        def _confirm() -> None:
+            nonlocal result
+            if not bool(include_event_var.get()) and not bool(include_baseline_var.get()):
+                messagebox.showwarning("Export Options", "Select at least one of Event images or Baseline images.")
+                return
+            out = output_dir_var.get().strip()
+            if not out:
+                messagebox.showwarning("Export Options", "Select an output folder.")
+                return
+            result = {
+                "output_dir": out,
+                "include_event_images": bool(include_event_var.get()),
+                "include_baseline_images": bool(include_baseline_var.get()),
+                "include_binary_masks": bool(include_masks_var.get()),
+            }
+            dialog.destroy()
+
+        ttk.Button(buttons, text="Cancel", command=_cancel).pack(side="right")
+        ttk.Button(buttons, text="Export", command=_confirm).pack(side="right", padx=(0, 8))
+        dialog.protocol("WM_DELETE_WINDOW", _cancel)
+        dialog.wait_window()
+        return result
+
+    def _run_export(self, event_ids: list[str], *, options: dict[str, object]) -> None:
         if self.reader is None:
             self._log_warn("Export blocked: load a stack first.")
             messagebox.showwarning("Export", "Load a stack first.")
             return
 
-        output_dir = self.output_var.get().strip()
+        output_dir = str(options.get("output_dir", self.output_var.get().strip())).strip()
         if not output_dir:
             self._log_warn("Export blocked: no output folder selected.")
             messagebox.showwarning("Export", "Select an output folder.")
             return
+        self.output_var.set(output_dir)
 
         baseline_pre = int(self.baseline_pre_frames)
         self._set_status("Exporting...")
         self._export_progress_bucket = -1
         self._log_info(
-            f"Started export to {output_dir} for {len(event_ids)} event(s), baseline_pre_frames={baseline_pre}."
+            "Started export to "
+            f"{output_dir} for {len(event_ids)} event(s), baseline_pre_frames={baseline_pre}, "
+            f"event_images={bool(options.get('include_event_images'))}, "
+            f"baseline_images={bool(options.get('include_baseline_images'))}, "
+            f"binary_masks={bool(options.get('include_binary_masks'))}."
         )
 
         def worker() -> None:
             try:
                 assert self.reader is not None
                 export_events = self.browser_controller.export_candidates(event_ids)
+                sidecar = self.browser_controller.session.state().analysis_sidecar
                 result = export_analysis(
                     reader=self.reader,
                     events=export_events,
@@ -2043,6 +2176,10 @@ class SDAnalyzerApp:
                     trace=self.trace,
                     selected_event_ids=event_ids,
                     progress_callback=self._on_export_progress,
+                    include_event_images=bool(options.get("include_event_images")),
+                    include_baseline_images=bool(options.get("include_baseline_images")),
+                    include_binary_masks=bool(options.get("include_binary_masks")),
+                    analysis_sidecar=sidecar,
                 )
                 self.root.after(0, lambda: self._on_export_done(result))
             except Exception as exc:

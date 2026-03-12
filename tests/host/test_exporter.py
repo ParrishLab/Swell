@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 from sdapp.host.config import EventCandidate, FrameRef, TraceResult
 from sdapp.host.exporter import export_analysis
@@ -196,3 +197,76 @@ def test_export_manifest_timestamps_follow_trace_time_sec(tmp_path: Path) -> Non
     assert by_idx[0]["timestamp_sec"] == ""
     assert by_idx[1]["timestamp_sec"] == "1.5"
     assert by_idx[2]["timestamp_sec"] == ""
+
+
+def test_export_options_allow_event_only_or_baseline_only(tmp_path: Path) -> None:
+    frames = [np.full((8, 8), i, dtype=np.uint8) for i in range(12)]
+    reader = FakeReader(frames)
+    events = [_event("event_0001", 5, 7)]
+
+    event_only = tmp_path / "event_only"
+    baseline_only = tmp_path / "baseline_only"
+
+    result_event_only = export_analysis(
+        reader=reader,
+        events=events,
+        output_dir=event_only,
+        baseline_pre_frames=3,
+        include_event_images=True,
+        include_baseline_images=False,
+    )
+    rows_event_only = _load_manifest_rows(event_only / "events_manifest.csv")
+    assert result_event_only["frames_exported"] == 3
+    assert {row["role"] for row in rows_event_only} == {"event"}
+    assert not (event_only / "event_0001" / "baseline").exists()
+
+    result_baseline_only = export_analysis(
+        reader=reader,
+        events=events,
+        output_dir=baseline_only,
+        baseline_pre_frames=3,
+        include_event_images=False,
+        include_baseline_images=True,
+    )
+    rows_baseline_only = _load_manifest_rows(baseline_only / "events_manifest.csv")
+    assert result_baseline_only["frames_exported"] == 3
+    assert {row["role"] for row in rows_baseline_only} == {"baseline"}
+    assert not (baseline_only / "event_0001" / "event_extent").exists()
+
+
+def test_export_options_require_at_least_one_image_group(tmp_path: Path) -> None:
+    frames = [np.full((8, 8), i, dtype=np.uint8) for i in range(6)]
+    reader = FakeReader(frames)
+    events = [_event("event_0001", 2, 4)]
+    with pytest.raises(ValueError):
+        export_analysis(
+            reader=reader,
+            events=events,
+            output_dir=tmp_path,
+            baseline_pre_frames=2,
+            include_event_images=False,
+            include_baseline_images=False,
+        )
+
+
+def test_export_binary_masks_writes_mask_images_when_available(tmp_path: Path) -> None:
+    frames = [np.full((8, 8), i, dtype=np.uint8) for i in range(10)]
+    reader = FakeReader(frames)
+    events = [_event("event_0001", 4, 6)]
+    masks = np.zeros((10, 8, 8), dtype=np.uint8)
+    masks[3, 2:6, 2:6] = 1  # baseline frame
+    masks[5, 1:4, 1:4] = 1  # event frame
+
+    result = export_analysis(
+        reader=reader,
+        events=events,
+        output_dir=tmp_path,
+        baseline_pre_frames=2,
+        include_binary_masks=True,
+        analysis_sidecar={"event_0001": {"masks_committed": masks}},
+    )
+    masks_dir = tmp_path / "event_0001" / "binary_masks"
+    assert masks_dir.exists()
+    exported_masks = sorted(p.name for p in masks_dir.glob("*.tiff"))
+    assert exported_masks == ["000003_baseline_mask.tiff", "000005_event_mask.tiff"]
+    assert result["masks_exported"] == 2
