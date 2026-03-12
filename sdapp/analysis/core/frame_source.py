@@ -3,29 +3,9 @@ from __future__ import annotations
 """Frame-source abstractions for analysis workspace consumers."""
 
 from dataclasses import dataclass, field
-from typing import Protocol, Sequence
 
 import numpy as np
-
-
-class FrameSource(Protocol):
-    @property
-    def frame_count(self) -> int: ...
-
-    @property
-    def frame_shape(self) -> tuple[int, int]: ...
-
-    @property
-    def frame_names(self) -> Sequence[str]: ...
-
-    @property
-    def source_paths(self) -> Sequence[str]: ...
-
-    def get_raw_frame(self, idx: int) -> np.ndarray: ...
-
-    def get_subtracted_frame(self, idx: int) -> np.ndarray: ...
-
-    def get_visual_frame(self, idx: int) -> np.ndarray: ...
+from sdapp.shared.frame_source.protocols import FrameSource
 
 
 @dataclass
@@ -45,6 +25,10 @@ class EagerFrameSource:
         if not self.raw_frames:
             return (0, 0)
         return tuple(self.raw_frames[0].shape[:2])
+
+    @property
+    def capabilities(self) -> dict[str, bool]:
+        return {"raw": True, "subtracted": True, "visual": True}
 
     def _validate_index(self, idx: int) -> int:
         idx = int(idx)

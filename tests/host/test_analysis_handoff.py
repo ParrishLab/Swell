@@ -5,7 +5,7 @@ from pathlib import Path
 
 from sdapp.host.browser_controller import BrowserController
 from sdapp.host.config import FrameRef
-from seam_contract import load_contract_fixture, validate_handoff_payload
+from sdapp.shared.contracts import load_contract_fixture, validate_handoff_payload
 
 
 class FakeReader:

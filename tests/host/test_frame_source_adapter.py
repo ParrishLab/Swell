@@ -6,8 +6,8 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from sdapp.host.frame_source_adapter import SDStackFrameSource
 from sdapp.host.stack_reader import StackReader
+from sdapp.shared.frame_source import SDStackFrameSource
 
 
 def _save_png(path: Path, arr: np.ndarray) -> None:

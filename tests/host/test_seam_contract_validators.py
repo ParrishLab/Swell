@@ -7,7 +7,7 @@ import numpy as np
 
 from sdapp.host.browser_controller import BrowserController
 from sdapp.host.config import FrameRef
-from seam_contract import ValidatorErrorCode, load_contract_fixture, validate_handoff_payload
+from sdapp.shared.contracts import ValidatorErrorCode, load_contract_fixture, validate_handoff_payload
 
 
 class _FakeReader:

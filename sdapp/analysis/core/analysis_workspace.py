@@ -7,11 +7,11 @@ from typing import Callable, Any
 
 import numpy as np
 
-from sdapp.analysis.core.frame_source import FrameSource
 from sdapp.analysis.core.host_handoff import intake_host_handoff_payload
 from sdapp.analysis.core.project_session import ProjectSessionService, SessionSnapshot
 from sdapp.analysis.core.seg_state import SegmentationState
 from sdapp.analysis.core.session_state import SessionState
+from sdapp.shared.frame_source.protocols import FrameSource
 
 
 @dataclass

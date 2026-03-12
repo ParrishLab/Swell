@@ -7,7 +7,7 @@ from sdapp.analysis.core.frame_source import EagerFrameSource
 from sdapp.analysis.core.project_session import ProjectSessionService
 from sdapp.analysis.core.seg_state import SegmentationState
 from sdapp.analysis.core.session_state import SessionState
-from seam_contract import load_contract_fixture, validate_sync_payload
+from sdapp.shared.contracts import load_contract_fixture, validate_sync_payload
 
 
 class HostModeSyncTests(unittest.TestCase):

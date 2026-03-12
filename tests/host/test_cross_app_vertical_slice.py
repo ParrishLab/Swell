@@ -6,7 +6,7 @@ import numpy as np
 
 from sdapp.host.browser_controller import BrowserController
 from sdapp.host.config import FrameRef
-from seam_contract import ValidatorErrorCode
+from sdapp.shared.contracts import ValidatorErrorCode
 
 
 class FakeReader:

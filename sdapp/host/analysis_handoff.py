@@ -1,11 +1,7 @@
 from __future__ import annotations
 
-try:
-    from .frame_source_adapter import SDStackFrameSource
-    from .host_models import EventMeta, HostSessionState
-except ImportError:
-    from frame_source_adapter import SDStackFrameSource
-    from host_models import EventMeta, HostSessionState
+from sdapp.host.host_models import EventMeta, HostSessionState
+from sdapp.shared.frame_source import SDStackFrameSource
 
 from sdapp.shared.contracts import CONTRACT_VERSION, validate_handoff_payload as _validate_handoff_payload
 

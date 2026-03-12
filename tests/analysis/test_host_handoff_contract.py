@@ -1,7 +1,7 @@
 import unittest
 
 from sdapp.analysis.core.host_handoff import intake_host_handoff_payload, validate_handoff_payload
-from seam_contract import ValidatorErrorCode, load_contract_fixture, validate_sync_payload
+from sdapp.shared.contracts import ValidatorErrorCode, load_contract_fixture, validate_sync_payload
 
 
 class HostHandoffContractTests(unittest.TestCase):

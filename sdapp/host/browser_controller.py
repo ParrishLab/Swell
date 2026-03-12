@@ -2,18 +2,11 @@ from __future__ import annotations
 
 from typing import Iterable
 
-try:
-    from .analysis_handoff import AnalysisHandoffAdapter
-    from .event_catalog_service import EventCatalogService
-    from .frame_source_adapter import SDStackFrameSource
-    from .host_models import EventMeta, stack_ref_from_stack_info
-    from .project_session_service import ProjectSessionService
-except ImportError:
-    from analysis_handoff import AnalysisHandoffAdapter
-    from event_catalog_service import EventCatalogService
-    from frame_source_adapter import SDStackFrameSource
-    from host_models import EventMeta, stack_ref_from_stack_info
-    from project_session_service import ProjectSessionService
+from sdapp.host.analysis_handoff import AnalysisHandoffAdapter
+from sdapp.host.event_catalog_service import EventCatalogService
+from sdapp.host.host_models import EventMeta, stack_ref_from_stack_info
+from sdapp.host.project_session_service import ProjectSessionService
+from sdapp.shared.frame_source import SDStackFrameSource
 
 from sdapp.shared.contracts import validate_sync_payload as _validate_sync_payload
 
