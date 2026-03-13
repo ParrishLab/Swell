@@ -167,7 +167,6 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         self._slider_marker_hit_tolerance_px = 6
         self._slider_marker_bounds = {}
         self._export_range_auto_follow = True
-        self._analysis_range_auto_follow = True
         self._programmatic_spinbox_update = False
         self._last_scale_image_path = ""
         self.export_panel_open = tk.BooleanVar(value=False)
@@ -180,8 +179,10 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         self._host_project_saver = None
         self._host_project_path_provider = None
         self._host_log_notifier = None
+        self._host_metrics_updater = None
         self._host_processing_options = None
         self._saved_project_masks_by_event = {}
+        self._suppress_metrics_emit = False
         self._host_buffer_generation = 0
         self._host_buffer_cache_key = None
         self._host_buffer_sync_limit = 240
@@ -247,12 +248,6 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
             get_input_folder=lambda: self.entry_input.get(),
             get_compose_final_mask_for_frame=self._compose_final_mask_for_frame,
             get_nonempty_final_mask_frames=self._collect_nonempty_final_mask_frames,
-            get_output_folder=lambda: self.entry_output.get(),
-            get_export_range=lambda: (int(self.spin_export_start.get()) - 1, int(self.spin_export_end.get()) - 1),
-            get_analysis_range=lambda: (
-                int(self.spin_analysis_start.get()) - 1,
-                int(self.spin_analysis_end.get()) - 1,
-            ),
             get_frames_per_sec=lambda: float(self.frames_per_sec_var.get()),
             get_scale_px_per_mm=lambda: self.scale_px_per_mm,
             set_scale_px_per_mm=lambda v: setattr(self, "scale_px_per_mm", v),
@@ -267,6 +262,7 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
             update_display=self.update_display,
             log_info=self.log_info,
             log_success=self.log_success,
+            on_metrics_settings_changed=self._on_metrics_settings_changed,
         )
         self.interaction_controller = InteractionController(
             seg_state=self.seg_state,
@@ -318,6 +314,9 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
             inference_manager=self.inference_manager,
             analysis_controller=self.analysis_controller,
         )
+        if hasattr(self, "entry_frames_per_sec"):
+            self.entry_frames_per_sec.bind("<FocusOut>", self._on_frames_per_sec_commit, add="+")
+            self.entry_frames_per_sec.bind("<Return>", self._on_frames_per_sec_commit, add="+")
         self._set_data_controls_enabled(False)
         self.inference_manager.start()
 
@@ -394,16 +393,6 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
     def _export_range_auto_follow(self, value):
         self._ensure_session_state()
         self.session_state.export_range_auto_follow = bool(value)
-
-    @property
-    def _analysis_range_auto_follow(self):
-        self._ensure_session_state()
-        return self.session_state.analysis_range_auto_follow
-
-    @_analysis_range_auto_follow.setter
-    def _analysis_range_auto_follow(self, value):
-        self._ensure_session_state()
-        self.session_state.analysis_range_auto_follow = bool(value)
 
     def _ensure_session_state(self):
         if not hasattr(self, "session_state") or self.session_state is None:
@@ -617,10 +606,6 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         if not getattr(self, "_programmatic_spinbox_update", False):
             self._export_range_auto_follow = False
 
-    def _on_analysis_range_user_edit(self, event=None):
-        if not getattr(self, "_programmatic_spinbox_update", False):
-            self._analysis_range_auto_follow = False
-
     def _set_widget_enabled(self, widget, enabled):
         state = "normal" if enabled else "disabled"
         try:
@@ -699,7 +684,7 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         self.analysis_panel_open.set(is_open)
         if not hasattr(self, "btn_analysis_toggle") or not hasattr(self, "frame_analysis_body"):
             return
-        self.btn_analysis_toggle.configure(text=f"Analysis {'▾' if is_open else '▸'}")
+        self.btn_analysis_toggle.configure(text=f"Adjust Metrics {'▾' if is_open else '▸'}")
         self.frame_analysis_body.pack_forget()
         if is_open:
             self.frame_analysis_body.pack(fill="x", padx=4, pady=(0, 4))
@@ -912,7 +897,6 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         self.last_img_y = None
         self.is_dragging = False
         self._export_range_auto_follow = True
-        self._analysis_range_auto_follow = True
         self._clear_propagation_overlay_state()
         self._set_data_controls_enabled(False)
 
@@ -980,9 +964,6 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
     def start_roi_selection(self):
         self.analysis_controller.start_roi_selection()
 
-    def run_metrics_analysis(self):
-        self.analysis_controller.run_metrics_analysis()
-
     def _setup_project_menu(self):
         project_workflow.setup_project_menu(self)
 
@@ -1008,8 +989,8 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
                 display_ratio=float(getattr(self, "display_ratio", 1.0)),
                 img_offset_x=int(getattr(self, "img_offset_x", 0)),
                 img_offset_y=int(getattr(self, "img_offset_y", 0)),
-                analysis_start=int(self.spin_analysis_start.get()) if hasattr(self, "spin_analysis_start") else 1,
-                analysis_end=int(self.spin_analysis_end.get()) if hasattr(self, "spin_analysis_end") else frame_count,
+                analysis_start=1,
+                analysis_end=max(1, int(frame_count)),
                 prop_start=int(self.spin_prop_start.get()),
                 prop_end=int(self.spin_prop_end.get()),
                 export_start=int(self.spin_export_start.get()),
@@ -1040,6 +1021,7 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         if callable(getattr(self, "_host_analysis_updater", None)):
             payload = self.analysis_workspace.export_active_event_analysis_payload()
             if payload is not None:
+                payload["metrics_settings"] = self._collect_current_metrics_settings()
                 try:
                     result = self._host_analysis_updater(payload)
                     if isinstance(result, dict):
@@ -1120,6 +1102,7 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         context: dict,
         frame_source=None,
         on_analysis_update=None,
+        on_metrics_update=None,
         on_project_saved=None,
         on_sync_result=None,
         on_log_message=None,
@@ -1133,6 +1116,7 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         self._host_project_saved_notifier = on_project_saved
         self._host_sync_result_notifier = on_sync_result
         self._host_log_notifier = on_log_message
+        self._host_metrics_updater = on_metrics_update
         self._host_project_saver = on_host_project_save
         self._host_project_path_provider = on_host_project_path
         if not callable(self._host_project_saver):
@@ -1184,6 +1168,8 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         )
         if not bool(result.get("ok")):
             return result
+        metrics_settings = context.get("metrics_settings") if isinstance(context, dict) else None
+        self._apply_host_metrics_settings(metrics_settings if isinstance(metrics_settings, dict) else None)
         self._sync_saved_mask_overlay_state()
         if self.frame_source is not None:
             try:
@@ -1218,6 +1204,7 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         self._host_project_saved_notifier = None
         self._host_sync_result_notifier = None
         self._host_log_notifier = None
+        self._host_metrics_updater = None
         self._host_project_saver = None
         self._host_project_path_provider = None
         self._host_processing_options = None
@@ -1661,6 +1648,114 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         except Exception:
             return
 
+    def _collect_current_metrics_settings(self) -> dict[str, object]:
+        metrics: dict[str, object] = {}
+        try:
+            frames_per_sec = float(self.frames_per_sec_var.get())
+            if frames_per_sec > 0:
+                metrics["frames_per_sec"] = float(frames_per_sec)
+        except Exception:
+            pass
+        try:
+            if self.scale_px_per_mm is not None and float(self.scale_px_per_mm) > 0:
+                metrics["scale_px_per_mm"] = float(self.scale_px_per_mm)
+        except Exception:
+            pass
+        if isinstance(self.roi_points, list) and self.roi_points:
+            clean_points: list[list[float]] = []
+            for pt in self.roi_points:
+                if isinstance(pt, (list, tuple)) and len(pt) >= 2:
+                    try:
+                        clean_points.append([float(pt[0]), float(pt[1])])
+                    except (TypeError, ValueError):
+                        continue
+            if clean_points:
+                metrics["roi_points"] = clean_points
+        if self.roi_mask is not None:
+            try:
+                roi_mask = np.asarray(self.roi_mask, dtype=bool)
+                if roi_mask.ndim == 2:
+                    metrics["roi_mask"] = roi_mask.copy()
+            except Exception:
+                pass
+        return metrics
+
+    def _apply_host_metrics_settings(self, metrics_settings: dict | None) -> None:
+        if not isinstance(metrics_settings, dict):
+            return
+        self._suppress_metrics_emit = True
+        try:
+            if "frames_per_sec" in metrics_settings:
+                try:
+                    frames_per_sec = float(metrics_settings.get("frames_per_sec"))
+                    if frames_per_sec > 0 and hasattr(self, "frames_per_sec_var"):
+                        self.frames_per_sec_var.set(float(frames_per_sec))
+                except (TypeError, ValueError):
+                    pass
+            if "scale_px_per_mm" in metrics_settings:
+                try:
+                    scale_value = float(metrics_settings.get("scale_px_per_mm"))
+                    if scale_value > 0:
+                        self.scale_px_per_mm = float(scale_value)
+                except (TypeError, ValueError):
+                    pass
+            if "roi_points" in metrics_settings and isinstance(metrics_settings.get("roi_points"), list):
+                cleaned_points: list[list[float]] = []
+                for pt in list(metrics_settings.get("roi_points", [])):
+                    if isinstance(pt, (list, tuple)) and len(pt) >= 2:
+                        try:
+                            cleaned_points.append([float(pt[0]), float(pt[1])])
+                        except (TypeError, ValueError):
+                            continue
+                self.roi_points = cleaned_points
+            if "roi_mask" in metrics_settings and metrics_settings.get("roi_mask") is not None:
+                try:
+                    roi_mask = np.asarray(metrics_settings.get("roi_mask"), dtype=bool)
+                    if roi_mask.ndim == 2:
+                        self.roi_mask = roi_mask.copy()
+                except Exception:
+                    pass
+        finally:
+            self._suppress_metrics_emit = False
+        if self._ui_alive():
+            self.update_display()
+
+    def _emit_host_metrics_update(self, reason: str) -> dict[str, object] | None:
+        if bool(getattr(self, "_suppress_metrics_emit", False)):
+            return None
+        if not bool(getattr(self, "_host_mode", False)):
+            return None
+        updater = getattr(self, "_host_metrics_updater", None)
+        if not callable(updater):
+            return None
+        event_id = str(getattr(self, "active_event_id", "") or "")
+        if not event_id:
+            return None
+        payload = {
+            "event_id": event_id,
+            "metrics_settings": self._collect_current_metrics_settings(),
+            "reason": str(reason or ""),
+        }
+        try:
+            result = updater(payload)
+        except Exception as exc:
+            self.log_warn("HostSync", f"Direct host metrics update failed: {exc}")
+            return {"ok": False, "code": "PAYLOAD_INVALID", "message": str(exc)}
+        if isinstance(result, dict) and not bool(result.get("ok", False)):
+            code = str(result.get("code", "PAYLOAD_INVALID"))
+            message = str(result.get("message", "Host rejected metrics update."))
+            self.log_warn("HostSync", f"Host rejected metrics update [{code}]: {message}")
+        return result if isinstance(result, dict) else {"ok": True}
+
+    def _on_metrics_settings_changed(self, reason: str) -> None:
+        self._mark_project_dirty(reason=str(reason or "metrics_changed"))
+        self._emit_host_metrics_update(reason=str(reason or "metrics_changed"))
+
+    def _on_frames_per_sec_commit(self, _event=None):
+        self._mark_project_dirty(reason="frames_per_sec")
+        self._emit_host_metrics_update(reason="frames_per_sec")
+        return None
+
     def _mark_active_event_saved_masks_present(self) -> None:
         event_id = str(getattr(self, "active_event_id", "") or "")
         if event_id:
@@ -1680,6 +1775,7 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         if not self._collect_nonempty_final_mask_frames():
             messagebox.showwarning("No Masks", "Please generate masks first.")
             return
+        self._emit_host_metrics_update(reason="save_current_masks")
         self._sync_project_path_from_host()
         if not self.current_project_path:
             self.log_info("Project", "No host project is active. Prompting Save Project As for mask save.")

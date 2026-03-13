@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Iterable
 
 from sdapp.host.analysis_handoff import AnalysisHandoffAdapter
+from sdapp.host.config import EventCandidate
 from sdapp.host.event_catalog_service import EventCatalogService
 from sdapp.host.host_models import EventMeta, stack_ref_from_stack_info
 from sdapp.host.project_session_service import ProjectSessionService
@@ -60,6 +61,13 @@ class BrowserController:
             frame_count=frame_count,
         )
         self._sync_session()
+        defaults = self.session.get_global_metrics_defaults()
+        if defaults:
+            self.session.upsert_event_metrics_settings(
+                str(event.event_id),
+                defaults,
+                merge_missing_only=True,
+            )
         return event
 
     def update_event(
@@ -91,7 +99,18 @@ class BrowserController:
         events = self.list_events()
         if selected:
             events = [ev for ev in events if ev.event_id in selected]
-        return [ev.to_event_candidate() for ev in events]
+        out: list[EventCandidate] = []
+        for ev in events:
+            out.append(
+                EventCandidate(
+                    event_id=str(ev.event_id),
+                    start_idx=int(ev.start_idx),
+                    end_idx=int(ev.end_idx),
+                    duration_frames=(int(ev.end_idx) - int(ev.start_idx) + 1),
+                    duration_sec=None,
+                )
+            )
+        return out
 
     def save_session(self, path: str | None = None):
         self._sync_session()
@@ -167,6 +186,36 @@ class BrowserController:
         self.session.set_metadata(last_sync_event_id=str(event_id))
         return {"ok": True, "event_id": str(event_id)}
 
+    def set_global_metrics_defaults(self, payload: dict) -> dict:
+        return self.session.set_global_metrics_defaults(dict(payload or {}))
+
+    def get_global_metrics_defaults(self) -> dict:
+        return self.session.get_global_metrics_defaults()
+
+    def materialize_metrics_defaults_to_events(self) -> int:
+        return int(self.session.materialize_metrics_defaults_to_events())
+
+    def upsert_event_metrics_settings(
+        self,
+        event_id: str,
+        payload: dict,
+        *,
+        merge_missing_only: bool = False,
+    ) -> bool:
+        return bool(
+            self.session.upsert_event_metrics_settings(
+                str(event_id),
+                dict(payload or {}),
+                merge_missing_only=bool(merge_missing_only),
+            )
+        )
+
+    def load_event_metrics_settings(self, event_id: str) -> dict | None:
+        return self.session.load_event_metrics_settings(str(event_id))
+
+    def resolve_event_metrics_settings(self, event_id: str) -> dict:
+        return self.session.resolve_event_metrics_settings(str(event_id))
+
     def host_context_for_event(self, event_id: str) -> dict:
         event = self.events.get_event(event_id)
         if event is None:
@@ -184,6 +233,7 @@ class BrowserController:
                 "flags": dict(event.flags),
             },
             "analysis_state": state.analysis_sidecar.get(str(event.event_id)),
+            "metrics_settings": self.resolve_event_metrics_settings(str(event.event_id)),
         }
 
     def _sync_session(self, mark_dirty: bool = True) -> None:

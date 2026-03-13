@@ -2,19 +2,10 @@ import os
 
 import cv2
 import numpy as np
-import pandas as pd
 from scipy.ndimage import map_coordinates
 from tkinter import filedialog, messagebox
 
-from sdapp.analysis.core.metrics import (
-    compute_frame_metrics,
-    compute_roi_metrics,
-    compute_scale,
-    extract_primary_boundary,
-    generate_metrics_plots,
-    smooth_boundary_fft,
-    write_metrics_outputs,
-)
+from sdapp.analysis.core.metrics import compute_scale
 from sdapp.analysis.ui.roi_dialog import open_roi_dialog
 from sdapp.analysis.ui.scale_dialog import open_scale_dialog
 from sdapp.analysis.utils.paths import resolve_existing_directory
@@ -33,8 +24,6 @@ class AnalysisController:
         get_input_folder,
         get_compose_final_mask_for_frame,
         get_nonempty_final_mask_frames,
-        get_output_folder,
-        get_export_range,
         get_frames_per_sec,
         get_scale_px_per_mm,
         set_scale_px_per_mm,
@@ -46,10 +35,10 @@ class AnalysisController:
         set_roi_mask,
         get_roi_points,
         set_roi_points,
-        get_analysis_range,
         update_display,
         log_info,
         log_success,
+        on_metrics_settings_changed=None,
     ):
         self.root = root
         self.app_root = app_root
@@ -61,9 +50,6 @@ class AnalysisController:
         self.get_input_folder = get_input_folder
         self.get_compose_final_mask_for_frame = get_compose_final_mask_for_frame
         self.get_nonempty_final_mask_frames = get_nonempty_final_mask_frames
-        self.get_output_folder = get_output_folder
-        self.get_export_range = get_export_range
-        self.get_analysis_range = get_analysis_range
         self.get_frames_per_sec = get_frames_per_sec
         self.get_scale_px_per_mm = get_scale_px_per_mm
         self.set_scale_px_per_mm = set_scale_px_per_mm
@@ -78,13 +64,7 @@ class AnalysisController:
         self.update_display = update_display
         self.log_info = log_info
         self.log_success = log_success
-
-    def _default_analysis_range(self):
-        frames_raw = self.get_frames_raw()
-        frame_count = len(frames_raw) if frames_raw is not None else 0
-        if frame_count <= 0:
-            return 0, -1
-        return 0, frame_count - 1
+        self.on_metrics_settings_changed = on_metrics_settings_changed
 
     def _get_first_frame_original_u8(self):
         frames_raw = self.get_frames_raw()
@@ -349,6 +329,11 @@ class AnalysisController:
 
         self.set_scale_px_per_mm(result["px_per_mm"])
         self.set_scale_points(result["scale_points"])
+        if callable(self.on_metrics_settings_changed):
+            try:
+                self.on_metrics_settings_changed("scale")
+            except Exception:
+                pass
 
         if result["fallback"]:
             messagebox.showwarning("Scale Refinement", "Low-confidence refinement; using selected endpoints.")
@@ -381,165 +366,9 @@ class AnalysisController:
         self.set_roi_mask(result["roi_mask"])
         self.set_roi_points(result["roi_points"])
         self.update_display()
+        if callable(self.on_metrics_settings_changed):
+            try:
+                self.on_metrics_settings_changed("roi")
+            except Exception:
+                pass
         messagebox.showinfo("ROI Set", "ROI polygon saved.")
-
-    def run_metrics_analysis(self):
-        frames_raw = self.get_frames_raw()
-        masks_cache = self.get_masks_cache()
-        paint_layers = self.get_paint_layers()
-        points = self.get_points()
-        roi_mask = self.get_roi_mask()
-        scale_px_per_mm = self.get_scale_px_per_mm()
-
-        if frames_raw is None:
-            messagebox.showwarning("No Images", "Import images first.")
-            return
-        if scale_px_per_mm is None:
-            messagebox.showwarning("Missing Scale", "Set scale before running metrics.")
-            return
-        if roi_mask is None:
-            messagebox.showwarning("Missing ROI", "Draw ROI before running metrics.")
-            return
-
-        total_frames = len(frames_raw)
-        try:
-            analysis_start, analysis_end = self.get_analysis_range()
-        except Exception:
-            analysis_start, analysis_end = 0, total_frames - 1
-        analysis_start = max(0, min(int(analysis_start), total_frames - 1))
-        analysis_end = max(0, min(int(analysis_end), total_frames - 1))
-
-        try:
-            frames_per_sec = float(self.get_frames_per_sec())
-            if frames_per_sec <= 0:
-                raise ValueError("Frames/sec must be > 0")
-            sec_per_frame = 1.0 / frames_per_sec
-        except (TypeError, ValueError):
-            messagebox.showwarning("Invalid Input", "Frames/sec must be a positive number.")
-            return
-
-        selected_frame_indices = sorted(
-            frame_idx
-            for frame_idx in self.get_nonempty_final_mask_frames()
-            if analysis_start <= frame_idx <= analysis_end
-        )
-
-        if not selected_frame_indices:
-            messagebox.showwarning("No Masks", "No generated masks found in selected analysis range.")
-            return
-
-        has_propagated_mask_in_range = False
-        for frame_idx in selected_frame_indices:
-            if frame_idx not in masks_cache:
-                continue
-            mask_val = masks_cache.get(frame_idx)
-            if mask_val is None or not np.any(mask_val):
-                continue
-            has_direct_input = False
-            if frame_idx in points and points[frame_idx]:
-                has_direct_input = True
-            if frame_idx in paint_layers:
-                layer = paint_layers[frame_idx]
-                if np.any(layer["plus"]) or np.any(layer["minus"]):
-                    has_direct_input = True
-            if not has_direct_input:
-                has_propagated_mask_in_range = True
-                break
-
-        if not has_propagated_mask_in_range:
-            proceed_without_propagation = messagebox.askyesno(
-                "No Propagated Masks Detected",
-                "No propagated masks were found in the selected range.\n\n"
-                "You can continue and compute metrics from currently available masks, "
-                "or cancel and run propagation first.\n\n"
-                "Continue anyway?",
-            )
-            if not proceed_without_propagation:
-                return
-
-        start_idx = selected_frame_indices[0]
-        end_idx = selected_frame_indices[-1]
-        self.log_info(
-            "Metrics",
-            f"Started metrics analysis for {len(selected_frame_indices)} generated-mask frames "
-            f"(span {start_idx + 1}-{end_idx + 1}).",
-        )
-
-        boundaries = []
-        frame_rows = []
-        for frame_idx in selected_frame_indices:
-            mask = self.get_compose_final_mask_for_frame(frame_idx)
-            if mask is None:
-                mask = np.zeros_like(frames_raw[0], dtype=bool)
-            # Restrict all downstream metrics (area + speed) to the selected ROI only.
-            mask = mask & roi_mask
-            boundary = extract_primary_boundary(mask)
-            if boundary is not None:
-                boundary = smooth_boundary_fft(boundary, n_keep=25)
-            boundaries.append(boundary)
-            frame_rows.append(frame_idx)
-
-        valid_boundaries = sum(1 for b in boundaries if b is not None)
-        if valid_boundaries < 2:
-            messagebox.showwarning("Not Enough Data", "Need at least 2 frames with masks in selected range.")
-            return
-
-        frame_metrics = compute_frame_metrics(boundaries, min_dist_px=2.0)
-        roi_metrics = compute_roi_metrics(
-            roi_mask,
-            frame_metrics["areas_px"],
-            frame_metrics["avg_dist_px"],
-            scale_px_per_mm,
-            sec_per_frame,
-        )
-
-        area_mm2 = roi_metrics["area_mm2"]
-        speed_um_per_sec = roi_metrics["speed_um_per_sec"]
-        rel_area_pct = (
-            (frame_metrics["areas_px"] / roi_metrics["roi_pixels"] * 100.0)
-            if roi_metrics["roi_pixels"] > 0
-            else np.full_like(frame_metrics["areas_px"], np.nan)
-        )
-
-        frame_df = pd.DataFrame(
-            {
-                "frame_index": frame_rows,
-                "frame_display": [f + 1 for f in frame_rows],
-                "time_sec": [(f - start_idx) * sec_per_frame for f in frame_rows],
-                "area_px": frame_metrics["areas_px"],
-                "area_mm2": area_mm2,
-                "avg_dist_px": frame_metrics["avg_dist_px"],
-                "speed_um_per_sec": speed_um_per_sec,
-                "relative_area_pct": rel_area_pct,
-            }
-        )
-
-        summary = {
-            "overall_avg_speed_um_per_sec": roi_metrics["overall_avg_speed_um_per_sec"],
-            "max_area_mm2": roi_metrics["max_area_mm2"],
-            "relative_area_pct": roi_metrics["relative_area_pct"],
-            "roi_area_mm2": roi_metrics["roi_area_mm2"],
-            "roi_pixels": roi_metrics["roi_pixels"],
-            "px_per_mm": roi_metrics["px_per_mm"],
-            "um_per_px": roi_metrics["um_per_px"],
-            "mm_per_px": roi_metrics["mm_per_px"],
-            "sec_per_frame": roi_metrics["sec_per_frame"],
-            "frames_per_sec": float(frames_per_sec),
-            "range_start_frame": start_idx + 1,
-            "range_end_frame": end_idx + 1,
-        }
-
-        output_folder = self.get_output_folder()
-        if output_folder and not os.path.isabs(output_folder):
-            output_folder = os.path.join(self.app_root, output_folder)
-        analysis_dir = os.path.join(output_folder, "metrics_analysis")
-        write_metrics_outputs(analysis_dir, frame_df, summary)
-        generate_metrics_plots(analysis_dir, frame_df, summary)
-        self.log_success(
-            "Metrics",
-            (
-                f"Completed metrics analysis ({len(selected_frame_indices)} generated-mask frames, "
-                f"{valid_boundaries} valid boundaries). Output: {analysis_dir}"
-            ),
-        )
-        messagebox.showinfo("Metrics Complete", f"Saved metrics analysis to:\n{analysis_dir}")

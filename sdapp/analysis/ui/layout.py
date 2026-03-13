@@ -11,36 +11,26 @@ class LayoutBuilder:
         slider_overlay_bg = "#d4d7db"
         insert_cursor = "#1f1f1f"
 
-        # 1. Top Control Panel
-        control_frame = ttk.LabelFrame(self.root, text="Configuration", padding=10)
-        control_frame.pack(fill="x", padx=10, pady=5)
-
-        ttk.Label(control_frame, text="Source: Host-managed").grid(row=0, column=0, columnspan=3, sticky="w")
-        self.entry_input = tk.Entry(control_frame, width=40)
+        # 1. Hidden backing controls (Configuration panel removed from visible UI).
+        self.entry_input = tk.Entry(self.root, width=40)
         self.entry_input.insert(0, "Host-provided SD event scope")
 
-        ttk.Label(control_frame, text="Output:").grid(row=1, column=0, sticky="e")
-        self.entry_output = tk.Entry(control_frame, width=40)
-        self.entry_output.grid(row=1, column=1, padx=5)
+        self.entry_output = tk.Entry(self.root, width=40)
         self.entry_output.insert(0, str(self.config.output_path()))
-        ttk.Button(control_frame, text="Browse", command=self.browse_output).grid(row=1, column=2, padx=5)
 
-        self.entry_model = tk.Entry(control_frame, width=35)
+        self.entry_model = tk.Entry(self.root, width=35)
         self.entry_model.insert(0, str(self.config.model_path()))
 
-        ttk.Label(control_frame, text="Baseline Frames:").grid(row=1, column=3, sticky="e")
-        self.spin_baseline = tk.Spinbox(control_frame, from_=1, to=100, width=5)
-        self.spin_baseline.grid(row=1, column=4, sticky="w", padx=5)
+        self.spin_baseline = tk.Spinbox(self.root, from_=1, to=100, width=5)
         self._set_spinbox_value(self.spin_baseline, self.config.default_baseline)
 
         self.lbl_status = ttk.Label(
-            control_frame,
+            self.root,
             text="Status: Idle",
             foreground="gray",
             justify="left",
             wraplength=320,
         )
-        self.lbl_status.grid(row=0, column=5, rowspan=2, padx=10, sticky="w")
 
         # 2. Visualization Area
         viz_frame = ttk.Frame(self.root)
@@ -184,11 +174,11 @@ class LayoutBuilder:
         self.right_controls = ttk.Frame(btn_box)
         self.right_controls.pack(side="right", padx=8, pady=2)
 
-        analysis_section = ttk.LabelFrame(self.right_controls, text="Analysis")
+        analysis_section = ttk.LabelFrame(self.right_controls, text="Adjust Metrics")
         analysis_section.pack(side="left", padx=(0, 6))
         self.btn_analysis_toggle = ttk.Button(
             analysis_section,
-            text="Analysis ▸",
+            text="Adjust Metrics ▸",
             width=16,
             command=self._toggle_analysis_panel,
         )
@@ -208,20 +198,6 @@ class LayoutBuilder:
 
         self.btn_draw_roi = ttk.Button(analysis_row2, text="Draw ROI", command=self.start_roi_selection)
         self.btn_draw_roi.pack(side="left", padx=3)
-        ttk.Label(analysis_row2, text="Start:").pack(side="left", padx=(8, 2))
-        self.spin_analysis_start = tk.Spinbox(analysis_row2, from_=1, to=10000, width=5)
-        self.spin_analysis_start.pack(side="left", padx=2)
-        self._set_spinbox_value(self.spin_analysis_start, 1)
-        for event_name in ("<KeyRelease>", "<<Increment>>", "<<Decrement>>", "<MouseWheel>", "<ButtonRelease-1>"):
-            self.spin_analysis_start.bind(event_name, self._on_analysis_range_user_edit)
-        ttk.Label(analysis_row2, text="End:").pack(side="left", padx=2)
-        self.spin_analysis_end = tk.Spinbox(analysis_row2, from_=1, to=10000, width=5)
-        self.spin_analysis_end.pack(side="left", padx=2)
-        self._set_spinbox_value(self.spin_analysis_end, 100)
-        for event_name in ("<KeyRelease>", "<<Increment>>", "<<Decrement>>", "<MouseWheel>", "<ButtonRelease-1>"):
-            self.spin_analysis_end.bind(event_name, self._on_analysis_range_user_edit)
-        self.btn_run_metrics = ttk.Button(analysis_row2, text="Run Metrics", command=self.run_metrics_analysis)
-        self.btn_run_metrics.pack(side="left", padx=3)
 
         export_section = ttk.LabelFrame(self.right_controls, text="Masks")
         export_section.pack(side="left")
@@ -259,8 +235,6 @@ class LayoutBuilder:
             self.spin_prop_end,
             self.spin_export_start,
             self.spin_export_end,
-            self.spin_analysis_start,
-            self.spin_analysis_end,
             self.entry_frames_per_sec,
         ]:
             try:

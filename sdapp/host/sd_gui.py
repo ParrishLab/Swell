@@ -12,6 +12,11 @@ from tkinter import filedialog, messagebox, ttk
 import numpy as np
 from PIL import Image, ImageTk
 from scipy.ndimage import gaussian_filter
+import tifffile
+
+from sdapp.analysis.core.metrics import compute_scale
+from sdapp.analysis.ui.roi_dialog import open_roi_dialog
+from sdapp.analysis.ui.scale_dialog import open_scale_dialog
 try:
     from .browser_controller import BrowserController
     from .config import APP_TITLE, DEFAULT_BASELINE_PRE_FRAMES, TraceResult
@@ -234,11 +239,14 @@ class SDAnalyzerApp:
         ttk.Button(action_frame, text="Analyze SD", command=self._analyze_selected_event).grid(
             row=1, column=0, columnspan=2, sticky="ew", padx=2, pady=(6, 2)
         )
+        ttk.Button(action_frame, text="Generate Metrics", command=self._open_generate_metrics_popup).grid(
+            row=2, column=0, columnspan=2, sticky="ew", padx=2, pady=2
+        )
         ttk.Button(action_frame, text="Export Selected", command=self._export_selected).grid(
-            row=2, column=0, sticky="ew", padx=2, pady=2
+            row=3, column=0, sticky="ew", padx=2, pady=2
         )
         ttk.Button(action_frame, text="Export All", command=self._export_all).grid(
-            row=2, column=1, sticky="ew", padx=2, pady=2
+            row=3, column=1, sticky="ew", padx=2, pady=2
         )
 
         logs_frame = ttk.LabelFrame(right_bottom, text="Logs", padding=6)
@@ -580,6 +588,32 @@ class SDAnalyzerApp:
         self._set_status(f"Analysis update rejected: {code}")
         return result
 
+    def _on_analysis_metrics_update(self, payload: dict) -> dict:
+        event_id = str(dict(payload or {}).get("event_id", "")).strip()
+        if not event_id:
+            return {
+                "ok": False,
+                "code": "PAYLOAD_INVALID",
+                "message": "Missing event_id in metrics update payload.",
+            }
+        event = self.browser_controller.get_event(event_id)
+        if event is None:
+            return {
+                "ok": False,
+                "code": "EVENT_NOT_FOUND",
+                "message": f"event_id not found in host event catalog: {event_id}",
+            }
+        metrics_settings = dict(payload or {}).get("metrics_settings")
+        changed = self.browser_controller.upsert_event_metrics_settings(
+            event_id,
+            dict(metrics_settings or {}),
+            merge_missing_only=False,
+        )
+        if changed:
+            self._set_status(f"Metrics settings updated: {event_id}")
+            self._log_info(f"Updated local metrics settings for event {event_id}.")
+        return {"ok": True, "event_id": event_id, "changed": bool(changed)}
+
     def _on_analysis_sync_result(self, result: dict) -> None:
         if not isinstance(result, dict):
             return
@@ -677,6 +711,172 @@ class SDAnalyzerApp:
         norm = (arr - lo) / denom
         return np.clip(norm * 255.0, 0.0, 255.0).astype(np.uint8)
 
+    def _get_first_frame_original_u8(self) -> np.ndarray | None:
+        if self.reader is None:
+            return None
+        try:
+            frame = self.reader.read_frame(0, use_cache=True)
+        except TypeError:
+            frame = self.reader.read_frame(0)
+        except Exception:
+            return None
+        arr = np.asarray(frame, dtype=np.float32)
+        if arr.ndim == 3 and arr.shape[2] in (3, 4):
+            arr = arr[:, :, :3].mean(axis=2)
+        if arr.ndim != 2:
+            return None
+        return self._preview_to_u8(arr)
+
+    def _metrics_picker_initial_dir(self) -> str:
+        raw = ""
+        input_var = getattr(self, "input_var", None)
+        if input_var is not None and hasattr(input_var, "get"):
+            try:
+                raw = str(input_var.get() or "").strip()
+            except Exception:
+                raw = ""
+        if raw:
+            candidate = Path(raw).expanduser()
+            if candidate.is_dir():
+                return str(candidate.resolve())
+        stack_info = getattr(self, "stack_info", None)
+        if stack_info is not None:
+            stack_dir = Path(str(getattr(stack_info, "input_dir", "") or "")).expanduser()
+            if stack_dir.is_dir():
+                return str(stack_dir.resolve())
+        return str(Path.cwd())
+
+    def _load_metrics_reference_image_u8(self, image_path: str | Path) -> np.ndarray | None:
+        path = Path(image_path).expanduser().resolve()
+        if not path.exists() or not path.is_file():
+            return None
+
+        # Prefer stack reader decoding so multipage TIFF selections map to the loaded stack format.
+        reader = getattr(self, "reader", None)
+        if reader is not None:
+            try:
+                frame_count = int(reader.get_frame_count())
+            except Exception:
+                frame_count = 0
+            if frame_count > 0:
+                for idx in range(frame_count):
+                    try:
+                        ref = reader.get_frame_ref(idx)
+                        ref_path = Path(str(getattr(ref, "source_path", "") or "")).expanduser().resolve()
+                    except Exception:
+                        continue
+                    if ref_path != path:
+                        continue
+                    try:
+                        frame = reader.read_frame(int(idx), use_cache=True)
+                    except TypeError:
+                        frame = reader.read_frame(int(idx))
+                    except Exception:
+                        break
+                    arr = np.asarray(frame, dtype=np.float32)
+                    if arr.ndim == 3 and arr.shape[2] in (3, 4):
+                        arr = arr[:, :, :3].mean(axis=2)
+                    if arr.ndim != 2:
+                        return None
+                    return self._preview_to_u8(arr)
+
+        # Fallback loader for paths outside the active stack.
+        try:
+            if path.suffix.lower() in {".tif", ".tiff"}:
+                raw = np.asarray(tifffile.imread(str(path)))
+                if raw.ndim == 3 and raw.shape[2] not in (3, 4):
+                    raw = raw[0]
+            else:
+                with Image.open(path) as image:
+                    raw = np.asarray(image)
+        except Exception:
+            return None
+
+        arr = np.asarray(raw, dtype=np.float32)
+        if arr.ndim == 3 and arr.shape[2] in (3, 4):
+            arr = arr[:, :, :3].mean(axis=2)
+        elif arr.ndim > 2:
+            arr = np.asarray(arr).squeeze()
+            if arr.ndim == 3 and arr.shape[2] in (3, 4):
+                arr = arr[:, :, :3].mean(axis=2)
+        if arr.ndim != 2:
+            return None
+        return self._preview_to_u8(arr)
+
+    def _pick_metrics_reference_image_u8(
+        self,
+        *,
+        parent,
+        purpose: str,
+    ) -> np.ndarray | None:
+        selected = filedialog.askopenfilename(
+            parent=parent,
+            title=f"Select Image for {purpose}",
+            initialdir=self._metrics_picker_initial_dir(),
+            filetypes=[
+                ("Image files", "*.tif *.tiff *.png *.jpg *.jpeg *.bmp"),
+                ("TIFF files", "*.tif *.tiff"),
+                ("All files", "*.*"),
+            ],
+        )
+        if not selected:
+            return None
+        img_u8 = self._load_metrics_reference_image_u8(selected)
+        if img_u8 is None:
+            self._show_warning(
+                purpose,
+                "Unable to load the selected image. Please choose a readable image file from the input stack.",
+            )
+            return None
+
+        stack_info = getattr(self, "stack_info", None)
+        if stack_info is not None:
+            expected_h = int(getattr(stack_info, "frame_height", 0) or 0)
+            expected_w = int(getattr(stack_info, "frame_width", 0) or 0)
+            if expected_h > 0 and expected_w > 0:
+                actual_h, actual_w = int(img_u8.shape[0]), int(img_u8.shape[1])
+                if (actual_h, actual_w) != (expected_h, expected_w):
+                    self._show_warning(
+                        purpose,
+                        (
+                            "Selected image shape does not match the loaded stack.\n"
+                            f"Expected: {expected_w}x{expected_h}\n"
+                            f"Got: {actual_w}x{actual_h}"
+                        ),
+                    )
+                    return None
+        return img_u8
+
+    @staticmethod
+    def _snap_scale_points_axis(p1, p2):
+        x1, y1 = float(p1[0]), float(p1[1])
+        x2, y2 = float(p2[0]), float(p2[1])
+        dx = abs(x2 - x1)
+        dy = abs(y2 - y1)
+        if dx >= dy:
+            y = (y1 + y2) * 0.5
+            return (x1, y), (x2, y), "horizontal"
+        x = (x1 + x2) * 0.5
+        return (x, y1), (x, y2), "vertical"
+
+    def _refine_scale_bar_points(self, _img_u8, p1, p2, linewidth=7, endpoint_window_px=8, force_axis=False):
+        del linewidth, endpoint_window_px
+        p1_used = (float(p1[0]), float(p1[1]))
+        p2_used = (float(p2[0]), float(p2[1]))
+        axis_mode = "free"
+        if bool(force_axis):
+            p1_used, p2_used, axis_mode = self._snap_scale_points_axis(p1_used, p2_used)
+        return {
+            "p1_ref": p1_used,
+            "p2_ref": p2_used,
+            "refined_ok": False,
+            "score": 1.0,
+            "fallback": True,
+            "axis_mode": axis_mode,
+            "p1_snap": p1_used,
+            "p2_snap": p2_used,
+        }
+
     @staticmethod
     def _center_window_on_screen(window) -> None:
         try:
@@ -694,6 +894,167 @@ class SDAnalyzerApp:
             window.geometry(f"{width}x{height}+{x}+{y}")
         except Exception:
             return
+
+    def _open_generate_metrics_popup(self) -> None:
+        if self.reader is None or self.stack_info is None:
+            self._show_warning("Generate Metrics", "Load a stack first.")
+            return
+
+        defaults = dict(self.browser_controller.get_global_metrics_defaults() or {})
+        fps_initial = defaults.get("frames_per_sec", 1.0)
+        try:
+            fps_initial = float(fps_initial)
+            if fps_initial <= 0:
+                fps_initial = 1.0
+        except (TypeError, ValueError):
+            fps_initial = 1.0
+
+        scale_value = defaults.get("scale_px_per_mm")
+        try:
+            scale_value = float(scale_value) if scale_value is not None else None
+            if scale_value is not None and scale_value <= 0:
+                scale_value = None
+        except (TypeError, ValueError):
+            scale_value = None
+        roi_points = list(defaults.get("roi_points", [])) if isinstance(defaults.get("roi_points"), list) else []
+        roi_mask = defaults.get("roi_mask")
+        if roi_mask is not None:
+            try:
+                roi_mask = np.asarray(roi_mask, dtype=bool).copy()
+                if roi_mask.ndim != 2:
+                    roi_mask = None
+            except Exception:
+                roi_mask = None
+
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Generate Metrics Defaults")
+        dialog.transient(self.root)
+        dialog.grab_set()
+        dialog.resizable(False, False)
+
+        shell = ttk.Frame(dialog, padding=12)
+        shell.pack(fill="both", expand=True)
+        ttk.Label(
+            shell,
+            text="Configure global Frames/Sec, Scale, and ROI defaults for this project.",
+        ).pack(anchor="w")
+
+        fps_row = ttk.Frame(shell)
+        fps_row.pack(fill="x", pady=(10, 6))
+        ttk.Label(fps_row, text="Frames/Sec").pack(side="left")
+        fps_var = tk.StringVar(value=f"{fps_initial:.6g}")
+        fps_entry = ttk.Entry(fps_row, textvariable=fps_var, width=10)
+        fps_entry.pack(side="left", padx=(8, 0))
+
+        scale_status_var = tk.StringVar()
+        roi_status_var = tk.StringVar()
+
+        def _refresh_labels() -> None:
+            if scale_value is None:
+                scale_status_var.set("Scale: Not set")
+            else:
+                scale_status_var.set(f"Scale: {float(scale_value):.6g} px/mm")
+            if roi_mask is not None:
+                roi_status_var.set(f"ROI: {len(roi_points)} points ({int(np.count_nonzero(roi_mask))} px)")
+            elif roi_points:
+                roi_status_var.set(f"ROI: {len(roi_points)} points")
+            else:
+                roi_status_var.set("ROI: Not set")
+
+        controls = ttk.Frame(shell)
+        controls.pack(fill="x", pady=(6, 6))
+
+        def _set_scale() -> None:
+            nonlocal scale_value
+            img_u8 = self._pick_metrics_reference_image_u8(parent=dialog, purpose="Scale")
+            if img_u8 is None:
+                return
+            result = open_scale_dialog(
+                root=dialog,
+                img_u8=img_u8,
+                snap_scale_points_axis=self._snap_scale_points_axis,
+                refine_scale_bar_points=self._refine_scale_bar_points,
+                compute_scale=compute_scale,
+            )
+            if not isinstance(result, dict):
+                return
+            try:
+                scale_value = float(result.get("px_per_mm"))
+                if scale_value <= 0:
+                    scale_value = None
+            except (TypeError, ValueError):
+                scale_value = None
+            _refresh_labels()
+
+        def _set_roi() -> None:
+            nonlocal roi_points, roi_mask
+            img_u8 = self._pick_metrics_reference_image_u8(parent=dialog, purpose="ROI")
+            if img_u8 is None:
+                return
+            result = open_roi_dialog(
+                root=dialog,
+                img_u8=img_u8,
+                initial_roi_points=list(roi_points),
+            )
+            if not isinstance(result, dict):
+                return
+            roi_points = list(result.get("roi_points", []))
+            raw_mask = result.get("roi_mask")
+            if raw_mask is None:
+                roi_mask = None
+            else:
+                try:
+                    roi_mask = np.asarray(raw_mask, dtype=bool).copy()
+                    if roi_mask.ndim != 2:
+                        roi_mask = None
+                except Exception:
+                    roi_mask = None
+            _refresh_labels()
+
+        ttk.Button(controls, text="Set Scale", command=_set_scale).pack(side="left")
+        ttk.Button(controls, text="Draw ROI", command=_set_roi).pack(side="left", padx=(8, 0))
+
+        ttk.Label(shell, textvariable=scale_status_var).pack(anchor="w", pady=(2, 2))
+        ttk.Label(shell, textvariable=roi_status_var).pack(anchor="w", pady=(0, 8))
+        _refresh_labels()
+
+        actions = ttk.Frame(shell)
+        actions.pack(fill="x")
+
+        def _cancel() -> None:
+            dialog.destroy()
+
+        def _apply() -> None:
+            try:
+                frames_per_sec = float(str(fps_var.get()).strip())
+                if frames_per_sec <= 0:
+                    raise ValueError("Frames/Sec must be greater than zero.")
+            except (TypeError, ValueError):
+                self._show_warning("Generate Metrics", "Frames/Sec must be a positive number.")
+                return
+
+            payload: dict[str, object] = {"frames_per_sec": float(frames_per_sec)}
+            if scale_value is not None:
+                payload["scale_px_per_mm"] = float(scale_value)
+            if roi_points:
+                payload["roi_points"] = [[float(pt[0]), float(pt[1])] for pt in roi_points]
+            if roi_mask is not None:
+                payload["roi_mask"] = np.asarray(roi_mask, dtype=bool).copy()
+
+            self.browser_controller.set_global_metrics_defaults(payload)
+            materialized = self.browser_controller.materialize_metrics_defaults_to_events()
+            self._set_status("Global metrics defaults updated.")
+            self._log_info(
+                "Updated global metrics defaults and applied missing values to "
+                f"{materialized} event(s)."
+            )
+            dialog.destroy()
+
+        ttk.Button(actions, text="Cancel", command=_cancel).pack(side="right")
+        ttk.Button(actions, text="Apply", command=_apply).pack(side="right", padx=(0, 8))
+
+        self._center_window_on_screen(dialog)
+        dialog.wait_window()
 
     def _compute_analysis_preview_frame(
         self,
@@ -912,6 +1273,7 @@ class SDAnalyzerApp:
                 on_log_message=self._on_analysis_log_message,
                 on_host_project_save=self._save_project_from_analysis,
                 on_host_project_path=lambda: self.current_project_path,
+                on_metrics_update=self._on_analysis_metrics_update,
                 sync_emitter=None,
             )
             if not bool(open_result.get("ok")):
@@ -2261,6 +2623,102 @@ class SDAnalyzerApp:
                 return True
         return False
 
+    @staticmethod
+    def _has_valid_scale(metrics_settings: dict) -> bool:
+        try:
+            return float(metrics_settings.get("scale_px_per_mm")) > 0
+        except Exception:
+            return False
+
+    @staticmethod
+    def _has_valid_roi(metrics_settings: dict) -> bool:
+        raw_mask = metrics_settings.get("roi_mask")
+        if raw_mask is not None:
+            try:
+                arr = np.asarray(raw_mask, dtype=bool)
+                if arr.ndim == 2 and arr.size > 0 and np.any(arr):
+                    return True
+            except Exception:
+                pass
+        raw_points = metrics_settings.get("roi_points")
+        return isinstance(raw_points, list) and len(raw_points) >= 3
+
+    def _resolve_export_metric_prerequisites(self, event_ids: list[str]) -> dict[str, dict[str, object]]:
+        if not event_ids:
+            return {
+                "propagation_speed": {"enabled": False, "reason": "No events selected."},
+                "area_recruited": {"enabled": False, "reason": "No events selected."},
+                "relative_area_recruited": {"enabled": False, "reason": "No events selected."},
+            }
+        has_scale_flags: list[bool] = []
+        has_roi_flags: list[bool] = []
+        for event_id in [str(v) for v in event_ids]:
+            try:
+                metrics = dict(self.browser_controller.resolve_event_metrics_settings(event_id) or {})
+            except Exception:
+                metrics = {}
+            has_scale_flags.append(bool(self._has_valid_scale(metrics)))
+            has_roi_flags.append(bool(self._has_valid_roi(metrics)))
+
+        all_scale = all(has_scale_flags)
+        all_roi = all(has_roi_flags)
+        any_scale = any(has_scale_flags)
+        any_roi = any(has_roi_flags)
+
+        def _reason_all_or_mixed(any_ready: bool, noun: str) -> str:
+            if any_ready:
+                return f"Some selected events are missing {noun}."
+            return f"No selected events have {noun}."
+
+        return {
+            "propagation_speed": {
+                "enabled": bool(all_scale),
+                "reason": "" if all_scale else _reason_all_or_mixed(any_scale, "scale"),
+            },
+            "area_recruited": {
+                "enabled": bool(all_scale and all_roi),
+                "reason": (
+                    ""
+                    if all_scale and all_roi
+                    else (
+                        "Some selected events are missing scale and ROI."
+                        if (any_scale and any_roi and not all_scale and not all_roi)
+                        else (
+                            _reason_all_or_mixed(any_scale, "scale")
+                            if not all_scale
+                            else _reason_all_or_mixed(any_roi, "ROI")
+                        )
+                    )
+                ),
+            },
+            "relative_area_recruited": {
+                "enabled": bool(all_roi),
+                "reason": "" if all_roi else _reason_all_or_mixed(any_roi, "ROI"),
+            },
+        }
+
+    @staticmethod
+    def _attach_disabled_tooltip(parent, widget, message: str) -> None:
+        tip = tk.Toplevel(parent)
+        tip.withdraw()
+        tip.overrideredirect(True)
+        tip_label = ttk.Label(tip, text=str(message), padding=6, relief="solid")
+        tip_label.pack()
+
+        def _show_tip(event) -> None:
+            x = int(event.x_root) + 10
+            y = int(event.y_root) + 10
+            tip.geometry(f"+{x}+{y}")
+            tip.deiconify()
+            tip.lift()
+
+        def _hide_tip(_event=None) -> None:
+            tip.withdraw()
+
+        widget.bind("<Enter>", _show_tip)
+        widget.bind("<Leave>", _hide_tip)
+        widget.bind("<Destroy>", lambda _e: tip.destroy())
+
     def _prompt_export_options(self, event_ids: list[str]) -> dict[str, bool] | None:
         dialog = tk.Toplevel(self.root)
         dialog.title("Export Options")
@@ -2272,9 +2730,13 @@ class SDAnalyzerApp:
         include_event_var = tk.BooleanVar(value=True)
         include_baseline_var = tk.BooleanVar(value=True)
         include_masks_var = tk.BooleanVar(value=True)
+        include_metric_speed_var = tk.BooleanVar(value=True)
+        include_metric_area_var = tk.BooleanVar(value=True)
+        include_metric_rel_area_var = tk.BooleanVar(value=True)
         output_dir_var = tk.StringVar(value=self.output_var.get().strip())
         result: dict[str, str | bool] | None = None
         has_masks = self._has_binary_masks_for_events(event_ids)
+        metric_ready = self._resolve_export_metric_prerequisites(event_ids)
 
         shell = ttk.Frame(dialog, padding=12)
         shell.pack(fill="both", expand=True)
@@ -2303,25 +2765,35 @@ class SDAnalyzerApp:
         if not has_masks:
             include_masks_var.set(False)
             masks_check.configure(state="disabled")
-            tip = tk.Toplevel(dialog)
-            tip.withdraw()
-            tip.overrideredirect(True)
-            tip_label = ttk.Label(tip, text="No binary masks exist for the selected events.", padding=6, relief="solid")
-            tip_label.pack()
+            self._attach_disabled_tooltip(dialog, masks_check, "No binary masks exist for the selected events.")
 
-            def _show_tip(event) -> None:
-                x = int(event.x_root) + 10
-                y = int(event.y_root) + 10
-                tip.geometry(f"+{x}+{y}")
-                tip.deiconify()
-                tip.lift()
+        ttk.Separator(checks, orient="horizontal").pack(fill="x", pady=(6, 4))
+        ttk.Label(checks, text="Metrics").pack(anchor="w")
+        metric_speed_check = ttk.Checkbutton(checks, text="Propagation speed", variable=include_metric_speed_var)
+        metric_speed_check.pack(anchor="w")
+        metric_area_check = ttk.Checkbutton(checks, text="Area recruited", variable=include_metric_area_var)
+        metric_area_check.pack(anchor="w")
+        metric_rel_area_check = ttk.Checkbutton(
+            checks, text="Relative area recruited", variable=include_metric_rel_area_var
+        )
+        metric_rel_area_check.pack(anchor="w")
 
-            def _hide_tip(_event=None) -> None:
-                tip.withdraw()
-
-            masks_check.bind("<Enter>", _show_tip)
-            masks_check.bind("<Leave>", _hide_tip)
-            masks_check.bind("<Destroy>", lambda _e: tip.destroy())
+        if not bool(metric_ready["propagation_speed"]["enabled"]):
+            include_metric_speed_var.set(False)
+            metric_speed_check.configure(state="disabled")
+            self._attach_disabled_tooltip(dialog, metric_speed_check, str(metric_ready["propagation_speed"]["reason"]))
+        if not bool(metric_ready["area_recruited"]["enabled"]):
+            include_metric_area_var.set(False)
+            metric_area_check.configure(state="disabled")
+            self._attach_disabled_tooltip(dialog, metric_area_check, str(metric_ready["area_recruited"]["reason"]))
+        if not bool(metric_ready["relative_area_recruited"]["enabled"]):
+            include_metric_rel_area_var.set(False)
+            metric_rel_area_check.configure(state="disabled")
+            self._attach_disabled_tooltip(
+                dialog,
+                metric_rel_area_check,
+                str(metric_ready["relative_area_recruited"]["reason"]),
+            )
 
         buttons = ttk.Frame(shell)
         buttons.pack(fill="x")
@@ -2331,8 +2803,15 @@ class SDAnalyzerApp:
 
         def _confirm() -> None:
             nonlocal result
-            if not bool(include_event_var.get()) and not bool(include_baseline_var.get()):
-                messagebox.showwarning("Export Options", "Select at least one of Event images or Baseline images.")
+            include_any = (
+                bool(include_event_var.get())
+                or bool(include_baseline_var.get())
+                or bool(include_metric_speed_var.get())
+                or bool(include_metric_area_var.get())
+                or bool(include_metric_rel_area_var.get())
+            )
+            if not include_any:
+                messagebox.showwarning("Export Options", "Select at least one export target.")
                 return
             out = output_dir_var.get().strip()
             if not out:
@@ -2343,6 +2822,9 @@ class SDAnalyzerApp:
                 "include_event_images": bool(include_event_var.get()),
                 "include_baseline_images": bool(include_baseline_var.get()),
                 "include_binary_masks": bool(include_masks_var.get()),
+                "include_metric_propagation_speed": bool(include_metric_speed_var.get()),
+                "include_metric_area_recruited": bool(include_metric_area_var.get()),
+                "include_metric_relative_area_recruited": bool(include_metric_rel_area_var.get()),
             }
             dialog.destroy()
 
@@ -2373,7 +2855,10 @@ class SDAnalyzerApp:
             f"{output_dir} for {len(event_ids)} event(s), baseline_pre_frames={baseline_pre}, "
             f"event_images={bool(options.get('include_event_images'))}, "
             f"baseline_images={bool(options.get('include_baseline_images'))}, "
-            f"binary_masks={bool(options.get('include_binary_masks'))}."
+            f"binary_masks={bool(options.get('include_binary_masks'))}, "
+            f"metric_propagation_speed={bool(options.get('include_metric_propagation_speed'))}, "
+            f"metric_area_recruited={bool(options.get('include_metric_area_recruited'))}, "
+            f"metric_relative_area_recruited={bool(options.get('include_metric_relative_area_recruited'))}."
         )
 
         def worker() -> None:
@@ -2381,6 +2866,7 @@ class SDAnalyzerApp:
                 assert self.reader is not None
                 export_events = self.browser_controller.export_candidates(event_ids)
                 sidecar = self.browser_controller.session.state().analysis_sidecar
+                metadata = self.browser_controller.session.state().metadata
                 result = export_analysis(
                     reader=self.reader,
                     events=export_events,
@@ -2393,6 +2879,10 @@ class SDAnalyzerApp:
                     include_baseline_images=bool(options.get("include_baseline_images")),
                     include_binary_masks=bool(options.get("include_binary_masks")),
                     analysis_sidecar=sidecar,
+                    include_metric_propagation_speed=bool(options.get("include_metric_propagation_speed")),
+                    include_metric_area_recruited=bool(options.get("include_metric_area_recruited")),
+                    include_metric_relative_area_recruited=bool(options.get("include_metric_relative_area_recruited")),
+                    project_metadata=metadata,
                 )
                 self.root.after(0, lambda: self._on_export_done(result))
             except Exception as exc:
@@ -2405,7 +2895,7 @@ class SDAnalyzerApp:
         self._set_status(f"Export complete: {result['events_exported']} event(s), {result['frames_exported']} frame(s).")
         self._log_info(
             f"Export complete: {result['events_exported']} event(s), {result['frames_exported']} frame(s), "
-            f"output={result['output_dir']}."
+            f"metrics_files={int(result.get('metrics_files_exported', 0))}, output={result['output_dir']}."
         )
         self._gc_runtime_caches(aggressive=False, run_python_gc=False)
         messagebox.showinfo("Export", f"Output written to:\n{result['output_dir']}")

@@ -6,6 +6,7 @@ import cv2
 import matplotlib
 import numpy as np
 import pandas as pd
+from PIL import Image, ImageDraw
 
 # Use non-interactive backend to avoid Tk/matplotlib event-loop conflicts.
 matplotlib.use("Agg", force=True)
@@ -213,3 +214,29 @@ def generate_metrics_plots(output_dir: str, frame_metrics_df: pd.DataFrame, summ
     fig.tight_layout()
     fig.savefig(os.path.join(output_dir, "area_speed_combo.png"), dpi=150)
     plt.close(fig)
+
+
+def roi_mask_from_points(
+    roi_points: List[List[float]] | List[Tuple[float, float]] | None,
+    frame_shape: Tuple[int, int],
+) -> Optional[np.ndarray]:
+    if not isinstance(roi_points, list) or len(roi_points) < 3:
+        return None
+    h = int(frame_shape[0]) if len(frame_shape) > 0 else 0
+    w = int(frame_shape[1]) if len(frame_shape) > 1 else 0
+    if h <= 0 or w <= 0:
+        return None
+    points: list[tuple[float, float]] = []
+    for raw in roi_points:
+        if not isinstance(raw, (list, tuple)) or len(raw) < 2:
+            continue
+        try:
+            points.append((float(raw[0]), float(raw[1])))
+        except (TypeError, ValueError):
+            continue
+    if len(points) < 3:
+        return None
+    canvas = Image.new("L", (w, h), 0)
+    draw = ImageDraw.Draw(canvas)
+    draw.polygon(points, outline=1, fill=1)
+    return np.asarray(canvas, dtype=bool)

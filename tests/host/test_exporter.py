@@ -249,6 +249,88 @@ def test_export_options_require_at_least_one_image_group(tmp_path: Path) -> None
         )
 
 
+def test_export_metrics_only_writes_per_event_metrics_outputs(tmp_path: Path) -> None:
+    frames = [np.full((8, 8), i, dtype=np.uint8) for i in range(10)]
+    reader = FakeReader(frames)
+    events = [_event("event_0001", 2, 5)]
+
+    masks = np.zeros((10, 8, 8), dtype=np.uint8)
+    masks[2, 2:4, 2:4] = 1
+    masks[3, 2:5, 2:5] = 1
+    masks[4, 1:5, 1:5] = 1
+    masks[5, 1:6, 1:6] = 1
+
+    result = export_analysis(
+        reader=reader,
+        events=events,
+        output_dir=tmp_path,
+        baseline_pre_frames=2,
+        include_event_images=False,
+        include_baseline_images=False,
+        include_metric_propagation_speed=True,
+        include_metric_area_recruited=True,
+        include_metric_relative_area_recruited=True,
+        analysis_sidecar={
+            "event_0001": {
+                "masks_committed": masks,
+                "metrics_settings": {
+                    "frames_per_sec": 2.0,
+                    "scale_px_per_mm": 4.0,
+                    "roi_mask": np.ones((8, 8), dtype=bool),
+                },
+            }
+        },
+    )
+
+    metrics_dir = tmp_path / "event_0001" / "metrics"
+    assert result["frames_exported"] == 0
+    assert int(result["metrics_files_exported"]) >= 7
+    assert (metrics_dir / "propagation_speed.csv").exists()
+    assert (metrics_dir / "propagation_speed.png").exists()
+    assert (metrics_dir / "area_recruited.csv").exists()
+    assert (metrics_dir / "area_recruited.png").exists()
+    assert (metrics_dir / "relative_area_recruited.csv").exists()
+    assert (metrics_dir / "relative_area_recruited.png").exists()
+    assert (metrics_dir / "metrics_summary.json").exists()
+
+
+def test_export_metrics_respects_selection_flags(tmp_path: Path) -> None:
+    frames = [np.full((8, 8), i, dtype=np.uint8) for i in range(8)]
+    reader = FakeReader(frames)
+    events = [_event("event_0001", 1, 3)]
+    masks = np.zeros((8, 8, 8), dtype=np.uint8)
+    masks[1, 2:4, 2:4] = 1
+    masks[2, 2:5, 2:5] = 1
+    masks[3, 1:5, 1:5] = 1
+
+    export_analysis(
+        reader=reader,
+        events=events,
+        output_dir=tmp_path,
+        baseline_pre_frames=2,
+        include_event_images=True,
+        include_baseline_images=False,
+        include_metric_propagation_speed=True,
+        include_metric_area_recruited=False,
+        include_metric_relative_area_recruited=False,
+        analysis_sidecar={
+            "event_0001": {
+                "masks_committed": masks,
+                "metrics_settings": {
+                    "frames_per_sec": 1.0,
+                    "scale_px_per_mm": 3.0,
+                    "roi_points": [[1.0, 1.0], [6.0, 1.0], [6.0, 6.0], [1.0, 6.0]],
+                },
+            }
+        },
+    )
+
+    metrics_dir = tmp_path / "event_0001" / "metrics"
+    assert (metrics_dir / "propagation_speed.csv").exists()
+    assert not (metrics_dir / "area_recruited.csv").exists()
+    assert not (metrics_dir / "relative_area_recruited.csv").exists()
+
+
 def test_export_binary_masks_writes_mask_images_when_available(tmp_path: Path) -> None:
     frames = [np.full((8, 8), i, dtype=np.uint8) for i in range(10)]
     reader = FakeReader(frames)

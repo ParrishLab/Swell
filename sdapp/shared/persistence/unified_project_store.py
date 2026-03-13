@@ -7,6 +7,8 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
+import numpy as np
+
 from sdapp.shared.models import EventMeta, StackRef, UnifiedProjectState
 from sdapp.shared.persistence.zip_io import read_json, read_npz, write_json, write_npz
 
@@ -64,10 +66,20 @@ class UnifiedProjectStore:
         tmp_path = Path(tmp_name)
         try:
             with zipfile.ZipFile(tmp_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+                metadata = dict(state.metadata or {})
+                global_metrics_defaults = metadata.get("global_metrics_defaults")
+                if isinstance(global_metrics_defaults, dict):
+                    global_defaults_entry = dict(global_metrics_defaults)
+                    global_roi_mask = global_defaults_entry.pop("roi_mask", None)
+                    if global_roi_mask is not None:
+                        global_roi_ref = "global/roi_mask.npz"
+                        write_npz(zf, global_roi_ref, global_roi_mask)
+                        global_defaults_entry["roi_mask_ref"] = global_roi_ref
+                    metadata["global_metrics_defaults"] = global_defaults_entry
                 manifest = {
                     "schema_version": HOST_PROJECT_SCHEMA_VERSION,
                     "active_event_id": state.active_event_id,
-                    "metadata": dict(state.metadata),
+                    "metadata": metadata,
                     "persistence": {"owner": HOST_PERSISTENCE_OWNER},
                 }
                 write_json(zf, "manifest.json", manifest)
@@ -110,6 +122,15 @@ class UnifiedProjectStore:
                         draft_ref = f"{event_base}/masks_draft.npz"
                         write_npz(zf, draft_ref, masks_draft)
                         entry["masks_draft_ref"] = draft_ref
+                    metrics_settings = payload.get("metrics_settings")
+                    if isinstance(metrics_settings, dict):
+                        metrics_entry = dict(metrics_settings)
+                        roi_mask = metrics_entry.pop("roi_mask", None)
+                        if roi_mask is not None:
+                            roi_ref = f"{event_base}/roi_mask.npz"
+                            write_npz(zf, roi_ref, roi_mask)
+                            metrics_entry["roi_mask_ref"] = roi_ref
+                        entry["metrics_settings"] = metrics_entry
                     for k in ("propagation_completed", "analysis_output_dir", "encoding", "frame_count", "shape", "blob_ref"):
                         if k in payload:
                             entry[k] = payload.get(k)
@@ -135,6 +156,15 @@ class UnifiedProjectStore:
             stack_ref = _coerce_stack_ref(read_json(zf, "stack.json", default=None))
             events = _coerce_events(read_json(zf, "events.json", default=[]))
             metadata = dict(manifest.get("metadata", {})) if isinstance(manifest, dict) else {}
+            global_metrics_defaults = metadata.get("global_metrics_defaults")
+            if isinstance(global_metrics_defaults, dict):
+                global_defaults = dict(global_metrics_defaults)
+                roi_mask_ref = global_defaults.pop("roi_mask_ref", None)
+                if isinstance(roi_mask_ref, str):
+                    global_roi_mask = read_npz(zf, roi_mask_ref)
+                    if global_roi_mask is not None:
+                        global_defaults["roi_mask"] = np.asarray(global_roi_mask, dtype=bool).copy()
+                metadata["global_metrics_defaults"] = global_defaults
             active_event_id = manifest.get("active_event_id") if isinstance(manifest, dict) else None
 
             sidecar_raw = read_json(zf, "analysis_sidecar.json", default={})
@@ -159,6 +189,15 @@ class UnifiedProjectStore:
                         draft = read_npz(zf, draft_ref)
                         if draft is not None:
                             loaded_entry["masks_draft"] = draft
+                    metrics_settings = loaded_entry.get("metrics_settings")
+                    if isinstance(metrics_settings, dict):
+                        metrics_entry = dict(metrics_settings)
+                        roi_mask_ref = metrics_entry.pop("roi_mask_ref", None)
+                        if isinstance(roi_mask_ref, str):
+                            roi_mask = read_npz(zf, roi_mask_ref)
+                            if roi_mask is not None:
+                                metrics_entry["roi_mask"] = np.asarray(roi_mask, dtype=bool).copy()
+                        loaded_entry["metrics_settings"] = metrics_entry
                     sidecar[key] = loaded_entry
 
             return UnifiedProjectState(

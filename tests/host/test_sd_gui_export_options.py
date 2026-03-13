@@ -83,3 +83,50 @@ def test_has_binary_masks_for_events_detects_available_masks() -> None:
 
     assert app._has_binary_masks_for_events(["event_0001"]) is True
     assert app._has_binary_masks_for_events(["event_0002"]) is False
+
+
+def test_resolve_export_metric_prerequisites_disables_when_scale_or_roi_missing() -> None:
+    app = SDAnalyzerApp.__new__(SDAnalyzerApp)
+    by_event = {
+        "event_0001": {"frames_per_sec": 1.0, "scale_px_per_mm": 2.0},
+        "event_0002": {"frames_per_sec": 1.0},
+    }
+    app.browser_controller = type(
+        "BC",
+        (),
+        {"resolve_event_metrics_settings": lambda self, event_id: dict(by_event.get(str(event_id), {}))},
+    )()
+
+    ready = app._resolve_export_metric_prerequisites(["event_0001", "event_0002"])
+
+    assert ready["propagation_speed"]["enabled"] is False
+    assert "missing scale" in str(ready["propagation_speed"]["reason"]).lower()
+    assert ready["area_recruited"]["enabled"] is False
+    assert ready["relative_area_recruited"]["enabled"] is False
+
+
+def test_resolve_export_metric_prerequisites_enables_when_all_have_scale_and_roi() -> None:
+    app = SDAnalyzerApp.__new__(SDAnalyzerApp)
+    by_event = {
+        "event_0001": {
+            "frames_per_sec": 1.0,
+            "scale_px_per_mm": 2.0,
+            "roi_points": [[1.0, 1.0], [3.0, 1.0], [2.0, 3.0]],
+        },
+        "event_0002": {
+            "frames_per_sec": 1.0,
+            "scale_px_per_mm": 3.0,
+            "roi_mask": np.ones((4, 4), dtype=bool),
+        },
+    }
+    app.browser_controller = type(
+        "BC",
+        (),
+        {"resolve_event_metrics_settings": lambda self, event_id: dict(by_event.get(str(event_id), {}))},
+    )()
+
+    ready = app._resolve_export_metric_prerequisites(["event_0001", "event_0002"])
+
+    assert ready["propagation_speed"]["enabled"] is True
+    assert ready["area_recruited"]["enabled"] is True
+    assert ready["relative_area_recruited"]["enabled"] is True

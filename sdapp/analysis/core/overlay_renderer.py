@@ -62,24 +62,6 @@ def recompute_slider_jump_markers(app) -> None:
             except (ValueError, TypeError, tk.TclError):
                 app._set_spinbox_value(app.spin_export_end, end_display)
 
-        if (
-            getattr(app, "_analysis_range_auto_follow", True)
-            and hasattr(app, "spin_analysis_start")
-            and hasattr(app, "spin_analysis_end")
-        ):
-            start_display = start_idx + 1
-            end_display = end_idx + 1
-            try:
-                if int(app.spin_analysis_start.get()) != start_display:
-                    app._set_spinbox_value(app.spin_analysis_start, start_display)
-            except (ValueError, TypeError, tk.TclError):
-                app._set_spinbox_value(app.spin_analysis_start, start_display)
-            try:
-                if int(app.spin_analysis_end.get()) != end_display:
-                    app._set_spinbox_value(app.spin_analysis_end, end_display)
-            except (ValueError, TypeError, tk.TclError):
-                app._set_spinbox_value(app.spin_analysis_end, end_display)
-
     app.slider_jump_markers = markers
     redraw_slider_overlay(app)
     elapsed_ms = (time.perf_counter() - t0) * 1000.0

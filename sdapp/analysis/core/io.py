@@ -315,14 +315,10 @@ class IOActions:
         self.seg_state.invalidate_final_mask_frames()
         self.selected_point = None
         self._export_range_auto_follow = True
-        self._analysis_range_auto_follow = True
         self._set_spinbox_value(self.spin_prop_start, 1)
         self._set_spinbox_value(self.spin_prop_end, count)
         self._set_spinbox_value(self.spin_export_start, 1)
         self._set_spinbox_value(self.spin_export_end, count)
-        if hasattr(self, "spin_analysis_start") and hasattr(self, "spin_analysis_end"):
-            self._set_spinbox_value(self.spin_analysis_start, 1)
-            self._set_spinbox_value(self.spin_analysis_end, count)
 
         self.update_display()
         self._recompute_slider_jump_markers()

@@ -1,6 +1,19 @@
 from __future__ import annotations
 
+import numpy as np
+
 from sdapp.analysis.app import SDSegmentationApp
+
+
+class _DummyVar:
+    def __init__(self, value=1.0) -> None:
+        self.value = value
+
+    def get(self):
+        return self.value
+
+    def set(self, value) -> None:
+        self.value = value
 
 
 def _build_app() -> SDSegmentationApp:
@@ -112,3 +125,49 @@ def test_save_current_masks_saves_to_existing_project_without_overwrite_prompt(m
     assert save_calls == ["save"]
     assert ask_calls == []
     assert info_calls
+
+
+def test_apply_host_metrics_settings_prefills_values() -> None:
+    app = _build_app()
+    app.frames_per_sec_var = _DummyVar(1.0)
+    app.scale_px_per_mm = None
+    app.roi_points = []
+    app.roi_mask = None
+    app._suppress_metrics_emit = False
+    app._ui_alive = lambda: False
+
+    mask = np.zeros((4, 5), dtype=bool)
+    mask[1:3, 2:4] = True
+    app._apply_host_metrics_settings(
+        {
+            "frames_per_sec": 2.5,
+            "scale_px_per_mm": 9.0,
+            "roi_points": [[1.0, 1.0], [2.0, 1.0], [2.0, 2.0], [1.0, 2.0]],
+            "roi_mask": mask,
+        }
+    )
+
+    assert float(app.frames_per_sec_var.get()) == 2.5
+    assert float(app.scale_px_per_mm) == 9.0
+    assert len(app.roi_points) == 4
+    assert np.array_equal(np.asarray(app.roi_mask, dtype=bool), mask)
+
+
+def test_emit_host_metrics_update_sends_event_local_payload() -> None:
+    app = _build_app()
+    app._host_mode = True
+    app._suppress_metrics_emit = False
+    app.frames_per_sec_var = _DummyVar(3.0)
+    app.scale_px_per_mm = 7.0
+    app.roi_points = [[2.0, 2.0], [4.0, 2.0], [4.0, 4.0]]
+    app.roi_mask = np.ones((3, 3), dtype=bool)
+    emitted: list[dict] = []
+    app._host_metrics_updater = lambda payload: emitted.append(dict(payload)) or {"ok": True}
+
+    result = app._emit_host_metrics_update("test_emit")
+
+    assert isinstance(result, dict) and result.get("ok") is True
+    assert len(emitted) == 1
+    assert emitted[0]["event_id"] == "event_0001"
+    assert float(emitted[0]["metrics_settings"]["frames_per_sec"]) == 3.0
+    assert float(emitted[0]["metrics_settings"]["scale_px_per_mm"]) == 7.0

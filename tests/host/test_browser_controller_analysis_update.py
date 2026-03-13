@@ -83,3 +83,53 @@ def test_host_context_for_event_includes_project_path() -> None:
 
     assert context["project_path"] is not None
     assert str(context["project_path"]).endswith("active_project.sdproj")
+
+
+def test_create_event_materializes_global_metrics_defaults() -> None:
+    host = BrowserController()
+    host.on_stack_loaded(_FakeReader(), _FakeStackInfo())
+    host.set_global_metrics_defaults(
+        {
+            "frames_per_sec": 2.0,
+            "scale_px_per_mm": 5.0,
+            "roi_points": [[1.0, 1.0], [3.0, 1.0], [3.0, 3.0], [1.0, 3.0]],
+        }
+    )
+
+    event = host.create_event(start_idx=0, end_idx=1, frame_count=6)
+    local = host.load_event_metrics_settings(event.event_id)
+
+    assert local is not None
+    assert float(local["frames_per_sec"]) == 2.0
+    assert float(local["scale_px_per_mm"]) == 5.0
+    assert len(local["roi_points"]) == 4
+
+
+def test_host_context_for_event_prefers_local_metrics_over_global_defaults() -> None:
+    host = BrowserController()
+    host.on_stack_loaded(_FakeReader(), _FakeStackInfo())
+    host.set_global_metrics_defaults({"frames_per_sec": 1.0, "scale_px_per_mm": 4.0})
+    event = host.create_event(start_idx=0, end_idx=1, frame_count=6)
+    host.upsert_event_metrics_settings(event.event_id, {"scale_px_per_mm": 11.0}, merge_missing_only=False)
+
+    context = host.host_context_for_event(event.event_id)
+    metrics = context["metrics_settings"]
+
+    assert float(metrics["frames_per_sec"]) == 1.0
+    assert float(metrics["scale_px_per_mm"]) == 11.0
+
+
+def test_export_candidates_after_reopen_uses_field_mapping(tmp_path: Path) -> None:
+    host = BrowserController()
+    host.on_stack_loaded(_FakeReader(), _FakeStackInfo())
+    created = host.create_event(start_idx=2, end_idx=4, frame_count=6)
+    project_path = tmp_path / "export_after_reopen.sdproj"
+    host.save_session(project_path)
+    host.open_session(str(project_path))
+
+    candidates = host.export_candidates([created.event_id])
+
+    assert len(candidates) == 1
+    assert candidates[0].event_id == created.event_id
+    assert candidates[0].start_idx == 2
+    assert candidates[0].end_idx == 4

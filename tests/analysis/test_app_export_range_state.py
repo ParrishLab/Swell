@@ -33,19 +33,16 @@ class _SegStateStub:
         return None
 
 
-class AppAnalysisRangeStateTests(unittest.TestCase):
+class AppExportRangeStateTests(unittest.TestCase):
     def _make_app_for_recompute(self, nonempty_frames):
         app = SDSegmentationApp.__new__(SDSegmentationApp)
         app.frames_raw = [object()] * 20
-        app._analysis_range_auto_follow = True
         app._export_range_auto_follow = True
         app._programmatic_spinbox_update = False
         app.spin_prop_start = _SpinStub(1)
         app.spin_prop_end = _SpinStub(20)
         app.spin_export_start = _SpinStub(1)
         app.spin_export_end = _SpinStub(20)
-        app.spin_analysis_start = _SpinStub(1)
-        app.spin_analysis_end = _SpinStub(20)
         app.slider_jump_markers = {}
         app._redraw_slider_overlay = lambda: None
         app.log_debug = lambda *_args: None
@@ -53,31 +50,15 @@ class AppAnalysisRangeStateTests(unittest.TestCase):
         app._collect_nonempty_final_mask_frames = lambda: set(nonempty_frames)
         return app
 
-    def test_auto_follow_updates_analysis_range(self):
+    def test_recompute_updates_propagation_and_export_ranges(self):
         app = self._make_app_for_recompute({3, 7})
-        app._recompute_slider_jump_markers()
-        self.assertEqual(int(app.spin_analysis_start.get()), 4)
-        self.assertEqual(int(app.spin_analysis_end.get()), 8)
-
-    def test_recompute_works_with_frame_source_when_frames_raw_not_materialized(self):
-        app = self._make_app_for_recompute({3, 7})
-        app.frames_raw = None
-        app._get_frame_count = lambda: 20
         app._recompute_slider_jump_markers()
         self.assertEqual(int(app.spin_prop_start.get()), 4)
         self.assertEqual(int(app.spin_prop_end.get()), 8)
+        self.assertEqual(int(app.spin_export_start.get()), 4)
+        self.assertEqual(int(app.spin_export_end.get()), 8)
 
-    def test_manual_edit_locks_analysis_range(self):
-        app = self._make_app_for_recompute({3, 7})
-        app._set_spinbox_value(app.spin_analysis_start, 2)
-        app._set_spinbox_value(app.spin_analysis_end, 6)
-        app._on_analysis_range_user_edit()
-        app._collect_nonempty_final_mask_frames = lambda: {10, 12}
-        app._recompute_slider_jump_markers()
-        self.assertEqual(int(app.spin_analysis_start.get()), 2)
-        self.assertEqual(int(app.spin_analysis_end.get()), 6)
-
-    def test_finalize_load_resets_analysis_auto_follow_and_range(self):
+    def test_finalize_load_resets_export_range_to_full_stack(self):
         app = SDSegmentationApp.__new__(SDSegmentationApp)
         app.frames_raw = [object()] * 12
         app.current_frame_idx = 0
@@ -85,14 +66,11 @@ class AppAnalysisRangeStateTests(unittest.TestCase):
         app.seg_state = _SegStateStub()
         app.selected_point = None
         app._export_range_auto_follow = False
-        app._analysis_range_auto_follow = False
         app._programmatic_spinbox_update = False
         app.spin_prop_start = _SpinStub(1)
         app.spin_prop_end = _SpinStub(1)
         app.spin_export_start = _SpinStub(1)
         app.spin_export_end = _SpinStub(1)
-        app.spin_analysis_start = _SpinStub(1)
-        app.spin_analysis_end = _SpinStub(1)
         app.slider = _SliderStub()
         app.update_display = lambda: None
         app._recompute_slider_jump_markers = lambda: None
@@ -100,9 +78,9 @@ class AppAnalysisRangeStateTests(unittest.TestCase):
         app._set_busy = lambda *_args: None
         app.log_success = lambda *_args: None
         app._finalize_load_ui()
-        self.assertTrue(app._analysis_range_auto_follow)
-        self.assertEqual(int(app.spin_analysis_start.get()), 1)
-        self.assertEqual(int(app.spin_analysis_end.get()), 12)
+        self.assertTrue(app._export_range_auto_follow)
+        self.assertEqual(int(app.spin_export_start.get()), 1)
+        self.assertEqual(int(app.spin_export_end.get()), 12)
 
 
 if __name__ == "__main__":
