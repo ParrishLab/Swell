@@ -2,7 +2,6 @@ from __future__ import annotations
 
 """Project lifecycle workflow helpers for SDSegmentationApp."""
 
-import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -14,7 +13,6 @@ from sdapp.analysis.core.frame_source import EagerFrameSource
 from sdapp.analysis.core.project_fingerprint import fingerprints_match
 from sdapp.analysis.core.project_migration import migrate_project_state
 from sdapp.analysis.core.project_schema import validate_project_state, utc_now_iso
-from sdapp.analysis.core.project_store import cleanup_stale_temp_files
 
 
 @dataclass
@@ -39,12 +37,14 @@ class ProjectLoadPlan:
 @dataclass
 class CloseRequirements:
     has_running_propagation: bool
-    not_saved_as_project: bool
 
 
-@dataclass
-class NewProjectRequirements:
-    needs_discard_prompt: bool
+def _standalone_removed(action: str) -> None:
+    message = (
+        f"{action} is not available in host-bound analysis windows.\n"
+        "Use the SD ID main window for project lifecycle actions."
+    )
+    raise RuntimeError(message)
 
 
 def setup_project_menu(app) -> None:
@@ -74,29 +74,9 @@ def save_project_to_path(app, target_path: str | Path, is_autosave: bool = False
         app.project_dirty = False
         app.log_success("Project", f"Saved project: {target_path}")
         return
-    cleanup_stale_temp_files(target_path.parent, pattern="*.sdproj.tmp", older_than_sec=86400)
-    state, images_manifest, roi_data, event_payloads = app._build_project_payload()
-    store = getattr(getattr(app, "app_context", None), "project_store", app.project_store)
-    store.save(
-        target_path=target_path,
-        project_state=state,
-        images_manifest=images_manifest,
-        roi_data=roi_data,
-        event_payloads=event_payloads,
-        embed_images=bool(app._project_embed_images),
-    )
-    if hasattr(app, "_emit_host_sync"):
-        app._emit_host_sync(reason="autosave" if is_autosave else "save")
-    if not is_autosave:
-        app.current_project_path = str(target_path)
-        notifier = getattr(app, "_host_project_saved_notifier", None)
-        if callable(notifier):
-            try:
-                notifier(str(target_path))
-            except Exception:
-                pass
-        app.project_dirty = False
-        app.log_success("Project", f"Saved project: {target_path}")
+    if bool(is_autosave):
+        return
+    _standalone_removed("Save Project")
 
 
 def save_project(app) -> None:
@@ -124,22 +104,7 @@ def save_project_as(app) -> None:
     )
     if not target:
         return
-    if not bool(getattr(app, "_host_mode", False)):
-        app._project_embed_images = bool(
-            messagebox.askyesno(
-                "Embed Images?",
-                "Embed source images inside project file?\n\nYes = larger but portable\nNo = reference-only",
-            )
-        )
     save_project_to_path(app, target, is_autosave=False)
-
-
-def convert_to_project(app) -> None:
-    has_loaded_stack = bool(app._has_loaded_stack()) if hasattr(app, "_has_loaded_stack") else bool(app.frames_raw is not None)
-    if not has_loaded_stack:
-        messagebox.showwarning("No Data", "Import images first before converting to a project.")
-        return
-    app.save_project_as()
 
 
 def resolve_project_image_paths(app, loaded) -> list[str]:
@@ -309,69 +274,6 @@ def apply_loaded_project_plan(app, plan: ProjectLoadPlan) -> None:
     app.log_success("Project", f"Opened project: {plan.project_path}")
 
 
-def open_project(app) -> None:
-    path = filedialog.askopenfilename(
-        parent=app.root,
-        title="Open Project",
-        filetypes=[("SD Project", "*.sdproj"), ("All files", "*.*")],
-    )
-    if not path:
-        return
-    cleanup_stale_temp_files(Path(path).parent, pattern="*.sdproj.tmp", older_than_sec=86400)
-    store = getattr(getattr(app, "app_context", None), "project_store", app.project_store)
-    loaded = store.load(path, extract_embedded_to=Path(tempfile.mkdtemp(prefix="sdproj_images_")))
-    apply_loaded_project(app, loaded, path)
-
-
-def recover_autosave(app) -> None:
-    autosave_mgr = getattr(getattr(app, "app_context", None), "autosave_manager", app.autosave_manager)
-    autosave = autosave_mgr.newest_autosave()
-    if autosave is None:
-        messagebox.showinfo("Recover Autosave", "No autosave files were found.")
-        return
-    store = getattr(getattr(app, "app_context", None), "project_store", app.project_store)
-    loaded = store.load(autosave, extract_embedded_to=Path(tempfile.mkdtemp(prefix="sdproj_images_")))
-    apply_loaded_project(app, loaded, autosave)
-
-
-def maybe_prompt_autosave_recovery(app) -> None:
-    if bool(getattr(app, "_host_mode", False)):
-        return
-    autosave_mgr = getattr(getattr(app, "app_context", None), "autosave_manager", app.autosave_manager)
-    newer = autosave_mgr.newest_autosave_if_newer_than(app.current_project_path)
-    if newer is None:
-        return
-    restore = messagebox.askyesno(
-        "Autosave Recovery",
-        f"Newer autosave found:\n{newer.name}\n\nRestore it now?",
-    )
-    if restore:
-        store = getattr(getattr(app, "app_context", None), "project_store", app.project_store)
-        loaded = store.load(newer, extract_embedded_to=Path(tempfile.mkdtemp(prefix="sdproj_images_")))
-        apply_loaded_project(app, loaded, newer)
-
-
-def evaluate_new_project_requirements(app) -> NewProjectRequirements:
-    has_loaded_stack = bool(app._has_loaded_stack()) if hasattr(app, "_has_loaded_stack") else bool(app.frames_raw is not None)
-    return NewProjectRequirements(
-        needs_discard_prompt=bool(has_loaded_stack and app.project_dirty),
-    )
-
-
-def new_project(app) -> None:
-    requirements = evaluate_new_project_requirements(app)
-    if requirements.needs_discard_prompt:
-        proceed = messagebox.askyesno("Discard Changes?", "Discard unsaved project changes and start new project?")
-        if not proceed:
-            return
-    app.current_project_path = None
-    app.project_dirty = False
-    app._project_created_at = utc_now_iso()
-    app._project_embed_images = False
-    app.active_event_id = "sd_event_001"
-    app._reset_for_new_import()
-
-
 def is_propagation_running(app) -> bool:
     manager = getattr(getattr(app, "app_context", None), "inference_manager", app.inference_manager)
     thread = getattr(manager, "propagate_thread", None)
@@ -379,15 +281,8 @@ def is_propagation_running(app) -> bool:
 
 
 def evaluate_close_requirements(app) -> CloseRequirements:
-    if hasattr(app, "_has_loaded_stack"):
-        has_loaded_stack = bool(app._has_loaded_stack())
-    else:
-        has_loaded_stack = app.frames_raw is not None and len(app.frames_raw) > 0
-    host_mode = bool(getattr(app, "_host_mode", False))
-    not_saved_as_project = has_loaded_stack and not bool(app.current_project_path) and not host_mode
     return CloseRequirements(
         has_running_propagation=bool(app._is_propagation_running()),
-        not_saved_as_project=bool(not_saved_as_project),
     )
 
 
@@ -397,14 +292,6 @@ def on_close(app) -> None:
         proceed = messagebox.askyesno(
             "Propagation Running",
             "Propagation is still running. Closing now will stop it.\n\nClose anyway?",
-        )
-        if not proceed:
-            return
-
-    if requirements.not_saved_as_project:
-        proceed = messagebox.askyesno(
-            "Project Not Saved",
-            "This session has not been saved as a .sdproj project file.\n\nClose anyway?",
         )
         if not proceed:
             return
@@ -432,7 +319,9 @@ def on_close(app) -> None:
         app._shutdown_model_resources()
     if hasattr(app, "_emit_host_sync"):
         app._emit_host_sync(reason="close")
-    app.autosave_manager.stop()
+    autosave_mgr = getattr(app, "autosave_manager", None)
+    if autosave_mgr is not None and hasattr(autosave_mgr, "stop"):
+        autosave_mgr.stop()
     app.inference_manager.stop()
     if app._ui_alive():
         app.root.destroy()

@@ -8,10 +8,11 @@ def _build_app() -> SDSegmentationApp:
     app.current_project_path = None
     app.active_event_id = "event_0001"
     app.project_dirty = False
-    app._host_mode = False
+    app._host_mode = True
     app._host_project_path_provider = None
     app._saved_project_masks_by_event = {}
     app.log_info = lambda *_args, **_kwargs: None
+    app.log_error = lambda *_args, **_kwargs: None
     app.save_project = lambda: None
     app.save_project_as = lambda: None
     app._collect_nonempty_final_mask_frames = lambda: set()

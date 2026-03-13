@@ -131,6 +131,31 @@ class SessionStateProxyTests(unittest.TestCase):
         self.assertEqual(result["frame_count"], 4)
         self.assertTrue(getattr(app, "_thread_started", False))
 
+    def test_post_host_mode_open_ui_reloads_active_event_state_after_finalize(self):
+        app = SDSegmentationApp.__new__(SDSegmentationApp)
+        opened: list[str] = []
+        app.slider = object()
+        app.canvas_left = object()
+        app.active_event_id = "event_0001"
+        app._finalize_load_ui = lambda: None
+        app._sync_saved_mask_overlay_state = lambda: None
+        app.update_display = lambda **_kwargs: None
+        app.log_info = lambda *_args, **_kwargs: None
+        app.lbl_status = type("L", (), {"configure": lambda self, **_kwargs: None})()
+        app.analysis_workspace = type("W", (), {"open_event": lambda self, eid: opened.append(str(eid))})()
+        app.root = type(
+            "R",
+            (),
+            {
+                "after_idle": staticmethod(lambda fn: fn()),
+                "after": staticmethod(lambda _ms, fn: fn()),
+            },
+        )()
+
+        app._post_host_mode_open_ui("Host direct workspace initialized.")
+
+        self.assertEqual(opened, ["event_0001"])
+
 
 if __name__ == "__main__":
     unittest.main()

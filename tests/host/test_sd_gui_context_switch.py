@@ -68,3 +68,39 @@ def test_close_analysis_windows_save_cancelled_aborts():
     assert result["ok"] is False
     assert result["reason"] == "save_cancelled"
     assert app.analysis_window_manager.closed is False
+
+
+def test_center_window_on_screen_positions_geometry_to_screen_center():
+    app = SDAnalyzerApp.__new__(SDAnalyzerApp)
+
+    class _Window:
+        def __init__(self):
+            self.last_geometry = ""
+
+        def update_idletasks(self):
+            return None
+
+        def winfo_width(self):
+            return 1000
+
+        def winfo_height(self):
+            return 700
+
+        def winfo_reqwidth(self):
+            return 1000
+
+        def winfo_reqheight(self):
+            return 700
+
+        def winfo_screenwidth(self):
+            return 2560
+
+        def winfo_screenheight(self):
+            return 1440
+
+        def geometry(self, spec: str):
+            self.last_geometry = str(spec)
+
+    win = _Window()
+    app._center_window_on_screen(win)
+    assert win.last_geometry == "1000x700+780+370"

@@ -677,6 +677,24 @@ class SDAnalyzerApp:
         norm = (arr - lo) / denom
         return np.clip(norm * 255.0, 0.0, 255.0).astype(np.uint8)
 
+    @staticmethod
+    def _center_window_on_screen(window) -> None:
+        try:
+            window.update_idletasks()
+            width = int(window.winfo_width())
+            height = int(window.winfo_height())
+            if width <= 1:
+                width = int(window.winfo_reqwidth())
+            if height <= 1:
+                height = int(window.winfo_reqheight())
+            width = max(1, width)
+            height = max(1, height)
+            x = max(0, int((int(window.winfo_screenwidth()) - width) / 2))
+            y = max(0, int((int(window.winfo_screenheight()) - height) / 2))
+            window.geometry(f"{width}x{height}+{x}+{y}")
+        except Exception:
+            return
+
     def _compute_analysis_preview_frame(
         self,
         *,
@@ -825,15 +843,7 @@ class SDAnalyzerApp:
         ttk.Button(buttons, text="Open Analysis", command=_open).pack(side="right", padx=(0, 8))
 
         _refresh_preview()
-        try:
-            dialog.update_idletasks()
-            width = int(dialog.winfo_width())
-            height = int(dialog.winfo_height())
-            x = max(0, int((dialog.winfo_screenwidth() - width) / 2))
-            y = max(0, int((dialog.winfo_screenheight() - height) / 2))
-            dialog.geometry(f"{width}x{height}+{x}+{y}")
-        except Exception:
-            pass
+        self._center_window_on_screen(dialog)
         self.root.wait_window(dialog)
         return result if bool(result.get("ok")) else None
 
@@ -889,6 +899,7 @@ class SDAnalyzerApp:
         try:
             AppClass = self._load_analysis_app_class()
             win = tk.Toplevel(self.root)
+            win.withdraw()
             win.title(f"Analyze SD - {active_event_id}")
 
             app = AppClass(win, menu_builder=build_shared_menu, menu_mode="analysis", host_mode=True)
@@ -909,6 +920,9 @@ class SDAnalyzerApp:
                 win.destroy()
                 self._show_warning("Analyze SD", f"Open failed ({code}).\n{message}")
                 return
+            self._center_window_on_screen(win)
+            win.deiconify()
+            win.after_idle(lambda w=win: self._center_window_on_screen(w))
             self.analysis_window_manager.open_event_window(window_scope, active_event_id, win, app)
             self._analysis_windows.append((win, app))
 

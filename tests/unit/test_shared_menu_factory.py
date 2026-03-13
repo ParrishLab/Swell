@@ -71,26 +71,25 @@ def _state_by_label(file_menu):
     return {item["label"]: item["state"] for item in file_menu.commands if item.get("label")}
 
 
-def test_host_mode_analysis_disables_project_lifecycle_actions():
+def test_analysis_menu_omits_standalone_project_lifecycle_actions():
     root = _FakeRoot()
     app = _App()
     with patch("sdapp.shared.menu.factory.tk.Menu", _FakeMenu):
         menu = build_shared_menu(root, app, mode="analysis", host_mode=True)
     states = _state_by_label(_file_menu(menu))
-    assert states["New Project"] == "disabled"
-    assert states["Open Project..."] == "disabled"
-    assert states["Convert to Project..."] == "disabled"
-    assert states["Recover Autosave..."] == "disabled"
     assert states["Save Project"] == "normal"
+    assert "New Project" not in states
+    assert "Open Project..." not in states
+    assert "Convert to Project..." not in states
+    assert "Recover Autosave..." not in states
 
 
-def test_standalone_analysis_keeps_project_lifecycle_actions_enabled():
+def test_host_menu_keeps_project_lifecycle_actions_enabled():
     root = _FakeRoot()
     app = _App()
     with patch("sdapp.shared.menu.factory.tk.Menu", _FakeMenu):
-        menu = build_shared_menu(root, app, mode="analysis", host_mode=False)
+        menu = build_shared_menu(root, app, mode="host", host_mode=False)
     states = _state_by_label(_file_menu(menu))
     assert states["New Project"] == "normal"
     assert states["Open Project..."] == "normal"
-    assert states["Convert to Project..."] == "normal"
-    assert states["Recover Autosave..."] == "normal"
+    assert states["Save Project"] == "normal"

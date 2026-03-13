@@ -20,44 +20,39 @@ def build_shared_menu(root, app, *, mode: str, host_mode: bool = False) -> tk.Me
     file_menu = tk.Menu(menu, tearoff=False)
     config_menu = tk.Menu(menu, tearoff=False)
 
-    file_items = [
-        ("Import Folder...", ("_load_stack",)),
-        ("Export Folder...", ("_browse_output", "browse_output")),
-        (None, None),
-        ("New Project", ("new_project", "_new_project")),
-        ("Open Project...", ("open_project", "_open_project_dialog", "open_session")),
-        ("Save Project", ("save_project", "_save_project", "save_session")),
-        ("Save Project As...", ("save_project_as", "_save_project_as")),
-        ("Convert to Project...", ("convert_to_project",)),
-        ("Import External Masks...", ("import_external_masks",)),
-        ("Recover Autosave...", ("recover_autosave",)),
-        (None, None),
-        ("Exit", ("_on_root_close", "on_close")),
-    ]
+    if mode == "analysis":
+        file_items = [
+            ("Save Project", ("save_project", "_save_project", "save_session")),
+            ("Save Project As...", ("save_project_as", "_save_project_as")),
+            ("Import External Masks...", ("import_external_masks",)),
+            (None, None),
+            ("Exit", ("_on_root_close", "on_close")),
+        ]
+    else:
+        file_items = [
+            ("Import Folder...", ("_load_stack",)),
+            ("Export Folder...", ("_browse_output", "browse_output")),
+            (None, None),
+            ("New Project", ("new_project", "_new_project")),
+            ("Open Project...", ("open_project", "_open_project_dialog", "open_session")),
+            ("Save Project", ("save_project", "_save_project", "save_session")),
+            ("Save Project As...", ("save_project_as", "_save_project_as")),
+            (None, None),
+            ("Exit", ("_on_root_close", "on_close")),
+        ]
     config_items = [
         ("Set Model Path...", ("on_browse_model",)),
         ("Load Model", ("load_model_from_menu",)),
         ("Validate Assets", ("validate_assets_from_menu", "_validate_assets")),
     ]
     mode_allow = {
-        "Convert to Project...": {"analysis"},
         "Import External Masks...": {"analysis"},
-        "Recover Autosave...": {"analysis"},
         "Import Folder...": {"host"},
         "Export Folder...": {"host"},
-    }
-    host_mode_disabled_labels = {
-        "New Project",
-        "Open Project...",
-        "Convert to Project...",
-        "Recover Autosave...",
     }
     for label, names in file_items:
         if label is None:
             file_menu.add_separator()
-            continue
-        if mode == "analysis" and bool(host_mode) and label in host_mode_disabled_labels:
-            file_menu.add_command(label=label, state="disabled")
             continue
         allowed = mode_allow.get(label)
         if allowed is not None and mode not in allowed:

@@ -7,24 +7,17 @@ from sdapp.analysis.ui.widgets import build_preview_overlay
 
 class LayoutBuilder:
     def setup_ui(self):
-        is_host_mode = bool(getattr(self, "_host_mode", False))
-        canvas_bg = "#f1f1f1" if is_host_mode else "#222222"
-        slider_overlay_bg = "#d4d7db" if is_host_mode else "#2a2b2f"
-        insert_cursor = "#1f1f1f" if is_host_mode else "#ffffff"
+        canvas_bg = "#f1f1f1"
+        slider_overlay_bg = "#d4d7db"
+        insert_cursor = "#1f1f1f"
 
         # 1. Top Control Panel
         control_frame = ttk.LabelFrame(self.root, text="Configuration", padding=10)
         control_frame.pack(fill="x", padx=10, pady=5)
 
-        ttk.Label(control_frame, text="Input:").grid(row=0, column=0, sticky="e")
+        ttk.Label(control_frame, text="Source: Host-managed").grid(row=0, column=0, columnspan=3, sticky="w")
         self.entry_input = tk.Entry(control_frame, width=40)
-        self.entry_input.grid(row=0, column=1, padx=5)
-        self.btn_browse_menu = ttk.Menubutton(control_frame, text="Browse", direction="below")
-        self.btn_browse_menu.grid(row=0, column=2, padx=5, sticky="w")
-        self.browse_menu = tk.Menu(self.btn_browse_menu, tearoff=False)
-        self.browse_menu.add_command(label="Browse Folder...", command=self.on_browse_select_folder)
-        self.browse_menu.add_command(label="Browse Files...", command=self.on_browse_select_files)
-        self.btn_browse_menu["menu"] = self.browse_menu
+        self.entry_input.insert(0, "Host-provided SD event scope")
 
         ttk.Label(control_frame, text="Output:").grid(row=1, column=0, sticky="e")
         self.entry_output = tk.Entry(control_frame, width=40)
@@ -40,9 +33,6 @@ class LayoutBuilder:
         self.spin_baseline.grid(row=1, column=4, sticky="w", padx=5)
         self._set_spinbox_value(self.spin_baseline, self.config.default_baseline)
 
-        self.btn_import = ttk.Button(control_frame, text="Import Images", command=self._start_import)
-        self.btn_import.grid(row=1, column=5, padx=10, sticky="w")
-
         self.lbl_status = ttk.Label(
             control_frame,
             text="Status: Idle",
@@ -50,7 +40,7 @@ class LayoutBuilder:
             justify="left",
             wraplength=320,
         )
-        self.lbl_status.grid(row=0, column=6, padx=10, sticky="w")
+        self.lbl_status.grid(row=0, column=5, rowspan=2, padx=10, sticky="w")
 
         # 2. Visualization Area
         viz_frame = ttk.Frame(self.root)
@@ -76,7 +66,7 @@ class LayoutBuilder:
             self.start_resize_preview,
             self.do_resize_preview,
             self.stop_resize_preview,
-            dark_theme=not is_host_mode,
+            dark_theme=False,
         )
 
         # Right Panel

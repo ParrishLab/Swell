@@ -23,9 +23,8 @@ from sdapp.analysis.core.analysis_controller import AnalysisController
 from sdapp.analysis.core.seg_state import SegmentationState
 from sdapp.analysis.core.inference_manager import InferenceManager
 from sdapp.analysis.core.interaction_controller import InteractionController
-from sdapp.analysis.core.project_autosave import AutosaveSnapshot, ProjectAutosaveManager
 from sdapp.analysis.core.project_schema import utc_now_iso
-from sdapp.analysis.core.project_store import ProjectStore, cleanup_stale_temp_files
+from sdapp.analysis.core.project_store import ProjectStore
 from sdapp.analysis.core.session_state import SessionState
 from sdapp.analysis.core import mask_import_workflow
 from sdapp.analysis.core.mask_import_dialog import MaskImportDialogService
@@ -38,10 +37,8 @@ from sdapp.analysis.core.preview_resize import do_resize_preview as do_preview_r
 from sdapp.analysis.core.preview_resize import stop_resize_preview as do_stop_resize_preview
 from sdapp.analysis.core.propagation_progress import PropagationProgressLogger
 from sdapp.analysis.core.app_context import AppContext
-from sdapp.analysis.core.autosave_naming import derive_autosave_tag
 from sdapp.analysis.core import project_workflow
 from sdapp.analysis.ui.layout import LayoutBuilder
-from sdapp.analysis.ui.theme import apply_theme
 from sdapp.analysis.utils.paths import get_app_root, get_resources_root
 from sdapp.analysis.model import SAM2RuntimeService
 from sdapp.shared.frame_source import EventScopedFrameSource, build_visualization_stack
@@ -86,6 +83,11 @@ class PrintLogger:
 
 class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderActions, UndoActions):
     def __init__(self, root, *, menu_builder=None, menu_mode="analysis", host_mode: bool = False):
+        if not bool(host_mode):
+            raise RuntimeError(
+                "Standalone SD Segmenter runtime has been removed. "
+                "Open analysis from the SD ID main window."
+            )
         self.root = root
         self.root.title("IOS SD Segmenter (Merged Final)")
         self.root.geometry("1400x950")
@@ -104,7 +106,6 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         self.frames_sub_viz = None
         self.frame_names = []
         self._selected_import_files = None
-        self._browse_mode = "folder"
         self._current_image_source_paths = []
         self._image_manifest_entries = []
         self.frame_source = None
@@ -172,7 +173,7 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         self.export_panel_open = tk.BooleanVar(value=False)
         self.analysis_panel_open = tk.BooleanVar(value=False)
         self._controls_hint_logged = False
-        self._host_mode = bool(host_mode)
+        self._host_mode = True
         self._host_analysis_updater = None
         self._host_project_saved_notifier = None
         self._host_sync_result_notifier = None
@@ -196,24 +197,9 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
             seg_state=self.seg_state,
         )
         self.mask_import_dialog = MaskImportDialogService()
-        autosave_dir = Path(self.app_root) / "autosaves"
-        self._autosave_dir = autosave_dir
-        self.autosave_manager = ProjectAutosaveManager(
-            snapshot_callable=self._build_autosave_snapshot,
-            write_callable=self._write_autosave_snapshot,
-            autosave_dir=autosave_dir,
-            max_slots=3,
-            debounce_sec=2.5,
-            name_tag_provider=self._autosave_name_tag,
-            dispatch_to_main=lambda fn: self.root.after(0, fn),
-            on_error=self._on_autosave_error,
-        )
+        self.autosave_manager = None
 
         # UI Layout
-        # Tk ttk styles are process-global. In integrated host mode, applying
-        # the analysis dark theme would restyle the host window as well.
-        if not self._host_mode:
-            apply_theme(self.root)
         self.setup_ui()
         if menu_builder is not None:
             self._menu_bar = menu_builder(self.root, self, mode=menu_mode, host_mode=self._host_mode)
@@ -224,7 +210,6 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         self._validate_assets()
 
         self.logger = PrintLogger(self.root, message_sink=self._on_logger_message)
-        self._cleanup_stale_autosave_temps()
         self.progress_logger = PropagationProgressLogger(
             write_progress=self.logger.write_progress,
             log_info=self.log_info,
@@ -335,8 +320,6 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         )
         self._set_data_controls_enabled(False)
         self.inference_manager.start()
-        # Prompt only after controllers/workers are initialized; recovery may reset state.
-        self._maybe_prompt_autosave_recovery()
 
     def _ensure_menu_bar_bound(self, _event=None) -> None:
         menu = getattr(self, "_menu_bar", None)
@@ -514,7 +497,8 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
 
     def _set_busy(self, is_busy, status_text, color):
         self.lbl_status.configure(text=status_text, foreground=color)
-        self.btn_import.configure(state="disabled" if is_busy else "normal")
+        if hasattr(self, "btn_import"):
+            self.btn_import.configure(state="disabled" if is_busy else "normal")
         self._set_loading_indicator(bool(is_busy), str(status_text).replace("Status:", "").strip() or "Working...")
         if hasattr(self, "btn_save_masks"):
             if is_busy:
@@ -696,7 +680,7 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
             if not self._controls_hint_logged:
                 self.log_info(
                     "App",
-                    "Import image sequence to enable tools, propagation, mask save, and analysis.",
+                    "Open an SD event from the SD ID main window to enable tools, propagation, and mask save.",
                 )
                 self._controls_hint_logged = True
 
@@ -1004,37 +988,6 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
 
     def _mark_project_dirty(self, reason=""):
         self.project_dirty = True
-        if (
-            not bool(getattr(self, "_host_mode", False))
-            and self._has_loaded_stack()
-            and hasattr(self, "autosave_manager")
-            and self.autosave_manager is not None
-        ):
-            self.autosave_manager.schedule(reason=reason)
-
-    def _build_autosave_snapshot(self):
-        if not self._has_loaded_stack():
-            return None
-        state, images_manifest, roi_data, event_payloads = self._build_project_payload()
-        return AutosaveSnapshot(
-            project_state=state,
-            images_manifest=images_manifest,
-            roi_data=roi_data,
-            event_payloads=event_payloads,
-            embed_images=bool(self._project_embed_images),
-        )
-
-    def _write_autosave_snapshot(self, snapshot: AutosaveSnapshot, target_path: Path):
-        self.project_store.save(
-            target_path=target_path,
-            project_state=snapshot.project_state,
-            images_manifest=snapshot.images_manifest,
-            roi_data=snapshot.roi_data,
-            event_payloads=snapshot.event_payloads,
-            embed_images=bool(snapshot.embed_images),
-        )
-        self._emit_host_sync(reason="autosave")
-        self.log_debug("Autosave", f"Wrote autosave: {target_path.name}")
 
     def _on_autosave_error(self, exc: Exception, context: str):
         self.log_warn("Autosave", f"Autosave failed ({context}): {exc}")
@@ -1043,20 +996,6 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
                 self.lbl_status.configure(text="Status: Autosave warning (see log)", foreground="orange")
             except Exception:
                 pass
-
-    def _cleanup_stale_autosave_temps(self):
-        removed = cleanup_stale_temp_files(self._autosave_dir, pattern="*.sdproj.tmp", older_than_sec=86400)
-        if removed > 0:
-            self.log_info("Autosave", f"Removed {removed} stale autosave temp file(s).")
-
-    def _autosave_name_tag(self):
-        entry = ""
-        if hasattr(self, "entry_input"):
-            try:
-                entry = str(self.entry_input.get() or "").strip()
-            except Exception:
-                entry = ""
-        return derive_autosave_tag(self._current_image_source_paths, entry)
 
     def _build_project_payload(self):
         if self.frame_source is None or not self._has_loaded_stack():
@@ -1139,9 +1078,6 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
     def save_project_as(self):
         return project_workflow.save_project_as(self)
 
-    def convert_to_project(self):
-        return project_workflow.convert_to_project(self)
-
     def _resolve_project_image_paths(self, loaded):
         return project_workflow.resolve_project_image_paths(self, loaded)
 
@@ -1179,9 +1115,6 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
             self._propagation_committed_snapshot = None
             self._mark_project_dirty("propagation_draft")
 
-    def open_project(self):
-        return project_workflow.open_project(self)
-
     def open_from_host_context(
         self,
         context: dict,
@@ -1202,6 +1135,12 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         self._host_log_notifier = on_log_message
         self._host_project_saver = on_host_project_save
         self._host_project_path_provider = on_host_project_path
+        if not callable(self._host_project_saver):
+            return {
+                "ok": False,
+                "code": "PAYLOAD_INVALID",
+                "message": "Host project saver callback is required for host-bound analysis.",
+            }
         if isinstance(context, dict):
             project_path = context.get("project_path")
             if isinstance(project_path, str) and project_path.strip():
@@ -1339,6 +1278,12 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         if not (hasattr(self, "slider") and hasattr(self, "canvas_left")):
             return
         self._finalize_load_ui()
+        active_event_id = str(getattr(self, "active_event_id", "") or "")
+        if active_event_id and hasattr(self, "analysis_workspace") and self.analysis_workspace is not None:
+            try:
+                self.analysis_workspace.open_event(active_event_id)
+            except Exception:
+                pass
         # Finalize resets propagation range spinboxes; re-apply saved-mask-derived ranges.
         self._sync_saved_mask_overlay_state()
         self.display_ratio = 1.0
@@ -1481,17 +1426,6 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         self._run_thread(_worker)
         return False
 
-    def recover_autosave(self):
-        return project_workflow.recover_autosave(self)
-
-    def _maybe_prompt_autosave_recovery(self):
-        if bool(getattr(self, "_host_mode", False)):
-            return None
-        return project_workflow.maybe_prompt_autosave_recovery(self)
-
-    def new_project(self):
-        return project_workflow.new_project(self)
-
     # ========================================================================
     # CLEANUP LOGIC
     # ========================================================================
@@ -1569,17 +1503,6 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
 
     def on_nav_right(self, event=None):
         self.interaction_controller.on_nav_right(event)
-
-    def on_browse_primary(self):
-        self.browse_input_primary(getattr(self, "_browse_mode", "folder"))
-
-    def on_browse_select_folder(self):
-        self._browse_mode = "folder"
-        self.browse_input_folder()
-
-    def on_browse_select_files(self):
-        self._browse_mode = "files"
-        self.browse_input_files()
 
     def on_browse_model(self):
         resource_root = Path(getattr(self, "resource_root", self.app_root))
@@ -1716,23 +1639,7 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         event_id = str(getattr(self, "active_event_id", "") or "")
         if not event_id:
             return False
-        if bool(getattr(self, "_host_mode", False)):
-            return bool(dict(getattr(self, "_saved_project_masks_by_event", {}) or {}).get(event_id, False))
-        record = dict(getattr(self, "event_records", {}) or {}).get(event_id)
-        if record is None:
-            return False
-        analysis = getattr(record, "analysis", None)
-        committed = getattr(analysis, "masks_committed", None)
-        if isinstance(committed, dict):
-            for mask in committed.values():
-                if mask is not None and np.any(np.asarray(mask)):
-                    return True
-        draft = getattr(analysis, "masks_draft", None)
-        if isinstance(draft, dict):
-            for mask in draft.values():
-                if mask is not None and np.any(np.asarray(mask)):
-                    return True
-        return False
+        return bool(dict(getattr(self, "_saved_project_masks_by_event", {}) or {}).get(event_id, False))
 
     def _sync_project_path_from_host(self) -> None:
         if not bool(getattr(self, "_host_mode", False)):
@@ -1776,7 +1683,12 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         self._sync_project_path_from_host()
         if not self.current_project_path:
             self.log_info("Project", "No host project is active. Prompting Save Project As for mask save.")
-            self.save_project_as()
+            try:
+                self.save_project_as()
+            except RuntimeError as exc:
+                self.log_error("Project", str(exc))
+                messagebox.showerror("Save Current Masks", str(exc))
+                return
             if self.current_project_path and not bool(getattr(self, "project_dirty", False)):
                 self._mark_active_event_saved_masks_present()
                 self._show_masks_saved_popup()
@@ -1789,7 +1701,12 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
             if not overwrite:
                 self.log_info("Project", "Save Current Masks canceled by user (overwrite declined).")
                 return
-        self.save_project()
+        try:
+            self.save_project()
+        except RuntimeError as exc:
+            self.log_error("Project", str(exc))
+            messagebox.showerror("Save Current Masks", str(exc))
+            return
         if self.current_project_path and not bool(getattr(self, "project_dirty", False)):
             self._mark_active_event_saved_masks_present()
             self._show_masks_saved_popup()
@@ -1808,10 +1725,10 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
 
 
 def main():
-    os.chdir(get_app_root())
-    root = tk.Tk()
-    app = SDSegmentationApp(root)
-    root.mainloop()
+    raise RuntimeError(
+        "Standalone SD Segmenter launch is not supported. "
+        "Start the unified host app with `python -m sdapp.main`."
+    )
 
 
 if __name__ == "__main__":
