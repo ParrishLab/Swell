@@ -5,6 +5,7 @@ from pathlib import Path
 import numpy as np
 
 from sdapp.shared.frame_source import EventScopedFrameSource, build_visualization_stack
+from sdapp.shared.services import MODEL_CHECKPOINT_METADATA_KEY
 
 
 class AnalysisHostModeController:
@@ -53,6 +54,7 @@ class AnalysisHostModeController:
         frame_source=None,
         on_analysis_update=None,
         on_metrics_update=None,
+        on_checkpoint_update=None,
         on_project_saved=None,
         on_sync_result=None,
         on_log_message=None,
@@ -67,8 +69,16 @@ class AnalysisHostModeController:
         self.app._host_sync_result_notifier = on_sync_result
         self.app._host_log_notifier = on_log_message
         self.app._host_metrics_updater = on_metrics_update
+        self.app._host_checkpoint_updater = on_checkpoint_update
         self.app._host_project_saver = on_host_project_save
         self.app._host_project_path_provider = on_host_project_path
+        self.app._host_project_metadata = (
+            dict(context.get("project_metadata", {})) if isinstance(context, dict) else None
+        )
+        host_project_meta = dict(self.app._host_project_metadata or {})
+        recorded_checkpoint = host_project_meta.get(MODEL_CHECKPOINT_METADATA_KEY)
+        if isinstance(recorded_checkpoint, dict):
+            self.app._set_active_checkpoint_metadata(recorded_checkpoint, notify_host=False, reason="host_context")
         if not callable(self.app._host_project_saver):
             return {
                 "ok": False,
@@ -159,8 +169,11 @@ class AnalysisHostModeController:
         self.app._host_sync_result_notifier = None
         self.app._host_log_notifier = None
         self.app._host_metrics_updater = None
+        self.app._host_checkpoint_updater = None
         self.app._host_project_saver = None
         self.app._host_project_path_provider = None
+        self.app._host_project_metadata = None
+        self.app._set_active_checkpoint_metadata(None, notify_host=False, reason="host_handoff_reset")
         self.app._host_processing_options = None
         self.app._saved_project_masks_by_event = {}
         scoped_source = frame_source

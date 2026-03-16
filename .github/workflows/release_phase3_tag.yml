@@ -95,6 +95,16 @@ jobs:
           OUT="$(python -m sdapp.main --smoke-test | tail -n 1)"
           test "$OUT" = "SMOKE_TEST:PASS"
 
+      - name: Run model init smoke test
+        run: |
+          OUT="$(python scripts/release/run_model_smoke.py | tail -n 1)"
+          test "$OUT" = "MODEL_SMOKE:PASS"
+
+      - name: Run segmentation workflow smoke test
+        run: |
+          OUT="$(python scripts/release/run_segmentation_workflow_smoke.py | tail -n 1)"
+          test "$OUT" = "SEGMENTATION_WORKFLOW_SMOKE:PASS"
+
       - name: Build python artifacts
         run: PYTHON_BIN=python ./scripts/release/build_python_artifacts.sh
 
@@ -208,7 +218,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install -e .[dev]
-          python -m pip install build twine
+          python -m pip install build twine pyinstaller
 
       - name: Run test suite
         run: python -m pytest -q tests
@@ -218,6 +228,35 @@ jobs:
         run: |
           $out = (python -m sdapp.main --smoke-test | Select-Object -Last 1)
           if ($out -ne "SMOKE_TEST:PASS") { throw "Smoke test failed: $out" }
+
+      - name: Run model init smoke test
+        shell: pwsh
+        run: |
+          $out = (python scripts/release/run_model_smoke.py | Select-Object -Last 1)
+          if ($out -ne "MODEL_SMOKE:PASS") { throw "Model smoke failed: $out" }
+
+      - name: Run segmentation workflow smoke test
+        shell: pwsh
+        run: |
+          $out = (python scripts/release/run_segmentation_workflow_smoke.py | Select-Object -Last 1)
+          if ($out -ne "SEGMENTATION_WORKFLOW_SMOKE:PASS") { throw "Workflow smoke failed: $out" }
+
+      - name: Build Windows x64 app package
+        shell: pwsh
+        run: |
+          ./scripts/release/build_windows_app_x64.ps1
+
+      - name: Verify Windows package outputs
+        shell: pwsh
+        run: |
+          if (!(Test-Path "dist/windows-x64/SDApp")) { throw "missing dist/windows-x64/SDApp" }
+          if (!(Test-Path "dist/sdapp-windows-x64.zip")) { throw "missing dist/sdapp-windows-x64.zip" }
+
+      - name: Upload Windows artifacts
+        uses: actions/upload-artifact@v5
+        with:
+          name: windows-package-dist
+          path: dist/
 
   release-assemble:
     name: release-assemble
@@ -259,6 +298,12 @@ jobs:
           name: macos-x86_64-package-dist
           path: _artifacts/macos-x86_64
 
+      - name: Download Windows artifacts
+        uses: actions/download-artifact@v5
+        with:
+          name: windows-package-dist
+          path: _artifacts/windows-x64
+
       - name: Collate release artifacts
         shell: bash
         run: |
@@ -268,6 +313,7 @@ jobs:
           cp _artifacts/linux/*.tar.gz dist/
           cp _artifacts/macos-arm64/sdapp-macos-arm64.zip dist/
           cp _artifacts/macos-x86_64/sdapp-macos-x86_64.zip dist/
+          cp _artifacts/windows-x64/sdapp-windows-x64.zip dist/
           ls -la dist
 
       - name: Generate compatibility manifest
@@ -289,6 +335,7 @@ jobs:
           ls dist/*.tar.gz >/dev/null
           test -f dist/sdapp-macos-arm64.zip
           test -f dist/sdapp-macos-x86_64.zip
+          test -f dist/sdapp-windows-x64.zip
           test -f dist/compatibility.json
           test -f dist/SHA256SUMS.txt
           test -f _release/release_notes.md
@@ -314,7 +361,7 @@ jobs:
         uses: actions/download-artifact@v5
         with:
           name: release-assembled-dist
-          path: dist
+          path: .
 
       - name: Create or update draft release
         uses: softprops/action-gh-release@v2
@@ -329,10 +376,9 @@ jobs:
             dist/*.tar.gz
             dist/sdapp-macos-arm64.zip
             dist/sdapp-macos-x86_64.zip
+            dist/sdapp-windows-x64.zip
             dist/compatibility.json
             dist/SHA256SUMS.txt
 
-# TODO(phase3.5): Add model-init smoke gate.
-# TODO(phase3.5): Add segmentation-workflow smoke gate.
-# TODO(phase4): Add Windows packaged-binary build/publish jobs.
+# TODO(phase6): Add packaged app open-file association smoke tests.
 # TODO(phase4+): Add macOS signing/notarization/stapling.

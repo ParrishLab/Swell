@@ -218,6 +218,21 @@ class HostProjectLifecycleController:
             self.app._log_info(f"Updated local metrics settings for event {event_id}.")
         return {"ok": True, "event_id": event_id, "changed": bool(changed)}
 
+    def on_analysis_checkpoint_update(self, payload: dict) -> dict:
+        checkpoint_meta = dict(payload or {}).get("model_checkpoint")
+        if checkpoint_meta is not None and not isinstance(checkpoint_meta, dict):
+            return {
+                "ok": False,
+                "code": "PAYLOAD_INVALID",
+                "message": "model_checkpoint must be an object when provided.",
+            }
+        self.app.browser_controller.set_model_checkpoint_metadata(
+            dict(checkpoint_meta or {}) if isinstance(checkpoint_meta, dict) else None
+        )
+        self.app._set_status("Model checkpoint metadata updated from analysis.")
+        self.app._log_info("Updated project model checkpoint metadata from analysis window.")
+        return {"ok": True}
+
     def on_analysis_sync_result(self, result: dict) -> None:
         if not isinstance(result, dict):
             return

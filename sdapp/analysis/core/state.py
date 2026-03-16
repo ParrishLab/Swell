@@ -23,7 +23,7 @@ class AppConfig:
         if not config_path.exists():
             return cls(
                 default_output="output",
-                default_model="models/sam2.1_hiera_base_plus.pt",
+                default_model="managed://sam2.1_hiera_base_plus",
                 default_baseline=30,
             )
 
@@ -34,13 +34,13 @@ class AppConfig:
             # Fall back to defaults if config is invalid
             return cls(
                 default_output="output",
-                default_model="models/sam2.1_hiera_base_plus.pt",
+                default_model="managed://sam2.1_hiera_base_plus",
                 default_baseline=30,
             )
 
         return cls(
             default_output=str(data.get("default_output", "output")),
-            default_model=str(data.get("default_model", "models/sam2.1_hiera_base_plus.pt")),
+            default_model=str(data.get("default_model", "managed://sam2.1_hiera_base_plus")),
             default_baseline=int(data.get("default_baseline", 30)),
         )
 

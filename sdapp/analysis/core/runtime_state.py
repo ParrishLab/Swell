@@ -10,6 +10,8 @@ class AnalysisModelState:
     inference_state: Any = None
     model_ready: bool = False
     temp_dir: str | None = None
+    checkpoint_metadata: dict[str, Any] | None = None
+    manual_model_override: str | None = None
 
 
 @dataclass
@@ -22,7 +24,9 @@ class HostModeState:
     project_path_provider: Callable[[], str | None] | None = None
     log_notifier: Callable[[str, str, str], None] | None = None
     metrics_updater: Callable[[dict[str, Any]], dict[str, Any] | None] | None = None
+    checkpoint_updater: Callable[[dict[str, Any]], dict[str, Any] | None] | None = None
     processing_options: dict[str, Any] | None = None
+    project_metadata: dict[str, Any] | None = None
     saved_project_masks_by_event: dict[str, bool] = field(default_factory=dict)
     suppress_metrics_emit: bool = False
     buffer_generation: int = 0

@@ -31,9 +31,13 @@ def test_generate_compatibility_manifest_script_outputs_expected_fields(tmp_path
     assert data["runtime_policy"]["cpu_guaranteed"] is True
     assert data["runtime_policy"]["mps_best_effort"] is True
     assert data["runtime_policy"]["cuda_packaged"] is False
+    assert data["supported_checkpoints"] == [
+        {"id": "sam2.1_hiera_base_plus", "filename": "sam2.1_hiera_base_plus.pt"}
+    ]
     assert data["supported_platforms"] == [
         {"arch": "arm64", "os": "macos"},
         {"arch": "x86_64", "os": "macos"},
+        {"arch": "x86_64", "os": "windows"},
     ]
 
 
@@ -84,3 +88,15 @@ def test_generate_checksums_script_writes_sha256sums(tmp_path: Path) -> None:
     assert len(lines) == 2
     assert any("a.txt" in line for line in lines)
     assert any("b.bin" in line for line in lines)
+
+
+def test_model_smoke_script_passes() -> None:
+    script = ROOT / "scripts" / "release" / "run_model_smoke.py"
+    proc = subprocess.run([sys.executable, str(script)], cwd=str(ROOT), capture_output=True, text=True, check=True)
+    assert "MODEL_SMOKE:PASS" in proc.stdout
+
+
+def test_segmentation_workflow_smoke_script_passes() -> None:
+    script = ROOT / "scripts" / "release" / "run_segmentation_workflow_smoke.py"
+    proc = subprocess.run([sys.executable, str(script)], cwd=str(ROOT), capture_output=True, text=True, check=True)
+    assert "SEGMENTATION_WORKFLOW_SMOKE:PASS" in proc.stdout

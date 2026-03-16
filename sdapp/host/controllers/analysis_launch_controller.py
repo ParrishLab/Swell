@@ -191,6 +191,7 @@ class AnalysisLaunchController:
                 on_host_project_save=self.app._save_project_from_analysis,
                 on_host_project_path=lambda: self.app.current_project_path,
                 on_metrics_update=self.app._on_analysis_metrics_update,
+                on_checkpoint_update=self.app._on_analysis_checkpoint_update,
                 sync_emitter=None,
             )
             if not bool(open_result.get("ok")):

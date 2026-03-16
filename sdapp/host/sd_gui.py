@@ -441,6 +441,9 @@ class SDAnalyzerApp:
     def _on_analysis_metrics_update(self, payload: dict) -> dict:
         return self._get_project_controller().on_analysis_metrics_update(payload)
 
+    def _on_analysis_checkpoint_update(self, payload: dict) -> dict:
+        return self._get_project_controller().on_analysis_checkpoint_update(payload)
+
     def _on_analysis_sync_result(self, result: dict) -> None:
         self._get_project_controller().on_analysis_sync_result(result)
 

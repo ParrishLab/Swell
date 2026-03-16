@@ -27,7 +27,16 @@ def _state() -> UnifiedProjectState:
                 "masks_committed": np.zeros((3, 16, 16), dtype=np.uint8),
             }
         },
-        metadata={"session_id": "session_abc"},
+        metadata={
+            "session_id": "session_abc",
+            "model_checkpoint": {
+                "checkpoint_id": "sam2.1_hiera_base_plus",
+                "filename": "sam2.1_hiera_base_plus.pt",
+                "path": "/tmp/models/sam2.1_hiera_base_plus.pt",
+                "sha256": "abc123",
+                "source": "managed_default",
+            },
+        },
     )
 
 
@@ -64,3 +73,6 @@ def test_canonical_store_roundtrip_preserves_analysis_payload(tmp_path) -> None:
     payload = loaded.analysis_sidecar["event_0001"]
     assert payload["prompts"] == {"points": []}
     assert payload["masks_committed"].shape == (3, 16, 16)
+    checkpoint_meta = loaded.metadata.get("model_checkpoint")
+    assert isinstance(checkpoint_meta, dict)
+    assert checkpoint_meta.get("checkpoint_id") == "sam2.1_hiera_base_plus"

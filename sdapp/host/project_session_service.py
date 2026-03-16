@@ -7,6 +7,7 @@ from typing import Any
 import numpy as np
 
 from sdapp.shared.services import MetricsSettingsResolver, UnifiedProjectService
+from sdapp.shared.services import MODEL_CHECKPOINT_METADATA_KEY
 
 from .host_models import EventMeta, HostSessionState, StackRef
 
@@ -85,6 +86,23 @@ class ProjectSessionService:
 
     def set_metadata(self, **kwargs: Any) -> None:
         self._service.set_metadata(**kwargs)
+
+    def set_model_checkpoint_metadata(self, payload: dict[str, Any] | None) -> None:
+        state = self._service.state()
+        metadata = dict(state.metadata or {})
+        if isinstance(payload, dict) and payload:
+            metadata[MODEL_CHECKPOINT_METADATA_KEY] = dict(payload)
+        else:
+            metadata.pop(MODEL_CHECKPOINT_METADATA_KEY, None)
+        state.metadata = metadata
+        self._service.replace_state(state, mark_dirty=True)
+
+    def get_model_checkpoint_metadata(self) -> dict[str, Any] | None:
+        metadata = dict(self.state().metadata or {})
+        value = metadata.get(MODEL_CHECKPOINT_METADATA_KEY)
+        if isinstance(value, dict):
+            return dict(value)
+        return None
 
     def set_project_path(self, project_path: str | Path | None) -> HostSessionState:
         state = self._service.state()

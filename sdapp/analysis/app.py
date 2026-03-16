@@ -42,6 +42,7 @@ from sdapp.analysis.controllers import AnalysisHostModeController, AnalysisModel
 from sdapp.analysis.ui.layout import LayoutBuilder
 from sdapp.analysis.utils.paths import get_app_root, get_resources_root
 from sdapp.analysis.model import SAM2RuntimeService
+from sdapp.shared.services import CheckpointRuntimeService, MODEL_CHECKPOINT_METADATA_KEY
 
 
 # Optional dependency checks for runtime capabilities.
@@ -54,8 +55,8 @@ except ImportError:
 try:
     import sam2  # noqa: F401
 except ImportError:
-    print("CRITICAL WARNING: 'sam2' package not found. Segmentation features will be disabled.")
-    print("Please install SAM2: pip install git+https://github.com/facebookresearch/sam2.git")
+    print("WARNING: 'sam2' package not found. SDApp will use deterministic CPU fallback segmentation.")
+    print("Install SAM2 for full model quality: pip install git+https://github.com/facebookresearch/sam2.git")
     print(f"Python interpreter: {sys.executable}")
 
 
@@ -142,6 +143,7 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         self.analysis_mode = None
 
         self.sam2_runtime = SAM2RuntimeService()
+        self.checkpoint_runtime = CheckpointRuntimeService()
         self.masks_cache = self.seg_state.masks_cache
 
         self.undo_stack = []
@@ -420,6 +422,26 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         self.model_state.temp_dir = None if value is None else str(value)
 
     @property
+    def _active_checkpoint_metadata(self):
+        self._ensure_runtime_state()
+        return self.model_state.checkpoint_metadata
+
+    @_active_checkpoint_metadata.setter
+    def _active_checkpoint_metadata(self, value) -> None:
+        self._ensure_runtime_state()
+        self.model_state.checkpoint_metadata = dict(value) if isinstance(value, dict) else None
+
+    @property
+    def _manual_model_override(self):
+        self._ensure_runtime_state()
+        return self.model_state.manual_model_override
+
+    @_manual_model_override.setter
+    def _manual_model_override(self, value) -> None:
+        self._ensure_runtime_state()
+        self.model_state.manual_model_override = str(value).strip() if value else None
+
+    @property
     def _host_mode(self):
         self._ensure_runtime_state()
         return bool(self.host_mode_state.host_mode)
@@ -500,6 +522,16 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         self.host_mode_state.metrics_updater = value
 
     @property
+    def _host_checkpoint_updater(self):
+        self._ensure_runtime_state()
+        return self.host_mode_state.checkpoint_updater
+
+    @_host_checkpoint_updater.setter
+    def _host_checkpoint_updater(self, value) -> None:
+        self._ensure_runtime_state()
+        self.host_mode_state.checkpoint_updater = value
+
+    @property
     def _host_processing_options(self):
         self._ensure_runtime_state()
         return self.host_mode_state.processing_options
@@ -508,6 +540,16 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
     def _host_processing_options(self, value) -> None:
         self._ensure_runtime_state()
         self.host_mode_state.processing_options = None if value is None else dict(value)
+
+    @property
+    def _host_project_metadata(self):
+        self._ensure_runtime_state()
+        return self.host_mode_state.project_metadata
+
+    @_host_project_metadata.setter
+    def _host_project_metadata(self, value) -> None:
+        self._ensure_runtime_state()
+        self.host_mode_state.project_metadata = dict(value) if isinstance(value, dict) else None
 
     @property
     def _saved_project_masks_by_event(self):
@@ -1002,13 +1044,26 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
 
     def _validate_assets(self):
         resource_root = str(getattr(self, "resource_root", self.app_root))
-        model_path = self.entry_model.get().strip()
-        if model_path and not os.path.isabs(model_path):
-            model_path = os.path.join(resource_root, model_path)
-
+        model_token = self.entry_model.get().strip()
         missing = []
-        if not model_path or not os.path.exists(model_path):
-            missing.append("model weights")
+        if model_token:
+            if str(model_token).startswith("managed://"):
+                descriptor_id = model_token.split("managed://", 1)[-1].strip()
+                descriptor = self.checkpoint_runtime.find_descriptor(descriptor_id)
+                if descriptor is None:
+                    missing.append("managed checkpoint catalog entry")
+                else:
+                    managed_path = self.checkpoint_runtime.descriptor_path(descriptor)
+                    if not managed_path.exists():
+                        missing.append("managed checkpoint file")
+            else:
+                model_path = model_token
+                if model_path and not os.path.isabs(model_path):
+                    model_path = os.path.join(resource_root, model_path)
+                if not model_path or not os.path.exists(model_path):
+                    missing.append("model weights")
+        else:
+            missing.append("model checkpoint")
 
         configs_root = os.path.join(resource_root, "configs")
         if not os.path.exists(configs_root):
@@ -1239,6 +1294,7 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         frame_source=None,
         on_analysis_update=None,
         on_metrics_update=None,
+        on_checkpoint_update=None,
         on_project_saved=None,
         on_sync_result=None,
         on_log_message=None,
@@ -1251,6 +1307,7 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
             frame_source=frame_source,
             on_analysis_update=on_analysis_update,
             on_metrics_update=on_metrics_update,
+            on_checkpoint_update=on_checkpoint_update,
             on_project_saved=on_project_saved,
             on_sync_result=on_sync_result,
             on_log_message=on_log_message,
@@ -1414,6 +1471,40 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
 
     def _emit_host_metrics_update(self, reason: str) -> dict[str, object] | None:
         return self._get_window_controller().emit_host_metrics_update(reason)
+
+    def _emit_host_checkpoint_update(self, reason: str) -> dict[str, object] | None:
+        if not bool(getattr(self, "_host_mode", False)):
+            return None
+        updater = getattr(self, "_host_checkpoint_updater", None)
+        if not callable(updater):
+            return None
+        payload = {
+            "event_id": str(getattr(self, "active_event_id", "") or ""),
+            "model_checkpoint": dict(getattr(self, "_active_checkpoint_metadata", {}) or {}),
+            "reason": str(reason or ""),
+        }
+        try:
+            result = updater(payload)
+        except Exception as exc:
+            self.log_warn("HostSync", f"Direct host checkpoint update failed: {exc}")
+            return {"ok": False, "code": "PAYLOAD_INVALID", "message": str(exc)}
+        if isinstance(result, dict) and not bool(result.get("ok", False)):
+            code = str(result.get("code", "PAYLOAD_INVALID"))
+            message = str(result.get("message", "Host rejected checkpoint update."))
+            self.log_warn("HostSync", f"Host rejected checkpoint update [{code}]: {message}")
+        return result if isinstance(result, dict) else {"ok": True}
+
+    def _set_active_checkpoint_metadata(self, metadata: dict | None, *, notify_host: bool = True, reason: str = "update") -> None:
+        self._active_checkpoint_metadata = dict(metadata) if isinstance(metadata, dict) else None
+        if bool(notify_host):
+            self._emit_host_checkpoint_update(reason=str(reason or "update"))
+
+    def _project_recorded_checkpoint_metadata(self) -> dict | None:
+        meta = dict(getattr(self, "_host_project_metadata", {}) or {})
+        model_meta = meta.get(MODEL_CHECKPOINT_METADATA_KEY)
+        if isinstance(model_meta, dict):
+            return dict(model_meta)
+        return None
 
     def _on_metrics_settings_changed(self, reason: str) -> None:
         self._get_window_controller().on_metrics_settings_changed(reason)

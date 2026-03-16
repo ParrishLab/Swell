@@ -6,6 +6,8 @@ import shutil
 import tkinter as tk
 from tkinter import filedialog
 
+from sdapp.shared.services.checkpoint_runtime_service import is_managed_uri
+
 
 class AnalysisModelController:
     def __init__(self, app) -> None:
@@ -22,7 +24,9 @@ class AnalysisModelController:
         current_abs = ""
         if current_text:
             p = Path(current_text)
-            if not p.is_absolute():
+            if is_managed_uri(current_text):
+                p = Path(initialdir)
+            elif not p.is_absolute():
                 p = resource_root / p
             current_abs = str(p.resolve())
 
@@ -30,7 +34,9 @@ class AnalysisModelController:
         if current_text:
             try:
                 p = Path(current_text)
-                if not p.is_absolute():
+                if is_managed_uri(current_text):
+                    p = Path(initialdir)
+                elif not p.is_absolute():
                     p = resource_root / p
                 if p.exists():
                     initialdir = str((p.parent if p.is_file() else p).resolve())
@@ -56,6 +62,7 @@ class AnalysisModelController:
 
         self.app.entry_model.delete(0, tk.END)
         self.app.entry_model.insert(0, selected_abs)
+        self.app._manual_model_override = selected_abs
         self.app.log_info("Model", f"Model changed to: {Path(selected_abs).name}. Reloading...")
         self.app._run_thread(self.app._init_sam2_background)
 

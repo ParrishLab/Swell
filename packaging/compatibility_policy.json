@@ -2,7 +2,12 @@
   "manifest_version": 1,
   "sam2_reference": "facebookresearch/sam2 (git source install)",
   "torch_range": ">=2.3,<3.0",
-  "supported_checkpoints": [],
+  "supported_checkpoints": [
+    {
+      "id": "sam2.1_hiera_base_plus",
+      "filename": "sam2.1_hiera_base_plus.pt"
+    }
+  ],
   "supported_platforms": [
     {
       "os": "macos",
@@ -10,6 +15,10 @@
     },
     {
       "os": "macos",
+      "arch": "x86_64"
+    },
+    {
+      "os": "windows",
       "arch": "x86_64"
     }
   ],

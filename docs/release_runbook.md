@@ -23,11 +23,20 @@ This runbook produces local release artifacts for the unified `sdapp` app.
    ```bash
    python3 -m sdapp.main --smoke-test
    ```
-4. Generate compatibility manifest:
+4. Run model + segmentation workflow smoke tests:
+   ```bash
+   python3 scripts/release/run_model_smoke.py
+   python3 scripts/release/run_segmentation_workflow_smoke.py
+   ```
+5. Build Windows x64 portable archive (on Windows runner):
+   ```powershell
+   ./scripts/release/build_windows_app_x64.ps1
+   ```
+6. Generate compatibility manifest:
    ```bash
    ./scripts/release/generate_compatibility_manifest.py
    ```
-5. Generate checksums:
+7. Generate checksums:
    ```bash
    ./scripts/release/generate_checksums.sh
    ```
@@ -38,11 +47,14 @@ After a successful run, `dist/` should contain:
 - `sdapp-<version>-py3-none-any.whl`
 - `sdapp-macos-arm64.zip`
 - `sdapp-macos-x86_64.zip`
+- `sdapp-windows-x64.zip` (when built on Windows)
 - `compatibility.json`
 - `SHA256SUMS.txt`
 
 ## Minimum validation checklist
 - Smoke output is exactly `SMOKE_TEST:PASS`.
+- Model smoke output is exactly `MODEL_SMOKE:PASS`.
+- Segmentation workflow smoke output is exactly `SEGMENTATION_WORKFLOW_SMOKE:PASS`.
 - `dist/compatibility.json` exists and includes:
   - `app_version`
   - `python_requires`
@@ -62,6 +74,7 @@ PR validation now includes four required jobs in `.github/workflows/release_phas
   - full test suite,
   - Python artifact build (`sdist` + wheel),
   - startup smoke (`SMOKE_TEST:PASS`),
+  - model + segmentation workflow smokes,
   - compatibility manifest + checksums generation.
 - macOS arm64:
   - startup smoke,
@@ -72,12 +85,13 @@ PR validation now includes four required jobs in `.github/workflows/release_phas
 - Windows:
   - full test suite,
   - startup smoke,
+  - model + segmentation workflow smokes,
+  - Windows x64 package build (`dist/sdapp-windows-x64.zip`),
   - compatibility manifest + checksums generation.
 
 ### Deferred checks (not Phase 2 gates)
-- model initialization smoke,
-- segmentation workflow smoke with sample dataset,
-- Windows packaged binary build/release jobs,
+- packaged app open-file association smoke tests,
+- segmentation workflow smoke with a real sample dataset fixture,
 - macOS signing/notarization/stapling.
 
 ## CI Phase 3 Draft Releases (Tag-Triggered)
@@ -118,9 +132,12 @@ Draft release automation is defined in `.github/workflows/release_phase3_tag.yml
   - `dist/sdapp-macos-x86_64.zip` exists.
 - `windows-runtime-gate`:
   - full test suite passes,
-  - startup smoke returns `SMOKE_TEST:PASS`.
+  - startup smoke returns `SMOKE_TEST:PASS`,
+  - model + segmentation workflow smokes pass,
+  - Windows x64 package is produced.
 - `release-assemble`:
   - collects Linux/macOS artifacts,
+  - collects Windows x64 package,
   - generates `_release/release_notes.md` from changelog,
   - generates `dist/compatibility.json`,
   - generates `dist/SHA256SUMS.txt`,
@@ -149,6 +166,7 @@ Draft release automation is defined in `.github/workflows/release_phase3_tag.yml
   - `sdapp-<version>-py3-none-any.whl`
   - `sdapp-macos-arm64.zip`
   - `sdapp-macos-x86_64.zip`
+  - `sdapp-windows-x64.zip`
   - `compatibility.json`
   - `SHA256SUMS.txt`
 - Release body text matches the version section in `CHANGELOG.md`.
@@ -168,3 +186,31 @@ Draft release automation is defined in `.github/workflows/release_phase3_tag.yml
   - Add `## [X.Y.Z] - YYYY-MM-DD` to `CHANGELOG.md`.
 - Missing required changelog headings:
   - Ensure all four required headings exist under the release section exactly as listed above.
+
+## Model Runtime Notes (Phase 5)
+- Model checkpoints are resolved in this priority:
+  1. project-recorded checkpoint metadata (if valid),
+  2. managed default checkpoint directory,
+  3. explicit manual override path.
+- Managed model directory:
+  - macOS: `~/Library/Application Support/sdapp/models`
+  - Windows: `%APPDATA%\\sdapp\\models`
+- On clean machines without a local checkpoint, analysis prompts for first-run onboarding:
+  - download approved checkpoint from catalog, or
+  - select local checkpoint manually.
+- On project open, when recorded checkpoint metadata differs from active runtime checkpoint, analysis prompts:
+  - switch to the recorded checkpoint,
+  - continue with current checkpoint,
+  - cancel model initialization (review-only mode).
+- If SAM2/Torch is unavailable, analysis initializes a deterministic CPU fallback backend so segmentation tools remain usable.
+
+## Manual Clean-Machine Validation (Phase 5)
+1. Start with no existing managed model directory.
+2. Launch app and open analysis from host.
+3. Complete checkpoint onboarding (download or manual select).
+4. Run one segmentation action and confirm masks are produced.
+5. Save project, reopen, and verify checkpoint metadata warning/choice flow works when checkpoint differs.
+6. On Windows, validate portable package:
+   - unzip `sdapp-windows-x64.zip`,
+   - launch `SDApp.exe`,
+   - run startup + one segmentation workflow.

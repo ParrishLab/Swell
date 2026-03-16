@@ -189,6 +189,12 @@ class BrowserController:
     def set_global_metrics_defaults(self, payload: dict) -> dict:
         return self.session.set_global_metrics_defaults(dict(payload or {}))
 
+    def set_model_checkpoint_metadata(self, payload: dict | None) -> None:
+        self.session.set_model_checkpoint_metadata(dict(payload or {}) if isinstance(payload, dict) else None)
+
+    def get_model_checkpoint_metadata(self) -> dict | None:
+        return self.session.get_model_checkpoint_metadata()
+
     def get_global_metrics_defaults(self) -> dict:
         return self.session.get_global_metrics_defaults()
 
@@ -225,6 +231,7 @@ class BrowserController:
             "session_id": self.session.get_session_id(),
             "stack_id": self.session.get_stack_id(),
             "project_path": state.project_path,
+            "project_metadata": dict(state.metadata or {}),
             "event": {
                 "event_id": event.event_id,
                 "label": event.label,
