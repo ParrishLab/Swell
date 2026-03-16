@@ -10,6 +10,12 @@ This runbook produces local release artifacts for the unified `sdapp` app.
 - Optional: `twine` for package validation (`python3 -m pip install twine`)
 
 ## Commands (run from repo root)
+0. Optional: bump release version + scaffold changelog section in one step:
+   ```bash
+   python3 scripts/release/bump_version.py patch
+   ```
+   - Also supports `minor`, `major`, or explicit version (`python3 scripts/release/bump_version.py 0.2.0`).
+   - Add `--tag` to create `v<new_version>` locally.
 1. Build Python artifacts (`sdist` + `wheel`):
    ```bash
    ./scripts/release/build_python_artifacts.sh
