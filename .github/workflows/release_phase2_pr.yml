@@ -39,15 +39,15 @@ jobs:
         run: xvfb-run -a python -m pytest -q tests
 
       - name: Build python artifacts
-        run: ./scripts/release/build_python_artifacts.sh
+        run: PYTHON_BIN=python ./scripts/release/build_python_artifacts.sh
 
       - name: Run startup smoke test
         run: |
-          OUT="$(python3 -m sdapp.main --smoke-test | tail -n 1)"
+          OUT="$(python -m sdapp.main --smoke-test | tail -n 1)"
           test "$OUT" = "SMOKE_TEST:PASS"
 
       - name: Generate compatibility manifest
-        run: ./scripts/release/generate_compatibility_manifest.py
+        run: python scripts/release/generate_compatibility_manifest.py
 
       - name: Generate checksums
         run: ./scripts/release/generate_checksums.sh
@@ -87,11 +87,11 @@ jobs:
 
       - name: Run startup smoke test
         run: |
-          OUT="$(python3 -m sdapp.main --smoke-test | tail -n 1)"
+          OUT="$(python -m sdapp.main --smoke-test | tail -n 1)"
           test "$OUT" = "SMOKE_TEST:PASS"
 
       - name: Build macOS arm64 app
-        run: ./scripts/release/build_macos_app_arm64.sh
+        run: PYTHON_BIN=python ./scripts/release/build_macos_app_arm64.sh
 
       - name: Verify macOS arm64 outputs
         run: |
@@ -125,11 +125,11 @@ jobs:
 
       - name: Run startup smoke test
         run: |
-          OUT="$(python3 -m sdapp.main --smoke-test | tail -n 1)"
+          OUT="$(python -m sdapp.main --smoke-test | tail -n 1)"
           test "$OUT" = "SMOKE_TEST:PASS"
 
       - name: Build macOS x86_64 app
-        run: ./scripts/release/build_macos_app_x86_64.sh
+        run: PYTHON_BIN=python ./scripts/release/build_macos_app_x86_64.sh
 
       - name: Verify macOS x86_64 outputs
         run: |

@@ -81,8 +81,12 @@ class ProjectStore:
                         )
                     write_json(zf, f"events/{event_id}/prompts.json", prompts)
 
-            with tmp_path.open("rb") as f:
-                os.fsync(f.fileno())
+            # fsync with writable descriptor for cross-platform durability (Windows rejects read-only fsync).
+            sync_fd = os.open(str(tmp_path), os.O_RDWR)
+            try:
+                os.fsync(sync_fd)
+            finally:
+                os.close(sync_fd)
             os.replace(tmp_path, target)
             _fsync_parent_directory(target)
         finally:

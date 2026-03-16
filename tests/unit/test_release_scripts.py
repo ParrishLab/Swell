@@ -51,6 +51,8 @@ def test_generate_checksums_script_writes_sha256sums(tmp_path: Path) -> None:
     shasum_available = bool(shutil.which("shasum") or shutil.which("sha256sum"))
     if not shasum_available:
         pytest.skip("No checksum tool available in environment.")
+    if not shutil.which("bash"):
+        pytest.skip("bash is not available in environment.")
 
     script = ROOT / "scripts" / "release" / "generate_checksums.sh"
     artifact_dir = tmp_path / "dist"

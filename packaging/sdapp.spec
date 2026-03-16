@@ -4,7 +4,8 @@ from pathlib import Path
 
 from PyInstaller.utils.hooks import collect_data_files
 
-ROOT = Path(__file__).resolve().parents[1]
+_spec_path = Path(globals().get("__file__", "packaging/sdapp.spec")).resolve()
+ROOT = _spec_path.parents[1]
 
 datas = collect_data_files("sdapp")
 hiddenimports = []
