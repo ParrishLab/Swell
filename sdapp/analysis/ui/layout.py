@@ -11,7 +11,7 @@ class LayoutBuilder:
         slider_overlay_bg = "#d4d7db"
         insert_cursor = "#1f1f1f"
 
-        # 1. Hidden backing controls (Configuration panel removed from visible UI).
+        # Hidden compatibility controls retained for state synchronization.
         self.entry_input = tk.Entry(self.root, width=40)
         self.entry_input.insert(0, "Host-provided SD event scope")
 
@@ -32,25 +32,20 @@ class LayoutBuilder:
             wraplength=320,
         )
 
-        # 2. Visualization Area
         viz_frame = ttk.Frame(self.root)
         viz_frame.pack(fill="both", expand=True, padx=10, pady=5)
 
-        # Left Panel
         self.panel_left = ttk.LabelFrame(viz_frame, text="Interactive Selection (Global Norm)", padding=5)
         self.panel_left.pack(side="left", fill="both", expand=True)
         self.canvas_left = tk.Canvas(self.panel_left, bg=canvas_bg, cursor="cross")
         self.canvas_left.pack(fill="both", expand=True)
 
-        # Mouse Bindings
         self.canvas_left.bind("<Button-1>", self.on_mouse_down)
         self.canvas_left.bind("<B1-Motion>", self.on_mouse_drag)
         self.canvas_left.bind("<ButtonRelease-1>", self.on_mouse_up)
-        # Cursor Tracking
         self.canvas_left.bind("<Motion>", self.on_mouse_move)
         self.canvas_left.bind("<Leave>", self.on_mouse_leave)
 
-        # Preview Window (Top Right Overlay)
         self.preview_frame, self.canvas_preview, self.lbl_grip = build_preview_overlay(
             self.canvas_left,
             self.start_resize_preview,
@@ -59,7 +54,6 @@ class LayoutBuilder:
             dark_theme=False,
         )
 
-        # Right Panel
         self.panel_right = ttk.LabelFrame(viz_frame, text="Reference View", padding=5)
         self.panel_right.pack(side="right", fill="both", expand=True)
         self.canvas_right = tk.Canvas(self.panel_right, bg=canvas_bg)
@@ -67,7 +61,6 @@ class LayoutBuilder:
         self.canvas_right.bind("<Button-1>", self.on_right_canvas_click)
         self.canvas_right.bind("<Double-Button-1>", self.on_right_canvas_double_click)
 
-        # 3. Action Bar
         action_frame = ttk.Frame(self.root, padding=10)
         action_frame.pack(fill="x", padx=10)
 
@@ -98,24 +91,20 @@ class LayoutBuilder:
         self.lbl_slider_value = ttk.Label(slider_row, textvariable=self.slider_value, width=5)
         self.lbl_slider_value.pack(side="right", padx=6)
 
-        # Toolbar
         btn_box = ttk.Frame(action_frame)
         btn_box.pack(fill="x", pady=5)
 
         self.tool_mode = tk.StringVar(value="select")
 
-        # Tool: Points
         self.frame_tools = ttk.LabelFrame(btn_box, text="Tools")
         self.frame_tools.pack(side="left", padx=5)
 
-        # Row 1: Point Tools
         row1 = ttk.Frame(self.frame_tools)
         row1.pack(side="top", fill="x", anchor="w")
         ttk.Radiobutton(row1, text="Select", variable=self.tool_mode, value="select").pack(side="left", padx=5)
         ttk.Radiobutton(row1, text="Point (+)", variable=self.tool_mode, value="point_pos").pack(side="left", padx=5)
         ttk.Radiobutton(row1, text="Point (-)", variable=self.tool_mode, value="point_neg").pack(side="left", padx=5)
 
-        # Sensitivity
         ttk.Label(row1, text="| Sens:").pack(side="left", padx=2)
         self.sensitivity = tk.DoubleVar(value=0.0)
         ttk.Scale(
@@ -131,13 +120,11 @@ class LayoutBuilder:
         self.lbl_sens.pack(side="left")
         ttk.Button(row1, text="Clear Frame", command=self.clear_current_frame_data).pack(side="right", padx=5)
 
-        # Row 2: Paint Tools & Brush Slider
         row2 = ttk.Frame(self.frame_tools)
         row2.pack(side="top", fill="x", anchor="w", pady=2)
         ttk.Radiobutton(row2, text="Brush (+)", variable=self.tool_mode, value="brush").pack(side="left", padx=5)
         ttk.Radiobutton(row2, text="Eraser (-)", variable=self.tool_mode, value="eraser").pack(side="left", padx=5)
 
-        # Brush Size
         ttk.Label(row2, text="| Size:").pack(side="left", padx=2)
         self.brush_size = tk.DoubleVar(value=10.0)
         self.scale_brush = ttk.Scale(
@@ -153,7 +140,6 @@ class LayoutBuilder:
         self.lbl_brush_val = ttk.Label(row2, text="10 px", width=5)
         self.lbl_brush_val.pack(side="left")
 
-        # Propagation Controls
         self.frame_prop = ttk.LabelFrame(btn_box, text="Propagation")
         self.frame_prop.pack(side="left", padx=15, pady=2)
 
@@ -209,7 +195,7 @@ class LayoutBuilder:
         )
         self.btn_save_masks.pack(fill="x", padx=4, pady=(4, 4))
 
-        # Keep export-range spinboxes for internal state compatibility, but hide them from UI.
+        # Retain hidden export range fields to preserve legacy state bindings.
         self.spin_export_start = tk.Spinbox(self.root, from_=1, to=10000, width=5)
         self.spin_export_end = tk.Spinbox(self.root, from_=1, to=10000, width=5)
         self._set_spinbox_value(self.spin_export_start, 1)
@@ -217,7 +203,6 @@ class LayoutBuilder:
 
         self._set_analysis_panel(False)
 
-        # 4. Activity indicator (replaces analysis-local log pane)
         activity_frame = ttk.LabelFrame(self.root, text="Activity", height=64)
         activity_frame.pack(fill="x", padx=10, pady=5)
         self.loading_status_var = tk.StringVar(value="Idle")
@@ -245,7 +230,6 @@ class LayoutBuilder:
                 except Exception:
                     pass
 
-        # 5. Key Bindings
         is_mac = sys.platform == "darwin"
         mod_key = "Command" if is_mac else "Control"
 

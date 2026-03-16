@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-"""Project lifecycle workflow helpers for SDSegmentationApp."""
+"""Project lifecycle workflows for the analysis window."""
 
 from dataclasses import dataclass
 from pathlib import Path

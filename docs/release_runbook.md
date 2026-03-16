@@ -77,7 +77,6 @@ PR validation now includes four required jobs in `.github/workflows/release_phas
 ### Deferred checks (not Phase 2 gates)
 - model initialization smoke,
 - segmentation workflow smoke with sample dataset,
-- tag-triggered draft release automation,
 - Windows packaged binary build/release jobs,
 - macOS signing/notarization/stapling.
 
@@ -86,9 +85,25 @@ Draft release automation is defined in `.github/workflows/release_phase3_tag.yml
 
 ### Trigger modes
 - Tag push: any tag matching `v*` (for example `v0.1.0`).
-- Manual backfill/rerun: `workflow_dispatch` with optional `release_tag` input (must start with `v`).
+- Manual backfill/rerun: `workflow_dispatch` with optional `release_tag` input.
+
+### Release contract enforced in Phase 4
+- Accepted tags only:
+  - stable: `vMAJOR.MINOR.PATCH`
+  - prerelease: `vMAJOR.MINOR.PATCH-rc.N`
+- `pyproject.toml` version must match tag base version.
+- `CHANGELOG.md` must include a section for that version.
+- Required changelog headings in that section:
+  - `Model/checkpoint compatibility`
+  - `Platform/backend limitations`
+  - `.sdproj/migration notes`
+  - `Known segmentation caveats/regressions`
+- Draft release body is generated from the matching `CHANGELOG.md` section (`_release/release_notes.md`).
 
 ### Phase 3 jobs and pass criteria
+- `release-validate`:
+  - resolves release tag from event input/tag ref,
+  - validates tag format, `pyproject.toml` version match, and changelog section/headings.
 - `linux-python-artifacts`:
   - full test suite passes,
   - startup smoke returns `SMOKE_TEST:PASS`,
@@ -106,22 +121,26 @@ Draft release automation is defined in `.github/workflows/release_phase3_tag.yml
   - startup smoke returns `SMOKE_TEST:PASS`.
 - `release-assemble`:
   - collects Linux/macOS artifacts,
+  - generates `_release/release_notes.md` from changelog,
   - generates `dist/compatibility.json`,
   - generates `dist/SHA256SUMS.txt`,
   - verifies required release files are present.
 - `publish-draft`:
   - creates/updates a GitHub draft release for the resolved tag,
+  - uses `_release/release_notes.md` as release body,
   - uploads all files in `dist/` as release assets.
 
-### Tag flow (example)
-1. Ensure `pyproject.toml` version is finalized for release.
-2. Create and push tag:
+### Release-cut checklist (strict)
+1. Update `pyproject.toml` `[project].version` to target release version.
+2. Add/update `CHANGELOG.md` section for that version with all required headings.
+3. Create and push tag:
    ```bash
    git tag v0.1.0
    git push origin v0.1.0
    ```
-3. Wait for `release-phase3-tag` workflow to finish.
-4. Open GitHub Releases and validate draft contents.
+4. Wait for `release-phase3-tag` workflow to finish.
+5. Open GitHub Releases and validate draft contents and notes body.
+6. Publish draft manually only after validation.
 
 ### Draft validation checklist
 - Draft release exists for the expected tag.
@@ -132,9 +151,20 @@ Draft release automation is defined in `.github/workflows/release_phase3_tag.yml
   - `sdapp-macos-x86_64.zip`
   - `compatibility.json`
   - `SHA256SUMS.txt`
+- Release body text matches the version section in `CHANGELOG.md`.
 - `compatibility.json` reflects current `pyproject.toml` version and policy fields.
 - `SHA256SUMS.txt` includes all published artifacts.
 
 ### Re-run behavior
 - Re-running the workflow for the same tag updates the existing draft release assets.
 - `workflow_dispatch` can be used to rebuild and republish a draft for an existing `v*` tag.
+
+### Troubleshooting (validation failures)
+- Invalid tag format:
+  - Use only `vX.Y.Z` or `vX.Y.Z-rc.N` (for example `v0.2.0` or `v0.2.0-rc.1`).
+- Version mismatch:
+  - Align `pyproject.toml` version with the tag base version (example: tag `v0.2.0-rc.1` requires `version = "0.2.0"`).
+- Missing changelog section:
+  - Add `## [X.Y.Z] - YYYY-MM-DD` to `CHANGELOG.md`.
+- Missing required changelog headings:
+  - Ensure all four required headings exist under the release section exactly as listed above.

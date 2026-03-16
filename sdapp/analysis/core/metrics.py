@@ -90,7 +90,7 @@ def compute_frame_metrics(boundaries: List[Optional[np.ndarray]], min_dist_px: f
         if len(inner_b) < 3 or len(outer_xy) == 0:
             continue
 
-        # Method 1: signed-distance sampling of frame q against frame q-1 boundary.
+        # Compute outward displacement by sampling frame q points against the frame q-1 boundary.
         inner_contour = inner_b[:, [1, 0]].astype(np.float32).reshape(-1, 1, 2)
         signed_to_prev = np.array(
             [cv2.pointPolygonTest(inner_contour, (float(x), float(y)), True) for x, y in outer_xy],

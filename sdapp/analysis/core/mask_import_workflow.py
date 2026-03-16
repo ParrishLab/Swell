@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-"""External mask import orchestration for SDSegmentationApp."""
+"""External mask import workflow for the analysis window."""
 
 import numpy as np
 from tkinter import messagebox

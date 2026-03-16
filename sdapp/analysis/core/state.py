@@ -18,7 +18,7 @@ class AppConfig:
         if not config_path.exists():
             config_path = get_resources_root() / "config.json"
         if not config_path.exists():
-            # fall back to app root
+            # Fall back to app root.
             config_path = get_app_root() / "config.json"
         if not config_path.exists():
             return cls(

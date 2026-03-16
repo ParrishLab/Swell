@@ -146,7 +146,7 @@ class IOActions:
         self._start_import_with_files(image_files, source_label=input_folder)
 
     def _start_import_files(self):
-        # Backward-compatible entry point for tests/callers.
+        # Compatibility entry point for callers that still use the file-import path.
         return self.browse_input_files()
 
     def _start_import_with_files(self, image_files, source_label):

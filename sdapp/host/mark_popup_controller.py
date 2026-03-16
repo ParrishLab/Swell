@@ -5,7 +5,7 @@ from tkinter import messagebox, ttk
 
 
 class MarkPopupController:
-    """Owns popup lifecycle entrypoints while sd_gui keeps rendering/math helpers."""
+    """Manage mark/edit popup lifecycle while delegating rendering to the host UI layer."""
 
     def __init__(self, app) -> None:
         self.app = app

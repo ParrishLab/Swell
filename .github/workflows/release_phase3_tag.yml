@@ -21,10 +21,55 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
 jobs:
+  release-validate:
+    name: release-validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      release_tag: ${{ steps.validate.outputs.release_tag }}
+      release_version: ${{ steps.validate.outputs.release_version }}
+      is_prerelease: ${{ steps.validate.outputs.is_prerelease }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e .[dev]
+
+      - name: Resolve release tag
+        id: resolve_tag
+        shell: bash
+        run: |
+          TAG="${{ github.event.inputs.release_tag }}"
+          if [ -z "$TAG" ] && [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            TAG="${GITHUB_REF_NAME}"
+          fi
+          if [ -z "$TAG" ]; then
+            echo "ERROR: No release tag resolved. Provide workflow input 'release_tag' or run from a v* tag push." >&2
+            exit 1
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Validate tag, version, and changelog
+        id: validate
+        run: |
+          python scripts/release/validate_release_inputs.py \
+            --tag "${{ steps.resolve_tag.outputs.tag }}" \
+            --github-output "$GITHUB_OUTPUT"
+
   linux-python-artifacts:
     name: linux-python-artifacts
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    needs:
+      - release-validate
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -68,6 +113,8 @@ jobs:
     name: macos-arm64-package
     runs-on: macos-14
     timeout-minutes: 45
+    needs:
+      - release-validate
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -106,6 +153,8 @@ jobs:
     name: macos-x86_64-package
     runs-on: macos-15-intel
     timeout-minutes: 45
+    needs:
+      - release-validate
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -144,6 +193,8 @@ jobs:
     name: windows-runtime-gate
     runs-on: windows-latest
     timeout-minutes: 45
+    needs:
+      - release-validate
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -173,12 +224,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     needs:
+      - release-validate
       - linux-python-artifacts
       - macos-arm64-package
       - macos-x86_64-package
       - windows-runtime-gate
     outputs:
-      release_tag: ${{ steps.resolve_tag.outputs.tag }}
+      release_tag: ${{ needs.release-validate.outputs.release_tag }}
+      is_prerelease: ${{ needs.release-validate.outputs.is_prerelease }}
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -187,20 +240,6 @@ jobs:
         uses: actions/setup-python@v6
         with:
           python-version: ${{ env.PYTHON_VERSION }}
-
-      - name: Resolve release tag
-        id: resolve_tag
-        shell: bash
-        run: |
-          TAG="${{ github.event.inputs.release_tag }}"
-          if [ -z "$TAG" ]; then
-            TAG="${GITHUB_REF_NAME}"
-          fi
-          if [[ "$TAG" != v* ]]; then
-            echo "ERROR: release tag must start with 'v' (got '$TAG')" >&2
-            exit 1
-          fi
-          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
 
       - name: Download Linux artifacts
         uses: actions/download-artifact@v5
@@ -234,6 +273,13 @@ jobs:
       - name: Generate compatibility manifest
         run: python scripts/release/generate_compatibility_manifest.py
 
+      - name: Generate release notes from changelog
+        run: |
+          mkdir -p _release
+          python scripts/release/generate_release_notes.py \
+            --tag "${{ needs.release-validate.outputs.release_tag }}" \
+            --output _release/release_notes.md
+
       - name: Generate checksums
         run: ./scripts/release/generate_checksums.sh
 
@@ -245,12 +291,15 @@ jobs:
           test -f dist/sdapp-macos-x86_64.zip
           test -f dist/compatibility.json
           test -f dist/SHA256SUMS.txt
+          test -f _release/release_notes.md
 
       - name: Upload assembled release artifacts
         uses: actions/upload-artifact@v5
         with:
           name: release-assembled-dist
-          path: dist/
+          path: |
+            dist/
+            _release/release_notes.md
 
   publish-draft:
     name: publish-draft
@@ -273,9 +322,15 @@ jobs:
           tag_name: ${{ needs.release-assemble.outputs.release_tag }}
           name: ${{ needs.release-assemble.outputs.release_tag }}
           draft: true
-          prerelease: ${{ contains(needs.release-assemble.outputs.release_tag, '-rc') || contains(needs.release-assemble.outputs.release_tag, '-beta') || contains(needs.release-assemble.outputs.release_tag, '-alpha') }}
+          prerelease: ${{ needs.release-assemble.outputs.is_prerelease == 'true' }}
+          body_path: _release/release_notes.md
           files: |
-            dist/*
+            dist/*.whl
+            dist/*.tar.gz
+            dist/sdapp-macos-arm64.zip
+            dist/sdapp-macos-x86_64.zip
+            dist/compatibility.json
+            dist/SHA256SUMS.txt
 
 # TODO(phase3.5): Add model-init smoke gate.
 # TODO(phase3.5): Add segmentation-workflow smoke gate.

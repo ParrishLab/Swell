@@ -44,14 +44,13 @@ from sdapp.analysis.utils.paths import get_app_root, get_resources_root
 from sdapp.analysis.model import SAM2RuntimeService
 
 
-# Check for imagecodecs
+# Optional dependency checks for runtime capabilities.
 try:
     import imagecodecs  # noqa: F401
 except ImportError:
     print("WARNING: imagecodecs not installed. LZW-compressed TIFFs may fail to load.")
     print("Install with: pip install imagecodecs")
 
-# Check for SAM2
 try:
     import sam2  # noqa: F401
 except ImportError:
@@ -100,7 +99,6 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
 
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
 
-        # State Variables
         self.frames_raw = None
         self.frames_sub = None
         self.frames_sub_viz = None
@@ -127,36 +125,30 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         self.selected_point = None
         self.paint_layers = self.seg_state.paint_layers
 
-        # Display State
         self.display_ratio = 1.0
         self.img_offset_x = 0
         self.img_offset_y = 0
 
-        # Cursor State
         self.last_mouse_x = None
         self.last_mouse_y = None
         self.last_img_x = None
         self.last_img_y = None
         self.is_dragging = False
 
-        # Reset analysis state
         self.scale_px_per_mm = None
         self.roi_mask = None
         self.roi_points = []
         self.scale_points = []
         self.analysis_mode = None
 
-        # SAM2 State
         self.sam2_runtime = SAM2RuntimeService()
         self.masks_cache = self.seg_state.masks_cache
 
-        # Undo/Redo Stacks
         self.undo_stack = []
         self.redo_stack = []
         self.paint_snapshot_before = None
         self.points_snapshot_before = None
 
-        # Background Processing
         self.predictor_lock = threading.Lock()
         self._largest_propagated_span = None
         self._propagated_history_indices = set()
@@ -172,7 +164,6 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         self.analysis_panel_open = tk.BooleanVar(value=False)
         self._controls_hint_logged = False
 
-        # Config
         self.config = AppConfig.load()
         self.project_store = ProjectStore()
         self.project_session_service = ProjectSessionService()
@@ -184,7 +175,6 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         self.mask_import_dialog = MaskImportDialogService()
         self.autosave_manager = None
 
-        # UI Layout
         self.setup_ui()
         self.window_controller = AnalysisWindowController(self)
         self.host_mode_controller = AnalysisHostModeController(self)
@@ -595,10 +585,6 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
                 session_state=self.session_state,
                 seg_state=self.seg_state,
             )
-
-    # ========================================================================
-    # Helpers
-    # ========================================================================
 
     def _set_loading_indicator(self, loading: bool, text: str = "Working...") -> None:
         if not hasattr(self, "loading_status_var") or not hasattr(self, "loading_bar"):
@@ -1041,7 +1027,6 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         self._validate_assets()
 
     def _reset_model_state(self):
-        # Stop background work and clear queued inference jobs.
         self.inference_manager.on_model_unloaded()
         self.model_ready = False
         self.predictor = None
@@ -1109,7 +1094,7 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         )
 
     def _apply_loaded_stack(self, frames_raw, frames_sub, frames_sub_viz, frame_names, source_paths=None):
-        # Only reset after a successful load to avoid losing work on failed import
+        # Reset only after load succeeds to avoid losing in-memory work on failed import.
         self._reset_for_new_import()
 
         self.frames_raw = frames_raw
@@ -1140,7 +1125,6 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         return
 
     def on_right_canvas_double_click(self, event):
-        # Analysis interactions are handled in dedicated pop-up windows.
         return
 
     def start_scale_selection(self):
@@ -1291,10 +1275,6 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
     def _prepare_host_mode_buffers(self, frame_source, on_ready_message: str | None = None):
         return self._get_host_mode_controller().prepare_host_mode_buffers(frame_source, on_ready_message)
 
-    # ========================================================================
-    # CLEANUP LOGIC
-    # ========================================================================
-
     def _is_propagation_running(self):
         return project_workflow.is_propagation_running(self)
 
@@ -1309,10 +1289,6 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
             except Exception as e:
                 self.log_warn("App", f"Could not remove temp dir: {e}")
 
-    # ========================================================================
-    # PREVIEW RESIZE
-    # ========================================================================
-
     def start_resize_preview(self, event):
         return do_start_resize_preview(self, event)
 
@@ -1321,10 +1297,6 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
 
     def stop_resize_preview(self, event):
         return do_stop_resize_preview(self, event)
-
-    # ========================================================================
-    # CURSOR VISUALIZATION
-    # ========================================================================
 
     def on_mouse_move(self, event):
         self.interaction_controller.on_mouse_move(event)
@@ -1358,10 +1330,6 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
 
     def on_brush_size_change(self, val):
         self.interaction_controller.on_brush_size_change(val)
-
-    # ========================================================================
-    # KEYBOARD COMMANDS
-    # ========================================================================
 
     def on_nav_left(self, event=None):
         self.interaction_controller.on_nav_left(event)
@@ -1408,10 +1376,6 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         self.update_display()
         return "break"
 
-    # ========================================================================
-    # MOUSE INTERACTION
-    # ========================================================================
-
     def on_mouse_down(self, event):
         self.interaction_controller.on_mouse_down(event)
 
@@ -1425,10 +1389,6 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
     def delete_selected_point(self, event=None):
         self.interaction_controller.delete_selected_point(event)
         self._mark_project_dirty("delete_point")
-
-    # ========================================================================
-    # SAVE CURRENT MASKS
-    # ========================================================================
 
     def _analysis_payload_has_saved_masks(self, payload) -> bool:
         return self._get_window_controller().analysis_payload_has_saved_masks(payload)
@@ -1495,12 +1455,8 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         self._get_window_controller().save_current_masks()
 
     def export_results(self):
-        # Backward-compatible alias for older bindings.
+        # Compatibility alias for older bindings.
         return self.save_current_masks()
-
-    # ========================================================================
-    # MISC
-    # ========================================================================
 
     def clear_current_frame_data(self):
         self.interaction_controller.clear_current_frame_data()

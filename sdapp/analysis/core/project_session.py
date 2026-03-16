@@ -477,7 +477,7 @@ class ProjectSessionService:
                 restored = self.copy_masks_dict(committed_snapshot)
         return PropagationTransition(event_record=record, restored_masks=restored)
 
-    # Backward-compatible adapters while the rest of the app is migrated.
+    # Compatibility adapters for legacy event-state callers.
     def sync_active_event_state(self, *, frame_count: int, active_event_id: str, seg_state: SegmentationState, event_states: dict[str, Any]) -> dict[str, dict[str, Any]]:
         records = self.coerce_event_records(event_states, frame_count)
         self.sync_workspace_into_event(frame_count=frame_count, event_id=active_event_id, seg_state=seg_state, event_records=records)
