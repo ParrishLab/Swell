@@ -15,6 +15,7 @@ class AnalysisModelController:
 
     def browse_model(self):
         resource_root = Path(getattr(self.app, "resource_root", self.app.app_root))
+        initialdir = str((resource_root / "models").resolve())
         current_text = ""
         try:
             current_text = str(self.app.entry_model.get() or "").strip()
@@ -30,7 +31,6 @@ class AnalysisModelController:
                 p = resource_root / p
             current_abs = str(p.resolve())
 
-        initialdir = str((resource_root / "models").resolve())
         if current_text:
             try:
                 p = Path(current_text)

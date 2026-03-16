@@ -12,6 +12,9 @@ class AnalysisWindowController:
     def __init__(self, app) -> None:
         self.app = app
 
+    def _dialog_parent(self):
+        return getattr(self.app, "root", None)
+
     def collect_current_metrics_settings(self) -> dict[str, object]:
         metrics: dict[str, object] = {}
         try:
@@ -176,13 +179,13 @@ class AnalysisWindowController:
         target = str(getattr(self.app, "current_project_path", "") or "").strip()
         if target:
             name = Path(target).name
-            messagebox.showinfo("Masks Saved", f"Current masks were saved to:\n{name}")
+            messagebox.showinfo("Masks Saved", f"Current masks were saved to:\n{name}", parent=self._dialog_parent())
             return
-        messagebox.showinfo("Masks Saved", "Current masks were saved.")
+        messagebox.showinfo("Masks Saved", "Current masks were saved.", parent=self._dialog_parent())
 
     def save_current_masks(self) -> None:
         if not self.app._collect_nonempty_final_mask_frames():
-            messagebox.showwarning("No Masks", "Please generate masks first.")
+            messagebox.showwarning("No Masks", "Please generate masks first.", parent=self._dialog_parent())
             return
         self.emit_host_metrics_update(reason="save_current_masks")
         self.sync_project_path_from_host()
@@ -192,7 +195,7 @@ class AnalysisWindowController:
                 self.app.save_project_as()
             except RuntimeError as exc:
                 self.app.log_error("Project", f"Save current masks failed: {exc}")
-                messagebox.showerror("Save Current Masks", str(exc))
+                messagebox.showerror("Save Current Masks", str(exc), parent=self._dialog_parent())
                 return
             if self.app.current_project_path and not bool(getattr(self.app, "project_dirty", False)):
                 self.mark_active_event_saved_masks_present()
@@ -202,6 +205,7 @@ class AnalysisWindowController:
             overwrite = messagebox.askyesno(
                 "Overwrite Existing Masks?",
                 "Masks already exist for this SD event. Saving will overwrite the stored masks in this project.\n\nContinue?",
+                parent=self._dialog_parent(),
             )
             if not overwrite:
                 self.app.log_info("Project", "Save current masks canceled by user (overwrite declined).")
@@ -210,7 +214,7 @@ class AnalysisWindowController:
             self.app.save_project()
         except RuntimeError as exc:
             self.app.log_error("Project", f"Save current masks failed: {exc}")
-            messagebox.showerror("Save Current Masks", str(exc))
+            messagebox.showerror("Save Current Masks", str(exc), parent=self._dialog_parent())
             return
         if self.app.current_project_path and not bool(getattr(self.app, "project_dirty", False)):
             self.mark_active_event_saved_masks_present()

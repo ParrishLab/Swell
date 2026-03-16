@@ -281,7 +281,7 @@ class AnalysisController:
     def start_scale_selection(self):
         frames_raw = self.get_frames_raw()
         if frames_raw is None:
-            messagebox.showwarning("No Images", "Import images first.")
+            messagebox.showwarning("No Images", "Import images first.", parent=self.root)
             return
 
         scale_initialdir = resolve_existing_directory(
@@ -314,7 +314,7 @@ class AnalysisController:
 
         img_u8 = self._load_image_u8_from_path(image_path)
         if img_u8 is None:
-            messagebox.showwarning("Image Error", "Unable to read selected image for scale calibration.")
+            messagebox.showwarning("Image Error", "Unable to read selected image for scale calibration.", parent=self.root)
             return
 
         result = open_scale_dialog(
@@ -336,23 +336,23 @@ class AnalysisController:
                 pass
 
         if result["fallback"]:
-            messagebox.showwarning("Scale Refinement", "Low-confidence refinement; using selected endpoints.")
+            messagebox.showwarning("Scale Refinement", "Low-confidence refinement; using selected endpoints.", parent=self.root)
         msg = f"Scale set to {result['px_per_mm']:.3f} px/mm"
         if result["refined_ok"]:
             msg += "\n(Refined from sampled intensity profile with sub-pixel edge fit.)"
         else:
             msg += "\n(Using raw click points; refinement fallback applied.)"
         msg += f"\n(Scale mode: {result['axis_mode']}.)"
-        messagebox.showinfo("Scale Set", msg)
+        messagebox.showinfo("Scale Set", msg, parent=self.root)
 
     def start_roi_selection(self):
         frames_raw = self.get_frames_raw()
         if frames_raw is None:
-            messagebox.showwarning("No Images", "Import images first.")
+            messagebox.showwarning("No Images", "Import images first.", parent=self.root)
             return
         img_u8 = self._get_first_frame_original_u8()
         if img_u8 is None:
-            messagebox.showwarning("No Images", "Unable to read first frame.")
+            messagebox.showwarning("No Images", "Unable to read first frame.", parent=self.root)
             return
 
         result = open_roi_dialog(
@@ -371,4 +371,4 @@ class AnalysisController:
                 self.on_metrics_settings_changed("roi")
             except Exception:
                 pass
-        messagebox.showinfo("ROI Set", "ROI polygon saved.")
+        messagebox.showinfo("ROI Set", "ROI polygon saved.", parent=self.root)

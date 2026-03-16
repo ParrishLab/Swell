@@ -175,7 +175,7 @@ class MaskImportDialogService:
             except Exception:
                 frame_idx = -1
             if frame_idx < 0 or frame_idx >= len(frames_raw):
-                messagebox.showwarning("Alignment", "Choose a valid start frame.")
+                messagebox.showwarning("Alignment", "Choose a valid start frame.", parent=top)
                 return
             result["offset"] = frame_idx
             top.destroy()

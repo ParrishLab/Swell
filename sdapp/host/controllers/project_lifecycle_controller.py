@@ -11,8 +11,15 @@ class HostProjectLifecycleController:
     def __init__(self, app) -> None:
         self.app = app
 
+    def _dialog_parent(self):
+        return getattr(self.app, "root", None)
+
     def new_project(self) -> None:
-        folder = filedialog.askdirectory(title="Select Stack Folder")
+        folder = filedialog.askdirectory(
+            parent=self._dialog_parent(),
+            title="Select Stack Folder",
+            mustexist=True,
+        )
         if not folder:
             self.app._log_info("New Project canceled: no input folder selected.")
             return
@@ -61,7 +68,7 @@ class HostProjectLifecycleController:
         else:
             initial_dir = self.app.output_var.get().strip() or str(Path.cwd())
         path = filedialog.asksaveasfilename(
-            parent=self.app.root,
+            parent=self._dialog_parent(),
             title="Save SD Project As",
             defaultextension=".sdproj",
             filetypes=[("SD Project", "*.sdproj"), ("All files", "*.*")],
@@ -92,6 +99,7 @@ class HostProjectLifecycleController:
 
     def open_project_dialog(self) -> None:
         path = filedialog.askopenfilename(
+            parent=self._dialog_parent(),
             title="Open SD Project",
             filetypes=[
                 ("SD Project", "*.sdproj"),
@@ -292,6 +300,7 @@ class HostProjectLifecycleController:
                     "No = Continue without saving\n"
                     "Cancel = Abort"
                 ),
+                parent=self._dialog_parent(),
             )
             if response is None:
                 return {"ok": False, "reason": "canceled"}

@@ -169,11 +169,11 @@ class HostWindowController:
                 or bool(include_metric_rel_area_var.get())
             )
             if not include_any:
-                messagebox.showwarning("Export Options", "Select at least one export target.")
+                messagebox.showwarning("Export Options", "Select at least one export target.", parent=dialog)
                 return
             out = output_dir_var.get().strip()
             if not out:
-                messagebox.showwarning("Export Options", "Select an output folder.")
+                messagebox.showwarning("Export Options", "Select an output folder.", parent=dialog)
                 return
             result = {
                 "output_dir": out,
@@ -373,13 +373,13 @@ class HostWindowController:
     def run_export(self, event_ids: list[str], *, options: dict[str, object]) -> None:
         if self.app.reader is None:
             self.app._log_warn("Export blocked: load a stack first.")
-            messagebox.showwarning("Export", "Load a stack first.")
+            messagebox.showwarning("Export", "Load a stack first.", parent=self.app.root)
             return
 
         output_dir = str(options.get("output_dir", self.app.output_var.get().strip())).strip()
         if not output_dir:
             self.app._log_warn("Export blocked: no output folder selected.")
-            messagebox.showwarning("Export", "Select an output folder.")
+            messagebox.showwarning("Export", "Select an output folder.", parent=self.app.root)
             return
         self.app.output_var.set(output_dir)
 

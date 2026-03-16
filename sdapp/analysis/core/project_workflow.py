@@ -162,6 +162,7 @@ def prepare_loaded_project(app, loaded, project_path) -> ProjectLoadPlan:
         choose_resume_draft=lambda event_id: messagebox.askyesno(
             "Draft Masks Found",
             f"Event '{event_id}' has unfinished draft propagation.\n\nResume draft masks?",
+            parent=app.root,
         ),
         decode_rle=app.seg_state._decode_rle,
     )
@@ -292,6 +293,7 @@ def on_close(app) -> None:
         proceed = messagebox.askyesno(
             "Propagation Running",
             "Propagation is still running. Closing now will stop it.\n\nClose anyway?",
+            parent=app.root,
         )
         if not proceed:
             return
@@ -306,6 +308,7 @@ def on_close(app) -> None:
         response = messagebox.askyesnocancel(
             "Unsaved Masks",
             "Current masks have unsaved changes.\n\nSave masks before closing?",
+            parent=app.root,
         )
         if response is None:
             return

@@ -16,7 +16,7 @@ def import_external_masks(app) -> None:
     frame_shape = app._get_frame_shape() if hasattr(app, "_get_frame_shape") else tuple(frames_raw[0].shape[:2])
 
     if frames_raw is None or frame_count <= 0:
-        messagebox.showwarning("No Images", "Import images first.")
+        messagebox.showwarning("No Images", "Import images first.", parent=app.root)
         return
 
     mask_paths = app.mask_import_dialog.choose_paths(app.root)
@@ -25,7 +25,7 @@ def import_external_masks(app) -> None:
     try:
         masks = app.mask_import_dialog.load_external_mask_images(mask_paths)
     except Exception as exc:
-        messagebox.showerror("Import Masks", str(exc))
+        messagebox.showerror("Import Masks", str(exc), parent=app.root)
         return
     if not masks:
         return
@@ -35,6 +35,7 @@ def import_external_masks(app) -> None:
             messagebox.showerror(
                 "Import Masks",
                 f"Mask dimensions must match imported frames ({base_shape[1]}x{base_shape[0]}).",
+                parent=app.root,
             )
             return
 
@@ -61,7 +62,7 @@ def import_external_masks(app) -> None:
     if offset is None:
         return
     if offset < 0 or offset >= frame_count:
-        messagebox.showerror("Import Masks", "Computed frame offset is out of bounds.")
+        messagebox.showerror("Import Masks", "Computed frame offset is out of bounds.", parent=app.root)
         return
 
     event_id = str(app.active_event_id or "sd_event_001")
@@ -75,7 +76,7 @@ def import_external_masks(app) -> None:
         committed[int(frame_idx)] = np.asarray(mask, dtype=bool).copy()
         applied += 1
     if applied <= 0:
-        messagebox.showwarning("Import Masks", "No masks were mapped into the current frame range.")
+        messagebox.showwarning("Import Masks", "No masks were mapped into the current frame range.", parent=app.root)
         return
 
     event_record.analysis.masks_committed = committed
@@ -95,4 +96,5 @@ def import_external_masks(app) -> None:
     messagebox.showinfo(
         "Import Masks",
         f"Imported {applied} mask frame(s) using '{guess.get('strategy')}' mapping into event '{event_id}'.",
+        parent=app.root,
     )

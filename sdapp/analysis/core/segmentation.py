@@ -94,6 +94,7 @@ class SegmentationActions:
                 "No = Select a local checkpoint file\n"
                 "Cancel = Keep model tools disabled"
             ),
+            parent=self.root,
         )
         if response is None:
             return None
@@ -189,6 +190,7 @@ class SegmentationActions:
                 "No = Continue with current checkpoint\n"
                 "Cancel = Disable model tools (review-only)"
             ),
+            parent=self.root,
         )
         if response is None:
             return model_path, checkpoint_id, source, False
@@ -355,7 +357,12 @@ class SegmentationActions:
             if self._ui_alive():
                 self.root.after(0, lambda: self._set_activity_message("Model Error"))
                 self.root.after(
-                    0, lambda m=msg: messagebox.showerror("Model Init Error", f"Failed to initialize SAM2 Model:\n{m}")
+                    0,
+                    lambda m=msg: messagebox.showerror(
+                        "Model Init Error",
+                        f"Failed to initialize SAM2 Model:\n{m}",
+                        parent=self.root,
+                    ),
                 )
 
     def _update_mask_prediction(self, frame_idx):
@@ -396,6 +403,7 @@ class SegmentationActions:
                 "No Masks",
                 "No masks or paint edits found in the selected propagation range. "
                 "Please create a mask or paint an edit before propagating.",
+                parent=self.root,
             )
             return
 

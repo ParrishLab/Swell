@@ -406,7 +406,7 @@ class SDAnalyzerApp:
         self._redraw_main_overlay()
 
     def _show_warning(self, title: str, text: str) -> None:
-        messagebox.showwarning(title, text)
+        messagebox.showwarning(title, text, parent=self.root)
 
     def save_host_session(self, path: str | None = None):
         return self.browser_controller.save_session(path)
@@ -1013,7 +1013,7 @@ class SDAnalyzerApp:
         except Exception as exc:
             if show_errors:
                 self._log_warn(f"Popup recompute failed: {exc}")
-                messagebox.showwarning("Mark SD", str(exc))
+                messagebox.showwarning("Mark SD", str(exc), parent=self.root)
             return False
         self._popup_job_seq += 1
         job_id = int(self._popup_job_seq)
@@ -1053,7 +1053,7 @@ class SDAnalyzerApp:
         if error is not None:
             if show_errors:
                 self._log_warn(f"Popup recompute failed: {error}")
-                messagebox.showwarning("Mark SD", str(error))
+                messagebox.showwarning("Mark SD", str(error), parent=self.root)
             return
         if result is None:
             return
@@ -1552,7 +1552,7 @@ class SDAnalyzerApp:
         ids = self._selected_event_ids()
         if not ids:
             self._log_warn("Export Selected blocked: no events selected.")
-            messagebox.showwarning("Export", "Select one or more events in the table.")
+            messagebox.showwarning("Export", "Select one or more events in the table.", parent=self.root)
             return
         options = self._prompt_export_options(ids)
         if options is None:
@@ -1564,7 +1564,7 @@ class SDAnalyzerApp:
     def _export_all(self) -> None:
         if not self.events:
             self._log_warn("Export All blocked: no events available.")
-            messagebox.showwarning("Export", "No events to export.")
+            messagebox.showwarning("Export", "No events to export.", parent=self.root)
             return
         event_ids = [event.event_id for event in self.events]
         options = self._prompt_export_options(event_ids)
@@ -1629,7 +1629,7 @@ class SDAnalyzerApp:
             f"metrics_files={int(result.get('metrics_files_exported', 0))}, output={result['output_dir']}."
         )
         self._gc_runtime_caches(aggressive=False, run_python_gc=False)
-        messagebox.showinfo("Export", f"Output written to:\n{result['output_dir']}")
+        messagebox.showinfo("Export", f"Output written to:\n{result['output_dir']}", parent=self.root)
 
     def _trim_numpy_cache_by_bytes(self, cache: OrderedDict[int, np.ndarray], max_bytes: int) -> None:
         total = 0

@@ -28,7 +28,7 @@ class MarkPopupController:
     def open_popup(self, mode: str, event_id: str | None) -> None:
         if self.app.reader is None or self.app.stack_info is None:
             self.app._log_warn("Mark popup blocked: no stack loaded.")
-            messagebox.showwarning("Mark SD Event", "Load a stack first.")
+            messagebox.showwarning("Mark SD Event", "Load a stack first.", parent=self.app.root)
             return
 
         if self.app._mark_popup is not None and self.app._mark_popup.winfo_exists():
@@ -39,7 +39,7 @@ class MarkPopupController:
         event = self.app._get_event_by_id(event_id) if event_id else None
         if mode == "edit" and event is None:
             self.app._log_warn("Edit popup blocked: selected event not found.")
-            messagebox.showwarning("SD Event", "Selected event was not found.")
+            messagebox.showwarning("SD Event", "Selected event was not found.", parent=self.app.root)
             return
 
         if mode == "edit" and event is not None:
@@ -288,11 +288,11 @@ class MarkPopupController:
             start, end, changed_by_clamp, swapped = self.app._normalize_bounds(start, end)
         except ValueError as exc:
             self.app._log_warn(f"Mark popup validation failed: {exc}")
-            messagebox.showwarning("Mark SD Event", str(exc))
+            messagebox.showwarning("Mark SD Event", str(exc), parent=self.app.root)
             return
         except Exception as exc:
             self.app._log_error(f"Mark popup failed: {exc}")
-            messagebox.showwarning("Mark SD Event", str(exc))
+            messagebox.showwarning("Mark SD Event", str(exc), parent=self.app.root)
             return
 
         duration_frames = end - start + 1
@@ -302,7 +302,7 @@ class MarkPopupController:
             event = self.app._get_event_by_id(self.app._mark_popup_event_id)
             if event is None:
                 self.app._log_warn("Edit confirm failed: event not found.")
-                messagebox.showwarning("SD Event", "Selected event was not found.")
+                messagebox.showwarning("SD Event", "Selected event was not found.", parent=self.app.root)
                 return
             old_start = event.start_idx
             old_end = event.end_idx
@@ -347,7 +347,7 @@ class MarkPopupController:
         ids = list(self.app.tree.selection())
         if not ids:
             self.app._log_warn("Delete blocked: no events selected.")
-            messagebox.showwarning("SD Event", "Select one or more events first.")
+            messagebox.showwarning("SD Event", "Select one or more events first.", parent=self.app.root)
             return
 
         selected = set(ids)

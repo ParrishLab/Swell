@@ -38,7 +38,7 @@ def test_save_current_masks_warns_when_no_masks(monkeypatch):
     warned: list[tuple[str, str]] = []
     monkeypatch.setattr(
         "sdapp.analysis.app.messagebox.showwarning",
-        lambda title, text: warned.append((str(title), str(text))),
+        lambda title, text, **_kwargs: warned.append((str(title), str(text))),
     )
 
     app.save_current_masks()
@@ -69,7 +69,7 @@ def test_save_current_masks_prompts_save_as_when_no_project(monkeypatch):
     app.save_project_as = lambda: save_as_calls.append("save_as")
     monkeypatch.setattr(
         "sdapp.analysis.app.messagebox.showinfo",
-        lambda title, text: info_calls.append((str(title), str(text))),
+        lambda title, text, **_kwargs: info_calls.append((str(title), str(text))),
     )
     monkeypatch.setattr("sdapp.analysis.app.messagebox.askyesno", lambda *_args, **_kwargs: True)
 
@@ -91,7 +91,7 @@ def test_save_current_masks_uses_host_project_path_provider_without_save_as(monk
     app.save_project_as = lambda: save_as_calls.append("save_as")
     monkeypatch.setattr(
         "sdapp.analysis.app.messagebox.showinfo",
-        lambda title, text: info_calls.append((str(title), str(text))),
+        lambda title, text, **_kwargs: info_calls.append((str(title), str(text))),
     )
     monkeypatch.setattr("sdapp.analysis.app.messagebox.askyesno", lambda *_args, **_kwargs: True)
 
@@ -113,7 +113,7 @@ def test_save_current_masks_saves_to_existing_project_without_overwrite_prompt(m
     app.save_project = lambda: save_calls.append("save")
     monkeypatch.setattr(
         "sdapp.analysis.app.messagebox.showinfo",
-        lambda title, text: info_calls.append((str(title), str(text))),
+        lambda title, text, **_kwargs: info_calls.append((str(title), str(text))),
     )
     monkeypatch.setattr(
         "sdapp.analysis.app.messagebox.askyesno",

@@ -54,8 +54,9 @@ def test_resolution_prefers_project_recorded(tmp_path: Path) -> None:
     assert resolved.path == str(project_path.resolve())
 
 
-def test_resolution_uses_managed_default_before_manual_override(tmp_path: Path) -> None:
+def test_resolution_uses_managed_default_before_manual_override(tmp_path: Path, monkeypatch) -> None:
     catalog = _write_catalog(tmp_path / "catalog.json")
+    monkeypatch.setenv("SDAPP_MODELS_DIR", str((tmp_path / "managed_models").resolve()))
     service = CheckpointRuntimeService(catalog_path=catalog)
     managed_dir = service.managed_models_dir()
     managed_file = managed_dir / "sam2.1_hiera_base_plus.pt"

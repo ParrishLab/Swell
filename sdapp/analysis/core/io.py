@@ -20,7 +20,7 @@ class IOActions:
             fallback_dir=self.app_root,
             prefer_parent_for_existing_dir=True,
         )
-        folder = filedialog.askdirectory(initialdir=initialdir)
+        folder = filedialog.askdirectory(parent=self.root, initialdir=initialdir)
         if not folder:
             return
         self._selected_import_files = None
@@ -83,7 +83,7 @@ class IOActions:
             rejected_msg = ", ".join(name for name, _reason in rejected[:4])
             suffix = "..." if len(rejected) > 4 else ""
             details = f" Rejected: {rejected_msg}{suffix}" if rejected else ""
-            messagebox.showwarning("Input Error", f"No valid image files selected.{details}")
+            messagebox.showwarning("Input Error", f"No valid image files selected.{details}", parent=self.root)
             return None
 
         if rejected:
@@ -95,6 +95,7 @@ class IOActions:
                     f"Selected {len(valid_files)} valid file(s); skipped {len(rejected)} invalid/unsupported file(s): "
                     f"{skipped_names}{suffix}"
                 ),
+                parent=self.root,
             )
 
         self._selected_import_files = list(valid_files)
@@ -115,7 +116,7 @@ class IOActions:
             fallback_dir=self.app_root,
             prefer_parent_for_existing_dir=True,
         )
-        folder = filedialog.askdirectory(initialdir=initialdir)
+        folder = filedialog.askdirectory(parent=self.root, initialdir=initialdir)
         if folder:
             self.entry_output.delete(0, "end")
             self.entry_output.insert(0, folder)
@@ -132,15 +133,15 @@ class IOActions:
             if path.suffix.lower() in self._supported_image_extensions:
                 self._start_import_with_files([path], source_label=path.name)
                 return
-            messagebox.showwarning("Input Error", "Selected file type is not supported.")
+            messagebox.showwarning("Input Error", "Selected file type is not supported.", parent=self.root)
             return
         if not input_folder or not os.path.isdir(input_folder):
-            messagebox.showwarning("Input Error", "Please select a valid input image folder.")
+            messagebox.showwarning("Input Error", "Please select a valid input image folder.", parent=self.root)
             return
 
         image_files = self._collect_image_files_from_folder(input_folder)
         if not image_files:
-            messagebox.showwarning("Input Error", "No supported images found in selected folder.")
+            messagebox.showwarning("Input Error", "No supported images found in selected folder.", parent=self.root)
             return
 
         self._start_import_with_files(image_files, source_label=input_folder)
@@ -154,6 +155,7 @@ class IOActions:
             proceed = messagebox.askyesno(
                 "Replace Current Stack?",
                 "Importing a new stack will clear the current masks, points, and edits. Continue?",
+                parent=self.root,
             )
             if not proceed:
                 return
@@ -245,7 +247,7 @@ class IOActions:
             frames, frame_names = self._load_frames_and_names(image_files)
             self.frame_names = list(frame_names)
             if not frames:
-                self.root.after(0, lambda: messagebox.showwarning("Input Error", "No valid image frames found."))
+                self.root.after(0, lambda: messagebox.showwarning("Input Error", "No valid image frames found.", parent=self.root))
                 self.root.after(0, lambda: self._set_busy(False, "Status: Idle", "gray"))
                 return
 
