@@ -9,7 +9,10 @@ import time
 from typing import Callable, Optional
 
 import numpy as np
-import torch
+try:
+    import torch
+except Exception:
+    torch = None
 
 from sdapp.analysis.core.seg_state import SegmentationState
 
@@ -420,10 +423,11 @@ class InferenceManager:
 
             def cleanup():
                 gc.collect()
-                if torch.backends.mps.is_available():
-                    torch.mps.empty_cache()
-                elif torch.cuda.is_available():
-                    torch.cuda.empty_cache()
+                if torch is not None:
+                    if torch.backends.mps.is_available():
+                        torch.mps.empty_cache()
+                    elif torch.cuda.is_available():
+                        torch.cuda.empty_cache()
 
             cleanup()
             was_stopped = False

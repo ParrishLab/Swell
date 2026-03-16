@@ -65,6 +65,10 @@ sdapp/resources/models/
 *.ckpt
 *.safetensors
 *.onnx
+# Keep shared Python model-state package tracked (code only, not weights)
+!sdapp/shared/models/
+!sdapp/shared/models/__init__.py
+!sdapp/shared/models/state.py
 
 # Local shell/history
 .Rhistory

@@ -4,12 +4,18 @@ from types import MethodType
 
 import cv2
 import numpy as np
-import torch
 from tkinter import messagebox
+
+try:
+    import torch
+except Exception:
+    torch = None
 
 
 class SegmentationActions:
     def _apply_mps_sam2_dtype_guard(self):
+        if torch is None:
+            return
         if not torch.backends.mps.is_available() or self.predictor is None:
             return
         if getattr(self.predictor, "_ios_mps_dtype_guard_applied", False):
@@ -72,6 +78,15 @@ class SegmentationActions:
                 self.inference_manager.on_model_unloaded()
                 if self._ui_alive():
                     self.root.after(0, lambda: self._set_activity_message("SAM2 missing"))
+                return
+            if torch is None:
+                runtime = getattr(self, "sam2_runtime", None)
+                if runtime is not None:
+                    runtime.disable("torch package not found")
+                self.log_warn("Model", "Torch package not installed; model tools remain disabled.")
+                self.inference_manager.on_model_unloaded()
+                if self._ui_alive():
+                    self.root.after(0, lambda: self._set_activity_message("Torch missing"))
                 return
 
             if self.frames_sub_viz is None:
