@@ -16,7 +16,7 @@ All notable changes to this project are documented in this file.
 ### Known segmentation caveats/regressions
 - TBD
 
-## [0.1.0] - 2026-03-16
+## [0.1.1] - 2026-03-16
 
 ### Model/checkpoint compatibility
 - Added generated release compatibility manifest (`compatibility.json`) and checksum metadata contract for published assets.
