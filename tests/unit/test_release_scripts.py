@@ -51,8 +51,21 @@ def test_generate_checksums_script_writes_sha256sums(tmp_path: Path) -> None:
     shasum_available = bool(shutil.which("shasum") or shutil.which("sha256sum"))
     if not shasum_available:
         pytest.skip("No checksum tool available in environment.")
-    if not shutil.which("bash"):
+    bash_bin = shutil.which("bash")
+    if not bash_bin:
         pytest.skip("bash is not available in environment.")
+    # On GitHub Windows runners, `bash` may point to WSL and still fail when no distro is installed.
+    try:
+        probe = subprocess.run(
+            [bash_bin, "-lc", "echo ok"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except Exception:
+        pytest.skip("bash is not runnable in environment.")
+    if probe.returncode != 0:
+        pytest.skip("bash is present but not runnable in environment.")
 
     script = ROOT / "scripts" / "release" / "generate_checksums.sh"
     artifact_dir = tmp_path / "dist"
