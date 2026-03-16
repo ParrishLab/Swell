@@ -80,3 +80,61 @@ PR validation now includes four required jobs in `.github/workflows/release_phas
 - tag-triggered draft release automation,
 - Windows packaged binary build/release jobs,
 - macOS signing/notarization/stapling.
+
+## CI Phase 3 Draft Releases (Tag-Triggered)
+Draft release automation is defined in `.github/workflows/release_phase3_tag.yml`.
+
+### Trigger modes
+- Tag push: any tag matching `v*` (for example `v0.1.0`).
+- Manual backfill/rerun: `workflow_dispatch` with optional `release_tag` input (must start with `v`).
+
+### Phase 3 jobs and pass criteria
+- `linux-python-artifacts`:
+  - full test suite passes,
+  - startup smoke returns `SMOKE_TEST:PASS`,
+  - wheel + sdist build succeeds.
+- `macos-arm64-package`:
+  - startup smoke passes,
+  - `dist/macos-arm64/SDApp.app` exists,
+  - `dist/sdapp-macos-arm64.zip` exists.
+- `macos-x86_64-package`:
+  - startup smoke passes,
+  - `dist/macos-x86_64/SDApp.app` exists,
+  - `dist/sdapp-macos-x86_64.zip` exists.
+- `windows-runtime-gate`:
+  - full test suite passes,
+  - startup smoke returns `SMOKE_TEST:PASS`.
+- `release-assemble`:
+  - collects Linux/macOS artifacts,
+  - generates `dist/compatibility.json`,
+  - generates `dist/SHA256SUMS.txt`,
+  - verifies required release files are present.
+- `publish-draft`:
+  - creates/updates a GitHub draft release for the resolved tag,
+  - uploads all files in `dist/` as release assets.
+
+### Tag flow (example)
+1. Ensure `pyproject.toml` version is finalized for release.
+2. Create and push tag:
+   ```bash
+   git tag v0.1.0
+   git push origin v0.1.0
+   ```
+3. Wait for `release-phase3-tag` workflow to finish.
+4. Open GitHub Releases and validate draft contents.
+
+### Draft validation checklist
+- Draft release exists for the expected tag.
+- Assets attached:
+  - `sdapp-<version>.tar.gz`
+  - `sdapp-<version>-py3-none-any.whl`
+  - `sdapp-macos-arm64.zip`
+  - `sdapp-macos-x86_64.zip`
+  - `compatibility.json`
+  - `SHA256SUMS.txt`
+- `compatibility.json` reflects current `pyproject.toml` version and policy fields.
+- `SHA256SUMS.txt` includes all published artifacts.
+
+### Re-run behavior
+- Re-running the workflow for the same tag updates the existing draft release assets.
+- `workflow_dispatch` can be used to rebuild and republish a draft for an existing `v*` tag.
