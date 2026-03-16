@@ -16,7 +16,7 @@ def import_external_masks(app) -> None:
     frame_shape = app._get_frame_shape() if hasattr(app, "_get_frame_shape") else tuple(frames_raw[0].shape[:2])
 
     if frames_raw is None or frame_count <= 0:
-        messagebox.showwarning("No Data", "Import images first.")
+        messagebox.showwarning("No Images", "Import images first.")
         return
 
     mask_paths = app.mask_import_dialog.choose_paths(app.root)

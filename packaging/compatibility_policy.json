@@ -1,0 +1,21 @@
+{
+  "manifest_version": 1,
+  "sam2_reference": "facebookresearch/sam2 (git source install)",
+  "torch_range": ">=2.3,<3.0",
+  "supported_checkpoints": [],
+  "supported_platforms": [
+    {
+      "os": "macos",
+      "arch": "arm64"
+    },
+    {
+      "os": "macos",
+      "arch": "x86_64"
+    }
+  ],
+  "runtime_policy": {
+    "cpu_guaranteed": true,
+    "mps_best_effort": true,
+    "cuda_packaged": false
+  }
+}

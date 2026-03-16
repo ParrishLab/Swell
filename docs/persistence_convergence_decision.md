@@ -1,23 +1,29 @@
 # Persistence Convergence Decision
 
-## Selected Path (Phase 5)
+## Selected Path
 
-The project now locks **canonical host `.sdproj`** with multi-SD sets:
+The project now locks **canonical host `.sdproj`** with a single-stack runtime model:
 
 - Canonical owner: **host `.sdproj`**
-- Container model: **`sd_sets[]` in one project archive**
-- Analysis bridge: **set-scoped sidecar analysis payloads** keyed by `event_id` inside each `sd_set`
-- Legacy `.sdsession` and legacy single-SD `.sdproj` are accepted as read-only migration inputs
+- Container model: **one stack + many SD events**
+- Analysis bridge: per-event sidecar analysis payloads keyed by `event_id`
+- Save path always emits canonical host `.sdproj`
 
 ## Guardrails
 
 - Host project files persist explicit ownership metadata:
   - `persistence.owner = "host_sdproj"`
-  - `analysis_bridge_mode = "set_scoped_analysis_payload_v1"`
+  - `analysis_bridge_mode = "single_stack_analysis_payload_v1"`
 - Host rejects unknown persistence owner values when opening canonical host `.sdproj`.
-- Legacy `.sdsession` files are normalized to one default `sd_set` during import.
 
-## Migration Note
+## Canonical Layout
 
-Legacy formats are migrated in-memory and then saved as canonical multi-SD `.sdproj`.
-Current sidecar storage remains opaque to keep the bridge transport-agnostic.
+- `manifest.json`
+- `stack.json`
+- `events.json`
+- `analysis_sidecar.json`
+- `events/<event_id>/prompts.json`
+- `events/<event_id>/masks.npz`
+- `events/<event_id>/masks_draft.npz` (optional)
+- `events/<event_id>/roi_mask.npz` (optional)
+- `global/roi_mask.npz` (optional project-global metrics default ROI)

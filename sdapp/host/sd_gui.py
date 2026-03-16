@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections import OrderedDict
 import gc
+import sys
 import threading
 from datetime import datetime
 from pathlib import Path
@@ -11,57 +12,48 @@ from tkinter import filedialog, messagebox, ttk
 
 import numpy as np
 from PIL import Image, ImageTk
-from scipy.ndimage import gaussian_filter
 import tifffile
 
-from sdapp.analysis.core.metrics import compute_scale
-from sdapp.analysis.ui.roi_dialog import open_roi_dialog
-from sdapp.analysis.ui.scale_dialog import open_scale_dialog
-try:
-    from .browser_controller import BrowserController
-    from .config import APP_TITLE, DEFAULT_BASELINE_PRE_FRAMES, TraceResult
-    from .exporter import export_analysis
-    from .mark_popup_controller import MarkPopupController
-    from .processing_engine import PopupProcessRequest, PopupProcessResult, PopupProcessingEngine
-    from .stack_reader import StackReader
-    from .ui_logic import (
-        adjust_baseline_end_for_start,
-        clamp_popup_range,
-        linear_value_to_x,
-        linear_x_to_value,
-        normalize_overlay_bounds,
-    )
-except ImportError:
-    from browser_controller import BrowserController
-    from config import APP_TITLE, DEFAULT_BASELINE_PRE_FRAMES, TraceResult
-    from exporter import export_analysis
-    from mark_popup_controller import MarkPopupController
-    from processing_engine import PopupProcessRequest, PopupProcessResult, PopupProcessingEngine
-    from stack_reader import StackReader
-    from ui_logic import (
-        adjust_baseline_end_for_start,
-        clamp_popup_range,
-        linear_value_to_x,
-        linear_x_to_value,
-        normalize_overlay_bounds,
-    )
+from .browser_controller import BrowserController
+from .config import APP_TITLE, DEFAULT_BASELINE_PRE_FRAMES, TraceResult
+from .controllers import AnalysisLaunchController, HostProjectLifecycleController, HostWindowController
+from .mark_popup_controller import MarkPopupController
+from .processing_engine import PopupProcessRequest, PopupProcessResult, PopupProcessingEngine
+from .stack_reader import StackReader
+from .ui_logic import (
+    adjust_baseline_end_for_start,
+    clamp_popup_range,
+    linear_value_to_x,
+    linear_x_to_value,
+    normalize_overlay_bounds,
+)
 
-from sdapp.shared.services import AnalysisWindowManager
+from sdapp.shared.services import AnalysisWindowManager, SingleInstanceBridge
 from sdapp.shared.menu.factory import build_shared_menu
 
 
 class SDAnalyzerApp:
-    def __init__(self, root: tk.Tk):
+    def __init__(
+        self,
+        root: tk.Tk,
+        *,
+        initial_project_path: str | None = None,
+        instance_bridge: SingleInstanceBridge | None = None,
+    ):
         self.root = root
         self.root.title(APP_TITLE)
         self.root.geometry("1400x900")
         self._app_icon_image: ImageTk.PhotoImage | None = None
         self._apply_runtime_icon()
+        self._instance_bridge = instance_bridge
 
         self.reader: StackReader | None = None
         self.stack_info = None
         self.trace: TraceResult | None = None
         self.browser_controller = BrowserController()
+        self.window_controller = HostWindowController(self)
+        self.project_controller = HostProjectLifecycleController(self)
+        self.analysis_launch_controller = AnalysisLaunchController(self)
         self.current_event_id: str | None = None
         self.current_frame_idx = 0
         self.current_project_path: str | None = None
@@ -142,6 +134,10 @@ class SDAnalyzerApp:
         self._build_ui()
         self._build_menu()
         self.root.protocol("WM_DELETE_WINDOW", self._on_root_close)
+        self._register_platform_open_handlers()
+        self._start_instance_listener()
+        if initial_project_path:
+            self.root.after(0, lambda p=str(initial_project_path): self.open_project_request(p))
         self._schedule_periodic_cache_gc()
 
     def _resource_root(self) -> Path:
@@ -236,10 +232,10 @@ class SDAnalyzerApp:
         ttk.Button(action_frame, text="Delete Selected", command=self._delete_selected_events).grid(
             row=0, column=1, sticky="ew", padx=2, pady=2
         )
-        ttk.Button(action_frame, text="Analyze SD", command=self._analyze_selected_event).grid(
+        ttk.Button(action_frame, text="Open Analysis...", command=self._analyze_selected_event).grid(
             row=1, column=0, columnspan=2, sticky="ew", padx=2, pady=(6, 2)
         )
-        ttk.Button(action_frame, text="Generate Metrics", command=self._open_generate_metrics_popup).grid(
+        ttk.Button(action_frame, text="Metrics Defaults...", command=self._open_generate_metrics_popup).grid(
             row=2, column=0, columnspan=2, sticky="ew", padx=2, pady=2
         )
         ttk.Button(action_frame, text="Export Selected", command=self._export_selected).grid(
@@ -267,23 +263,31 @@ class SDAnalyzerApp:
     def _build_menu(self) -> None:
         build_shared_menu(self.root, self, mode="host", host_mode=False)
 
-    def _browse_input(self) -> None:
-        self._log_info("Input browse clicked.")
-        folder = filedialog.askdirectory()
-        if folder:
-            self.input_var.set(folder)
-            self._log_info(f"Input folder selected: {folder}")
-        else:
-            self._log_info("Input browse canceled.")
+    def _register_platform_open_handlers(self) -> None:
+        if sys.platform != "darwin":
+            return
+        try:
+            self.root.createcommand("::tk::mac::OpenDocument", self._on_mac_open_document)
+        except Exception:
+            return
 
-    def _browse_output(self) -> None:
-        self._log_info("Output browse clicked.")
-        folder = filedialog.askdirectory()
-        if folder:
-            self.output_var.set(folder)
-            self._log_info(f"Output folder selected: {folder}")
-        else:
-            self._log_info("Output browse canceled.")
+    def _on_mac_open_document(self, *paths: str) -> None:
+        for path in paths:
+            candidate = str(path or "").strip()
+            if candidate:
+                self.open_project_request(candidate)
+
+    def _start_instance_listener(self) -> None:
+        bridge = self._instance_bridge
+        if bridge is None:
+            return
+
+        def _on_open_path(path: str) -> None:
+            self.root.after(0, lambda p=str(path): self.open_project_request(p))
+
+        started = bridge.start_listener(_on_open_path)
+        if not started:
+            self._log_warn("Single-instance listener unavailable; external .sdproj forwarding is disabled.")
 
     def _set_status(self, text: str) -> None:
         self.status_var.set(text)
@@ -408,295 +412,55 @@ class SDAnalyzerApp:
         return self.browser_controller.save_session(path)
 
     def _new_project(self) -> None:
-        if not self.prepare_context_switch():
-            return
-        self.browser_controller.reset_project()
-        self.current_project_path = None
-        self.browser_controller.session.set_project_path(None)
-        self.reader = None
-        self.stack_info = None
-        self.trace = None
-        self.current_frame_idx = 0
-        self.current_event_id = None
-        self._main_render_cache.clear()
-        self._mini_raw_u8_cache.clear()
-        self._mark_processed_cache.clear()
-        self.preview_scale.configure(from_=0, to=1)
-        self.preview_scale.set(0)
-        self.preview_label.configure(image="")
-        self.preview_label_info.set("Frame: -")
-        self._sync_event_projections()
-        self._set_status("New project created.")
-        self._log_info("Project reset.")
+        self._get_project_controller().new_project()
 
     def _save_project(self) -> None:
-        if self.stack_info is None:
-            self._show_warning("Save Project", "Load a stack before saving.")
-            return
-        target = self.current_project_path
-        if target is None:
-            self._save_project_as()
-            return
-        self._set_status("Saving project...")
-
-        def worker() -> None:
-            try:
-                state = self.save_host_session(target)
-            except Exception as exc:
-                self.root.after(0, lambda: self._show_warning("Save Project", str(exc)))
-                self.root.after(0, lambda: self._set_status("Save failed."))
-                return
-
-            def on_done() -> None:
-                self.current_project_path = state.project_path
-                self.browser_controller.session.set_project_path(self.current_project_path)
-                self._set_status(f"Saved project: {Path(self.current_project_path).name}")
-                self._log_info(f"Saved project to {self.current_project_path}.")
-
-            self.root.after(0, on_done)
-
-        threading.Thread(target=worker, daemon=True).start()
+        self._get_project_controller().save_project()
 
     def _save_project_as(self) -> None:
-        if self.stack_info is None:
-            self._show_warning("Save Project", "Load a stack before saving.")
-            return
-        initial_dir = None
-        initial_name = "session.sdproj"
-        if self.current_project_path:
-            current = Path(self.current_project_path)
-            initial_dir = str(current.parent)
-            initial_name = current.name
-        else:
-            initial_dir = self.output_var.get().strip() or str(Path.cwd())
-        path = filedialog.asksaveasfilename(
-            parent=self.root,
-            title="Save SD Project",
-            defaultextension=".sdproj",
-            filetypes=[("SD Project", "*.sdproj"), ("All files", "*.*")],
-            initialdir=initial_dir,
-            initialfile=initial_name,
-        )
-        if not path:
-            return
-        self._set_status("Saving project...")
-
-        def worker() -> None:
-            try:
-                state = self.save_host_session(path)
-            except Exception as exc:
-                self.root.after(0, lambda: self._show_warning("Save Project", str(exc)))
-                self.root.after(0, lambda: self._set_status("Save failed."))
-                return
-
-            def on_done() -> None:
-                self.current_project_path = state.project_path
-                self.browser_controller.session.set_project_path(self.current_project_path)
-                self._set_status(f"Saved project: {Path(self.current_project_path).name}")
-                self._log_info(f"Saved project as {self.current_project_path}.")
-
-            self.root.after(0, on_done)
-
-        threading.Thread(target=worker, daemon=True).start()
+        self._get_project_controller().save_project_as()
 
     def _open_project_dialog(self) -> None:
-        path = filedialog.askopenfilename(
-            title="Open SD Project",
-            filetypes=[
-                ("SD Project", "*.sdproj"),
-                ("All files", "*.*"),
-            ],
-        )
-        if not path:
-            return
-        self._open_project(path)
+        self._get_project_controller().open_project_dialog()
 
     def _open_project(self, path: str) -> None:
-        if not self.prepare_context_switch():
-            return
-        self._set_status("Opening project...")
+        self._get_project_controller().open_project(path)
 
-        def worker() -> None:
-            try:
-                state = self.browser_controller.open_session(path)
-                stack_info = None
-                reader = None
-                warning = None
-                stack_ref = state.stack_ref
-                if stack_ref is not None and str(stack_ref.input_dir or ""):
-                    input_dir = str(stack_ref.input_dir)
-                    if Path(input_dir).exists():
-                        reader = StackReader()
-                        stack_info = reader.open_stack(input_dir)
-                    else:
-                        warning = f"Stack folder is missing and was not rebound:\n\n{input_dir}"
-
-                def on_done() -> None:
-                    self.current_project_path = state.project_path
-                    self.browser_controller.session.set_project_path(self.current_project_path)
-                    if reader is not None and stack_info is not None:
-                        self.reader = reader
-                        self.stack_info = stack_info
-                        self.browser_controller.bind_frame_source(reader)
-                        self._popup_engine.set_reader(reader)
-                        self.preview_scale.configure(from_=0, to=max(0, int(stack_info.frame_count) - 1))
-                        frame_idx = 0
-                        active_event = self.browser_controller.selected_event()
-                        if active_event is not None:
-                            frame_idx = int(active_event.start_idx)
-                        self.preview_scale.set(frame_idx)
-                        self._update_preview(frame_idx)
-                    self._sync_event_projections()
-                    if warning:
-                        self._show_warning("Open Project", warning)
-                    self._set_status(f"Opened project: {Path(path).name}")
-                    self._log_info(f"Opened project from {path}.")
-
-                self.root.after(0, on_done)
-            except Exception as exc:
-                self.root.after(0, lambda: self._set_status("Open failed."))
-                self.root.after(0, lambda: self._log_error(f"Open project failed: {exc}"))
-                self.root.after(0, lambda: self._show_warning("Open Project", str(exc)))
-
-        threading.Thread(target=worker, daemon=True).start()
+    def open_project_request(self, path: str) -> bool:
+        return self._get_project_controller().open_project_request(path)
 
     def get_analysis_handoff_payload(self) -> dict | None:
         return self.browser_controller.handoff.selected_event_payload()
 
     def _on_analysis_sync(self, payload: dict) -> None:
-        result = self.browser_controller.apply_analysis_sync(payload)
-        if bool(result.get("ok")):
-            event_id = result["normalized"]["event_id"]
-            self._log_info(f"Analysis sync accepted for event {event_id}.")
-            self._set_status(f"Analysis sync saved: {event_id}")
-            return
-        code = result.get("code", "PAYLOAD_INVALID")
-        message = result.get("message", "Unknown sync validation error.")
-        self._log_warn(f"Analysis sync rejected [{code}]: {message}")
-        self._set_status(f"Analysis sync rejected: {code}")
+        self._get_project_controller().on_analysis_sync(payload)
 
     def _on_analysis_state_update(self, payload: dict) -> dict:
-        result = self.browser_controller.apply_direct_analysis_update(payload)
-        event_id = str(result.get("event_id", payload.get("event_id", "")))
-        if bool(result.get("ok")):
-            self._log_info(f"Analysis state updated for event {event_id}.")
-            self._set_status(f"Analysis state saved: {event_id}")
-            return result
-        code = str(result.get("code", "PAYLOAD_INVALID"))
-        message = str(result.get("message", "Unknown analysis update error."))
-        self._log_warn(f"Analysis update rejected [{code}]: {message}")
-        self._set_status(f"Analysis update rejected: {code}")
-        return result
+        return self._get_project_controller().on_analysis_state_update(payload)
 
     def _on_analysis_metrics_update(self, payload: dict) -> dict:
-        event_id = str(dict(payload or {}).get("event_id", "")).strip()
-        if not event_id:
-            return {
-                "ok": False,
-                "code": "PAYLOAD_INVALID",
-                "message": "Missing event_id in metrics update payload.",
-            }
-        event = self.browser_controller.get_event(event_id)
-        if event is None:
-            return {
-                "ok": False,
-                "code": "EVENT_NOT_FOUND",
-                "message": f"event_id not found in host event catalog: {event_id}",
-            }
-        metrics_settings = dict(payload or {}).get("metrics_settings")
-        changed = self.browser_controller.upsert_event_metrics_settings(
-            event_id,
-            dict(metrics_settings or {}),
-            merge_missing_only=False,
-        )
-        if changed:
-            self._set_status(f"Metrics settings updated: {event_id}")
-            self._log_info(f"Updated local metrics settings for event {event_id}.")
-        return {"ok": True, "event_id": event_id, "changed": bool(changed)}
+        return self._get_project_controller().on_analysis_metrics_update(payload)
 
     def _on_analysis_sync_result(self, result: dict) -> None:
-        if not isinstance(result, dict):
-            return
-        if bool(result.get("ok")):
-            return
-        code = str(result.get("code", "PAYLOAD_INVALID"))
-        message = str(result.get("message", "Host rejected sync update."))
-        self._log_warn(f"Analysis window reported host rejection [{code}]: {message}")
+        self._get_project_controller().on_analysis_sync_result(result)
 
     def _on_analysis_log_message(self, level: str, context: str, message: str) -> None:
-        lvl = str(level or "INFO").upper()
-        ctx = str(context or "Analysis")
-        text = f"[Analysis:{ctx}] {str(message or '')}".strip()
-        if lvl in {"ERROR"}:
-            self._log_error(text)
-            return
-        if lvl in {"WARN"}:
-            self._log_warn(text)
-            return
-        self._log_info(text)
+        self._get_project_controller().on_analysis_log_message(level, context, message)
 
     def _on_analysis_project_saved(self, project_path: str) -> None:
-        try:
-            resolved = str(Path(project_path).expanduser().resolve())
-        except Exception:
-            resolved = str(project_path)
-        self.current_project_path = resolved
-        self.browser_controller.session.set_project_path(resolved)
-        self._set_status(f"Project path updated from analysis: {Path(resolved).name}")
-        self._log_info(f"Analysis set host project save target to {resolved}.")
+        self._get_project_controller().on_analysis_project_saved(project_path)
 
     def _save_project_from_analysis(self, project_path: str) -> dict:
-        state = self.save_host_session(project_path)
-        resolved = str(Path(state.project_path).expanduser().resolve())
-        self.current_project_path = resolved
-        self.browser_controller.session.set_project_path(resolved)
-        self._set_status(f"Saved project from analysis: {Path(resolved).name}")
-        self._log_info(f"Host canonical save completed from analysis window: {resolved}.")
-        return {
-            "ok": True,
-            "project_path": resolved,
-        }
+        return self._get_project_controller().save_project_from_analysis(project_path)
 
     def close_analysis_windows_with_prompt(self) -> dict:
-        refs = list(self.analysis_window_manager.list_windows())
-        if not refs:
-            self._analysis_windows.clear()
-            return {"ok": True}
-        dirty_refs = [ref for ref in refs if bool(getattr(ref.app, "project_dirty", False))]
-        if dirty_refs:
-            count = len(dirty_refs)
-            response = messagebox.askyesnocancel(
-                "Open Analysis Windows",
-                (
-                    f"{count} analysis window(s) have unsaved changes.\n\n"
-                    "Yes = Save and continue\n"
-                    "No = Continue without saving\n"
-                    "Cancel = Abort"
-                ),
-            )
-            if response is None:
-                return {"ok": False, "reason": "cancelled"}
-            if response is True:
-                for ref in dirty_refs:
-                    try:
-                        ref.app.save_project()
-                    except Exception as exc:
-                        self._show_warning("Context Switch", f"Failed to save analysis window before switching:\n{exc}")
-                        return {"ok": False, "reason": "save_failed"}
-                    if bool(getattr(ref.app, "project_dirty", False)):
-                        return {"ok": False, "reason": "save_cancelled"}
-        self.analysis_window_manager.close_all()
-        self._analysis_windows.clear()
-        return {"ok": True}
+        return self._get_project_controller().close_analysis_windows_with_prompt()
 
     def prepare_context_switch(self) -> bool:
-        result = self.close_analysis_windows_with_prompt()
-        return bool(result.get("ok"))
+        return self._get_project_controller().prepare_context_switch()
 
     def _load_analysis_app_class(self):
-        from sdapp.analysis.app import SDSegmentationApp
-
-        return SDSegmentationApp
+        return self._get_analysis_launch_controller().load_analysis_app_class()
 
     @staticmethod
     def _preview_to_u8(frame: np.ndarray) -> np.ndarray:
@@ -879,182 +643,10 @@ class SDAnalyzerApp:
 
     @staticmethod
     def _center_window_on_screen(window) -> None:
-        try:
-            window.update_idletasks()
-            width = int(window.winfo_width())
-            height = int(window.winfo_height())
-            if width <= 1:
-                width = int(window.winfo_reqwidth())
-            if height <= 1:
-                height = int(window.winfo_reqheight())
-            width = max(1, width)
-            height = max(1, height)
-            x = max(0, int((int(window.winfo_screenwidth()) - width) / 2))
-            y = max(0, int((int(window.winfo_screenheight()) - height) / 2))
-            window.geometry(f"{width}x{height}+{x}+{y}")
-        except Exception:
-            return
+        HostWindowController.center_window_on_screen(window)
 
     def _open_generate_metrics_popup(self) -> None:
-        if self.reader is None or self.stack_info is None:
-            self._show_warning("Generate Metrics", "Load a stack first.")
-            return
-
-        defaults = dict(self.browser_controller.get_global_metrics_defaults() or {})
-        fps_initial = defaults.get("frames_per_sec", 1.0)
-        try:
-            fps_initial = float(fps_initial)
-            if fps_initial <= 0:
-                fps_initial = 1.0
-        except (TypeError, ValueError):
-            fps_initial = 1.0
-
-        scale_value = defaults.get("scale_px_per_mm")
-        try:
-            scale_value = float(scale_value) if scale_value is not None else None
-            if scale_value is not None and scale_value <= 0:
-                scale_value = None
-        except (TypeError, ValueError):
-            scale_value = None
-        roi_points = list(defaults.get("roi_points", [])) if isinstance(defaults.get("roi_points"), list) else []
-        roi_mask = defaults.get("roi_mask")
-        if roi_mask is not None:
-            try:
-                roi_mask = np.asarray(roi_mask, dtype=bool).copy()
-                if roi_mask.ndim != 2:
-                    roi_mask = None
-            except Exception:
-                roi_mask = None
-
-        dialog = tk.Toplevel(self.root)
-        dialog.title("Generate Metrics Defaults")
-        dialog.transient(self.root)
-        dialog.grab_set()
-        dialog.resizable(False, False)
-
-        shell = ttk.Frame(dialog, padding=12)
-        shell.pack(fill="both", expand=True)
-        ttk.Label(
-            shell,
-            text="Configure global Frames/Sec, Scale, and ROI defaults for this project.",
-        ).pack(anchor="w")
-
-        fps_row = ttk.Frame(shell)
-        fps_row.pack(fill="x", pady=(10, 6))
-        ttk.Label(fps_row, text="Frames/Sec").pack(side="left")
-        fps_var = tk.StringVar(value=f"{fps_initial:.6g}")
-        fps_entry = ttk.Entry(fps_row, textvariable=fps_var, width=10)
-        fps_entry.pack(side="left", padx=(8, 0))
-
-        scale_status_var = tk.StringVar()
-        roi_status_var = tk.StringVar()
-
-        def _refresh_labels() -> None:
-            if scale_value is None:
-                scale_status_var.set("Scale: Not set")
-            else:
-                scale_status_var.set(f"Scale: {float(scale_value):.6g} px/mm")
-            if roi_mask is not None:
-                roi_status_var.set(f"ROI: {len(roi_points)} points ({int(np.count_nonzero(roi_mask))} px)")
-            elif roi_points:
-                roi_status_var.set(f"ROI: {len(roi_points)} points")
-            else:
-                roi_status_var.set("ROI: Not set")
-
-        controls = ttk.Frame(shell)
-        controls.pack(fill="x", pady=(6, 6))
-
-        def _set_scale() -> None:
-            nonlocal scale_value
-            img_u8 = self._pick_metrics_reference_image_u8(parent=dialog, purpose="Scale")
-            if img_u8 is None:
-                return
-            result = open_scale_dialog(
-                root=dialog,
-                img_u8=img_u8,
-                snap_scale_points_axis=self._snap_scale_points_axis,
-                refine_scale_bar_points=self._refine_scale_bar_points,
-                compute_scale=compute_scale,
-            )
-            if not isinstance(result, dict):
-                return
-            try:
-                scale_value = float(result.get("px_per_mm"))
-                if scale_value <= 0:
-                    scale_value = None
-            except (TypeError, ValueError):
-                scale_value = None
-            _refresh_labels()
-
-        def _set_roi() -> None:
-            nonlocal roi_points, roi_mask
-            img_u8 = self._pick_metrics_reference_image_u8(parent=dialog, purpose="ROI")
-            if img_u8 is None:
-                return
-            result = open_roi_dialog(
-                root=dialog,
-                img_u8=img_u8,
-                initial_roi_points=list(roi_points),
-            )
-            if not isinstance(result, dict):
-                return
-            roi_points = list(result.get("roi_points", []))
-            raw_mask = result.get("roi_mask")
-            if raw_mask is None:
-                roi_mask = None
-            else:
-                try:
-                    roi_mask = np.asarray(raw_mask, dtype=bool).copy()
-                    if roi_mask.ndim != 2:
-                        roi_mask = None
-                except Exception:
-                    roi_mask = None
-            _refresh_labels()
-
-        ttk.Button(controls, text="Set Scale", command=_set_scale).pack(side="left")
-        ttk.Button(controls, text="Draw ROI", command=_set_roi).pack(side="left", padx=(8, 0))
-
-        ttk.Label(shell, textvariable=scale_status_var).pack(anchor="w", pady=(2, 2))
-        ttk.Label(shell, textvariable=roi_status_var).pack(anchor="w", pady=(0, 8))
-        _refresh_labels()
-
-        actions = ttk.Frame(shell)
-        actions.pack(fill="x")
-
-        def _cancel() -> None:
-            dialog.destroy()
-
-        def _apply() -> None:
-            try:
-                frames_per_sec = float(str(fps_var.get()).strip())
-                if frames_per_sec <= 0:
-                    raise ValueError("Frames/Sec must be greater than zero.")
-            except (TypeError, ValueError):
-                self._show_warning("Generate Metrics", "Frames/Sec must be a positive number.")
-                return
-
-            payload: dict[str, object] = {"frames_per_sec": float(frames_per_sec)}
-            if scale_value is not None:
-                payload["scale_px_per_mm"] = float(scale_value)
-            if roi_points:
-                payload["roi_points"] = [[float(pt[0]), float(pt[1])] for pt in roi_points]
-            if roi_mask is not None:
-                payload["roi_mask"] = np.asarray(roi_mask, dtype=bool).copy()
-
-            self.browser_controller.set_global_metrics_defaults(payload)
-            materialized = self.browser_controller.materialize_metrics_defaults_to_events()
-            self._set_status("Global metrics defaults updated.")
-            self._log_info(
-                "Updated global metrics defaults and applied missing values to "
-                f"{materialized} event(s)."
-            )
-            dialog.destroy()
-
-        ttk.Button(actions, text="Cancel", command=_cancel).pack(side="right")
-        ttk.Button(actions, text="Apply", command=_apply).pack(side="right", padx=(0, 8))
-
-        self._center_window_on_screen(dialog)
-        dialog.wait_window()
+        self._get_window_controller().open_generate_metrics_popup()
 
     def _compute_analysis_preview_frame(
         self,
@@ -1065,340 +657,41 @@ class SDAnalyzerApp:
         apply_baseline_subtraction: bool,
         apply_global_normalization: bool,
     ) -> np.ndarray:
-        if self.reader is None:
-            return np.zeros((64, 64), dtype=np.uint8)
-        frame_idx = max(0, int(event_start))
-        raw = np.asarray(self.reader.read_frame(frame_idx), dtype=np.float32)
-        if raw.ndim == 3 and raw.shape[2] in (3, 4):
-            raw = raw[:, :, :3].mean(axis=2)
-        target = gaussian_filter(raw, sigma=0.5) if bool(apply_smoothing) else raw
-
-        source_stack = [target]
-        working = target
-        if bool(apply_baseline_subtraction):
-            bcount = max(1, int(baseline_pre_frames))
-            bstart = max(0, frame_idx - bcount)
-            bindices = list(range(bstart, frame_idx))
-            if not bindices:
-                bindices = [frame_idx]
-            baseline_parts: list[np.ndarray] = []
-            for idx in bindices:
-                src = np.asarray(self.reader.read_frame(int(idx)), dtype=np.float32)
-                if src.ndim == 3 and src.shape[2] in (3, 4):
-                    src = src[:, :, :3].mean(axis=2)
-                baseline_parts.append(gaussian_filter(src, sigma=0.5) if bool(apply_smoothing) else src)
-            baseline = np.median(np.stack(baseline_parts, axis=0), axis=0).astype(np.float32, copy=False)
-            working = target - baseline
-            source_stack = [(part - baseline).astype(np.float32, copy=False) for part in baseline_parts]
-            source_stack.append(working)
-
-        if bool(apply_global_normalization):
-            sampled = np.stack(source_stack, axis=0)
-            p1 = float(np.percentile(sampled, 1))
-            p99 = float(np.percentile(sampled, 99))
-            denom = p99 - p1
-            if denom <= 0:
-                denom = 1e-8
-            clipped = np.clip(working, p1, p99)
-            return np.clip(((clipped - p1) / denom) * 255.0, 0.0, 255.0).astype(np.uint8)
-        return self._preview_to_u8(working)
+        return self._get_analysis_launch_controller().compute_analysis_preview_frame(
+            event_start=event_start,
+            baseline_pre_frames=baseline_pre_frames,
+            apply_smoothing=apply_smoothing,
+            apply_baseline_subtraction=apply_baseline_subtraction,
+            apply_global_normalization=apply_global_normalization,
+        )
 
     def _prompt_analysis_open_options(self, *, event_id: str, event_start: int, event_end: int) -> dict[str, object] | None:
-        dialog = tk.Toplevel(self.root)
-        dialog.title(f"Analyze SD Options - {event_id}")
-        dialog.transient(self.root)
-        dialog.resizable(False, False)
-        dialog.grab_set()
-
-        shell = ttk.Frame(dialog, padding=10)
-        shell.pack(fill="both", expand=True)
-
-        ttk.Label(shell, text=f"Event range: {event_start + 1} - {event_end + 1}").pack(anchor="w")
-
-        baseline_row = ttk.Frame(shell)
-        baseline_row.pack(fill="x", pady=(8, 6))
-        ttk.Label(baseline_row, text="Baseline Frames:").pack(side="left")
-        baseline_var = tk.StringVar(value=str(max(1, int(self.baseline_pre_frames))))
-        baseline_spin = tk.Spinbox(baseline_row, from_=1, to=500, width=6, textvariable=baseline_var)
-        baseline_spin.pack(side="left", padx=(8, 0))
-
-        checks = ttk.LabelFrame(shell, text="Processing")
-        checks.pack(fill="x", pady=(0, 8))
-        smoothing_var = tk.BooleanVar(value=True)
-        subtract_var = tk.BooleanVar(value=True)
-        normalize_var = tk.BooleanVar(value=True)
-        ttk.Checkbutton(checks, text="Smoothing", variable=smoothing_var).pack(anchor="w", padx=6, pady=(4, 2))
-        ttk.Checkbutton(checks, text="Baseline Subtraction", variable=subtract_var).pack(anchor="w", padx=6, pady=2)
-        ttk.Checkbutton(checks, text="Global Normalization", variable=normalize_var).pack(anchor="w", padx=6, pady=(2, 4))
-
-        preview_frame = ttk.LabelFrame(shell, text="Preview (event start frame)")
-        preview_frame.pack(fill="both", expand=True)
-        preview_label = ttk.Label(preview_frame, anchor="center")
-        preview_label.pack(fill="both", expand=True, padx=6, pady=6)
-
-        footer = ttk.Frame(shell)
-        footer.pack(fill="x", pady=(8, 0))
-        status_var = tk.StringVar(value="Adjust settings to preview analysis rendering.")
-        ttk.Label(footer, textvariable=status_var).pack(side="left")
-
-        result: dict[str, object] = {"ok": False}
-
-        def _read_baseline() -> int:
-            try:
-                return max(1, int(float(str(baseline_var.get()).strip() or "1")))
-            except Exception:
-                return max(1, int(self.baseline_pre_frames))
-
-        def _refresh_preview() -> None:
-            try:
-                frame_u8 = self._compute_analysis_preview_frame(
-                    event_start=int(event_start),
-                    baseline_pre_frames=_read_baseline(),
-                    apply_smoothing=bool(smoothing_var.get()),
-                    apply_baseline_subtraction=bool(subtract_var.get()),
-                    apply_global_normalization=bool(normalize_var.get()),
-                )
-                img = Image.fromarray(frame_u8)
-                max_w, max_h = 440, 240
-                w, h = img.size
-                if w > 0 and h > 0:
-                    scale = min(max_w / float(w), max_h / float(h))
-                    nw = max(1, int(round(w * scale)))
-                    nh = max(1, int(round(h * scale)))
-                    resample = getattr(getattr(Image, "Resampling", Image), "NEAREST", Image.NEAREST)
-                    img = img.resize((nw, nh), resample)
-                tk_img = ImageTk.PhotoImage(img)
-                self._analysis_options_preview_image = tk_img
-                preview_label.configure(image=tk_img)
-                status_var.set("Preview updated.")
-            except Exception as exc:
-                status_var.set(f"Preview unavailable: {exc}")
-
-        for var in (smoothing_var, subtract_var, normalize_var):
-            var.trace_add("write", lambda *_args: _refresh_preview())
-        for evt in ("<KeyRelease>", "<FocusOut>", "<<Increment>>", "<<Decrement>>", "<MouseWheel>", "<ButtonRelease-1>"):
-            baseline_spin.bind(evt, lambda _e: _refresh_preview())
-
-        buttons = ttk.Frame(shell)
-        buttons.pack(fill="x", pady=(8, 0))
-
-        def _cancel() -> None:
-            dialog.destroy()
-
-        def _open() -> None:
-            baseline_count = _read_baseline()
-            result.update(
-                {
-                    "ok": True,
-                    "baseline_pre_frames": int(baseline_count),
-                    "processing": {
-                        "smoothing": bool(smoothing_var.get()),
-                        "baseline_subtraction": bool(subtract_var.get()),
-                        "global_normalization": bool(normalize_var.get()),
-                    },
-                }
-            )
-            dialog.destroy()
-
-        ttk.Button(buttons, text="Cancel", command=_cancel).pack(side="right")
-        ttk.Button(buttons, text="Open Analysis", command=_open).pack(side="right", padx=(0, 8))
-
-        _refresh_preview()
-        self._center_window_on_screen(dialog)
-        self.root.wait_window(dialog)
-        return result if bool(result.get("ok")) else None
-
-    def _analyze_selected_event(self) -> None:
-        if self.reader is None or self.stack_info is None:
-            self._show_warning("Analyze SD", "Load a stack first.")
-            return
-        active_event_id = self._active_event_id()
-        if active_event_id is None:
-            self._show_warning("Analyze SD", "Select an event first.")
-            return
-
-        window_scope = "__project__"
-        if self.analysis_window_manager.focus_event_window(window_scope, active_event_id):
-            self._set_status(f"Focused analysis workspace for {active_event_id}.")
-            return
-
-        frame_source = self.browser_controller.get_frame_source()
-        if frame_source is None:
-            self._show_warning("Analyze SD", "No host frame source is available for analysis.")
-            return
-
-        try:
-            context = self.browser_controller.host_context_for_event(active_event_id)
-        except Exception as exc:
-            self._show_warning("Analyze SD", f"Unable to prepare host context:\n{exc}")
-            return
-
-        event_payload = dict(context.get("event", {}))
-        flags = dict(event_payload.get("flags", {}))
-        event_start = int(event_payload.get("start_idx", 0))
-        event_end = int(event_payload.get("end_idx", event_start))
-        options = self._prompt_analysis_open_options(
-            event_id=str(active_event_id),
+        return self._get_analysis_launch_controller().prompt_analysis_open_options(
+            event_id=event_id,
             event_start=event_start,
             event_end=event_end,
         )
-        if options is None:
-            self._log_info("Analyze SD canceled from options dialog.")
-            return
-        baseline_pre = int(max(1, int(options.get("baseline_pre_frames", self.baseline_pre_frames))))
-        self.baseline_pre_frames = baseline_pre
-        scope_start = max(0, event_start - baseline_pre)
-        scope_end = max(scope_start, event_end)
-        flags["baseline_pre_frames"] = baseline_pre
-        flags["analysis_processing"] = dict(options.get("processing", {}))
-        flags["analysis_scope_start_idx"] = scope_start
-        flags["analysis_scope_end_idx"] = scope_end
-        flags["analysis_local_event_start_idx"] = event_start - scope_start
-        flags["analysis_local_event_end_idx"] = event_end - scope_start
-        event_payload["flags"] = flags
-        context["event"] = event_payload
-        try:
-            AppClass = self._load_analysis_app_class()
-            win = tk.Toplevel(self.root)
-            win.withdraw()
-            win.title(f"Analyze SD - {active_event_id}")
 
-            app = AppClass(win, menu_builder=build_shared_menu, menu_mode="analysis", host_mode=True)
-            open_result = app.open_from_host_context(
-                context,
-                frame_source=frame_source,
-                on_analysis_update=self._on_analysis_state_update,
-                on_project_saved=self._on_analysis_project_saved,
-                on_sync_result=self._on_analysis_sync_result,
-                on_log_message=self._on_analysis_log_message,
-                on_host_project_save=self._save_project_from_analysis,
-                on_host_project_path=lambda: self.current_project_path,
-                on_metrics_update=self._on_analysis_metrics_update,
-                sync_emitter=None,
-            )
-            if not bool(open_result.get("ok")):
-                code = str(open_result.get("code", "PAYLOAD_INVALID"))
-                message = str(open_result.get("message", "Unknown open error."))
-                win.destroy()
-                self._show_warning("Analyze SD", f"Open failed ({code}).\n{message}")
-                return
-            self._center_window_on_screen(win)
-            win.deiconify()
-            win.after_idle(lambda w=win: self._center_window_on_screen(w))
-            self.analysis_window_manager.open_event_window(window_scope, active_event_id, win, app)
-            self._analysis_windows.append((win, app))
-
-            def _on_analysis_destroy(_event=None, sid=str(window_scope), eid=str(active_event_id)) -> None:
-                self.analysis_window_manager.unregister(sid, eid)
-                self._analysis_windows = [
-                    (w, a)
-                    for (w, a) in self._analysis_windows
-                    if bool(hasattr(w, "winfo_exists") and w.winfo_exists())
-                ]
-                # Restore host menu when child window closes on macOS-style shared menu bars.
-                try:
-                    build_shared_menu(self.root, self, mode="host", host_mode=False)
-                except Exception:
-                    pass
-
-            win.bind("<Destroy>", _on_analysis_destroy)
-            self._set_status(f"Opened analysis workspace for {active_event_id}.")
-            self._log_info(f"Opened analysis workspace for event {active_event_id}.")
-        except Exception as exc:
-            self._log_error(f"Analyze SD failed: {exc}")
-            self._show_warning("Analyze SD", f"Failed to open analysis workspace:\n{exc}")
+    def _analyze_selected_event(self) -> None:
+        self._get_analysis_launch_controller().analyze_selected_event()
 
     def _on_root_close(self) -> None:
+        if self._instance_bridge is not None:
+            self._instance_bridge.stop()
         self.analysis_window_manager.close_all()
         try:
             self.root.destroy()
         except Exception:
             pass
 
-    def _load_stack(self) -> None:
-        self._log_info("Load Stack clicked.")
-        folder = filedialog.askdirectory(title="Select Stack Folder")
-        if not folder:
-            self._log_info("Load Stack canceled: no input folder selected.")
-            return
-        if not self.prepare_context_switch():
-            return
-        self.input_var.set(folder)
-        input_dir = folder
-
-        self._set_status("Loading stack...")
-        self._log_info(f"Started loading stack from: {input_dir}")
-        self._load_progress_bucket = -1
-
-        def worker() -> None:
-            try:
-                reader = StackReader()
-                info = reader.open_stack(input_dir, progress_callback=self._on_load_progress)
-                self.root.after(0, lambda: self._on_stack_loaded(reader, info))
-            except Exception as exc:
-                self.root.after(0, lambda: self._set_status(f"Load failed: {exc}"))
-                self._log_error(f"Load failed: {exc}")
-
-        threading.Thread(target=worker, daemon=True).start()
-
     def _on_stack_loaded(self, reader: StackReader, info) -> None:
-        self.reader = reader
-        self._popup_engine.set_reader(reader)
-        self.stack_info = info
-        self.trace = None
-        self.browser_controller.on_stack_loaded(reader, info)
-        self.current_project_path = None
-        self.browser_controller.session.set_project_path(None)
-        self.current_event_id = None
-        self.current_frame_idx = 0
-        self._main_render_cache.clear()
-        self._mini_raw_u8_cache.clear()
-        self._mark_processed_cache.clear()
-        self._sync_event_projections()
-
-        if self._mark_popup is not None and self._mark_popup.winfo_exists():
-            self._mark_popup.destroy()
-
-        self.preview_scale.configure(from_=0, to=max(0, info.frame_count - 1))
-        self.preview_scale.set(0)
-        self._update_preview(0)
-        self._redraw_main_overlay()
-        self._set_status(f"Loaded {info.frame_count} frames ({info.frame_width}x{info.frame_height}, dtype={info.dtype})")
-        self._log_info(
-            f"Load complete: {info.frame_count} frame(s), shape={info.frame_width}x{info.frame_height}, dtype={info.dtype}."
-        )
-        self._warmup_main_preview_async()
-        self._gc_runtime_caches(aggressive=False, run_python_gc=True)
+        self._get_project_controller().on_stack_loaded(reader, info)
 
     def _warmup_main_preview_async(self) -> None:
-        if self.reader is None:
-            return
-        frame_count = int(self.reader.get_frame_count())
-        if frame_count <= 0:
-            return
-
-        indices = list(range(min(8, frame_count)))
-
-        def worker() -> None:
-            try:
-                for idx in indices:
-                    if self.reader is None:
-                        return
-                    self.reader.read_frame(idx, use_cache=True)
-                self._popup_engine.prewarm_smoothed(indices[:4])
-                self._log_info("Load warmup complete: prefetched initial frames.")
-            except Exception as exc:
-                self._log_warn(f"Load warmup skipped: {exc}")
-
-        threading.Thread(target=worker, daemon=True).start()
+        self._get_project_controller().warmup_main_preview_async()
 
     def _on_load_progress(self, current: int, total: int) -> None:
-        if total <= 0:
-            return
-        bucket = int((current * 100) / total) // 5
-        if bucket > self._load_progress_bucket:
-            self._load_progress_bucket = bucket
-            self._log_info(f"Load progress: indexing files {current}/{total} ({min(100, bucket * 5)}%).")
+        self._get_project_controller().on_load_progress(current, total)
 
     def _on_export_progress(self, payload: dict) -> None:
         phase = payload.get("phase")
@@ -1469,256 +762,10 @@ class SDAnalyzerApp:
         self.popup_controller.open_edit_selected()
 
     def _open_mark_popup(self, mode: str, event_id: str | None) -> None:
-        if self.reader is None or self.stack_info is None:
-            self._log_warn("Mark popup blocked: no stack loaded.")
-            messagebox.showwarning("Mark SD", "Load a stack first.")
-            return
-
-        if self._mark_popup is not None and self._mark_popup.winfo_exists():
-            self._mark_popup.focus_force()
-            self._mark_popup.lift()
-            return
-
-        event = self._get_event_by_id(event_id) if event_id else None
-        if mode == "edit" and event is None:
-            self._log_warn("Edit popup blocked: selected event not found.")
-            messagebox.showwarning("Edit", "Selected event was not found.")
-            return
-
-        if mode == "edit" and event is not None:
-            center_idx = int((event.start_idx + event.end_idx) // 2)
-            start_default = event.start_idx
-            end_default = event.end_idx
-        else:
-            center_idx = int(self.current_frame_idx)
-            start_default = center_idx
-            end_default = center_idx
-
-        frame_count = int(self.stack_info.frame_count)
-        self._mark_popup_local_start = max(0, center_idx - 100)
-        self._mark_popup_local_end = min(frame_count - 1, center_idx + 100)
-        self._mark_range_start_idx = self._mark_popup_local_start
-        self._mark_range_end_idx = self._mark_popup_local_end
-        self._mark_popup_anchor_idx = center_idx
-        self._mark_popup_current_idx = center_idx
-        self._mark_last_full_refresh_note = ""
-        self._mark_popup_mode = mode
-        self._mark_popup_event_id = event_id
-
-        popup = tk.Toplevel(self.root)
-        self._mark_popup = popup
-        popup.title("Mark SD" if mode == "new" else f"Edit SD ({event_id})")
-        popup.geometry("1200x850")
-        popup.transient(self.root)
-
-        content = ttk.Frame(popup, padding=8)
-        content.pack(fill="both", expand=True)
-
-        top_row = ttk.Frame(content)
-        top_row.pack(fill="x", pady=(0, 6))
-        self._mark_range_canvas = tk.Canvas(top_row, height=28, bg="#24262a", highlightthickness=0, bd=0, cursor="hand2")
-        self._mark_range_canvas.pack(side="left", fill="x", expand=True, padx=(0, 8))
-        self._mark_range_canvas.bind("<Configure>", lambda _e: self._redraw_popup_range_selector())
-        self._mark_range_canvas.bind("<Button-1>", self._popup_range_press)
-        self._mark_range_canvas.bind("<B1-Motion>", self._popup_range_drag)
-        self._mark_range_canvas.bind("<ButtonRelease-1>", self._popup_range_release)
-        ttk.Button(top_row, text="Refresh Current Sequence", command=self._refresh_popup_full_sequence).pack(side="right")
-
-        self._mark_main_view_shell = ttk.Frame(content)
-        self._mark_main_view_shell.pack(fill="both", expand=True, pady=(6, 6))
-        self._mark_preview_label = ttk.Label(self._mark_main_view_shell, anchor="center")
-        self._mark_preview_label.pack(fill="both", expand=True)
-
-        self._mark_mini_frame = ttk.Frame(self._mark_main_view_shell, width=180, height=180)
-        self._mark_mini_frame.pack_propagate(False)
-        self._mark_mini_frame.place(relx=1.0, rely=0.0, anchor="ne", x=-12, y=12)
-        self._mark_mini_canvas = tk.Canvas(
-            self._mark_mini_frame,
-            bg="black",
-            width=170,
-            height=170,
-            highlightthickness=1,
-            highlightbackground="gray",
-        )
-        self._mark_mini_canvas.pack(fill="both", expand=True)
-        self._mark_mini_grip = tk.Label(
-            self._mark_mini_frame,
-            text="\u2199",
-            font=("Arial", 15),
-            cursor="fleur",
-            bg="#444",
-            fg="white",
-        )
-        self._mark_mini_grip.place(relx=0.0, rely=1.0, anchor="sw", width=24, height=24)
-        self._mark_mini_grip.bind("<Button-1>", self._popup_start_resize_mini)
-        self._mark_mini_grip.bind("<B1-Motion>", self._popup_do_resize_mini)
-        self._mark_mini_grip.bind("<ButtonRelease-1>", self._popup_stop_resize_mini)
-
-        self._mark_frame_info_var = tk.StringVar(value="Frame: -")
-        self._mark_window_info_var = tk.StringVar(value="")
-        self._mark_loading_var = tk.StringVar(value="")
-        self._mark_contrast_var = tk.DoubleVar(value=1.0)
-        self._mark_contrast_label_var = tk.StringVar(value="Contrast: 1.00x")
-        ttk.Label(content, textvariable=self._mark_frame_info_var).pack(anchor="w", pady=(0, 2))
-        ttk.Label(content, textvariable=self._mark_window_info_var).pack(anchor="w", pady=(0, 2))
-        self._mark_loading_label = ttk.Label(content, textvariable=self._mark_loading_var, foreground="#8fdcff")
-        self._mark_loading_bar = ttk.Progressbar(content, mode="indeterminate")
-
-        self._mark_overlay = tk.Canvas(content, height=12, bg="#2a2b2f", highlightthickness=0, bd=0)
-        self._mark_overlay.pack(fill="x", pady=(4, 2))
-        self._mark_overlay.bind("<Configure>", lambda _e: self._redraw_popup_overlay())
-
-        self._mark_scale = tk.Scale(
-            content,
-            from_=self._mark_popup_local_start,
-            to=self._mark_popup_local_end,
-            orient="horizontal",
-            showvalue=False,
-            relief="flat",
-            highlightthickness=0,
-            command=self._popup_on_slide,
-        )
-        self._mark_scale.pack(fill="x", pady=(0, 6))
-
-        nav_row = ttk.Frame(content)
-        nav_row.pack(fill="x", pady=(4, 0))
-        ttk.Button(nav_row, text="Prev", command=lambda: self._popup_step(-1)).pack(side="left", padx=2)
-        ttk.Button(nav_row, text="Next", command=lambda: self._popup_step(1)).pack(side="left", padx=2)
-        ttk.Button(nav_row, text="Set Start", command=self._popup_set_start_current).pack(side="left", padx=6)
-        ttk.Button(nav_row, text="Set End", command=self._popup_set_end_current).pack(side="left", padx=2)
-
-        baseline_row = ttk.Frame(content)
-        baseline_row.pack(fill="x", pady=(6, 0))
-        ttk.Label(baseline_row, text="Baseline Count").pack(side="left")
-        baseline_count_default = 30
-        baseline_end_default = max(0, self._mark_popup_anchor_idx - 1)
-        self._mark_baseline_count_var = tk.StringVar(value=str(baseline_count_default))
-        baseline_count_entry = ttk.Entry(baseline_row, textvariable=self._mark_baseline_count_var, width=8)
-        baseline_count_entry.pack(side="left", padx=(6, 14))
-        ttk.Label(baseline_row, text="Baseline End").pack(side="left")
-        self._mark_baseline_end_var = tk.StringVar(value=str(baseline_end_default))
-        baseline_end_entry = ttk.Entry(baseline_row, textvariable=self._mark_baseline_end_var, width=8)
-        baseline_end_entry.pack(side="left", padx=(6, 18))
-        ttk.Label(baseline_row, textvariable=self._mark_contrast_label_var).pack(side="left")
-        ttk.Scale(
-            baseline_row,
-            from_=0.5,
-            to=3.0,
-            orient="horizontal",
-            length=150,
-            variable=self._mark_contrast_var,
-            command=self._popup_on_contrast_change,
-        ).pack(side="left", padx=(8, 0))
-
-        bounds_frame = ttk.Frame(content)
-        bounds_frame.pack(fill="x")
-        ttk.Label(bounds_frame, text="Start").pack(side="left")
-        self._mark_start_var = tk.StringVar(value=str(start_default))
-        start_entry = ttk.Entry(bounds_frame, textvariable=self._mark_start_var, width=10)
-        start_entry.pack(side="left", padx=(4, 14))
-        ttk.Label(bounds_frame, text="End").pack(side="left")
-        self._mark_end_var = tk.StringVar(value=str(end_default))
-        end_entry = ttk.Entry(bounds_frame, textvariable=self._mark_end_var, width=10)
-        end_entry.pack(side="left", padx=(4, 14))
-        start_entry.bind(
-            "<KeyRelease>",
-            lambda _e: (self._redraw_popup_overlay(), self._schedule_popup_recompute(align_baseline_to_start=True)),
-        )
-        end_entry.bind("<KeyRelease>", lambda _e: self._redraw_popup_overlay())
-        start_entry.bind(
-            "<Return>", lambda _e: self._schedule_popup_recompute(show_errors=True, align_baseline_to_start=True)
-        )
-        start_entry.bind(
-            "<FocusOut>", lambda _e: self._schedule_popup_recompute(show_errors=True, align_baseline_to_start=True)
-        )
-        baseline_count_entry.bind("<Return>", lambda _e: self._schedule_popup_recompute(show_errors=True))
-        baseline_end_entry.bind("<Return>", lambda _e: self._schedule_popup_recompute(show_errors=True))
-        baseline_count_entry.bind("<FocusOut>", lambda _e: self._schedule_popup_recompute(show_errors=True))
-        baseline_end_entry.bind("<FocusOut>", lambda _e: self._schedule_popup_recompute(show_errors=True))
-        baseline_count_entry.bind("<KeyRelease>", lambda _e: self._schedule_popup_recompute())
-        baseline_end_entry.bind("<KeyRelease>", lambda _e: self._schedule_popup_recompute())
-
-        buttons = ttk.Frame(content)
-        buttons.pack(fill="x", pady=(8, 0))
-        ttk.Button(buttons, text="Confirm", command=self._popup_confirm).pack(side="right", padx=2)
-        ttk.Button(buttons, text="Cancel", command=self._popup_cancel).pack(side="right", padx=2)
-
-        popup.protocol("WM_DELETE_WINDOW", self._popup_cancel)
-        popup.bind("<Destroy>", self._on_mark_popup_destroy)
-        self._bind_popup_keys(popup)
-
-        popup.update_idletasks()
-        self._redraw_popup_range_selector()
-        if self._mark_scale is not None:
-            self._mark_scale.set(center_idx)
-        popup.after_idle(
-            lambda: self._recompute_popup_pipeline_for_bounds(
-                self._mark_popup_local_start,
-                self._mark_popup_local_end,
-                show_errors=False,
-                loading_text="Computing selected range...",
-            )
-        )
+        self.popup_controller.open_popup(mode=mode, event_id=event_id)
 
     def _on_mark_popup_destroy(self, _event=None) -> None:
-        popup_ref = self._mark_popup
-        if popup_ref is not None and popup_ref.winfo_exists():
-            return
-        self._popup_engine.cancel_active()
-        self._popup_active_job_id = 0
-        if self._mark_recompute_after_id is not None and popup_ref is not None:
-            try:
-                popup_ref.after_cancel(self._mark_recompute_after_id)
-            except Exception:
-                pass
-        if self._pending_popup_after_id is not None and popup_ref is not None:
-            try:
-                popup_ref.after_cancel(self._pending_popup_after_id)
-            except Exception:
-                pass
-        self._mark_recompute_after_id = None
-        self._pending_popup_after_id = None
-        self._pending_popup_frame_idx = None
-        self._mark_popup = None
-        self._mark_popup_mode = None
-        self._mark_popup_event_id = None
-        self._mark_popup_anchor_idx = 0
-        self._mark_popup_image = None
-        self._mark_popup_mini_image = None
-        self._mark_start_var = None
-        self._mark_end_var = None
-        self._mark_baseline_count_var = None
-        self._mark_baseline_end_var = None
-        self._mark_contrast_var = None
-        self._mark_contrast_label_var = None
-        self._mark_frame_info_var = None
-        self._mark_window_info_var = None
-        self._mark_loading_var = None
-        self._mark_loading_label = None
-        self._mark_loading_bar = None
-        self._mark_scale = None
-        self._mark_preview_label = None
-        self._mark_overlay = None
-        self._mark_range_canvas = None
-        self._mark_range_active_handle = None
-        self._mark_range_start_idx = 0
-        self._mark_range_end_idx = 0
-        self._mark_last_full_refresh_note = ""
-        self._mark_recompute_show_errors = False
-        self._mark_main_view_shell = None
-        self._mark_mini_frame = None
-        self._mark_mini_canvas = None
-        self._mark_mini_grip = None
-        self._mark_resize_start_x = None
-        self._mark_resize_start_y = None
-        self._mark_resize_start_w = None
-        self._mark_resize_start_h = None
-        self._mark_baseline_frame = None
-        self._mark_norm_p1 = 0.0
-        self._mark_norm_p99 = 1.0
-        self._mark_processed_cache.clear()
-        self._mini_raw_u8_cache.clear()
-        self._gc_runtime_caches(aggressive=False, run_python_gc=True)
+        self.popup_controller.on_destroy(_event)
 
     def _popup_step(self, delta: int) -> None:
         if self.stack_info is None or self._mark_scale is None:
@@ -2190,87 +1237,13 @@ class SDAnalyzerApp:
         self._redraw_popup_overlay()
 
     def _popup_confirm(self) -> None:
-        if self.stack_info is None or self._mark_popup_mode is None:
-            return
-
-        try:
-            start_raw = self._mark_start_var.get() if self._mark_start_var is not None else ""
-            end_raw = self._mark_end_var.get() if self._mark_end_var is not None else ""
-            start = self._parse_frame_index(start_raw, self._mark_popup_current_idx, "Start")
-            end = self._parse_frame_index(end_raw, self._mark_popup_current_idx, "End")
-            start, end, changed_by_clamp, swapped = self._normalize_bounds(start, end)
-        except ValueError as exc:
-            self._log_warn(f"Mark popup validation failed: {exc}")
-            messagebox.showwarning("Mark SD", str(exc))
-            return
-        except Exception as exc:
-            self._log_error(f"Mark popup failed: {exc}")
-            messagebox.showwarning("Mark SD", str(exc))
-            return
-
-        duration_frames = end - start + 1
-        duration_sec = self._duration_sec(duration_frames)
-
-        if self._mark_popup_mode == "edit":
-            event = self._get_event_by_id(self._mark_popup_event_id)
-            if event is None:
-                self._log_warn("Edit confirm failed: event not found.")
-                messagebox.showwarning("Edit", "Selected event was not found.")
-                return
-            old_start = event.start_idx
-            old_end = event.end_idx
-            event = self.browser_controller.update_event(
-                event.event_id,
-                start_idx=start,
-                end_idx=end,
-                label=event.label,
-                frame_count=int(self.stack_info.frame_count),
-            )
-            self._sync_event_projections()
-            self.tree.selection_set(event.event_id)
-            self._set_active_event_id(event.event_id)
-            self._set_status(f"Updated {event.event_id} boundaries.")
-            self._log_info(f"Updated {event.event_id}: [{old_start}, {old_end}] -> [{start}, {end}].")
-        else:
-            event = self.browser_controller.create_event(
-                start_idx=start,
-                end_idx=end,
-                frame_count=int(self.stack_info.frame_count),
-            )
-            self._sync_event_projections()
-            self.tree.selection_set(event.event_id)
-            self._set_active_event_id(event.event_id)
-            self._set_status(f"Added {event.event_id}.")
-            self._log_info(f"Added {event.event_id}: start={start}, end={end}, duration={duration_frames} frame(s).")
-
-        if changed_by_clamp:
-            self._log_info("Popup values were clamped to valid frame range.")
-        if swapped:
-            self._log_info("Popup swapped start/end to keep start <= end.")
-
-        self.preview_scale.set(start)
-        self._update_preview(start)
-        self._popup_cancel()
+        self.popup_controller.confirm()
 
     def _popup_cancel(self) -> None:
-        if self._mark_popup is not None and self._mark_popup.winfo_exists():
-            self._mark_popup.destroy()
+        self.popup_controller.cancel()
 
     def _delete_selected_events(self) -> None:
-        ids = list(self.tree.selection())
-        if not ids:
-            self._log_warn("Delete blocked: no events selected.")
-            messagebox.showwarning("Event", "Select one or more events first.")
-            return
-
-        selected = set(ids)
-        deleted = self.browser_controller.delete_events(ids)
-        self._sync_event_projections()
-        if self._active_event_id() in selected:
-            self._set_active_event_id(None)
-
-        self._set_status(f"Deleted {deleted} event(s).")
-        self._log_info(f"Deleted {deleted} event(s).")
+        self.popup_controller.delete_selected_events()
 
     def _step_preview(self, delta: int) -> None:
         if self.stack_info is None:
@@ -2573,7 +1546,6 @@ class SDAnalyzerApp:
         return list(self.tree.selection())
 
     def _export_selected(self) -> None:
-        self._log_info("Export Selected clicked.")
         ids = self._selected_event_ids()
         if not ids:
             self._log_warn("Export Selected blocked: no events selected.")
@@ -2581,13 +1553,12 @@ class SDAnalyzerApp:
             return
         options = self._prompt_export_options(ids)
         if options is None:
-            self._log_info("Export canceled from options dialog.")
+            self._log_info("Export (selected) canceled from options dialog.")
             return
         self._log_info(f"Preparing export for {len(ids)} selected event(s).")
         self._run_export(ids, options=options)
 
     def _export_all(self) -> None:
-        self._log_info("Export All clicked.")
         if not self.events:
             self._log_warn("Export All blocked: no events available.")
             messagebox.showwarning("Export", "No events to export.")
@@ -2595,301 +1566,58 @@ class SDAnalyzerApp:
         event_ids = [event.event_id for event in self.events]
         options = self._prompt_export_options(event_ids)
         if options is None:
-            self._log_info("Export canceled from options dialog.")
+            self._log_info("Export (all) canceled from options dialog.")
             return
         self._log_info(f"Preparing export for all {len(self.events)} event(s).")
         self._run_export(event_ids, options=options)
 
     def _has_binary_masks_for_events(self, event_ids: list[str]) -> bool:
-        try:
-            sidecar = dict(self.browser_controller.session.state().analysis_sidecar or {})
-        except Exception:
-            return False
-        for event_id in [str(v) for v in event_ids]:
-            payload = sidecar.get(event_id)
-            if not isinstance(payload, dict):
-                continue
-            masks = payload.get("masks_committed")
-            if masks is None:
-                continue
-            if isinstance(masks, dict):
-                for mask in masks.values():
-                    arr = np.asarray(mask, dtype=bool)
-                    if arr.ndim == 2 and np.any(arr):
-                        return True
-                continue
-            arr = np.asarray(masks)
-            if arr.ndim == 3 and arr.size > 0 and np.any(arr):
-                return True
-        return False
+        return bool(self._get_window_controller().has_binary_masks_for_events(list(event_ids or [])))
 
     @staticmethod
     def _has_valid_scale(metrics_settings: dict) -> bool:
-        try:
-            return float(metrics_settings.get("scale_px_per_mm")) > 0
-        except Exception:
-            return False
+        return HostWindowController._has_valid_scale(metrics_settings)
 
     @staticmethod
     def _has_valid_roi(metrics_settings: dict) -> bool:
-        raw_mask = metrics_settings.get("roi_mask")
-        if raw_mask is not None:
-            try:
-                arr = np.asarray(raw_mask, dtype=bool)
-                if arr.ndim == 2 and arr.size > 0 and np.any(arr):
-                    return True
-            except Exception:
-                pass
-        raw_points = metrics_settings.get("roi_points")
-        return isinstance(raw_points, list) and len(raw_points) >= 3
+        return HostWindowController._has_valid_roi(metrics_settings)
 
     def _resolve_export_metric_prerequisites(self, event_ids: list[str]) -> dict[str, dict[str, object]]:
-        if not event_ids:
-            return {
-                "propagation_speed": {"enabled": False, "reason": "No events selected."},
-                "area_recruited": {"enabled": False, "reason": "No events selected."},
-                "relative_area_recruited": {"enabled": False, "reason": "No events selected."},
-            }
-        has_scale_flags: list[bool] = []
-        has_roi_flags: list[bool] = []
-        for event_id in [str(v) for v in event_ids]:
-            try:
-                metrics = dict(self.browser_controller.resolve_event_metrics_settings(event_id) or {})
-            except Exception:
-                metrics = {}
-            has_scale_flags.append(bool(self._has_valid_scale(metrics)))
-            has_roi_flags.append(bool(self._has_valid_roi(metrics)))
-
-        all_scale = all(has_scale_flags)
-        all_roi = all(has_roi_flags)
-        any_scale = any(has_scale_flags)
-        any_roi = any(has_roi_flags)
-
-        def _reason_all_or_mixed(any_ready: bool, noun: str) -> str:
-            if any_ready:
-                return f"Some selected events are missing {noun}."
-            return f"No selected events have {noun}."
-
-        return {
-            "propagation_speed": {
-                "enabled": bool(all_scale),
-                "reason": "" if all_scale else _reason_all_or_mixed(any_scale, "scale"),
-            },
-            "area_recruited": {
-                "enabled": bool(all_scale and all_roi),
-                "reason": (
-                    ""
-                    if all_scale and all_roi
-                    else (
-                        "Some selected events are missing scale and ROI."
-                        if (any_scale and any_roi and not all_scale and not all_roi)
-                        else (
-                            _reason_all_or_mixed(any_scale, "scale")
-                            if not all_scale
-                            else _reason_all_or_mixed(any_roi, "ROI")
-                        )
-                    )
-                ),
-            },
-            "relative_area_recruited": {
-                "enabled": bool(all_roi),
-                "reason": "" if all_roi else _reason_all_or_mixed(any_roi, "ROI"),
-            },
-        }
+        return self._get_window_controller().resolve_export_metric_prerequisites(list(event_ids or []))
 
     @staticmethod
     def _attach_disabled_tooltip(parent, widget, message: str) -> None:
-        tip = tk.Toplevel(parent)
-        tip.withdraw()
-        tip.overrideredirect(True)
-        tip_label = ttk.Label(tip, text=str(message), padding=6, relief="solid")
-        tip_label.pack()
-
-        def _show_tip(event) -> None:
-            x = int(event.x_root) + 10
-            y = int(event.y_root) + 10
-            tip.geometry(f"+{x}+{y}")
-            tip.deiconify()
-            tip.lift()
-
-        def _hide_tip(_event=None) -> None:
-            tip.withdraw()
-
-        widget.bind("<Enter>", _show_tip)
-        widget.bind("<Leave>", _hide_tip)
-        widget.bind("<Destroy>", lambda _e: tip.destroy())
+        HostWindowController.attach_disabled_tooltip(parent, widget, message)
 
     def _prompt_export_options(self, event_ids: list[str]) -> dict[str, bool] | None:
-        dialog = tk.Toplevel(self.root)
-        dialog.title("Export Options")
-        dialog.transient(self.root)
-        dialog.grab_set()
-        dialog.resizable(False, False)
-        dialog.geometry("+%d+%d" % (self.root.winfo_rootx() + 120, self.root.winfo_rooty() + 120))
+        return self._get_window_controller().prompt_export_options(list(event_ids or []))
 
-        include_event_var = tk.BooleanVar(value=True)
-        include_baseline_var = tk.BooleanVar(value=True)
-        include_masks_var = tk.BooleanVar(value=True)
-        include_metric_speed_var = tk.BooleanVar(value=True)
-        include_metric_area_var = tk.BooleanVar(value=True)
-        include_metric_rel_area_var = tk.BooleanVar(value=True)
-        output_dir_var = tk.StringVar(value=self.output_var.get().strip())
-        result: dict[str, str | bool] | None = None
-        has_masks = self._has_binary_masks_for_events(event_ids)
-        metric_ready = self._resolve_export_metric_prerequisites(event_ids)
+    def _get_window_controller(self) -> HostWindowController:
+        controller = getattr(self, "window_controller", None)
+        if isinstance(controller, HostWindowController):
+            return controller
+        controller = HostWindowController(self)
+        self.window_controller = controller
+        return controller
 
-        shell = ttk.Frame(dialog, padding=12)
-        shell.pack(fill="both", expand=True)
-        ttk.Label(shell, text=f"Choose export items for {len(event_ids)} event(s):").pack(anchor="w")
+    def _get_project_controller(self) -> HostProjectLifecycleController:
+        controller = getattr(self, "project_controller", None)
+        if isinstance(controller, HostProjectLifecycleController):
+            return controller
+        controller = HostProjectLifecycleController(self)
+        self.project_controller = controller
+        return controller
 
-        output_row = ttk.Frame(shell)
-        output_row.pack(fill="x", pady=(6, 10))
-        ttk.Label(output_row, text="Output folder").pack(side="left")
-        output_entry = ttk.Entry(output_row, textvariable=output_dir_var)
-        output_entry.pack(side="left", fill="x", expand=True, padx=(8, 8))
-
-        def _browse_output_dir() -> None:
-            initial = output_dir_var.get().strip() or self.output_var.get().strip() or str(Path.cwd())
-            folder = filedialog.askdirectory(parent=dialog, title="Select Export Folder", initialdir=initial)
-            if folder:
-                output_dir_var.set(str(folder))
-
-        ttk.Button(output_row, text="Browse...", command=_browse_output_dir).pack(side="left")
-
-        checks = ttk.Frame(shell)
-        checks.pack(fill="x", pady=(0, 10))
-        ttk.Checkbutton(checks, text="Event images", variable=include_event_var).pack(anchor="w")
-        ttk.Checkbutton(checks, text="Baseline images", variable=include_baseline_var).pack(anchor="w")
-        masks_check = ttk.Checkbutton(checks, text="Binary masks", variable=include_masks_var)
-        masks_check.pack(anchor="w")
-        if not has_masks:
-            include_masks_var.set(False)
-            masks_check.configure(state="disabled")
-            self._attach_disabled_tooltip(dialog, masks_check, "No binary masks exist for the selected events.")
-
-        ttk.Separator(checks, orient="horizontal").pack(fill="x", pady=(6, 4))
-        ttk.Label(checks, text="Metrics").pack(anchor="w")
-        metric_speed_check = ttk.Checkbutton(checks, text="Propagation speed", variable=include_metric_speed_var)
-        metric_speed_check.pack(anchor="w")
-        metric_area_check = ttk.Checkbutton(checks, text="Area recruited", variable=include_metric_area_var)
-        metric_area_check.pack(anchor="w")
-        metric_rel_area_check = ttk.Checkbutton(
-            checks, text="Relative area recruited", variable=include_metric_rel_area_var
-        )
-        metric_rel_area_check.pack(anchor="w")
-
-        if not bool(metric_ready["propagation_speed"]["enabled"]):
-            include_metric_speed_var.set(False)
-            metric_speed_check.configure(state="disabled")
-            self._attach_disabled_tooltip(dialog, metric_speed_check, str(metric_ready["propagation_speed"]["reason"]))
-        if not bool(metric_ready["area_recruited"]["enabled"]):
-            include_metric_area_var.set(False)
-            metric_area_check.configure(state="disabled")
-            self._attach_disabled_tooltip(dialog, metric_area_check, str(metric_ready["area_recruited"]["reason"]))
-        if not bool(metric_ready["relative_area_recruited"]["enabled"]):
-            include_metric_rel_area_var.set(False)
-            metric_rel_area_check.configure(state="disabled")
-            self._attach_disabled_tooltip(
-                dialog,
-                metric_rel_area_check,
-                str(metric_ready["relative_area_recruited"]["reason"]),
-            )
-
-        buttons = ttk.Frame(shell)
-        buttons.pack(fill="x")
-
-        def _cancel() -> None:
-            dialog.destroy()
-
-        def _confirm() -> None:
-            nonlocal result
-            include_any = (
-                bool(include_event_var.get())
-                or bool(include_baseline_var.get())
-                or bool(include_metric_speed_var.get())
-                or bool(include_metric_area_var.get())
-                or bool(include_metric_rel_area_var.get())
-            )
-            if not include_any:
-                messagebox.showwarning("Export Options", "Select at least one export target.")
-                return
-            out = output_dir_var.get().strip()
-            if not out:
-                messagebox.showwarning("Export Options", "Select an output folder.")
-                return
-            result = {
-                "output_dir": out,
-                "include_event_images": bool(include_event_var.get()),
-                "include_baseline_images": bool(include_baseline_var.get()),
-                "include_binary_masks": bool(include_masks_var.get()),
-                "include_metric_propagation_speed": bool(include_metric_speed_var.get()),
-                "include_metric_area_recruited": bool(include_metric_area_var.get()),
-                "include_metric_relative_area_recruited": bool(include_metric_rel_area_var.get()),
-            }
-            dialog.destroy()
-
-        ttk.Button(buttons, text="Cancel", command=_cancel).pack(side="right")
-        ttk.Button(buttons, text="Export", command=_confirm).pack(side="right", padx=(0, 8))
-        dialog.protocol("WM_DELETE_WINDOW", _cancel)
-        dialog.wait_window()
-        return result
+    def _get_analysis_launch_controller(self) -> AnalysisLaunchController:
+        controller = getattr(self, "analysis_launch_controller", None)
+        if isinstance(controller, AnalysisLaunchController):
+            return controller
+        controller = AnalysisLaunchController(self)
+        self.analysis_launch_controller = controller
+        return controller
 
     def _run_export(self, event_ids: list[str], *, options: dict[str, object]) -> None:
-        if self.reader is None:
-            self._log_warn("Export blocked: load a stack first.")
-            messagebox.showwarning("Export", "Load a stack first.")
-            return
-
-        output_dir = str(options.get("output_dir", self.output_var.get().strip())).strip()
-        if not output_dir:
-            self._log_warn("Export blocked: no output folder selected.")
-            messagebox.showwarning("Export", "Select an output folder.")
-            return
-        self.output_var.set(output_dir)
-
-        baseline_pre = int(self.baseline_pre_frames)
-        self._set_status("Exporting...")
-        self._export_progress_bucket = -1
-        self._log_info(
-            "Started export to "
-            f"{output_dir} for {len(event_ids)} event(s), baseline_pre_frames={baseline_pre}, "
-            f"event_images={bool(options.get('include_event_images'))}, "
-            f"baseline_images={bool(options.get('include_baseline_images'))}, "
-            f"binary_masks={bool(options.get('include_binary_masks'))}, "
-            f"metric_propagation_speed={bool(options.get('include_metric_propagation_speed'))}, "
-            f"metric_area_recruited={bool(options.get('include_metric_area_recruited'))}, "
-            f"metric_relative_area_recruited={bool(options.get('include_metric_relative_area_recruited'))}."
-        )
-
-        def worker() -> None:
-            try:
-                assert self.reader is not None
-                export_events = self.browser_controller.export_candidates(event_ids)
-                sidecar = self.browser_controller.session.state().analysis_sidecar
-                metadata = self.browser_controller.session.state().metadata
-                result = export_analysis(
-                    reader=self.reader,
-                    events=export_events,
-                    output_dir=output_dir,
-                    baseline_pre_frames=baseline_pre,
-                    trace=self.trace,
-                    selected_event_ids=event_ids,
-                    progress_callback=self._on_export_progress,
-                    include_event_images=bool(options.get("include_event_images")),
-                    include_baseline_images=bool(options.get("include_baseline_images")),
-                    include_binary_masks=bool(options.get("include_binary_masks")),
-                    analysis_sidecar=sidecar,
-                    include_metric_propagation_speed=bool(options.get("include_metric_propagation_speed")),
-                    include_metric_area_recruited=bool(options.get("include_metric_area_recruited")),
-                    include_metric_relative_area_recruited=bool(options.get("include_metric_relative_area_recruited")),
-                    project_metadata=metadata,
-                )
-                self.root.after(0, lambda: self._on_export_done(result))
-            except Exception as exc:
-                self.root.after(0, lambda: self._set_status(f"Export failed: {exc}"))
-                self._log_error(f"Export failed: {exc}")
-
-        threading.Thread(target=worker, daemon=True).start()
+        self._get_window_controller().run_export(list(event_ids or []), options=options)
 
     def _on_export_done(self, result: dict) -> None:
         self._set_status(f"Export complete: {result['events_exported']} event(s), {result['frames_exported']} frame(s).")

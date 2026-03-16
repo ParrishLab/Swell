@@ -59,14 +59,14 @@ def test_close_analysis_windows_save_then_continue_closes_all():
     assert app.analysis_window_manager.closed is True
 
 
-def test_close_analysis_windows_save_cancelled_aborts():
+def test_close_analysis_windows_save_canceled_aborts():
     dirty = SimpleNamespace(project_dirty=True, save_project=lambda: None)
     ref = SimpleNamespace(app=dirty)
     app = _app_with_refs([ref])
     with patch("sdapp.host.sd_gui.messagebox.askyesnocancel", return_value=True):
         result = app.close_analysis_windows_with_prompt()
     assert result["ok"] is False
-    assert result["reason"] == "save_cancelled"
+    assert result["reason"] == "save_canceled"
     assert app.analysis_window_manager.closed is False
 
 

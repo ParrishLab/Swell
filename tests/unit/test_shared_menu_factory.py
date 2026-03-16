@@ -77,9 +77,9 @@ def test_analysis_menu_omits_standalone_project_lifecycle_actions():
     with patch("sdapp.shared.menu.factory.tk.Menu", _FakeMenu):
         menu = build_shared_menu(root, app, mode="analysis", host_mode=True)
     states = _state_by_label(_file_menu(menu))
-    assert states["Save Project"] == "normal"
+    assert states["Save SD Project"] == "normal"
     assert "New Project" not in states
-    assert "Open Project..." not in states
+    assert "Open SD Project..." not in states
     assert "Convert to Project..." not in states
     assert "Recover Autosave..." not in states
 
@@ -91,5 +91,7 @@ def test_host_menu_keeps_project_lifecycle_actions_enabled():
         menu = build_shared_menu(root, app, mode="host", host_mode=False)
     states = _state_by_label(_file_menu(menu))
     assert states["New Project"] == "normal"
-    assert states["Open Project..."] == "normal"
-    assert states["Save Project"] == "normal"
+    assert states["Open SD Project..."] == "normal"
+    assert states["Save SD Project"] == "normal"
+    assert "Import Folder..." not in states
+    assert "Set Output Folder..." not in states

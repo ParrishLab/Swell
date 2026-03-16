@@ -96,7 +96,7 @@ def save_project_as(app) -> None:
         initial_dir = str(Path(getattr(app, "app_root", ".")).resolve())
     target = filedialog.asksaveasfilename(
         parent=app.root,
-        title="Save Project As",
+        title="Save SD Project As",
         defaultextension=".sdproj",
         filetypes=[("SD Project", "*.sdproj"), ("All files", "*.*")],
         initialdir=initial_dir,

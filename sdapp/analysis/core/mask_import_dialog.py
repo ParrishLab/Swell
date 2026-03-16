@@ -44,8 +44,8 @@ class MaskImportDialogService:
             mode["value"] = value
             top.destroy()
 
-        ttk.Button(btns, text="Folder", command=lambda: pick("folder")).pack(side="left")
-        ttk.Button(btns, text="Files", command=lambda: pick("files")).pack(side="left", padx=(8, 0))
+        ttk.Button(btns, text="From Folder...", command=lambda: pick("folder")).pack(side="left")
+        ttk.Button(btns, text="From Files...", command=lambda: pick("files")).pack(side="left", padx=(8, 0))
         ttk.Button(btns, text="Cancel", command=top.destroy).pack(side="right")
         root.wait_window(top)
 

@@ -4,11 +4,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-try:
-    from .config import EventCandidate
-except ImportError:
-    from config import EventCandidate
 from sdapp.shared.models import StackRef, UnifiedProjectState
+
+from .config import EventCandidate
 
 
 @dataclass(init=False)

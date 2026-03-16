@@ -10,10 +10,7 @@ import numpy as np
 from PIL import Image
 import tifffile
 
-try:
-    from .config import FrameRef, MAX_PREVIEW_CACHE, SUPPORTED_EXTENSIONS, StackInfo
-except ImportError:
-    from config import FrameRef, MAX_PREVIEW_CACHE, SUPPORTED_EXTENSIONS, StackInfo
+from .config import FrameRef, MAX_PREVIEW_CACHE, SUPPORTED_EXTENSIONS, StackInfo
 
 
 class StackReader:

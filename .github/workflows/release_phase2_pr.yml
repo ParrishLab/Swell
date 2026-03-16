@@ -1,0 +1,187 @@
+name: release-phase2-pr
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: release-phase2-pr-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHON_VERSION: "3.12"
+  MPLCONFIGDIR: ${{ github.workspace }}/.mplconfig
+
+jobs:
+  linux-validation:
+    name: linux-validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pytest build twine
+
+      - name: Run test suite
+        run: python -m pytest -q tests
+
+      - name: Build python artifacts
+        run: ./scripts/release/build_python_artifacts.sh
+
+      - name: Run startup smoke test
+        run: |
+          OUT="$(python3 -m sdapp.main --smoke-test | tail -n 1)"
+          test "$OUT" = "SMOKE_TEST:PASS"
+
+      - name: Generate compatibility manifest
+        run: ./scripts/release/generate_compatibility_manifest.py
+
+      - name: Generate checksums
+        run: ./scripts/release/generate_checksums.sh
+
+      - name: Verify dist outputs
+        run: |
+          ls -la dist
+          test -f dist/compatibility.json
+          test -f dist/SHA256SUMS.txt
+          ls dist/*.whl >/dev/null
+          ls dist/*.tar.gz >/dev/null
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-release-validation-dist
+          path: dist/
+
+  macos-arm64-validation:
+    name: macos-arm64-validation
+    runs-on: macos-14
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pyinstaller
+
+      - name: Run startup smoke test
+        run: |
+          OUT="$(python3 -m sdapp.main --smoke-test | tail -n 1)"
+          test "$OUT" = "SMOKE_TEST:PASS"
+
+      - name: Build macOS arm64 app
+        run: ./scripts/release/build_macos_app_arm64.sh
+
+      - name: Verify macOS arm64 outputs
+        run: |
+          test -d dist/macos-arm64/SDApp.app
+          test -f dist/sdapp-macos-arm64.zip
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-arm64-validation-dist
+          path: dist/
+
+  macos-x86_64-validation:
+    name: macos-x86_64-validation
+    runs-on: macos-13
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pyinstaller
+
+      - name: Run startup smoke test
+        run: |
+          OUT="$(python3 -m sdapp.main --smoke-test | tail -n 1)"
+          test "$OUT" = "SMOKE_TEST:PASS"
+
+      - name: Build macOS x86_64 app
+        run: ./scripts/release/build_macos_app_x86_64.sh
+
+      - name: Verify macOS x86_64 outputs
+        run: |
+          test -d dist/macos-x86_64/SDApp.app
+          test -f dist/sdapp-macos-x86_64.zip
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-x86_64-validation-dist
+          path: dist/
+
+  windows-validation:
+    name: windows-validation
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pytest build twine
+
+      - name: Run test suite
+        run: python -m pytest -q tests
+
+      - name: Run startup smoke test
+        shell: pwsh
+        run: |
+          $out = (python -m sdapp.main --smoke-test | Select-Object -Last 1)
+          if ($out -ne "SMOKE_TEST:PASS") { throw "Smoke test failed: $out" }
+
+      - name: Generate compatibility manifest
+        run: python scripts/release/generate_compatibility_manifest.py
+
+      - name: Generate checksums
+        run: bash ./scripts/release/generate_checksums.sh
+
+      - name: Verify dist outputs
+        shell: pwsh
+        run: |
+          if (!(Test-Path "dist/compatibility.json")) { throw "missing dist/compatibility.json" }
+          if (!(Test-Path "dist/SHA256SUMS.txt")) { throw "missing dist/SHA256SUMS.txt" }
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-release-validation-dist
+          path: dist/
+
+# TODO(phase2.5): Add model-init smoke gate.
+# TODO(phase2.5): Add segmentation-workflow smoke gate.
+# TODO(phase3): Add tag-triggered draft release workflow.
+# TODO(phase3+): Add Windows packaged-binary build/publish gates.

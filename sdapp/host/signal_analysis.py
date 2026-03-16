@@ -5,12 +5,8 @@ from typing import Callable, Optional
 
 import numpy as np
 
-try:
-    from .config import EventCandidate, TraceResult
-    from .stack_reader import StackReader
-except ImportError:
-    from config import EventCandidate, TraceResult
-    from stack_reader import StackReader
+from .config import EventCandidate, TraceResult
+from .stack_reader import StackReader
 
 
 def compute_trace(

@@ -1,7 +1,6 @@
 import os
 import sys
 import threading
-import shutil
 import gc
 import time
 import subprocess
@@ -31,6 +30,7 @@ from sdapp.analysis.core.mask_import_dialog import MaskImportDialogService
 from sdapp.analysis.core.project_session import ProjectSessionService, SessionSnapshot
 from sdapp.analysis.core.analysis_workspace import AnalysisWorkspaceController, WorkspaceUiState
 from sdapp.analysis.core.overlay_state import frame_spans, span_length, largest_contiguous_span, compute_propagated_state
+from sdapp.analysis.core.runtime_state import AnalysisModelState, AnalysisRuntimeState, HostModeState
 from sdapp.analysis.core import overlay_renderer
 from sdapp.analysis.core.preview_resize import start_resize_preview as do_start_resize_preview
 from sdapp.analysis.core.preview_resize import do_resize_preview as do_preview_resize
@@ -38,10 +38,10 @@ from sdapp.analysis.core.preview_resize import stop_resize_preview as do_stop_re
 from sdapp.analysis.core.propagation_progress import PropagationProgressLogger
 from sdapp.analysis.core.app_context import AppContext
 from sdapp.analysis.core import project_workflow
+from sdapp.analysis.controllers import AnalysisHostModeController, AnalysisModelController, AnalysisWindowController
 from sdapp.analysis.ui.layout import LayoutBuilder
 from sdapp.analysis.utils.paths import get_app_root, get_resources_root
 from sdapp.analysis.model import SAM2RuntimeService
-from sdapp.shared.frame_source import EventScopedFrameSource, build_visualization_stack
 
 
 # Check for imagecodecs
@@ -117,6 +117,9 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         self._project_created_at = utc_now_iso()
         self._project_embed_images = False
         self._propagation_committed_snapshot = None
+        self.runtime_state = AnalysisRuntimeState()
+        self.model_state = AnalysisModelState()
+        self.host_mode_state = HostModeState()
 
         self.current_frame_idx = 0
         self.seg_state = SegmentationState()
@@ -144,12 +147,8 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         self.analysis_mode = None
 
         # SAM2 State
-        self.predictor = None
-        self.inference_state = None
-        self.model_ready = False
         self.sam2_runtime = SAM2RuntimeService()
         self.masks_cache = self.seg_state.masks_cache
-        self.temp_dir = None
 
         # Undo/Redo Stacks
         self.undo_stack = []
@@ -172,21 +171,6 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         self.export_panel_open = tk.BooleanVar(value=False)
         self.analysis_panel_open = tk.BooleanVar(value=False)
         self._controls_hint_logged = False
-        self._host_mode = True
-        self._host_analysis_updater = None
-        self._host_project_saved_notifier = None
-        self._host_sync_result_notifier = None
-        self._host_project_saver = None
-        self._host_project_path_provider = None
-        self._host_log_notifier = None
-        self._host_metrics_updater = None
-        self._host_processing_options = None
-        self._saved_project_masks_by_event = {}
-        self._suppress_metrics_emit = False
-        self._host_buffer_generation = 0
-        self._host_buffer_cache_key = None
-        self._host_buffer_sync_limit = 240
-        self._loading_task_count = 0
 
         # Config
         self.config = AppConfig.load()
@@ -202,6 +186,9 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
 
         # UI Layout
         self.setup_ui()
+        self.window_controller = AnalysisWindowController(self)
+        self.host_mode_controller = AnalysisHostModeController(self)
+        self.model_controller = AnalysisModelController(self)
         if menu_builder is not None:
             self._menu_bar = menu_builder(self.root, self, mode=menu_mode, host_mode=self._host_mode)
         else:
@@ -393,6 +380,204 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
     def _export_range_auto_follow(self, value):
         self._ensure_session_state()
         self.session_state.export_range_auto_follow = bool(value)
+
+    def _ensure_runtime_state(self) -> None:
+        if not hasattr(self, "runtime_state") or self.runtime_state is None:
+            self.runtime_state = AnalysisRuntimeState()
+        if not hasattr(self, "model_state") or self.model_state is None:
+            self.model_state = AnalysisModelState()
+        if not hasattr(self, "host_mode_state") or self.host_mode_state is None:
+            self.host_mode_state = HostModeState()
+
+    @property
+    def predictor(self):
+        self._ensure_runtime_state()
+        return self.model_state.predictor
+
+    @predictor.setter
+    def predictor(self, value) -> None:
+        self._ensure_runtime_state()
+        self.model_state.predictor = value
+
+    @property
+    def inference_state(self):
+        self._ensure_runtime_state()
+        return self.model_state.inference_state
+
+    @inference_state.setter
+    def inference_state(self, value) -> None:
+        self._ensure_runtime_state()
+        self.model_state.inference_state = value
+
+    @property
+    def model_ready(self):
+        self._ensure_runtime_state()
+        return bool(self.model_state.model_ready)
+
+    @model_ready.setter
+    def model_ready(self, value) -> None:
+        self._ensure_runtime_state()
+        self.model_state.model_ready = bool(value)
+
+    @property
+    def temp_dir(self):
+        self._ensure_runtime_state()
+        return self.model_state.temp_dir
+
+    @temp_dir.setter
+    def temp_dir(self, value) -> None:
+        self._ensure_runtime_state()
+        self.model_state.temp_dir = None if value is None else str(value)
+
+    @property
+    def _host_mode(self):
+        self._ensure_runtime_state()
+        return bool(self.host_mode_state.host_mode)
+
+    @_host_mode.setter
+    def _host_mode(self, value) -> None:
+        self._ensure_runtime_state()
+        self.host_mode_state.host_mode = bool(value)
+
+    @property
+    def _host_analysis_updater(self):
+        self._ensure_runtime_state()
+        return self.host_mode_state.analysis_updater
+
+    @_host_analysis_updater.setter
+    def _host_analysis_updater(self, value) -> None:
+        self._ensure_runtime_state()
+        self.host_mode_state.analysis_updater = value
+
+    @property
+    def _host_project_saved_notifier(self):
+        self._ensure_runtime_state()
+        return self.host_mode_state.project_saved_notifier
+
+    @_host_project_saved_notifier.setter
+    def _host_project_saved_notifier(self, value) -> None:
+        self._ensure_runtime_state()
+        self.host_mode_state.project_saved_notifier = value
+
+    @property
+    def _host_sync_result_notifier(self):
+        self._ensure_runtime_state()
+        return self.host_mode_state.sync_result_notifier
+
+    @_host_sync_result_notifier.setter
+    def _host_sync_result_notifier(self, value) -> None:
+        self._ensure_runtime_state()
+        self.host_mode_state.sync_result_notifier = value
+
+    @property
+    def _host_project_saver(self):
+        self._ensure_runtime_state()
+        return self.host_mode_state.project_saver
+
+    @_host_project_saver.setter
+    def _host_project_saver(self, value) -> None:
+        self._ensure_runtime_state()
+        self.host_mode_state.project_saver = value
+
+    @property
+    def _host_project_path_provider(self):
+        self._ensure_runtime_state()
+        return self.host_mode_state.project_path_provider
+
+    @_host_project_path_provider.setter
+    def _host_project_path_provider(self, value) -> None:
+        self._ensure_runtime_state()
+        self.host_mode_state.project_path_provider = value
+
+    @property
+    def _host_log_notifier(self):
+        self._ensure_runtime_state()
+        return self.host_mode_state.log_notifier
+
+    @_host_log_notifier.setter
+    def _host_log_notifier(self, value) -> None:
+        self._ensure_runtime_state()
+        self.host_mode_state.log_notifier = value
+
+    @property
+    def _host_metrics_updater(self):
+        self._ensure_runtime_state()
+        return self.host_mode_state.metrics_updater
+
+    @_host_metrics_updater.setter
+    def _host_metrics_updater(self, value) -> None:
+        self._ensure_runtime_state()
+        self.host_mode_state.metrics_updater = value
+
+    @property
+    def _host_processing_options(self):
+        self._ensure_runtime_state()
+        return self.host_mode_state.processing_options
+
+    @_host_processing_options.setter
+    def _host_processing_options(self, value) -> None:
+        self._ensure_runtime_state()
+        self.host_mode_state.processing_options = None if value is None else dict(value)
+
+    @property
+    def _saved_project_masks_by_event(self):
+        self._ensure_runtime_state()
+        return self.host_mode_state.saved_project_masks_by_event
+
+    @_saved_project_masks_by_event.setter
+    def _saved_project_masks_by_event(self, value) -> None:
+        self._ensure_runtime_state()
+        self.host_mode_state.saved_project_masks_by_event = dict(value or {})
+
+    @property
+    def _suppress_metrics_emit(self):
+        self._ensure_runtime_state()
+        return bool(self.host_mode_state.suppress_metrics_emit)
+
+    @_suppress_metrics_emit.setter
+    def _suppress_metrics_emit(self, value) -> None:
+        self._ensure_runtime_state()
+        self.host_mode_state.suppress_metrics_emit = bool(value)
+
+    @property
+    def _host_buffer_generation(self):
+        self._ensure_runtime_state()
+        return int(self.host_mode_state.buffer_generation)
+
+    @_host_buffer_generation.setter
+    def _host_buffer_generation(self, value) -> None:
+        self._ensure_runtime_state()
+        self.host_mode_state.buffer_generation = int(value)
+
+    @property
+    def _host_buffer_cache_key(self):
+        self._ensure_runtime_state()
+        return self.host_mode_state.buffer_cache_key
+
+    @_host_buffer_cache_key.setter
+    def _host_buffer_cache_key(self, value) -> None:
+        self._ensure_runtime_state()
+        self.host_mode_state.buffer_cache_key = value
+
+    @property
+    def _host_buffer_sync_limit(self):
+        self._ensure_runtime_state()
+        return int(self.host_mode_state.buffer_sync_limit)
+
+    @_host_buffer_sync_limit.setter
+    def _host_buffer_sync_limit(self, value) -> None:
+        self._ensure_runtime_state()
+        self.host_mode_state.buffer_sync_limit = int(value)
+
+    @property
+    def _loading_task_count(self):
+        self._ensure_runtime_state()
+        return int(self.runtime_state.loading_task_count)
+
+    @_loading_task_count.setter
+    def _loading_task_count(self, value) -> None:
+        self._ensure_runtime_state()
+        self.runtime_state.loading_task_count = int(value)
 
     def _ensure_session_state(self):
         if not hasattr(self, "session_state") or self.session_state is None:
@@ -1016,40 +1201,7 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         }
 
     def _emit_host_sync(self, reason: str) -> dict[str, object] | None:
-        if not hasattr(self, "analysis_workspace") or self.analysis_workspace is None:
-            return None
-        if callable(getattr(self, "_host_analysis_updater", None)):
-            payload = self.analysis_workspace.export_active_event_analysis_payload()
-            if payload is not None:
-                payload["metrics_settings"] = self._collect_current_metrics_settings()
-                try:
-                    result = self._host_analysis_updater(payload)
-                    if isinstance(result, dict):
-                        if bool(result.get("ok")):
-                            self.log_debug("HostSync", f"Applied direct host update on {reason}.")
-                        else:
-                            code = str(result.get("code", "PAYLOAD_INVALID"))
-                            message = str(result.get("message", "Host rejected update."))
-                            self.log_warn("HostSync", f"Host rejected update [{code}]: {message}")
-                            try:
-                                self.lbl_status.configure(text=f"Status: Host rejected sync ({code})", foreground="orange")
-                            except Exception:
-                                pass
-                        notifier = getattr(self, "_host_sync_result_notifier", None)
-                        if callable(notifier):
-                            try:
-                                notifier(result)
-                            except Exception:
-                                pass
-                    else:
-                        self.log_debug("HostSync", f"Applied direct host update on {reason}.")
-                except Exception as exc:
-                    self.log_warn("HostSync", f"Direct host update failed: {exc}")
-            return payload
-        payload = self.analysis_workspace.emit_host_sync(ui_hints=self._host_ui_hints())
-        if payload is not None:
-            self.log_debug("HostSync", f"Emitted host sync on {reason}.")
-        return payload
+        return self._get_host_mode_controller().emit_host_sync(reason)
 
     def _save_project_to_path(self, target_path, is_autosave=False):
         project_workflow.save_project_to_path(self, target_path, is_autosave=is_autosave)
@@ -1110,308 +1262,34 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         on_host_project_path=None,
         sync_emitter=None,
     ):
-        self._ensure_analysis_workspace()
-        self._host_mode = True
-        self._host_analysis_updater = on_analysis_update
-        self._host_project_saved_notifier = on_project_saved
-        self._host_sync_result_notifier = on_sync_result
-        self._host_log_notifier = on_log_message
-        self._host_metrics_updater = on_metrics_update
-        self._host_project_saver = on_host_project_save
-        self._host_project_path_provider = on_host_project_path
-        if not callable(self._host_project_saver):
-            return {
-                "ok": False,
-                "code": "PAYLOAD_INVALID",
-                "message": "Host project saver callback is required for host-bound analysis.",
-            }
-        if isinstance(context, dict):
-            project_path = context.get("project_path")
-            if isinstance(project_path, str) and project_path.strip():
-                self.current_project_path = str(Path(project_path).expanduser().resolve())
-        if not self.current_project_path and callable(self._host_project_path_provider):
-            try:
-                host_path = self._host_project_path_provider()
-            except Exception:
-                host_path = None
-            if isinstance(host_path, str) and host_path.strip():
-                self.current_project_path = str(Path(host_path).expanduser().resolve())
-        event_id = ""
-        if isinstance(context, dict):
-            event_payload = dict(context.get("event", {}))
-            event_id = str(event_payload.get("event_id", "") or "")
-            analysis_state = context.get("analysis_state")
-            if event_id:
-                self._saved_project_masks_by_event[str(event_id)] = self._analysis_payload_has_saved_masks(analysis_state)
-            flags = dict(event_payload.get("flags", {})) if isinstance(event_payload.get("flags"), dict) else {}
-            processing = dict(flags.get("analysis_processing", {})) if isinstance(flags.get("analysis_processing"), dict) else {}
-            self._host_processing_options = {
-                "apply_smoothing": bool(processing.get("smoothing", True)),
-                "apply_baseline_subtraction": bool(processing.get("baseline_subtraction", True)),
-                "apply_global_normalization": bool(processing.get("global_normalization", True)),
-            }
-        scoped_source = frame_source
-        if frame_source is not None:
-            event = dict(context.get("event", {})) if isinstance(context, dict) else {}
-            flags = dict(event.get("flags", {})) if isinstance(event.get("flags"), dict) else {}
-            scope_start = flags.get("analysis_scope_start_idx", event.get("start_idx"))
-            scope_end = flags.get("analysis_scope_end_idx", event.get("end_idx"))
-            if scope_start is not None and scope_end is not None:
-                scoped_source = EventScopedFrameSource(frame_source, int(scope_start), int(scope_end))
-            self.frame_source = scoped_source
-        if self.frame_source is not None:
-            self.analysis_workspace.bind_frame_source(self.frame_source)
-        result = self.analysis_workspace.open_from_host_event_context(
-            context,
-            frame_source=self.frame_source,
+        return self._get_host_mode_controller().open_from_host_context(
+            context=context,
+            frame_source=frame_source,
+            on_analysis_update=on_analysis_update,
+            on_metrics_update=on_metrics_update,
+            on_project_saved=on_project_saved,
+            on_sync_result=on_sync_result,
+            on_log_message=on_log_message,
+            on_host_project_save=on_host_project_save,
+            on_host_project_path=on_host_project_path,
             sync_emitter=sync_emitter,
         )
-        if not bool(result.get("ok")):
-            return result
-        metrics_settings = context.get("metrics_settings") if isinstance(context, dict) else None
-        self._apply_host_metrics_settings(metrics_settings if isinstance(metrics_settings, dict) else None)
-        self._sync_saved_mask_overlay_state()
-        if self.frame_source is not None:
-            try:
-                ready = bool(
-                    self._prepare_host_mode_buffers(
-                        self.frame_source,
-                        on_ready_message="Host direct workspace initialized.",
-                    )
-                )
-            except TypeError:
-                ready = bool(self._prepare_host_mode_buffers(self.frame_source))
-            if hasattr(self, "app_context") and self.app_context is not None:
-                self.app_context.frame_source = self.frame_source
-            if ready:
-                self._post_host_mode_open_ui("Host direct workspace initialized.")
-        model_path = ""
-        try:
-            model_path = str(self.entry_model.get() or "").strip()
-        except Exception:
-            model_path = ""
-        if model_path:
-            self.log_info("HostMode", "Initializing SAM2 for host-driven workspace...")
-            self._run_thread(self._init_sam2_background)
-        else:
-            self.log_warn("HostMode", "No SAM2 model configured; model tools will remain disabled.")
-        return result
 
     def open_from_host_handoff(self, payload: dict, frame_source=None, sync_emitter=None):
-        self._ensure_analysis_workspace()
-        self._host_mode = True
-        self._host_analysis_updater = None
-        self._host_project_saved_notifier = None
-        self._host_sync_result_notifier = None
-        self._host_log_notifier = None
-        self._host_metrics_updater = None
-        self._host_project_saver = None
-        self._host_project_path_provider = None
-        self._host_processing_options = None
-        self._saved_project_masks_by_event = {}
-        scoped_source = frame_source
-        if frame_source is not None:
-            event = dict(payload.get("event", {})) if isinstance(payload, dict) else {}
-            flags = dict(event.get("flags", {})) if isinstance(event.get("flags"), dict) else {}
-            scope_start = flags.get("analysis_scope_start_idx", event.get("start_idx"))
-            scope_end = flags.get("analysis_scope_end_idx", event.get("end_idx"))
-            if scope_start is not None and scope_end is not None:
-                scoped_source = EventScopedFrameSource(frame_source, int(scope_start), int(scope_end))
-            self.frame_source = scoped_source
-            processing = dict(flags.get("analysis_processing", {})) if isinstance(flags.get("analysis_processing"), dict) else {}
-            self._host_processing_options = {
-                "apply_smoothing": bool(processing.get("smoothing", True)),
-                "apply_baseline_subtraction": bool(processing.get("baseline_subtraction", True)),
-                "apply_global_normalization": bool(processing.get("global_normalization", True)),
-            }
-        if self.frame_source is not None:
-            self.analysis_workspace.bind_frame_source(self.frame_source)
-        result = self.analysis_workspace.open_from_handoff_payload(
-            payload,
-            frame_source=self.frame_source,
+        return self._get_host_mode_controller().open_from_host_handoff(
+            payload=payload,
+            frame_source=frame_source,
             sync_emitter=sync_emitter,
         )
-        if not bool(result.get("ok")):
-            return result
-        self._sync_saved_mask_overlay_state()
-
-        if self.frame_source is not None:
-            try:
-                ready = bool(
-                    self._prepare_host_mode_buffers(
-                        self.frame_source,
-                        on_ready_message="Host-driven analysis workspace initialized.",
-                    )
-                )
-            except TypeError:
-                ready = bool(self._prepare_host_mode_buffers(self.frame_source))
-            if hasattr(self, "app_context") and self.app_context is not None:
-                self.app_context.frame_source = self.frame_source
-            if ready:
-                self._post_host_mode_open_ui("Host-driven analysis workspace initialized.")
-        model_path = ""
-        try:
-            model_path = str(self.entry_model.get() or "").strip()
-        except Exception:
-            model_path = ""
-        if model_path:
-            self.log_info("HostMode", "Initializing SAM2 for host-driven workspace...")
-            self._run_thread(self._init_sam2_background)
-        else:
-            self.log_warn("HostMode", "No SAM2 model configured; model tools will remain disabled.")
-        return result
 
     def _post_host_mode_open_ui(self, message: str) -> None:
-        if not (hasattr(self, "slider") and hasattr(self, "canvas_left")):
-            return
-        self._finalize_load_ui()
-        active_event_id = str(getattr(self, "active_event_id", "") or "")
-        if active_event_id and hasattr(self, "analysis_workspace") and self.analysis_workspace is not None:
-            try:
-                self.analysis_workspace.open_event(active_event_id)
-            except Exception:
-                pass
-        # Finalize resets propagation range spinboxes; re-apply saved-mask-derived ranges.
-        self._sync_saved_mask_overlay_state()
-        self.display_ratio = 1.0
-        self.img_offset_x = 0
-        self.img_offset_y = 0
-        self.root.after_idle(lambda: self.update_display(update_preview=True))
-        self.root.after(120, lambda: self.update_display(update_preview=True))
-        self.log_info("HostMode", message)
-        try:
-            self.lbl_status.configure(text="Status: Host-bound mode (project managed by SD ID)", foreground="gray")
-        except Exception:
-            pass
+        self._get_host_mode_controller().post_host_mode_open_ui(message)
 
     def _shutdown_model_resources(self):
-        self.model_ready = False
-        self.predictor = None
-        self.inference_state = None
-        if hasattr(self, "sam2_runtime") and self.sam2_runtime is not None:
-            try:
-                self.sam2_runtime.shutdown()
-            except Exception:
-                pass
-        try:
-            if self.temp_dir and os.path.exists(self.temp_dir):
-                shutil.rmtree(self.temp_dir, ignore_errors=True)
-        except Exception:
-            pass
-        try:
-            import torch
-
-            if torch.backends.mps.is_available():
-                torch.mps.empty_cache()
-            elif torch.cuda.is_available():
-                torch.cuda.empty_cache()
-        except Exception:
-            pass
+        self._get_model_controller().shutdown_model_resources()
 
     def _prepare_host_mode_buffers(self, frame_source, on_ready_message: str | None = None):
-        if not hasattr(self, "_host_buffer_generation"):
-            self._host_buffer_generation = 0
-        if not hasattr(self, "_host_buffer_cache_key"):
-            self._host_buffer_cache_key = None
-        if not hasattr(self, "_host_buffer_sync_limit"):
-            self._host_buffer_sync_limit = 240
-        frame_count = int(getattr(frame_source, "frame_count", 0) or 0)
-        if frame_count <= 0:
-            self.frames_raw = None
-            self.frames_sub = None
-            self.frames_sub_viz = None
-            self.frame_names = []
-            self._current_image_source_paths = []
-            self._host_buffer_cache_key = None
-            return True
-
-        baseline_count = 30
-        if hasattr(self, "spin_baseline"):
-            try:
-                baseline_count = int(self.spin_baseline.get())
-            except Exception:
-                baseline_count = 30
-        if bool(getattr(self, "_host_mode", False)):
-            host_ctx = getattr(self.analysis_workspace, "_host_context", None)
-            if isinstance(host_ctx, dict):
-                event_payload = dict(host_ctx.get("event", {}))
-                flags = dict(event_payload.get("flags", {})) if isinstance(event_payload.get("flags"), dict) else {}
-                try:
-                    baseline_count = int(flags.get("baseline_pre_frames", baseline_count))
-                except Exception:
-                    pass
-            baseline_count = max(1, int(baseline_count))
-            if hasattr(self, "spin_baseline"):
-                try:
-                    self._set_spinbox_value(self.spin_baseline, baseline_count)
-                except Exception:
-                    pass
-        self.frame_names = list(getattr(frame_source, "frame_names", []))
-        self._current_image_source_paths = list(getattr(frame_source, "source_paths", []))
-        baseline_count = int(max(1, baseline_count))
-        processing_opts = dict(getattr(self, "_host_processing_options", {}) or {})
-        apply_smoothing = bool(processing_opts.get("apply_smoothing", True))
-        apply_baseline_subtraction = bool(processing_opts.get("apply_baseline_subtraction", True))
-        apply_global_normalization = bool(processing_opts.get("apply_global_normalization", True))
-        cache_key = (
-            id(frame_source),
-            int(frame_count),
-            tuple(int(v) for v in getattr(frame_source, "frame_shape", (0, 0))),
-            int(baseline_count),
-            bool(apply_smoothing),
-            bool(apply_baseline_subtraction),
-            bool(apply_global_normalization),
-        )
-        if self._host_buffer_cache_key == cache_key and self.frames_sub_viz is not None:
-            return True
-
-        sync_limit = int(getattr(self, "_host_buffer_sync_limit", 240))
-        if frame_count <= sync_limit:
-            raw_frames, frames_sub, frames_viz = build_visualization_stack(
-                frame_source,
-                baseline_frames=baseline_count,
-                apply_smoothing=apply_smoothing,
-                apply_baseline_subtraction=apply_baseline_subtraction,
-                apply_global_normalization=apply_global_normalization,
-            )
-            self.frames_raw = raw_frames
-            self.frames_sub = frames_sub
-            self.frames_sub_viz = frames_viz
-            self._host_buffer_cache_key = cache_key
-            return True
-
-        self.frames_raw = None
-        self.frames_sub = None
-        self.frames_sub_viz = None
-        self._host_buffer_cache_key = None
-        self._host_buffer_generation += 1
-        generation = self._host_buffer_generation
-        self.log_info("HostMode", f"Preparing visualization cache in background ({frame_count} frames)...")
-
-        def _worker() -> None:
-            raw_frames, frames_sub, frames_viz = build_visualization_stack(
-                frame_source,
-                baseline_frames=baseline_count,
-                apply_smoothing=apply_smoothing,
-                apply_baseline_subtraction=apply_baseline_subtraction,
-                apply_global_normalization=apply_global_normalization,
-            )
-
-            def _apply() -> None:
-                if generation != self._host_buffer_generation:
-                    return
-                self.frames_raw = raw_frames
-                self.frames_sub = frames_sub
-                self.frames_sub_viz = frames_viz
-                self._host_buffer_cache_key = cache_key
-                if self._ui_alive():
-                    self._post_host_mode_open_ui(on_ready_message or "Host workspace ready.")
-
-            if self._ui_alive():
-                self.root.after(0, _apply)
-
-        self._run_thread(_worker)
-        return False
+        return self._get_host_mode_controller().prepare_host_mode_buffers(frame_source, on_ready_message)
 
     # ========================================================================
     # CLEANUP LOGIC
@@ -1492,52 +1370,7 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         self.interaction_controller.on_nav_right(event)
 
     def on_browse_model(self):
-        resource_root = Path(getattr(self, "resource_root", self.app_root))
-        current_text = ""
-        try:
-            current_text = str(self.entry_model.get() or "").strip()
-        except Exception:
-            current_text = ""
-
-        current_abs = ""
-        if current_text:
-            p = Path(current_text)
-            if not p.is_absolute():
-                p = resource_root / p
-            current_abs = str(p.resolve())
-
-        initialdir = str((resource_root / "models").resolve())
-        if current_text:
-            try:
-                p = Path(current_text)
-                if not p.is_absolute():
-                    p = resource_root / p
-                if p.exists():
-                    initialdir = str((p.parent if p.is_file() else p).resolve())
-            except Exception:
-                pass
-
-        selected = filedialog.askopenfilename(
-            parent=self.root,
-            title="Select SAM2 Model",
-            initialdir=initialdir,
-            filetypes=[
-                ("PyTorch model", "*.pt *.pth"),
-                ("All files", "*.*"),
-            ],
-        )
-        if not selected:
-            return
-
-        selected_abs = str(Path(selected).resolve())
-        if selected_abs == current_abs:
-            self.log_info("Model", "Selected model is unchanged; skipping reload.")
-            return
-
-        self.entry_model.delete(0, tk.END)
-        self.entry_model.insert(0, selected_abs)
-        self.log_info("Model", f"Model changed to: {Path(selected_abs).name}. Reloading...")
-        self._run_thread(self._init_sam2_background)
+        self._get_model_controller().browse_model()
 
     def _focus_is_text_input(self):
         try:
@@ -1598,48 +1431,13 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
     # ========================================================================
 
     def _analysis_payload_has_saved_masks(self, payload) -> bool:
-        if not isinstance(payload, dict):
-            return False
-        masks_committed = payload.get("masks_committed")
-        if masks_committed is not None:
-            if isinstance(masks_committed, dict):
-                for mask in masks_committed.values():
-                    if mask is not None and np.any(np.asarray(mask)):
-                        return True
-            else:
-                arr = np.asarray(masks_committed)
-                if arr.size > 0 and np.any(arr):
-                    return True
-        masks_draft = payload.get("masks_draft")
-        if masks_draft is not None:
-            if isinstance(masks_draft, dict):
-                for mask in masks_draft.values():
-                    if mask is not None and np.any(np.asarray(mask)):
-                        return True
-            else:
-                arr = np.asarray(masks_draft)
-                if arr.size > 0 and np.any(arr):
-                    return True
-        return False
+        return self._get_window_controller().analysis_payload_has_saved_masks(payload)
 
     def _event_has_saved_masks_in_project(self) -> bool:
-        event_id = str(getattr(self, "active_event_id", "") or "")
-        if not event_id:
-            return False
-        return bool(dict(getattr(self, "_saved_project_masks_by_event", {}) or {}).get(event_id, False))
+        return self._get_window_controller().event_has_saved_masks_in_project()
 
     def _sync_project_path_from_host(self) -> None:
-        if not bool(getattr(self, "_host_mode", False)):
-            return
-        provider = getattr(self, "_host_project_path_provider", None)
-        if not callable(provider):
-            return
-        try:
-            host_path = provider()
-        except Exception:
-            host_path = None
-        if isinstance(host_path, str) and host_path.strip():
-            self.current_project_path = str(Path(host_path).expanduser().resolve())
+        self._get_window_controller().sync_project_path_from_host()
 
     def _sync_saved_mask_overlay_state(self) -> None:
         try:
@@ -1649,163 +1447,52 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
             return
 
     def _collect_current_metrics_settings(self) -> dict[str, object]:
-        metrics: dict[str, object] = {}
-        try:
-            frames_per_sec = float(self.frames_per_sec_var.get())
-            if frames_per_sec > 0:
-                metrics["frames_per_sec"] = float(frames_per_sec)
-        except Exception:
-            pass
-        try:
-            if self.scale_px_per_mm is not None and float(self.scale_px_per_mm) > 0:
-                metrics["scale_px_per_mm"] = float(self.scale_px_per_mm)
-        except Exception:
-            pass
-        if isinstance(self.roi_points, list) and self.roi_points:
-            clean_points: list[list[float]] = []
-            for pt in self.roi_points:
-                if isinstance(pt, (list, tuple)) and len(pt) >= 2:
-                    try:
-                        clean_points.append([float(pt[0]), float(pt[1])])
-                    except (TypeError, ValueError):
-                        continue
-            if clean_points:
-                metrics["roi_points"] = clean_points
-        if self.roi_mask is not None:
-            try:
-                roi_mask = np.asarray(self.roi_mask, dtype=bool)
-                if roi_mask.ndim == 2:
-                    metrics["roi_mask"] = roi_mask.copy()
-            except Exception:
-                pass
-        return metrics
+        return self._get_window_controller().collect_current_metrics_settings()
 
     def _apply_host_metrics_settings(self, metrics_settings: dict | None) -> None:
-        if not isinstance(metrics_settings, dict):
-            return
-        self._suppress_metrics_emit = True
-        try:
-            if "frames_per_sec" in metrics_settings:
-                try:
-                    frames_per_sec = float(metrics_settings.get("frames_per_sec"))
-                    if frames_per_sec > 0 and hasattr(self, "frames_per_sec_var"):
-                        self.frames_per_sec_var.set(float(frames_per_sec))
-                except (TypeError, ValueError):
-                    pass
-            if "scale_px_per_mm" in metrics_settings:
-                try:
-                    scale_value = float(metrics_settings.get("scale_px_per_mm"))
-                    if scale_value > 0:
-                        self.scale_px_per_mm = float(scale_value)
-                except (TypeError, ValueError):
-                    pass
-            if "roi_points" in metrics_settings and isinstance(metrics_settings.get("roi_points"), list):
-                cleaned_points: list[list[float]] = []
-                for pt in list(metrics_settings.get("roi_points", [])):
-                    if isinstance(pt, (list, tuple)) and len(pt) >= 2:
-                        try:
-                            cleaned_points.append([float(pt[0]), float(pt[1])])
-                        except (TypeError, ValueError):
-                            continue
-                self.roi_points = cleaned_points
-            if "roi_mask" in metrics_settings and metrics_settings.get("roi_mask") is not None:
-                try:
-                    roi_mask = np.asarray(metrics_settings.get("roi_mask"), dtype=bool)
-                    if roi_mask.ndim == 2:
-                        self.roi_mask = roi_mask.copy()
-                except Exception:
-                    pass
-        finally:
-            self._suppress_metrics_emit = False
-        if self._ui_alive():
-            self.update_display()
+        self._get_window_controller().apply_host_metrics_settings(metrics_settings)
 
     def _emit_host_metrics_update(self, reason: str) -> dict[str, object] | None:
-        if bool(getattr(self, "_suppress_metrics_emit", False)):
-            return None
-        if not bool(getattr(self, "_host_mode", False)):
-            return None
-        updater = getattr(self, "_host_metrics_updater", None)
-        if not callable(updater):
-            return None
-        event_id = str(getattr(self, "active_event_id", "") or "")
-        if not event_id:
-            return None
-        payload = {
-            "event_id": event_id,
-            "metrics_settings": self._collect_current_metrics_settings(),
-            "reason": str(reason or ""),
-        }
-        try:
-            result = updater(payload)
-        except Exception as exc:
-            self.log_warn("HostSync", f"Direct host metrics update failed: {exc}")
-            return {"ok": False, "code": "PAYLOAD_INVALID", "message": str(exc)}
-        if isinstance(result, dict) and not bool(result.get("ok", False)):
-            code = str(result.get("code", "PAYLOAD_INVALID"))
-            message = str(result.get("message", "Host rejected metrics update."))
-            self.log_warn("HostSync", f"Host rejected metrics update [{code}]: {message}")
-        return result if isinstance(result, dict) else {"ok": True}
+        return self._get_window_controller().emit_host_metrics_update(reason)
 
     def _on_metrics_settings_changed(self, reason: str) -> None:
-        self._mark_project_dirty(reason=str(reason or "metrics_changed"))
-        self._emit_host_metrics_update(reason=str(reason or "metrics_changed"))
+        self._get_window_controller().on_metrics_settings_changed(reason)
 
     def _on_frames_per_sec_commit(self, _event=None):
-        self._mark_project_dirty(reason="frames_per_sec")
-        self._emit_host_metrics_update(reason="frames_per_sec")
-        return None
+        return self._get_window_controller().on_frames_per_sec_commit(_event)
+
+    def _get_window_controller(self) -> AnalysisWindowController:
+        controller = getattr(self, "window_controller", None)
+        if isinstance(controller, AnalysisWindowController):
+            return controller
+        controller = AnalysisWindowController(self)
+        self.window_controller = controller
+        return controller
+
+    def _get_host_mode_controller(self) -> AnalysisHostModeController:
+        controller = getattr(self, "host_mode_controller", None)
+        if isinstance(controller, AnalysisHostModeController):
+            return controller
+        controller = AnalysisHostModeController(self)
+        self.host_mode_controller = controller
+        return controller
+
+    def _get_model_controller(self) -> AnalysisModelController:
+        controller = getattr(self, "model_controller", None)
+        if isinstance(controller, AnalysisModelController):
+            return controller
+        controller = AnalysisModelController(self)
+        self.model_controller = controller
+        return controller
 
     def _mark_active_event_saved_masks_present(self) -> None:
-        event_id = str(getattr(self, "active_event_id", "") or "")
-        if event_id:
-            if not isinstance(getattr(self, "_saved_project_masks_by_event", None), dict):
-                self._saved_project_masks_by_event = {}
-            self._saved_project_masks_by_event[str(event_id)] = True
+        self._get_window_controller().mark_active_event_saved_masks_present()
 
     def _show_masks_saved_popup(self) -> None:
-        target = str(getattr(self, "current_project_path", "") or "").strip()
-        if target:
-            name = Path(target).name
-            messagebox.showinfo("Masks Saved", f"Current masks were saved to:\n{name}")
-            return
-        messagebox.showinfo("Masks Saved", "Current masks were saved.")
+        self._get_window_controller().show_masks_saved_popup()
 
     def save_current_masks(self):
-        if not self._collect_nonempty_final_mask_frames():
-            messagebox.showwarning("No Masks", "Please generate masks first.")
-            return
-        self._emit_host_metrics_update(reason="save_current_masks")
-        self._sync_project_path_from_host()
-        if not self.current_project_path:
-            self.log_info("Project", "No host project is active. Prompting Save Project As for mask save.")
-            try:
-                self.save_project_as()
-            except RuntimeError as exc:
-                self.log_error("Project", str(exc))
-                messagebox.showerror("Save Current Masks", str(exc))
-                return
-            if self.current_project_path and not bool(getattr(self, "project_dirty", False)):
-                self._mark_active_event_saved_masks_present()
-                self._show_masks_saved_popup()
-            return
-        if self._event_has_saved_masks_in_project():
-            overwrite = messagebox.askyesno(
-                "Overwrite Existing Masks?",
-                "Masks already exist for this SD event. Saving will overwrite the stored masks in this project.\n\nContinue?",
-            )
-            if not overwrite:
-                self.log_info("Project", "Save Current Masks canceled by user (overwrite declined).")
-                return
-        try:
-            self.save_project()
-        except RuntimeError as exc:
-            self.log_error("Project", str(exc))
-            messagebox.showerror("Save Current Masks", str(exc))
-            return
-        if self.current_project_path and not bool(getattr(self, "project_dirty", False)):
-            self._mark_active_event_saved_masks_present()
-            self._show_masks_saved_popup()
+        self._get_window_controller().save_current_masks()
 
     def export_results(self):
         # Backward-compatible alias for older bindings.

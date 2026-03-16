@@ -6,11 +6,9 @@ from typing import Any
 
 import numpy as np
 
-try:
-    from .host_models import EventMeta, HostSessionState, StackRef
-except ImportError:
-    from host_models import EventMeta, HostSessionState, StackRef
-from sdapp.shared.services import UnifiedProjectService
+from sdapp.shared.services import MetricsSettingsResolver, UnifiedProjectService
+
+from .host_models import EventMeta, HostSessionState, StackRef
 
 
 class ProjectSessionService:
@@ -132,65 +130,7 @@ class ProjectSessionService:
 
     @staticmethod
     def _normalize_metrics_settings(payload: dict[str, Any] | None) -> dict[str, Any]:
-        if not isinstance(payload, dict):
-            return {}
-        normalized: dict[str, Any] = {}
-        if "frames_per_sec" in payload:
-            try:
-                frames_per_sec = float(payload.get("frames_per_sec"))
-                if frames_per_sec > 0:
-                    normalized["frames_per_sec"] = frames_per_sec
-            except (TypeError, ValueError):
-                pass
-        if "scale_px_per_mm" in payload:
-            try:
-                scale = float(payload.get("scale_px_per_mm"))
-                if scale > 0:
-                    normalized["scale_px_per_mm"] = scale
-            except (TypeError, ValueError):
-                pass
-        if "roi_points" in payload:
-            roi_points = payload.get("roi_points")
-            if isinstance(roi_points, list):
-                points: list[list[float]] = []
-                for pt in roi_points:
-                    if isinstance(pt, (list, tuple)) and len(pt) >= 2:
-                        try:
-                            points.append([float(pt[0]), float(pt[1])])
-                        except (TypeError, ValueError):
-                            continue
-                if points:
-                    normalized["roi_points"] = points
-        if "roi_mask" in payload and payload.get("roi_mask") is not None:
-            try:
-                roi_mask = np.asarray(payload.get("roi_mask"), dtype=bool)
-                if roi_mask.ndim == 2:
-                    normalized["roi_mask"] = roi_mask.copy()
-            except Exception:
-                pass
-        return normalized
-
-    @staticmethod
-    def _has_metrics_value(payload: dict[str, Any], key: str) -> bool:
-        if key not in payload:
-            return False
-        value = payload.get(key)
-        if key in {"frames_per_sec", "scale_px_per_mm"}:
-            try:
-                return float(value) > 0
-            except (TypeError, ValueError):
-                return False
-        if key == "roi_points":
-            return isinstance(value, list) and len(value) > 0
-        if key == "roi_mask":
-            return isinstance(value, np.ndarray) and value.ndim == 2
-        return value is not None
-
-    @staticmethod
-    def _metrics_values_equal(key: str, lhs: Any, rhs: Any) -> bool:
-        if key == "roi_mask":
-            return isinstance(lhs, np.ndarray) and isinstance(rhs, np.ndarray) and np.array_equal(lhs, rhs)
-        return lhs == rhs
+        return dict(MetricsSettingsResolver.normalize(payload))
 
     def _merge_metrics_settings(
         self,
@@ -199,23 +139,12 @@ class ProjectSessionService:
         *,
         merge_missing_only: bool,
     ) -> tuple[dict[str, Any], bool]:
-        merged = self._normalize_metrics_settings(existing)
-        normalized_incoming = self._normalize_metrics_settings(incoming)
-        changed = False
-        for key, value in normalized_incoming.items():
-            if merge_missing_only and self._has_metrics_value(merged, key):
-                continue
-            current = merged.get(key)
-            if self._metrics_values_equal(key, current, value):
-                continue
-            if key == "roi_mask":
-                merged[key] = np.asarray(value, dtype=bool).copy()
-            elif key == "roi_points":
-                merged[key] = [[float(pt[0]), float(pt[1])] for pt in list(value)]
-            else:
-                merged[key] = value
-            changed = True
-        return merged, changed
+        merged, changed = MetricsSettingsResolver.merge(
+            existing,
+            incoming,
+            merge_missing_only=bool(merge_missing_only),
+        )
+        return dict(merged), bool(changed)
 
     def set_global_metrics_defaults(self, payload: dict[str, Any]) -> dict[str, Any]:
         normalized = self._normalize_metrics_settings(payload)

@@ -22,21 +22,18 @@ def build_shared_menu(root, app, *, mode: str, host_mode: bool = False) -> tk.Me
 
     if mode == "analysis":
         file_items = [
-            ("Save Project", ("save_project", "_save_project", "save_session")),
-            ("Save Project As...", ("save_project_as", "_save_project_as")),
+            ("Save SD Project", ("save_project", "_save_project", "save_session")),
+            ("Save SD Project As...", ("save_project_as", "_save_project_as")),
             ("Import External Masks...", ("import_external_masks",)),
             (None, None),
             ("Exit", ("_on_root_close", "on_close")),
         ]
     else:
         file_items = [
-            ("Import Folder...", ("_load_stack",)),
-            ("Export Folder...", ("_browse_output", "browse_output")),
-            (None, None),
             ("New Project", ("new_project", "_new_project")),
-            ("Open Project...", ("open_project", "_open_project_dialog", "open_session")),
-            ("Save Project", ("save_project", "_save_project", "save_session")),
-            ("Save Project As...", ("save_project_as", "_save_project_as")),
+            ("Open SD Project...", ("open_project", "_open_project_dialog", "open_session")),
+            ("Save SD Project", ("save_project", "_save_project", "save_session")),
+            ("Save SD Project As...", ("save_project_as", "_save_project_as")),
             (None, None),
             ("Exit", ("_on_root_close", "on_close")),
         ]
@@ -47,8 +44,6 @@ def build_shared_menu(root, app, *, mode: str, host_mode: bool = False) -> tk.Me
     ]
     mode_allow = {
         "Import External Masks...": {"analysis"},
-        "Import Folder...": {"host"},
-        "Export Folder...": {"host"},
     }
     for label, names in file_items:
         if label is None:
@@ -77,6 +72,6 @@ def build_shared_menu(root, app, *, mode: str, host_mode: bool = False) -> tk.Me
             continue
         config_menu.add_command(label=label, command=command)
 
-    menu.add_cascade(label="Config", menu=config_menu)
+    menu.add_cascade(label="Model", menu=config_menu)
     root.config(menu=menu)
     return menu

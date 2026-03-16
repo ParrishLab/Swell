@@ -167,18 +167,18 @@ class LayoutBuilder:
         self.spin_prop_end.pack(side="left", padx=2)
         self._set_spinbox_value(self.spin_prop_end, 100)
 
-        ttk.Button(self.frame_prop, text="Run", width=5, command=self._trigger_background_propagation).pack(
+        ttk.Button(self.frame_prop, text="Run Propagation", width=14, command=self._trigger_background_propagation).pack(
             side="left", padx=5
         )
 
         self.right_controls = ttk.Frame(btn_box)
         self.right_controls.pack(side="right", padx=8, pady=2)
 
-        analysis_section = ttk.LabelFrame(self.right_controls, text="Adjust Metrics")
+        analysis_section = ttk.LabelFrame(self.right_controls, text="Metrics Settings")
         analysis_section.pack(side="left", padx=(0, 6))
         self.btn_analysis_toggle = ttk.Button(
             analysis_section,
-            text="Adjust Metrics ▸",
+            text="Metrics Settings ▸",
             width=16,
             command=self._toggle_analysis_panel,
         )
@@ -189,7 +189,7 @@ class LayoutBuilder:
         analysis_row2 = ttk.Frame(self.frame_analysis_body)
         analysis_row2.pack(side="top", fill="x", pady=1)
 
-        ttk.Label(analysis_row1, text="Frames/Sec:").pack(side="left", padx=2)
+        ttk.Label(analysis_row1, text="Frames/sec:").pack(side="left", padx=2)
         self.frames_per_sec_var = tk.DoubleVar(value=1.0)
         self.entry_frames_per_sec = tk.Entry(analysis_row1, textvariable=self.frames_per_sec_var, width=6)
         self.entry_frames_per_sec.pack(side="left", padx=2)

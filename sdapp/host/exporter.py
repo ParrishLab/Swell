@@ -21,15 +21,11 @@ from sdapp.analysis.core.metrics import (
     roi_mask_from_points,
     smooth_boundary_fft,
 )
+from sdapp.shared.services import MetricsSettingsResolver
 
-try:
-    from .config import EventCandidate, ExportRecord, TraceResult
-    from .signal_analysis import event_to_dict
-    from .stack_reader import StackReader
-except ImportError:
-    from config import EventCandidate, ExportRecord, TraceResult
-    from signal_analysis import event_to_dict
-    from stack_reader import StackReader
+from .config import EventCandidate, ExportRecord, TraceResult
+from .signal_analysis import event_to_dict
+from .stack_reader import StackReader
 
 
 def export_analysis(
@@ -176,10 +172,10 @@ def export_analysis(
 
         if include_any_metrics:
             event_sidecar = dict((analysis_sidecar or {}).get(str(event.event_id), {}) or {})
-            metrics_settings = _resolve_metrics_settings(
+            metrics_settings = MetricsSettingsResolver.resolve_for_event(
                 event_id=str(event.event_id),
-                event_sidecar=event_sidecar,
-                project_metadata=project_metadata,
+                analysis_sidecar={str(event.event_id): event_sidecar},
+                project_metadata=project_metadata if isinstance(project_metadata, dict) else {},
             )
             metric_result = _export_event_metrics(
                 reader=reader,
@@ -214,27 +210,6 @@ def export_analysis(
     }
 
 
-def _resolve_metrics_settings(
-    *,
-    event_id: str,
-    event_sidecar: dict,
-    project_metadata: Optional[dict[str, object]],
-) -> dict[str, object]:
-    global_defaults = {}
-    if isinstance(project_metadata, dict):
-        raw_defaults = project_metadata.get("global_metrics_defaults")
-        if isinstance(raw_defaults, dict):
-            global_defaults = dict(raw_defaults)
-    local_settings = {}
-    raw_local = event_sidecar.get("metrics_settings")
-    if isinstance(raw_local, dict):
-        local_settings = dict(raw_local)
-    merged = dict(global_defaults)
-    merged.update(local_settings)
-    merged["event_id"] = str(event_id)
-    return merged
-
-
 def _safe_float(value, default: float | None = None) -> float | None:
     try:
         v = float(value)
@@ -246,15 +221,13 @@ def _safe_float(value, default: float | None = None) -> float | None:
 
 
 def _resolve_roi_mask(metrics_settings: dict[str, object], frame_shape: tuple[int, int]) -> np.ndarray | None:
-    raw_mask = metrics_settings.get("roi_mask")
+    normalized = MetricsSettingsResolver.normalize(metrics_settings)
+    raw_mask = normalized.get("roi_mask")
     if raw_mask is not None:
-        try:
-            arr = np.asarray(raw_mask, dtype=bool)
-            if arr.ndim == 2 and arr.shape == frame_shape and np.any(arr):
-                return arr.copy()
-        except Exception:
-            pass
-    raw_points = metrics_settings.get("roi_points")
+        arr = np.asarray(raw_mask, dtype=bool)
+        if arr.ndim == 2 and arr.shape == frame_shape and np.any(arr):
+            return arr.copy()
+    raw_points = normalized.get("roi_points")
     if isinstance(raw_points, list) and raw_points:
         try:
             mask = roi_mask_from_points(raw_points, frame_shape)

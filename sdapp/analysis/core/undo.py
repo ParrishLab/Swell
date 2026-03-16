@@ -22,7 +22,7 @@ class UndoActions:
         action = self.undo_stack.pop()
         self.redo_stack.append(action)
         self._apply_state(action["frame"], action["before"], action["type"])
-        self.log_info("Undo", f"Undo: {action['type']}")
+        self.log_info("Undo", f"Applied action: {action['type']}")
         return "break"
 
     def on_redo(self, event=None):
@@ -33,7 +33,7 @@ class UndoActions:
         action = self.redo_stack.pop()
         self.undo_stack.append(action)
         self._apply_state(action["frame"], action["after"], action["type"])
-        self.log_info("Undo", f"Redo: {action['type']}")
+        self.log_info("Undo", f"Reapplied action: {action['type']}")
         return "break"
 
     def _apply_state(self, frame_idx, data, action_type):

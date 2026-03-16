@@ -9,10 +9,7 @@ from typing import Callable
 import numpy as np
 from scipy.ndimage import gaussian_filter
 
-try:
-    from .stack_reader import StackReader
-except ImportError:
-    from stack_reader import StackReader
+from .stack_reader import StackReader
 
 
 @dataclass

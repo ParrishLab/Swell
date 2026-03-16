@@ -2,10 +2,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 
-try:
-    from .host_models import EventMeta
-except ImportError:
-    from host_models import EventMeta
+from .host_models import EventMeta
 
 
 class EventCatalogService:
