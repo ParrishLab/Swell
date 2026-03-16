@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tomllib
 
 import pytest
@@ -48,6 +49,9 @@ def test_generate_compatibility_manifest_is_deterministic(tmp_path: Path) -> Non
 
 
 def test_generate_checksums_script_writes_sha256sums(tmp_path: Path) -> None:
+    if sys.platform.startswith("win"):
+        pytest.skip("Bash checksum script is not a required path on Windows CI.")
+
     shasum_available = bool(shutil.which("shasum") or shutil.which("sha256sum"))
     if not shasum_available:
         pytest.skip("No checksum tool available in environment.")
