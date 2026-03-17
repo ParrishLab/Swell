@@ -111,7 +111,7 @@ def test_download_descriptor_raises_clear_error_on_http_403(tmp_path: Path, monk
         },
     )()
 
-    def _raise_http_error(_request, timeout=120):  # noqa: ARG001
+    def _raise_http_error(_request, timeout=120, context=None):  # noqa: ARG001
         raise HTTPError(
             url="https://example.invalid/model.pt",
             code=403,
@@ -125,3 +125,58 @@ def test_download_descriptor_raises_clear_error_on_http_403(tmp_path: Path, monk
     with pytest.raises(RuntimeError) as exc_info:
         service.download_descriptor(descriptor)
     assert "forbidden" in str(exc_info.value).lower()
+
+
+def test_download_descriptor_uses_fallback_url_when_primary_fails(tmp_path: Path, monkeypatch) -> None:
+    catalog = _write_catalog(tmp_path / "catalog.json")
+    monkeypatch.setenv("SDAPP_MODELS_DIR", str((tmp_path / "managed_models").resolve()))
+    service = CheckpointRuntimeService(catalog_path=catalog)
+    descriptor = service.default_descriptor()
+    assert descriptor is not None
+    descriptor = type(
+        "D",
+        (),
+        {
+            "checkpoint_id": descriptor.checkpoint_id,
+            "filename": descriptor.filename,
+            "download_url": "https://example.invalid/primary.pt",
+            "sha256": None,
+        },
+    )()
+
+    attempted: list[str] = []
+    real_fallback = checkpoint_module.FALLBACK_DOWNLOAD_URLS_BY_ID.get("sam2.1_hiera_base_plus", [])[0]
+
+    def _fake_download(url: str, out_path: Path) -> None:
+        attempted.append(str(url))
+        if str(url).endswith("/primary.pt"):
+            raise RuntimeError("HTTP Error 403: Forbidden")
+        out_path.write_bytes(b"ok")
+
+    monkeypatch.setattr(service, "_download_url_to_file", _fake_download)
+    target = service.download_descriptor(descriptor)
+
+    assert target.exists()
+    assert attempted[0].endswith("/primary.pt")
+    assert any(url == real_fallback for url in attempted[1:])
+
+
+def test_replace_file_with_retry_eventually_succeeds(monkeypatch, tmp_path: Path) -> None:
+    service = CheckpointRuntimeService(catalog_path=_write_catalog(tmp_path / "catalog.json"))
+    src = tmp_path / "src.bin"
+    dst = tmp_path / "dst.bin"
+    src.write_bytes(b"new")
+    dst.write_bytes(b"old")
+    calls = {"count": 0}
+    real_replace = Path.replace
+
+    def _flaky_replace(self, target):  # noqa: ANN001
+        if self == src and calls["count"] < 2:
+            calls["count"] += 1
+            raise PermissionError("locked")
+        return real_replace(self, target)
+
+    monkeypatch.setattr(Path, "replace", _flaky_replace)
+
+    service._replace_file_with_retry(src, dst, retries=4, sleep_s=0.0)
+    assert dst.read_bytes() == b"new"

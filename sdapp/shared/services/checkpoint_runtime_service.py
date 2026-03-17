@@ -6,14 +6,21 @@ import json
 import os
 from pathlib import Path
 import shutil
+import ssl
 import tempfile
+import time
 from typing import Any
-from urllib.error import HTTPError
+from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 
 MANAGED_URI_PREFIX = "managed://"
 MODEL_CHECKPOINT_METADATA_KEY = "model_checkpoint"
+FALLBACK_DOWNLOAD_URLS_BY_ID = {
+    "sam2.1_hiera_base_plus": [
+        "https://huggingface.co/facebook/sam2.1-hiera-base-plus/resolve/main/sam2.1_hiera_base_plus.pt",
+    ],
+}
 
 
 @dataclass(frozen=True)
@@ -279,46 +286,120 @@ class CheckpointRuntimeService:
         return None
 
     def download_descriptor(self, descriptor: CheckpointDescriptor) -> Path:
-        if not descriptor.download_url:
+        urls = self._candidate_download_urls(descriptor)
+        if not urls:
             raise RuntimeError(f"Model catalog entry '{descriptor.checkpoint_id}' has no download URL.")
         target = self.descriptor_path(descriptor)
         target.parent.mkdir(parents=True, exist_ok=True)
-        fd, tmp_name = tempfile.mkstemp(
-            suffix=f".{descriptor.filename}.tmp",
-            dir=str(target.parent),
-        )
-        os.close(fd)
-        tmp_path = Path(tmp_name)
-        try:
-            request = Request(
-                descriptor.download_url,
-                headers={
-                    "User-Agent": "Mozilla/5.0 (compatible; SDApp/1.0; +https://github.com)",
-                    "Accept": "*/*",
-                },
+        errors: list[str] = []
+        for url in urls:
+            fd, tmp_name = tempfile.mkstemp(
+                suffix=f".{descriptor.filename}.tmp",
+                dir=str(target.parent),
             )
+            os.close(fd)
+            tmp_path = Path(tmp_name)
             try:
-                with urlopen(request, timeout=120) as response, tmp_path.open("wb") as out:
-                    shutil.copyfileobj(response, out)
-            except HTTPError as exc:
-                if int(getattr(exc, "code", 0) or 0) == 403:
+                self._download_url_to_file(url, tmp_path)
+                digest = self.compute_sha256(tmp_path)
+                if descriptor.sha256 and digest and digest.lower() != descriptor.sha256.lower():
                     raise RuntimeError(
-                        "Model download was forbidden (HTTP 403). "
-                        "The catalog URL may be stale or restricted. "
-                        "Use Select Local... as fallback."
-                    ) from exc
+                        f"Model file checksum mismatch for '{descriptor.checkpoint_id}'. "
+                        f"Expected {descriptor.sha256}, got {digest}."
+                    )
+                self._replace_file_with_retry(tmp_path, target)
+                return target.resolve()
+            except Exception as exc:  # noqa: BLE001
+                errors.append(f"{url} -> {exc}")
+            finally:
+                if tmp_path.exists():
+                    tmp_path.unlink(missing_ok=True)
+
+        if any("HTTP Error 403" in err or "403" in err for err in errors):
+            raise RuntimeError(
+                "Model download was forbidden (HTTP 403) from available URLs. "
+                "Your network may block the host or the URL may be stale. "
+                "Use Select Local... as fallback."
+            )
+        if errors:
+            raise RuntimeError(
+                "Model download failed from available URLs. "
+                f"Last error: {errors[-1]}. "
+                "Use Select Local... as fallback."
+            )
+        raise RuntimeError("Model download failed for unknown reasons.")
+
+    def _candidate_download_urls(self, descriptor: CheckpointDescriptor) -> list[str]:
+        urls: list[str] = []
+        raw = str(descriptor.download_url or "").strip()
+        if raw:
+            urls.append(raw)
+        for extra in FALLBACK_DOWNLOAD_URLS_BY_ID.get(str(descriptor.checkpoint_id), []):
+            candidate = str(extra or "").strip()
+            if candidate and candidate not in urls:
+                urls.append(candidate)
+        return urls
+
+    @staticmethod
+    def _tls_context_candidates():
+        # Prefer OS trust store first (better in enterprise Windows environments),
+        # then try certifi as a fallback when available.
+        contexts: list[ssl.SSLContext] = [ssl.create_default_context()]
+        try:
+            import certifi
+
+            certifi_ctx = ssl.create_default_context(cafile=certifi.where())
+            contexts.append(certifi_ctx)
+        except Exception:
+            pass
+        return contexts
+
+    def _download_url_to_file(self, url: str, out_path: Path) -> None:
+        request = Request(
+            str(url),
+            headers={
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) SDApp/1.0",
+                "Accept": "*/*",
+                "Referer": "https://github.com/facebookresearch/sam2",
+            },
+        )
+        last_exc: Exception | None = None
+        for context in self._tls_context_candidates():
+            try:
+                with urlopen(request, timeout=120, context=context) as response, out_path.open("wb") as out:
+                    shutil.copyfileobj(response, out)
+                return
+            except HTTPError:
                 raise
-            digest = self.compute_sha256(tmp_path)
-            if descriptor.sha256 and digest and digest.lower() != descriptor.sha256.lower():
-                raise RuntimeError(
-                    f"Model file checksum mismatch for '{descriptor.checkpoint_id}'. "
-                    f"Expected {descriptor.sha256}, got {digest}."
-                )
-            tmp_path.replace(target)
-            return target.resolve()
-        finally:
-            if tmp_path.exists():
-                tmp_path.unlink(missing_ok=True)
+            except URLError as exc:
+                last_exc = exc
+                continue
+            except ssl.SSLError as exc:
+                last_exc = exc
+                continue
+        if last_exc is not None:
+            raise last_exc
+
+    @staticmethod
+    def _replace_file_with_retry(src: Path, dst: Path, *, retries: int = 6, sleep_s: float = 0.2) -> None:
+        last_exc: Exception | None = None
+        for attempt in range(max(1, int(retries))):
+            try:
+                src.replace(dst)
+                return
+            except PermissionError as exc:
+                last_exc = exc
+                if attempt >= retries - 1:
+                    break
+                time.sleep(sleep_s * (attempt + 1))
+            except OSError as exc:
+                # Windows antivirus/indexers can transiently lock target files.
+                last_exc = exc
+                if attempt >= retries - 1:
+                    break
+                time.sleep(sleep_s * (attempt + 1))
+        if last_exc is not None:
+            raise last_exc
 
     def compare_checkpoint_metadata(
         self,
