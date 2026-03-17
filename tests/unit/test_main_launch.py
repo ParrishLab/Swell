@@ -22,8 +22,21 @@ def test_parse_launch_project_path_uses_first_positional(monkeypatch) -> None:
 
 def test_parse_main_args_detects_smoke_flag(monkeypatch) -> None:
     main_mod = _load_main_module(monkeypatch)
-    smoke, project_path = main_mod._parse_main_args(["sdapp", "--smoke-test", "/tmp/example.sdproj"])
+    smoke, smoke_model_runtime, project_path = main_mod._parse_main_args(
+        ["sdapp", "--smoke-test", "/tmp/example.sdproj"]
+    )
     assert smoke is True
+    assert smoke_model_runtime is False
+    assert project_path == "/tmp/example.sdproj"
+
+
+def test_parse_main_args_detects_model_runtime_smoke_flag(monkeypatch) -> None:
+    main_mod = _load_main_module(monkeypatch)
+    smoke, smoke_model_runtime, project_path = main_mod._parse_main_args(
+        ["sdapp", "--smoke-test", "--smoke-model-runtime", "/tmp/example.sdproj"]
+    )
+    assert smoke is True
+    assert smoke_model_runtime is True
     assert project_path == "/tmp/example.sdproj"
 
 
@@ -95,7 +108,7 @@ def test_main_smoke_test_pass(monkeypatch, capsys) -> None:
     main_mod = _load_main_module(monkeypatch)
     freeze_calls: list[str] = []
     monkeypatch.setattr(main_mod.multiprocessing, "freeze_support", lambda: freeze_calls.append("freeze"))
-    monkeypatch.setattr(main_mod, "_run_smoke_test", lambda: (True, "ok"))
+    monkeypatch.setattr(main_mod, "_run_smoke_test", lambda **_kwargs: (True, "ok"))
 
     rc = main_mod.main(["sdapp", "--smoke-test"])
     out = capsys.readouterr().out.strip()
@@ -107,7 +120,7 @@ def test_main_smoke_test_pass(monkeypatch, capsys) -> None:
 
 def test_main_smoke_test_fail(monkeypatch, capsys) -> None:
     main_mod = _load_main_module(monkeypatch)
-    monkeypatch.setattr(main_mod, "_run_smoke_test", lambda: (False, "broken:ImportError:nope"))
+    monkeypatch.setattr(main_mod, "_run_smoke_test", lambda **_kwargs: (False, "broken:ImportError:nope"))
 
     rc = main_mod.main(["sdapp", "--smoke-test"])
     out = capsys.readouterr().out.strip()
@@ -128,7 +141,7 @@ def test_main_smoke_test_skips_instance_bridge_even_with_project_path(monkeypatc
 
     monkeypatch.setattr(main_mod, "SingleInstanceBridge", lambda: _Bridge())
     monkeypatch.setattr(main_mod, "run_host_app", lambda **_kwargs: run_calls.append("run"))
-    monkeypatch.setattr(main_mod, "_run_smoke_test", lambda: (True, "ok"))
+    monkeypatch.setattr(main_mod, "_run_smoke_test", lambda **_kwargs: (True, "ok"))
 
     rc = main_mod.main(["sdapp", "--smoke-test", "/tmp/example.sdproj"])
     out = capsys.readouterr().out.strip()
@@ -166,3 +179,19 @@ def test_run_smoke_test_returns_failure_details(monkeypatch) -> None:
     ok, detail = main_mod._run_smoke_test(importer=_importer)
     assert ok is False
     assert detail.startswith(f"{target}:ImportError:missing")
+
+
+def test_run_smoke_test_model_runtime_imports_requested(monkeypatch) -> None:
+    main_mod = _load_main_module(monkeypatch)
+
+    loaded: list[str] = []
+
+    def _importer(name: str):
+        loaded.append(name)
+        return object()
+
+    ok, detail = main_mod._run_smoke_test(importer=_importer, include_model_runtime=True)
+    assert ok is True
+    assert detail == "ok"
+    assert "torch" in loaded
+    assert "sam2" in loaded

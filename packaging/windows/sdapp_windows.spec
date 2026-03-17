@@ -18,6 +18,14 @@ hiddenimports += collect_submodules("PIL")
 binaries += collect_dynamic_libs("imagecodecs")
 binaries += collect_dynamic_libs("PIL")
 
+for pkg in ("sam2", "hydra", "hydra_plugins", "omegaconf"):
+    hiddenimports += collect_submodules(pkg)
+
+for pkg in ("sam2", "hydra", "omegaconf"):
+    datas += collect_data_files(pkg)
+
+binaries += collect_dynamic_libs("torch")
+
 a = Analysis(
     [str(ROOT / "sdapp" / "main.py")],
     pathex=[str(ROOT)],

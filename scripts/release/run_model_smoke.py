@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import argparse
+import importlib
 import sys
 import tempfile
 from pathlib import Path
@@ -14,7 +16,33 @@ if str(ROOT) not in sys.path:
 from sdapp.analysis.model import DeterministicCpuFallbackPredictor, SAM2RuntimeService
 
 
-def main() -> int:
+def _require_model_runtime() -> tuple[bool, str]:
+    for module_name in ("torch", "sam2"):
+        try:
+            importlib.import_module(module_name)
+        except Exception as exc:  # noqa: BLE001
+            return False, f"{module_name}:{exc.__class__.__name__}:{exc}"
+    return True, "ok"
+
+
+def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Run SDApp model runtime smoke checks.")
+    parser.add_argument(
+        "--require-runtime",
+        action="store_true",
+        help="Require torch/sam2 imports to succeed before running fallback runtime smoke.",
+    )
+    return parser.parse_args(argv)
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = _parse_args(argv)
+    if args.require_runtime:
+        ok, detail = _require_model_runtime()
+        if not ok:
+            print(f"MODEL_SMOKE:FAIL:missing_runtime:{detail}")
+            return 1
+
     runtime = SAM2RuntimeService()
     with tempfile.TemporaryDirectory(prefix="sdapp_model_smoke_") as tmp:
         tmp_dir = Path(tmp)

@@ -2,18 +2,29 @@
 
 from pathlib import Path
 
-from PyInstaller.utils.hooks import collect_data_files
+from PyInstaller.utils.hooks import collect_data_files, collect_dynamic_libs, collect_submodules
 
 _spec_path = Path(globals().get("__file__", "packaging/sdapp.spec")).resolve()
 ROOT = _spec_path.parents[1]
 
 datas = collect_data_files("sdapp")
+binaries = []
 hiddenimports = []
+
+for pkg in ("sam2", "hydra", "hydra_plugins", "omegaconf"):
+    hiddenimports += collect_submodules(pkg)
+
+# SAM2/Hydra resolution in frozen apps can require package data files.
+for pkg in ("sam2", "hydra", "omegaconf"):
+    datas += collect_data_files(pkg)
+
+# Torch runtime libraries are needed for model-backed segmentation.
+binaries += collect_dynamic_libs("torch")
 
 a = Analysis(
     [str(ROOT / "sdapp" / "main.py")],
     pathex=[str(ROOT)],
-    binaries=[],
+    binaries=binaries,
     datas=datas,
     hiddenimports=hiddenimports,
     hookspath=[],

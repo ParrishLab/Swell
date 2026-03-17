@@ -17,6 +17,8 @@ if ! "$PYTHON_BIN" -m PyInstaller --version >/dev/null 2>&1; then
   exit 1
 fi
 
+"$PYTHON_BIN" "$REPO_ROOT/scripts/release/validate_model_runtime.py"
+
 rm -rf "$ARCH_DIST" "$WORK_PATH" "$ZIP_OUT"
 mkdir -p "$ARCH_DIST"
 

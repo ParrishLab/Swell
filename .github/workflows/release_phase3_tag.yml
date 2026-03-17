@@ -82,7 +82,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -e .[dev]
+          python -m pip install -e .[dev,model]
           python -m pip install build twine
           sudo apt-get update
           sudo apt-get install -y xvfb
@@ -97,7 +97,7 @@ jobs:
 
       - name: Run model init smoke test
         run: |
-          OUT="$(python scripts/release/run_model_smoke.py | tail -n 1)"
+          OUT="$(python scripts/release/run_model_smoke.py --require-runtime | tail -n 1)"
           test "$OUT" = "MODEL_SMOKE:PASS"
 
       - name: Run segmentation workflow smoke test
@@ -137,7 +137,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -e .[dev]
+          python -m pip install -e .[dev,model]
           python -m pip install pyinstaller
 
       - name: Run startup smoke test
@@ -145,8 +145,18 @@ jobs:
           OUT="$(python -m sdapp.main --smoke-test | tail -n 1)"
           test "$OUT" = "SMOKE_TEST:PASS"
 
+      - name: Run model runtime smoke test
+        run: |
+          OUT="$(python scripts/release/run_model_smoke.py --require-runtime | tail -n 1)"
+          test "$OUT" = "MODEL_SMOKE:PASS"
+
       - name: Build macOS arm64 app
         run: PYTHON_BIN=python ./scripts/release/build_macos_app_arm64.sh
+
+      - name: Run packaged app model runtime smoke test
+        run: |
+          OUT="$(dist/macos-arm64/SDApp.app/Contents/MacOS/SDApp --smoke-test --smoke-model-runtime | tail -n 1)"
+          test "$OUT" = "SMOKE_TEST:PASS"
 
       - name: Verify macOS arm64 outputs
         run: |
@@ -177,7 +187,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -e .[dev]
+          python -m pip install -e .[dev,model]
           python -m pip install pyinstaller
 
       - name: Run startup smoke test
@@ -185,8 +195,18 @@ jobs:
           OUT="$(python -m sdapp.main --smoke-test | tail -n 1)"
           test "$OUT" = "SMOKE_TEST:PASS"
 
+      - name: Run model runtime smoke test
+        run: |
+          OUT="$(python scripts/release/run_model_smoke.py --require-runtime | tail -n 1)"
+          test "$OUT" = "MODEL_SMOKE:PASS"
+
       - name: Build macOS x86_64 app
         run: PYTHON_BIN=python ./scripts/release/build_macos_app_x86_64.sh
+
+      - name: Run packaged app model runtime smoke test
+        run: |
+          OUT="$(dist/macos-x86_64/SDApp.app/Contents/MacOS/SDApp --smoke-test --smoke-model-runtime | tail -n 1)"
+          test "$OUT" = "SMOKE_TEST:PASS"
 
       - name: Verify macOS x86_64 outputs
         run: |
@@ -217,7 +237,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -e .[dev]
+          python -m pip install -e .[dev,model]
           python -m pip install build twine pyinstaller
 
       - name: Run test suite
@@ -232,7 +252,7 @@ jobs:
       - name: Run model init smoke test
         shell: pwsh
         run: |
-          $out = (python scripts/release/run_model_smoke.py | Select-Object -Last 1)
+          $out = (python scripts/release/run_model_smoke.py --require-runtime | Select-Object -Last 1)
           if ($out -ne "MODEL_SMOKE:PASS") { throw "Model smoke failed: $out" }
 
       - name: Run segmentation workflow smoke test
@@ -245,6 +265,12 @@ jobs:
         shell: pwsh
         run: |
           ./scripts/release/build_windows_app_x64.ps1
+
+      - name: Run packaged app model runtime smoke test
+        shell: pwsh
+        run: |
+          $out = (& "dist/windows-x64/SDApp/SDApp.exe" --smoke-test --smoke-model-runtime | Select-Object -Last 1)
+          if ($out -ne "SMOKE_TEST:PASS") { throw "Packaged app smoke failed: $out" }
 
       - name: Verify Windows package outputs
         shell: pwsh

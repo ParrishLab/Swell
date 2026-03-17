@@ -100,3 +100,28 @@ def test_segmentation_workflow_smoke_script_passes() -> None:
     script = ROOT / "scripts" / "release" / "run_segmentation_workflow_smoke.py"
     proc = subprocess.run([sys.executable, str(script)], cwd=str(ROOT), capture_output=True, text=True, check=True)
     assert "SEGMENTATION_WORKFLOW_SMOKE:PASS" in proc.stdout
+
+
+def test_validate_model_runtime_script_accepts_specified_modules() -> None:
+    script = ROOT / "scripts" / "release" / "validate_model_runtime.py"
+    proc = subprocess.run(
+        [sys.executable, str(script), "--modules", "json,sys"],
+        cwd=str(ROOT),
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    assert "MODEL_RUNTIME_VALIDATION:PASS" in proc.stdout
+
+
+def test_validate_model_runtime_script_fails_for_missing_module() -> None:
+    script = ROOT / "scripts" / "release" / "validate_model_runtime.py"
+    proc = subprocess.run(
+        [sys.executable, str(script), "--modules", "this_module_should_not_exist_12345"],
+        cwd=str(ROOT),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert proc.returncode != 0
+    assert "MODEL_RUNTIME_VALIDATION:FAIL" in proc.stdout

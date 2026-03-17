@@ -12,6 +12,7 @@ $WorkPath = Join-Path $RepoRoot "build/pyinstaller-windows-x64"
 $ZipOut = Join-Path $DistRoot "sdapp-windows-x64.zip"
 
 & $PythonBin -m PyInstaller --version | Out-Null
+& $PythonBin "$RepoRoot/scripts/release/validate_model_runtime.py"
 
 if (Test-Path $ArchDist) { Remove-Item -Recurse -Force $ArchDist }
 if (Test-Path $WorkPath) { Remove-Item -Recurse -Force $WorkPath }

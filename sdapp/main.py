@@ -20,21 +20,35 @@ def _parse_launch_project_path(argv: Sequence[str]) -> str | None:
     return None
 
 
-def _parse_main_args(argv: Sequence[str]) -> tuple[bool, str | None]:
+def _parse_main_args(argv: Sequence[str]) -> tuple[bool, bool, str | None]:
     args = list(argv)
     smoke_test = any(str(token) == "--smoke-test" for token in args[1:])
-    filtered = [args[0]] + [token for token in args[1:] if str(token) != "--smoke-test"]
-    return smoke_test, _parse_launch_project_path(filtered)
+    smoke_model_runtime = any(str(token) == "--smoke-model-runtime" for token in args[1:])
+    filtered = [
+        args[0]
+    ] + [
+        token
+        for token in args[1:]
+        if str(token) not in {"--smoke-test", "--smoke-model-runtime"}
+    ]
+    return smoke_test, smoke_model_runtime, _parse_launch_project_path(filtered)
 
 
-def _run_smoke_test(importer=importlib.import_module) -> tuple[bool, str]:
-    modules = (
+def _run_smoke_test(importer=importlib.import_module, *, include_model_runtime: bool = False) -> tuple[bool, str]:
+    modules = [
         "sdapp.main",
         "sdapp.host.ui.root_window",
         "sdapp.shared.persistence.unified_project_store",
         "sdapp.shared.services.unified_project_service",
         "sdapp.shared.menu.factory",
-    )
+    ]
+    if include_model_runtime:
+        modules.extend(
+            [
+                "torch",
+                "sam2",
+            ]
+        )
     for module_name in modules:
         try:
             importer(module_name)
@@ -46,10 +60,10 @@ def _run_smoke_test(importer=importlib.import_module) -> tuple[bool, str]:
 def main(argv: Sequence[str] | None = None) -> int:
     multiprocessing.freeze_support()
     args = list(argv) if argv is not None else list(sys.argv)
-    smoke_test, launch_project_path = _parse_main_args(args)
+    smoke_test, smoke_model_runtime, launch_project_path = _parse_main_args(args)
 
     if smoke_test:
-        ok, detail = _run_smoke_test()
+        ok, detail = _run_smoke_test(include_model_runtime=smoke_model_runtime)
         if ok:
             print("SMOKE_TEST:PASS")
             return 0
