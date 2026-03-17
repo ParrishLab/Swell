@@ -88,6 +88,24 @@ def test_open_stack_tiff_multipage_creates_page_names(tmp_path: Path) -> None:
     assert np.array_equal(reader.read_frame(1), page1)
 
 
+def test_read_tiff_falls_back_to_pillow_when_tifffile_decode_fails(tmp_path: Path, monkeypatch) -> None:
+    tiff_path = tmp_path / "stack_fallback.tif"
+    page0 = np.full((4, 5), 17, dtype=np.uint8)
+    page1 = np.full((4, 5), 33, dtype=np.uint8)
+    tifffile.imwrite(tiff_path, page0)
+    tifffile.imwrite(tiff_path, page1, append=True)
+
+    reader = StackReader()
+    reader.open_stack(tmp_path)
+
+    monkeypatch.setattr(reader, "_read_tiff_page", lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("codec")))
+    out0 = reader.read_frame(0, use_cache=False)
+    out1 = reader.read_frame(1, use_cache=False)
+
+    assert np.array_equal(out0, page0)
+    assert np.array_equal(out1, page1)
+
+
 def test_open_stack_errors_for_missing_or_empty_folder(tmp_path: Path) -> None:
     reader = StackReader()
     with pytest.raises(FileNotFoundError):

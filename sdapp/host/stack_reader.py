@@ -138,7 +138,12 @@ class StackReader:
         ref = self._frame_refs[frame_idx]
         if ref.source_ext in {".tif", ".tiff"}:
             key = 0 if ref.page_index is None else ref.page_index
-            arr = self._read_tiff_page(ref.source_path, key)
+            try:
+                arr = self._read_tiff_page(ref.source_path, key)
+            except Exception:
+                # Fallback path for frozen/runtime environments where optional TIFF
+                # codecs (for example imagecodecs variants) are unavailable.
+                arr = self._read_tiff_page_with_pillow(ref.source_path, key)
         else:
             with Image.open(ref.source_path) as img:
                 arr = np.asarray(img)
@@ -169,6 +174,15 @@ class StackReader:
             else:
                 self._tiff_handle_pool.move_to_end(path_str)
             arr = tif.pages[key].asarray()
+        return arr
+
+    def _read_tiff_page_with_pillow(self, path: Path, key: int) -> np.ndarray:
+        with Image.open(path) as img:
+            page_count = int(getattr(img, "n_frames", 1) or 1)
+            page_idx = max(0, min(int(key), max(0, page_count - 1)))
+            if page_idx:
+                img.seek(page_idx)
+            arr = np.asarray(img)
         return arr
 
     def _close_tiff_handles(self) -> None:

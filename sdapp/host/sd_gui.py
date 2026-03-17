@@ -1332,15 +1332,31 @@ class SDAnalyzerApp:
         cache_key = (int(frame_idx), int(max_w), int(max_h))
         image = self._main_render_cache.get(cache_key)
         if image is None:
-            frame = self.reader.read_frame(frame_idx, use_cache=True)
-            image = self._render_preview_image(
-                frame,
-                self.preview_label,
-                fallback_size=(1100, 800),
-                pre_normalized=False,
-                contrast_factor=1.0,
-            )
-            self._cache_main_render(cache_key, image)
+            try:
+                frame = self.reader.read_frame(frame_idx, use_cache=True)
+                image = self._render_preview_image(
+                    frame,
+                    self.preview_label,
+                    fallback_size=(1100, 800),
+                    pre_normalized=False,
+                    contrast_factor=1.0,
+                )
+                self._cache_main_render(cache_key, image)
+                setattr(self, "_preview_decode_error_shown", False)
+            except Exception as exc:
+                self._set_status("Preview load failed.")
+                self._log_error(f"Preview decode failed for frame {frame_idx}: {exc}")
+                if not bool(getattr(self, "_preview_decode_error_shown", False)):
+                    self._preview_decode_error_shown = True
+                    self._show_warning(
+                        "Preview Decode Error",
+                        (
+                            "Unable to decode one or more stack frames. "
+                            "If this is a compressed TIFF stack, required codecs may be missing in this build."
+                            f"\n\nDetails: {exc}"
+                        ),
+                    )
+                return
         self.tk_preview_image = image
         self.preview_label.configure(image=image)
 

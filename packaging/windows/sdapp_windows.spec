@@ -2,18 +2,26 @@
 
 from pathlib import Path
 
-from PyInstaller.utils.hooks import collect_data_files
+from PyInstaller.utils.hooks import collect_data_files, collect_dynamic_libs, collect_submodules
 
 _spec_path = Path(globals().get("__file__", "packaging/windows/sdapp_windows.spec")).resolve()
 ROOT = _spec_path.parents[2]
 
 datas = collect_data_files("sdapp")
+binaries = []
 hiddenimports = []
+
+# TIFF decoding in frozen Windows builds may require optional image codec
+# extension modules that PyInstaller does not always infer transitively.
+hiddenimports += collect_submodules("imagecodecs")
+hiddenimports += collect_submodules("PIL")
+binaries += collect_dynamic_libs("imagecodecs")
+binaries += collect_dynamic_libs("PIL")
 
 a = Analysis(
     [str(ROOT / "sdapp" / "main.py")],
     pathex=[str(ROOT)],
-    binaries=[],
+    binaries=binaries,
     datas=datas,
     hiddenimports=hiddenimports,
     hookspath=[],
