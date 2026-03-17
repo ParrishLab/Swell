@@ -9,8 +9,7 @@ class ProjectPathPreservationTests(unittest.TestCase):
         app._current_image_source_paths = ["old"]
         app._reset_for_new_import = lambda: setattr(app, "_current_image_source_paths", [])
         app._finalize_load_ui = lambda: None
-        app._run_thread = lambda _target: None
-        app._init_sam2_background = lambda: None
+        app.start_model_initialization = lambda **_kwargs: None
         app._mark_project_dirty = lambda _reason: None
 
         app._apply_loaded_stack(

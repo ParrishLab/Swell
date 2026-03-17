@@ -1,6 +1,7 @@
 import os
 import importlib.util
 import tempfile
+from dataclasses import dataclass
 from pathlib import Path
 from types import MethodType
 
@@ -14,6 +15,16 @@ try:
     import torch
 except Exception:
     torch = None
+
+
+@dataclass(frozen=True)
+class CheckpointOnboardingResult:
+    ok: bool
+    mode: str
+    model_path: str | None = None
+    checkpoint_id: str | None = None
+    source: str | None = None
+    message: str | None = None
 
 
 class SegmentationActions:
@@ -78,6 +89,107 @@ class SegmentationActions:
             configured_model=configured_model,
             manual_override=manual_override,
         )
+
+    def _disable_model_with_status(self, *, disable_reason: str, log_message: str, activity_message: str) -> None:
+        runtime = getattr(self, "sam2_runtime", None)
+        if runtime is not None:
+            runtime.disable(disable_reason)
+        self.log_warn("Model", log_message)
+        self.inference_manager.on_model_unloaded()
+        if self._ui_alive():
+            self.root.after(0, lambda m=str(activity_message): self._set_activity_message(m))
+
+    def resolve_checkpoint_preflight(self) -> CheckpointOnboardingResult:
+        if getattr(self, "checkpoint_runtime", None) is None:
+            return CheckpointOnboardingResult(
+                ok=False,
+                mode="disabled",
+                message="Checkpoint runtime service is unavailable.",
+                source="missing_runtime_service",
+            )
+        if importlib.util.find_spec("sam2") is None or torch is None:
+            reason = "SAM2 missing" if importlib.util.find_spec("sam2") is None else "Torch missing"
+            return CheckpointOnboardingResult(ok=True, mode="cpu_fallback", message=reason)
+
+        resolution = self._resolve_sam2_checkpoint()
+        if resolution is None or not bool(getattr(resolution, "ok", False)):
+            try:
+                onboarding = self._prompt_checkpoint_onboarding()
+            except Exception as exc:
+                self.log_error("Model", f"Checkpoint onboarding failed: {exc}")
+                if self._ui_alive():
+                    self.root.after(0, lambda: self._set_activity_message("Model Error"))
+                return CheckpointOnboardingResult(
+                    ok=False,
+                    mode="disabled",
+                    message=str(exc),
+                    source="onboarding_error",
+                )
+            if onboarding is None:
+                self._disable_model_with_status(
+                    disable_reason="checkpoint unavailable",
+                    log_message="No checkpoint selected; model tools remain disabled.",
+                    activity_message="Checkpoint Missing",
+                )
+                return CheckpointOnboardingResult(
+                    ok=False,
+                    mode="disabled",
+                    message="Checkpoint selection was cancelled.",
+                    source="onboarding_cancelled",
+                )
+            model_path = str(onboarding.get("path", "")).strip()
+            checkpoint_id = str(onboarding.get("checkpoint_id", "") or "").strip() or None
+            source = str(onboarding.get("source", "") or "manual_override")
+        else:
+            model_path = str(resolution.path or "").strip()
+            checkpoint_id = str(resolution.checkpoint_id or "").strip() or None
+            source = str(resolution.source or "resolved")
+        if not model_path or not os.path.exists(model_path):
+            message = f"Model file not found: {model_path}"
+            self.log_error("Model", message)
+            if self._ui_alive():
+                self.root.after(0, lambda: self._set_activity_message("Model Error"))
+            return CheckpointOnboardingResult(ok=False, mode="disabled", message=message, source="missing_model")
+
+        model_path, checkpoint_id, source, allowed = self._resolve_mismatch_choice(model_path, checkpoint_id, source)
+        if not allowed:
+            self._disable_model_with_status(
+                disable_reason="checkpoint mismatch",
+                log_message="Checkpoint mismatch unresolved; model tools disabled.",
+                activity_message="Model Disabled",
+            )
+            return CheckpointOnboardingResult(
+                ok=False,
+                mode="disabled",
+                message="Checkpoint mismatch unresolved.",
+                source="mismatch",
+            )
+        return CheckpointOnboardingResult(
+            ok=True,
+            mode="sam2",
+            model_path=str(model_path),
+            checkpoint_id=checkpoint_id,
+            source=source,
+        )
+
+    def start_model_initialization(self, *, reason: str = "manual") -> CheckpointOnboardingResult:
+        if getattr(self, "checkpoint_runtime", None) is None:
+            legacy_target = getattr(self, "_init_sam2_background", None)
+            if callable(legacy_target) and callable(getattr(self, "_run_thread", None)):
+                try:
+                    self._run_thread(legacy_target, loading_text="Initializing model...")
+                except TypeError:
+                    self._run_thread(legacy_target)
+                return CheckpointOnboardingResult(ok=True, mode="legacy", source="legacy")
+        preflight = self.resolve_checkpoint_preflight()
+        if not preflight.ok:
+            self.log_info("Model", f"Model initialization skipped ({reason}): {preflight.message or preflight.source or 'not ready'}")
+            return preflight
+        self._run_thread(
+            lambda p=preflight: self.init_runtime_background(p),
+            loading_text="Initializing model...",
+        )
+        return preflight
 
     def _prompt_checkpoint_onboarding(self):
         service = getattr(self, "checkpoint_runtime", None)
@@ -211,7 +323,7 @@ class SegmentationActions:
         self._manual_model_override = selected_path
         return selected_path, selected_id, "project_recorded_override", True
 
-    def _init_sam2_background(self):
+    def init_runtime_background(self, preflight: CheckpointOnboardingResult):
         try:
             if self.frames_sub_viz is None:
                 raise RuntimeError("No frames loaded. Import images first.")
@@ -219,44 +331,16 @@ class SegmentationActions:
             if frames_viz.ndim != 3 or int(frames_viz.shape[0]) <= 0:
                 raise RuntimeError("No valid visualization frames are available. Import images first.")
 
-            if importlib.util.find_spec("sam2") is None or torch is None:
-                reason = "SAM2 missing" if importlib.util.find_spec("sam2") is None else "Torch missing"
-                self._initialize_cpu_fallback(frames_viz, reason=reason)
+            if str(preflight.mode) == "cpu_fallback":
+                self._initialize_cpu_fallback(frames_viz, reason=str(preflight.message or "fallback"))
                 return
 
             resource_root = getattr(self, "resource_root", self.app_root)
-            resolution = self._resolve_sam2_checkpoint()
-            if resolution is None or not bool(getattr(resolution, "ok", False)):
-                onboarding = self._prompt_checkpoint_onboarding()
-                if onboarding is None:
-                    runtime = getattr(self, "sam2_runtime", None)
-                    if runtime is not None:
-                        runtime.disable("checkpoint unavailable")
-                    self.log_warn("Model", "No checkpoint selected; model tools remain disabled.")
-                    self.inference_manager.on_model_unloaded()
-                    if self._ui_alive():
-                        self.root.after(0, lambda: self._set_activity_message("Checkpoint Missing"))
-                    return
-                model_path = str(onboarding.get("path", "")).strip()
-                checkpoint_id = str(onboarding.get("checkpoint_id", "") or "").strip() or None
-                source = str(onboarding.get("source", "") or "manual_override")
-            else:
-                model_path = str(resolution.path or "").strip()
-                checkpoint_id = str(resolution.checkpoint_id or "").strip() or None
-                source = str(resolution.source or "resolved")
+            model_path = str(preflight.model_path or "").strip()
+            checkpoint_id = str(preflight.checkpoint_id or "").strip() or None
+            source = str(preflight.source or "resolved")
             if not model_path or not os.path.exists(model_path):
                 raise RuntimeError(f"Model file not found: {model_path}")
-
-            model_path, checkpoint_id, source, allowed = self._resolve_mismatch_choice(model_path, checkpoint_id, source)
-            if not allowed:
-                runtime = getattr(self, "sam2_runtime", None)
-                if runtime is not None:
-                    runtime.disable("checkpoint mismatch")
-                self.log_warn("Model", "Checkpoint mismatch unresolved; model tools disabled.")
-                self.inference_manager.on_model_unloaded()
-                if self._ui_alive():
-                    self.root.after(0, lambda: self._set_activity_message("Model Disabled"))
-                return
 
             runtime = getattr(self, "sam2_runtime", None)
             if runtime is None:
@@ -365,6 +449,13 @@ class SegmentationActions:
                     ),
                 )
 
+    def _init_sam2_background(self):
+        # Compatibility shim retained for legacy call sites/tests.
+        preflight = self.resolve_checkpoint_preflight()
+        if not preflight.ok:
+            return
+        self.init_runtime_background(preflight)
+
     def _update_mask_prediction(self, frame_idx):
         self.inference_manager.enqueue_frame_inference(frame_idx, reason="frame_update")
 
@@ -379,6 +470,22 @@ class SegmentationActions:
             self.update_display()
 
     def _trigger_background_propagation(self):
+        if not self.model_ready or self.predictor is None or self.inference_state is None:
+            self.log_warn("Propagation", "Propagation blocked: model runtime is not ready.")
+            if self._ui_alive():
+                self.root.after(0, lambda: self._set_activity_message("Model Disabled"))
+            open_manager = messagebox.askyesno(
+                "Model Not Ready",
+                (
+                    "Model-based propagation is not available because the model is not ready.\n\n"
+                    "Open Checkpoint Manager now to download/select a checkpoint?"
+                ),
+                parent=self.root,
+            )
+            if open_manager and callable(getattr(self, "open_checkpoint_manager", None)):
+                self.root.after(0, self.open_checkpoint_manager)
+            return
+
         self._prune_empty_point_frames()
 
         total_frames = len(self.frames_raw) if self.frames_raw is not None else 0

@@ -156,7 +156,7 @@ class AnalysisHostModeController:
             model_path = ""
         if model_path:
             self.app.log_info("HostMode", "Initializing SAM2 for host-driven workspace...")
-            self.app._run_thread(self.app._init_sam2_background)
+            self.app.start_model_initialization(reason="host_context_open")
         else:
             self.app.log_warn("HostMode", "No SAM2 model configured; model tools will remain disabled.")
         return result
@@ -227,7 +227,7 @@ class AnalysisHostModeController:
             model_path = ""
         if model_path:
             self.app.log_info("HostMode", "Initializing SAM2 for host-driven workspace...")
-            self.app._run_thread(self.app._init_sam2_background)
+            self.app.start_model_initialization(reason="host_handoff_open")
         else:
             self.app.log_warn("HostMode", "No SAM2 model configured; model tools will remain disabled.")
         return result

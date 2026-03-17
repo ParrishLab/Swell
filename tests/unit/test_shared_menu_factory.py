@@ -59,12 +59,19 @@ class _App:
     def validate_assets_from_menu(self):
         return None
 
+    def open_checkpoint_manager(self):
+        return None
+
     def on_close(self):
         return None
 
 
 def _file_menu(menu):
     return next(c["menu"] for c in menu.cascades if c["label"] == "File")
+
+
+def _model_menu(menu):
+    return next(c["menu"] for c in menu.cascades if c["label"] == "Model")
 
 
 def _state_by_label(file_menu):
@@ -95,3 +102,12 @@ def test_host_menu_keeps_project_lifecycle_actions_enabled():
     assert states["Save SD Project"] == "normal"
     assert "Import Folder..." not in states
     assert "Set Output Folder..." not in states
+
+
+def test_host_menu_exposes_checkpoint_manager_action():
+    root = _FakeRoot()
+    app = _App()
+    with patch("sdapp.shared.menu.factory.tk.Menu", _FakeMenu):
+        menu = build_shared_menu(root, app, mode="host", host_mode=False)
+    model_states = _state_by_label(_model_menu(menu))
+    assert model_states["Manage Checkpoints..."] == "normal"

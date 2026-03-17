@@ -14,6 +14,16 @@ class HostProjectLifecycleController:
     def _dialog_parent(self):
         return getattr(self.app, "root", None)
 
+    @staticmethod
+    def _save_as_initial_name(current_project_path: str | None, *, default_base: str) -> str:
+        if not current_project_path:
+            return str(default_base)
+        current_name = Path(str(current_project_path)).name
+        if current_name.lower().endswith(".sdproj"):
+            stem = Path(current_name).stem
+            return stem or str(default_base)
+        return current_name
+
     def new_project(self) -> None:
         folder = filedialog.askdirectory(
             parent=self._dialog_parent(),
@@ -60,11 +70,10 @@ class HostProjectLifecycleController:
             self.app._show_warning("Save SD Project", "Load a stack before saving.")
             return
         initial_dir = None
-        initial_name = "session.sdproj"
+        initial_name = self._save_as_initial_name(self.app.current_project_path, default_base="session")
         if self.app.current_project_path:
             current = Path(self.app.current_project_path)
             initial_dir = str(current.parent)
-            initial_name = current.name
         else:
             initial_dir = self.app.output_var.get().strip() or str(Path.cwd())
         path = filedialog.asksaveasfilename(

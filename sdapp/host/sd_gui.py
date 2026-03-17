@@ -456,6 +456,27 @@ class SDAnalyzerApp:
     def _save_project_from_analysis(self, project_path: str) -> dict:
         return self._get_project_controller().save_project_from_analysis(project_path)
 
+    def open_checkpoint_manager(self) -> None:
+        active_id = self._active_event_id()
+        refs = list(self.analysis_window_manager.list_windows())
+        target = None
+        if active_id is not None:
+            target = self.analysis_window_manager.get("__project__", str(active_id))
+        if target is None and refs:
+            target = refs[0]
+        if target is None or not hasattr(target.app, "open_checkpoint_manager"):
+            self._show_warning(
+                "Manage Checkpoints",
+                "Open an analysis window first, then use Model > Manage Checkpoints...",
+            )
+            return
+        try:
+            target.window.lift()
+            target.window.focus_force()
+        except Exception:
+            pass
+        target.app.open_checkpoint_manager()
+
     def close_analysis_windows_with_prompt(self) -> dict:
         return self._get_project_controller().close_analysis_windows_with_prompt()
 

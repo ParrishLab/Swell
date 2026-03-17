@@ -640,7 +640,6 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         self.loading_bar.stop()
         if self.loading_bar.winfo_ismapped():
             self.loading_bar.pack_forget()
-        self.loading_status_var.set("Idle")
 
     def _set_activity_message(self, text: str) -> None:
         if not hasattr(self, "loading_status_var"):
@@ -1076,7 +1075,7 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
 
     def load_model_from_menu(self):
         self.log_info("Model", "Loading SAM2 model...")
-        self._run_thread(self._init_sam2_background)
+        self.start_model_initialization(reason="menu_load")
 
     def validate_assets_from_menu(self):
         self._validate_assets()
@@ -1172,7 +1171,7 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         self.analysis_workspace.open_event("sd_event_001")
 
         self._finalize_load_ui()
-        self._run_thread(self._init_sam2_background)
+        self.start_model_initialization(reason="stack_loaded")
         self._mark_project_dirty("import_stack")
 
     def on_right_canvas_click(self, event):
@@ -1396,6 +1395,9 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
 
     def on_browse_model(self):
         self._get_model_controller().browse_model()
+
+    def open_checkpoint_manager(self):
+        self._get_model_controller().open_checkpoint_manager()
 
     def _focus_is_text_input(self):
         try:

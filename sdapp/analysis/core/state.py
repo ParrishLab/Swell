@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any, Dict
 
 from sdapp.analysis.utils.paths import get_app_root, get_resources_root, resolve_path, get_runtime_root
+from sdapp.shared.services.checkpoint_runtime_service import is_managed_uri
 
 
 @dataclass
@@ -50,5 +51,11 @@ class AppConfig:
             return candidate
         return (get_runtime_root() / candidate).resolve()
 
-    def model_path(self) -> Path:
-        return resolve_path(self.default_model)
+    def model_token(self) -> str:
+        return str(self.default_model or "").strip()
+
+    def model_path(self) -> Path | str:
+        token = self.model_token()
+        if is_managed_uri(token):
+            return token
+        return resolve_path(token)

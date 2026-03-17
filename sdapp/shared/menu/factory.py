@@ -38,6 +38,7 @@ def build_shared_menu(root, app, *, mode: str, host_mode: bool = False) -> tk.Me
             ("Exit", ("_on_root_close", "on_close")),
         ]
     config_items = [
+        ("Manage Checkpoints...", ("open_checkpoint_manager",)),
         ("Set Model Path...", ("on_browse_model",)),
         ("Load Model", ("load_model_from_menu",)),
         ("Validate Assets", ("validate_assets_from_menu", "_validate_assets")),
@@ -61,8 +62,14 @@ def build_shared_menu(root, app, *, mode: str, host_mode: bool = False) -> tk.Me
 
     menu.add_cascade(label="File", menu=file_menu)
 
+    config_allow = {
+        "Manage Checkpoints...": {"analysis", "host"},
+        "Set Model Path...": {"analysis"},
+        "Load Model": {"analysis"},
+        "Validate Assets": {"analysis"},
+    }
     for label, names in config_items:
-        allowed = {"analysis"}
+        allowed = config_allow.get(label, {"analysis"})
         if mode not in allowed:
             config_menu.add_command(label=label, state="disabled")
             continue

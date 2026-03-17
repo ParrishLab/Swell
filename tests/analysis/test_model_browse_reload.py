@@ -27,8 +27,7 @@ class ModelBrowseReloadTests(unittest.TestCase):
         app.app_root = "/tmp"
         app.entry_model = _EntryStub("/tmp/models/a.pt")
         ran = {"count": 0}
-        app._run_thread = lambda _fn: ran.__setitem__("count", ran["count"] + 1)
-        app._init_sam2_background = lambda: None
+        app.start_model_initialization = lambda **_kwargs: ran.__setitem__("count", ran["count"] + 1)
         app.log_info = lambda *_args, **_kwargs: None
         ask_mock.return_value = "/tmp/models/a.pt"
 
@@ -42,8 +41,7 @@ class ModelBrowseReloadTests(unittest.TestCase):
         app.app_root = "/tmp"
         app.entry_model = _EntryStub("/tmp/models/a.pt")
         ran = {"count": 0}
-        app._run_thread = lambda _fn: ran.__setitem__("count", ran["count"] + 1)
-        app._init_sam2_background = lambda: None
+        app.start_model_initialization = lambda **_kwargs: ran.__setitem__("count", ran["count"] + 1)
         app.log_info = lambda *_args, **_kwargs: None
         ask_mock.return_value = "/tmp/models/b.pt"
 

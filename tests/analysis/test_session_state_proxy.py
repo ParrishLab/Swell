@@ -115,8 +115,7 @@ class SessionStateProxyTests(unittest.TestCase):
         app._finalize_load_ui = lambda: None
         app.log_info = lambda *_args, **_kwargs: None
         app.log_warn = lambda *_args, **_kwargs: None
-        app._run_thread = lambda _fn: setattr(app, "_thread_started", True)
-        app._init_sam2_background = lambda: None
+        app.start_model_initialization = lambda **_kwargs: setattr(app, "_thread_started", True)
         app.entry_model = type("E", (), {"get": lambda self: "/tmp/model.pt"})()
         app.frame_source = None
         app.app_context = None

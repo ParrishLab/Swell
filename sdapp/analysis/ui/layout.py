@@ -19,7 +19,7 @@ class LayoutBuilder:
         self.entry_output.insert(0, str(self.config.output_path()))
 
         self.entry_model = tk.Entry(self.root, width=35)
-        self.entry_model.insert(0, str(self.config.model_path()))
+        self.entry_model.insert(0, self.config.model_token())
 
         self.spin_baseline = tk.Spinbox(self.root, from_=1, to=100, width=5)
         self._set_spinbox_value(self.spin_baseline, self.config.default_baseline)
