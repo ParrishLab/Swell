@@ -56,7 +56,10 @@ try:
     import sam2  # noqa: F401
 except ImportError:
     print("WARNING: 'sam2' package not found. Model-based tools will be disabled (review-only mode).")
-    print("Install SAM2 for model-based segmentation: pip install git+https://github.com/facebookresearch/sam2.git")
+    print(
+        "Install SAM2 for model-based segmentation: "
+        'pip install "sam-2 @ git+https://github.com/facebookresearch/sam2.git"'
+    )
     print(f"Python interpreter: {sys.executable}")
 
 
