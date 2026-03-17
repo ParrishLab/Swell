@@ -189,12 +189,18 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
 
       - name: Install dependencies
+        shell: pwsh
         run: |
           python -m pip install --upgrade pip
           python -m pip install -e ".[dev]"
-          python -m pip install -e ".[model]"
-          python -m pip install pytest
-          python -m pip install build twine pyinstaller
+          python -m pip install pytest build twine pyinstaller hydra-core
+          python -m pip install --index-url https://download.pytorch.org/whl/cpu torch
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "CPU-index torch install failed; retrying from default index..."
+            python -m pip install torch
+          }
+          if ($LASTEXITCODE -ne 0) { throw "Failed to install torch on Windows runner." }
+          python -m pip install "sam2 @ git+https://github.com/facebookresearch/sam2.git"
 
       - name: Verify pytest install
         shell: pwsh
