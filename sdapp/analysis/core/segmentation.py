@@ -10,6 +10,16 @@ import numpy as np
 from tkinter import filedialog, messagebox
 
 from sdapp.analysis.model import DeterministicCpuFallbackPredictor
+from sdapp.shared.model_copy import (
+    STATUS_MODEL_DISABLED,
+    STATUS_MODEL_ERROR,
+    STATUS_MODEL_FILE_MISSING,
+    STATUS_MODEL_READY,
+    TITLE_MODEL_FILE_REQUIRED,
+    TITLE_MODEL_METADATA_MISMATCH,
+    mismatch_body,
+    onboarding_body,
+)
 
 try:
     import torch
@@ -104,7 +114,7 @@ class SegmentationActions:
             return CheckpointOnboardingResult(
                 ok=False,
                 mode="disabled",
-                message="Checkpoint runtime service is unavailable.",
+                message="Model runtime service is unavailable.",
                 source="missing_runtime_service",
             )
         if importlib.util.find_spec("sam2") is None or torch is None:
@@ -116,9 +126,9 @@ class SegmentationActions:
             try:
                 onboarding = self._prompt_checkpoint_onboarding()
             except Exception as exc:
-                self.log_error("Model", f"Checkpoint onboarding failed: {exc}")
+                self.log_error("Model", f"Model setup prompt failed: {exc}")
                 if self._ui_alive():
-                    self.root.after(0, lambda: self._set_activity_message("Model Error"))
+                    self.root.after(0, lambda: self._set_activity_message(STATUS_MODEL_ERROR))
                 return CheckpointOnboardingResult(
                     ok=False,
                     mode="disabled",
@@ -128,13 +138,13 @@ class SegmentationActions:
             if onboarding is None:
                 self._disable_model_with_status(
                     disable_reason="checkpoint unavailable",
-                    log_message="No checkpoint selected; model tools remain disabled.",
-                    activity_message="Checkpoint Missing",
+                    log_message="No model file selected; model-based tools remain disabled.",
+                    activity_message=STATUS_MODEL_FILE_MISSING,
                 )
                 return CheckpointOnboardingResult(
                     ok=False,
                     mode="disabled",
-                    message="Checkpoint selection was cancelled.",
+                    message="Model file selection was cancelled.",
                     source="onboarding_cancelled",
                 )
             model_path = str(onboarding.get("path", "")).strip()
@@ -148,20 +158,20 @@ class SegmentationActions:
             message = f"Model file not found: {model_path}"
             self.log_error("Model", message)
             if self._ui_alive():
-                self.root.after(0, lambda: self._set_activity_message("Model Error"))
+                self.root.after(0, lambda: self._set_activity_message(STATUS_MODEL_ERROR))
             return CheckpointOnboardingResult(ok=False, mode="disabled", message=message, source="missing_model")
 
         model_path, checkpoint_id, source, allowed = self._resolve_mismatch_choice(model_path, checkpoint_id, source)
         if not allowed:
             self._disable_model_with_status(
                 disable_reason="checkpoint mismatch",
-                log_message="Checkpoint mismatch unresolved; model tools disabled.",
-                activity_message="Model Disabled",
+                log_message="Model metadata mismatch unresolved; model-based tools disabled.",
+                activity_message=STATUS_MODEL_DISABLED,
             )
             return CheckpointOnboardingResult(
                 ok=False,
                 mode="disabled",
-                message="Checkpoint mismatch unresolved.",
+                message="Model metadata mismatch unresolved.",
                 source="mismatch",
             )
         return CheckpointOnboardingResult(
@@ -199,13 +209,8 @@ class SegmentationActions:
         if descriptor is None:
             return None
         response = messagebox.askyesnocancel(
-            "Model Checkpoint Required",
-            (
-                "No local SAM2 checkpoint is available.\n\n"
-                "Yes = Download approved default checkpoint\n"
-                "No = Select a local checkpoint file\n"
-                "Cancel = Keep model tools disabled"
-            ),
+            TITLE_MODEL_FILE_REQUIRED,
+            onboarding_body(),
             parent=self.root,
         )
         if response is None:
@@ -217,9 +222,12 @@ class SegmentationActions:
                 "checkpoint_id": descriptor.checkpoint_id,
                 "source": "managed_download",
             }
+        center_window = getattr(self, "_center_window", None)
+        if callable(center_window):
+            center_window(self.root)
         selected = filedialog.askopenfilename(
             parent=self.root,
-            title="Select SAM2 Checkpoint",
+            title="Select SAM2 Model File",
             filetypes=[("PyTorch model", "*.pt *.pth"), ("All files", "*.*")],
         )
         if not selected:
@@ -295,13 +303,8 @@ class SegmentationActions:
         if match:
             return model_path, checkpoint_id, source, True
         response = messagebox.askyesnocancel(
-            "Checkpoint Mismatch",
-            (
-                f"{detail}\n\n"
-                "Yes = Switch to project-recorded checkpoint\n"
-                "No = Continue with current checkpoint\n"
-                "Cancel = Disable model tools (review-only)"
-            ),
+            TITLE_MODEL_METADATA_MISMATCH,
+            mismatch_body(detail),
             parent=self.root,
         )
         if response is None:
@@ -311,9 +314,12 @@ class SegmentationActions:
         recorded_path = str((recorded or {}).get("path") or "").strip()
         if recorded_path and os.path.exists(recorded_path):
             return recorded_path, str((recorded or {}).get("checkpoint_id") or "").strip() or None, "project_recorded", True
+        center_window = getattr(self, "_center_window", None)
+        if callable(center_window):
+            center_window(self.root)
         selected = filedialog.askopenfilename(
             parent=self.root,
-            title="Select Project-Recorded Checkpoint",
+            title="Select Project-Recorded Model File",
             filetypes=[("PyTorch model", "*.pt *.pth"), ("All files", "*.*")],
         )
         if not selected:
@@ -426,7 +432,7 @@ class SegmentationActions:
                 pass
             self.log_success("Model", "SAM2 model is ready.")
             if self._ui_alive():
-                self.root.after(0, lambda: self._set_activity_message("Model Ready"))
+                self.root.after(0, lambda: self._set_activity_message(STATUS_MODEL_READY))
                 if hasattr(self, "btn_save_masks"):
                     self.root.after(0, lambda: self.btn_save_masks.configure(state="normal"))
                 self.root.after(0, self._process_pending_points)
@@ -439,7 +445,7 @@ class SegmentationActions:
                 runtime.status.message = msg
             self.inference_manager.on_model_unloaded()
             if self._ui_alive():
-                self.root.after(0, lambda: self._set_activity_message("Model Error"))
+                self.root.after(0, lambda: self._set_activity_message(STATUS_MODEL_ERROR))
                 self.root.after(
                     0,
                     lambda m=msg: messagebox.showerror(
@@ -473,16 +479,27 @@ class SegmentationActions:
         if not self.model_ready or self.predictor is None or self.inference_state is None:
             self.log_warn("Propagation", "Propagation blocked: model runtime is not ready.")
             if self._ui_alive():
-                self.root.after(0, lambda: self._set_activity_message("Model Disabled"))
+                self.root.after(0, lambda: self._set_activity_message(STATUS_MODEL_DISABLED))
             open_manager = messagebox.askyesno(
                 "Model Not Ready",
                 (
                     "Model-based propagation is not available because the model is not ready.\n\n"
-                    "Open Checkpoint Manager now to download/select a checkpoint?"
+                    "Open Model Manager now to download/select a model file?"
                 ),
                 parent=self.root,
             )
-            if open_manager and callable(getattr(self, "open_checkpoint_manager", None)):
+            legacy_open = None
+            try:
+                legacy_open = self.__dict__.get("open_checkpoint_manager")
+            except Exception:
+                legacy_open = None
+            if open_manager and callable(legacy_open):
+                self.root.after(0, legacy_open)
+                return
+            open_model_manager = getattr(self, "open_model_manager", None)
+            if open_manager and callable(open_model_manager):
+                self.root.after(0, open_model_manager)
+            elif open_manager and callable(getattr(self, "open_checkpoint_manager", None)):
                 self.root.after(0, self.open_checkpoint_manager)
             return
 

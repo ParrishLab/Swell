@@ -9,6 +9,7 @@ import pytest
 import sdapp.shared.services.checkpoint_runtime_service as checkpoint_module
 from sdapp.shared.services.checkpoint_runtime_service import (
     CheckpointRuntimeService,
+    MODEL_CHECKPOINT_METADATA_KEY,
     is_managed_uri,
     managed_uri_to_id,
 )
@@ -35,6 +36,11 @@ def test_managed_uri_helpers() -> None:
     assert managed_uri_to_id("managed://sam2.1_hiera_base_plus") == "sam2.1_hiera_base_plus"
     assert not is_managed_uri("models/x.pt")
     assert managed_uri_to_id("models/x.pt") is None
+
+
+def test_internal_metadata_key_remains_legacy_checkpoint_key() -> None:
+    # Keep persisted contract stable while UI terminology says "model".
+    assert MODEL_CHECKPOINT_METADATA_KEY == "model_checkpoint"
 
 
 def test_resolution_prefers_project_recorded(tmp_path: Path) -> None:

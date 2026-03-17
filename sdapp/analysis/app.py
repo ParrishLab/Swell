@@ -755,6 +755,26 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         except tk.TclError:
             return False
 
+    def _center_window(self, window=None) -> None:
+        target = window if window is not None else self.root
+        if target is None:
+            return
+        try:
+            target.update_idletasks()
+            width = int(target.winfo_width())
+            height = int(target.winfo_height())
+            if width <= 1:
+                width = int(target.winfo_reqwidth())
+            if height <= 1:
+                height = int(target.winfo_reqheight())
+            width = max(1, width)
+            height = max(1, height)
+            x = max(0, int((int(target.winfo_screenwidth()) - width) / 2))
+            y = max(0, int((int(target.winfo_screenheight()) - height) / 2))
+            target.geometry(f"{width}x{height}+{x}+{y}")
+        except Exception:
+            return
+
     def _get_frames_raw(self):
         frame_source = getattr(self, "frame_source", None)
         frames_raw = getattr(self, "frames_raw", None)
@@ -1050,19 +1070,19 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
                 descriptor_id = model_token.split("managed://", 1)[-1].strip()
                 descriptor = self.checkpoint_runtime.find_descriptor(descriptor_id)
                 if descriptor is None:
-                    missing.append("managed checkpoint catalog entry")
+                    missing.append("managed model catalog entry")
                 else:
                     managed_path = self.checkpoint_runtime.descriptor_path(descriptor)
                     if not managed_path.exists():
-                        missing.append("managed checkpoint file")
+                        missing.append("managed model file")
             else:
                 model_path = model_token
                 if model_path and not os.path.isabs(model_path):
                     model_path = os.path.join(resource_root, model_path)
                 if not model_path or not os.path.exists(model_path):
-                    missing.append("model weights")
+                    missing.append("model file")
         else:
-            missing.append("model checkpoint")
+            missing.append("model file")
 
         configs_root = os.path.join(resource_root, "configs")
         if not os.path.exists(configs_root):
@@ -1397,7 +1417,10 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         self._get_model_controller().browse_model()
 
     def open_checkpoint_manager(self):
-        self._get_model_controller().open_checkpoint_manager()
+        self._get_model_controller().open_model_manager()
+
+    def open_model_manager(self):
+        self._get_model_controller().open_model_manager()
 
     def _focus_is_text_input(self):
         try:
@@ -1488,12 +1511,12 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         try:
             result = updater(payload)
         except Exception as exc:
-            self.log_warn("HostSync", f"Direct host checkpoint update failed: {exc}")
+            self.log_warn("HostSync", f"Direct host model metadata update failed: {exc}")
             return {"ok": False, "code": "PAYLOAD_INVALID", "message": str(exc)}
         if isinstance(result, dict) and not bool(result.get("ok", False)):
             code = str(result.get("code", "PAYLOAD_INVALID"))
-            message = str(result.get("message", "Host rejected checkpoint update."))
-            self.log_warn("HostSync", f"Host rejected checkpoint update [{code}]: {message}")
+            message = str(result.get("message", "Host rejected model metadata update."))
+            self.log_warn("HostSync", f"Host rejected model metadata update [{code}]: {message}")
         return result if isinstance(result, dict) else {"ok": True}
 
     def _set_active_checkpoint_metadata(self, metadata: dict | None, *, notify_host: bool = True, reason: str = "update") -> None:

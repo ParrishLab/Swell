@@ -250,7 +250,7 @@ class CheckpointRuntimeService:
                     source="configured_managed_uri",
                     checkpoint_id=checkpoint_id,
                     descriptor=descriptor,
-                    message=f"Managed checkpoint is not available locally: {configured}",
+                    message=f"Managed model file is not available locally: {configured}",
                 )
 
             p = Path(configured).expanduser().resolve()
@@ -267,7 +267,7 @@ class CheckpointRuntimeService:
             ok=False,
             path=None,
             source="missing",
-            message="No valid checkpoint path is available.",
+            message="No valid model file path is available.",
         )
 
     def infer_checkpoint_id_from_path(self, path: str | Path) -> str | None:
@@ -280,7 +280,7 @@ class CheckpointRuntimeService:
 
     def download_descriptor(self, descriptor: CheckpointDescriptor) -> Path:
         if not descriptor.download_url:
-            raise RuntimeError(f"Checkpoint '{descriptor.checkpoint_id}' has no download URL.")
+            raise RuntimeError(f"Model catalog entry '{descriptor.checkpoint_id}' has no download URL.")
         target = self.descriptor_path(descriptor)
         target.parent.mkdir(parents=True, exist_ok=True)
         fd, tmp_name = tempfile.mkstemp(
@@ -303,7 +303,7 @@ class CheckpointRuntimeService:
             except HTTPError as exc:
                 if int(getattr(exc, "code", 0) or 0) == 403:
                     raise RuntimeError(
-                        "Checkpoint download was forbidden (HTTP 403). "
+                        "Model download was forbidden (HTTP 403). "
                         "The catalog URL may be stale or restricted. "
                         "Use Select Local... as fallback."
                     ) from exc
@@ -311,7 +311,7 @@ class CheckpointRuntimeService:
             digest = self.compute_sha256(tmp_path)
             if descriptor.sha256 and digest and digest.lower() != descriptor.sha256.lower():
                 raise RuntimeError(
-                    f"Checksum mismatch for '{descriptor.checkpoint_id}'. "
+                    f"Model file checksum mismatch for '{descriptor.checkpoint_id}'. "
                     f"Expected {descriptor.sha256}, got {digest}."
                 )
             tmp_path.replace(target)
@@ -328,11 +328,11 @@ class CheckpointRuntimeService:
         a = self.normalize_metadata(recorded)
         b = self.normalize_metadata(active)
         if a is None or b is None:
-            return False, "Checkpoint metadata is missing."
+            return False, "Project-recorded model metadata is missing."
         if a.get("sha256") and b.get("sha256") and a.get("sha256") != b.get("sha256"):
-            return False, "Checkpoint hash differs from recorded project checkpoint."
+            return False, "Model file hash differs from project-recorded model metadata."
         if a.get("checkpoint_id") and b.get("checkpoint_id") and a.get("checkpoint_id") != b.get("checkpoint_id"):
-            return False, "Checkpoint id differs from recorded project checkpoint."
+            return False, "Model id differs from project-recorded model metadata."
         if a.get("filename") and b.get("filename") and a.get("filename") != b.get("filename"):
-            return False, "Checkpoint filename differs from recorded project checkpoint."
-        return True, "Checkpoint metadata matches."
+            return False, "Model filename differs from project-recorded model metadata."
+        return True, "Model metadata matches."

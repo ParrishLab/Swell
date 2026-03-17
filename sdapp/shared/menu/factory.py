@@ -3,6 +3,8 @@ from __future__ import annotations
 import tkinter as tk
 from typing import Callable, Iterable
 
+from sdapp.shared.model_copy import MENU_MANAGE_MODELS
+
 MenuCommand = Callable[[], None]
 
 
@@ -38,7 +40,7 @@ def build_shared_menu(root, app, *, mode: str, host_mode: bool = False) -> tk.Me
             ("Exit", ("_on_root_close", "on_close")),
         ]
     config_items = [
-        ("Manage Checkpoints...", ("open_checkpoint_manager",)),
+        (MENU_MANAGE_MODELS, ("open_model_manager", "open_checkpoint_manager")),
         ("Set Model Path...", ("on_browse_model",)),
         ("Load Model", ("load_model_from_menu",)),
         ("Validate Assets", ("validate_assets_from_menu", "_validate_assets")),
@@ -63,7 +65,7 @@ def build_shared_menu(root, app, *, mode: str, host_mode: bool = False) -> tk.Me
     menu.add_cascade(label="File", menu=file_menu)
 
     config_allow = {
-        "Manage Checkpoints...": {"analysis", "host"},
+        MENU_MANAGE_MODELS: {"analysis", "host"},
         "Set Model Path...": {"analysis"},
         "Load Model": {"analysis"},
         "Validate Assets": {"analysis"},

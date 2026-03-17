@@ -7,6 +7,12 @@ import threading
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
+from sdapp.shared.model_copy import (
+    TITLE_MANAGE_MODELS,
+    TITLE_MODEL_DOWNLOADED,
+    TITLE_MODEL_DOWNLOAD_FAILED,
+    TITLE_MODEL_FILE_MISSING,
+)
 from sdapp.shared.services.checkpoint_runtime_service import is_managed_uri
 
 
@@ -44,6 +50,9 @@ class AnalysisModelController:
             except Exception:
                 pass
 
+        center_window = getattr(self.app, "_center_window", None)
+        if callable(center_window):
+            center_window(self.app.root)
         selected = filedialog.askopenfilename(
             parent=self.app.root,
             title="Select SAM2 Model",
@@ -67,22 +76,22 @@ class AnalysisModelController:
         self.app.log_info("Model", f"Model changed to: {Path(selected_abs).name}. Reloading...")
         self.app.start_model_initialization(reason="browse_model")
 
-    def open_checkpoint_manager(self):
+    def open_model_manager(self):
         service = getattr(self.app, "checkpoint_runtime", None)
         if service is None:
-            messagebox.showwarning("Checkpoints", "Checkpoint runtime service is unavailable.", parent=self.app.root)
+            messagebox.showwarning("Models", "Model runtime service is unavailable.", parent=self.app.root)
             return
         descriptors = list(service.load_catalog())
         if not descriptors:
             messagebox.showwarning(
-                "Checkpoints",
-                "No checkpoint catalog entries are available in checkpoints_catalog.json.",
+                "Models",
+                "No model catalog entries are available in checkpoints_catalog.json.",
                 parent=self.app.root,
             )
             return
 
         dialog = tk.Toplevel(self.app.root)
-        dialog.title("Manage Checkpoints")
+        dialog.title(TITLE_MANAGE_MODELS)
         dialog.transient(self.app.root)
         dialog.resizable(True, False)
         dialog.grab_set()
@@ -99,7 +108,7 @@ class AnalysisModelController:
         tree.column("status", width=120, anchor="center")
         tree.pack(fill="x")
 
-        status_var = tk.StringVar(value="Select a checkpoint and choose an action.")
+        status_var = tk.StringVar(value="Select a model entry and choose an action.")
         ttk.Label(shell, textvariable=status_var).pack(anchor="w", pady=(6, 0))
 
         btn_row = ttk.Frame(shell)
@@ -125,7 +134,7 @@ class AnalysisModelController:
             self.app.entry_model.insert(0, str(token))
             self.app._manual_model_override = manual_override
             self.app.log_info("Model", reason)
-            self.app.start_model_initialization(reason="checkpoint_manager")
+            self.app.start_model_initialization(reason="model_manager")
 
         def _refresh_rows() -> None:
             selected_id = None
@@ -154,10 +163,10 @@ class AnalysisModelController:
         def _download_selected():
             descriptor = _selected_descriptor()
             if descriptor is None:
-                status_var.set("Select a checkpoint first.")
+                status_var.set("Select a model entry first.")
                 return
-            status_var.set(f"Downloading {descriptor.filename} ...")
-            self.app.log_info("Model", f"Downloading checkpoint {descriptor.checkpoint_id}...")
+            status_var.set(f"Downloading model file {descriptor.filename} ...")
+            self.app.log_info("Model", f"Downloading model file {descriptor.checkpoint_id}...")
             _set_busy(True)
 
             def _worker():
@@ -168,9 +177,9 @@ class AnalysisModelController:
                         0,
                         lambda e=exc: (
                             status_var.set(f"Download failed: {e}"),
-                            self.app.log_error("Model", f"Checkpoint download failed: {e}"),
+                            self.app.log_error("Model", f"Model download failed: {e}"),
                             _set_busy(False),
-                            messagebox.showerror("Checkpoint Download Failed", str(e), parent=dialog),
+                            messagebox.showerror(TITLE_MODEL_DOWNLOAD_FAILED, str(e), parent=dialog),
                         ),
                     )
                     return
@@ -179,13 +188,13 @@ class AnalysisModelController:
                     lambda p=path, d=descriptor: (
                         _refresh_rows(),
                         _set_busy(False),
-                        status_var.set(f"Downloaded {d.filename}."),
-                        self.app.log_success("Model", f"Downloaded checkpoint {d.checkpoint_id}."),
-                        messagebox.showinfo("Checkpoint Downloaded", f"Downloaded to:\n{p}", parent=dialog),
+                        status_var.set(f"Downloaded model file {d.filename}."),
+                        self.app.log_success("Model", f"Downloaded model file {d.checkpoint_id}."),
+                        messagebox.showinfo(TITLE_MODEL_DOWNLOADED, f"Downloaded to:\n{p}", parent=dialog),
                         _apply_model_token(
                             f"managed://{d.checkpoint_id}",
                             manual_override=None,
-                            reason=f"Using managed checkpoint {d.checkpoint_id}.",
+                            reason=f"Using managed model file {d.checkpoint_id}.",
                         ),
                     ),
                 )
@@ -195,39 +204,42 @@ class AnalysisModelController:
         def _use_selected():
             descriptor = _selected_descriptor()
             if descriptor is None:
-                status_var.set("Select a checkpoint first.")
+                status_var.set("Select a model entry first.")
                 return
             managed_path = service.descriptor_path(descriptor)
             if not managed_path.exists():
-                status_var.set("Selected checkpoint is not downloaded yet.")
+                status_var.set("Selected model file is not downloaded yet.")
                 messagebox.showwarning(
-                    "Checkpoint Missing",
-                    "Download the selected checkpoint first.",
+                    TITLE_MODEL_FILE_MISSING,
+                    "Download the selected model file first.",
                     parent=dialog,
                 )
                 return
-            status_var.set(f"Using {descriptor.filename}.")
+            status_var.set(f"Using model file {descriptor.filename}.")
             _apply_model_token(
                 f"managed://{descriptor.checkpoint_id}",
                 manual_override=None,
-                reason=f"Using managed checkpoint {descriptor.checkpoint_id}.",
+                reason=f"Using managed model file {descriptor.checkpoint_id}.",
             )
 
         def _select_local():
+            center_window = getattr(self.app, "_center_window", None)
+            if callable(center_window):
+                center_window(dialog)
             selected = filedialog.askopenfilename(
                 parent=dialog,
-                title="Select SAM2 Checkpoint",
+                title="Select SAM2 Model File",
                 initialdir=str(managed_dir),
                 filetypes=[("PyTorch model", "*.pt *.pth"), ("All files", "*.*")],
             )
             if not selected:
                 return
             selected_abs = str(Path(selected).expanduser().resolve())
-            status_var.set(f"Using local checkpoint: {Path(selected_abs).name}")
+            status_var.set(f"Using local model file: {Path(selected_abs).name}")
             _apply_model_token(
                 selected_abs,
                 manual_override=selected_abs,
-                reason=f"Using local checkpoint {Path(selected_abs).name}.",
+                reason=f"Using local model file {Path(selected_abs).name}.",
             )
 
         download_btn.configure(command=_download_selected)
@@ -236,6 +248,10 @@ class AnalysisModelController:
         _refresh_rows()
         dialog.update_idletasks()
         dialog.minsize(dialog.winfo_width(), dialog.winfo_height())
+
+    def open_checkpoint_manager(self):
+        # Backward-compatible alias for existing callbacks.
+        self.open_model_manager()
 
     def shutdown_model_resources(self):
         self.app.model_ready = False

@@ -114,7 +114,7 @@ Draft release automation is defined in `.github/workflows/release_phase3_tag.yml
 - `pyproject.toml` version must match tag base version.
 - `CHANGELOG.md` must include a section for that version.
 - Required changelog headings in that section:
-  - `Model/checkpoint compatibility`
+  - `Model/checkpoint compatibility` (literal heading required by release governance checks; describes model compatibility)
   - `Platform/backend limitations`
   - `.sdproj/migration notes`
   - `Known segmentation caveats/regressions`
@@ -194,28 +194,28 @@ Draft release automation is defined in `.github/workflows/release_phase3_tag.yml
   - Ensure all four required headings exist under the release section exactly as listed above.
 
 ## Model Runtime Notes (Phase 5)
-- Model checkpoints are resolved in this priority:
-  1. project-recorded checkpoint metadata (if valid),
-  2. managed default checkpoint directory,
+- Model files are resolved in this priority:
+  1. project-recorded model metadata (if valid),
+  2. managed default model directory,
   3. explicit manual override path.
 - Managed model directory:
   - macOS: `~/Library/Application Support/sdapp/models`
   - Windows: `%APPDATA%\\sdapp\\models`
-- On clean machines without a local checkpoint, analysis prompts for first-run onboarding:
-  - download approved checkpoint from catalog, or
-  - select local checkpoint manually.
-- On project open, when recorded checkpoint metadata differs from active runtime checkpoint, analysis prompts:
-  - switch to the recorded checkpoint,
-  - continue with current checkpoint,
+- On clean machines without a local model file, analysis prompts for first-run onboarding:
+  - download approved model file from catalog, or
+  - select a local model file manually.
+- On project open, when project-recorded model metadata differs from the active runtime model, analysis prompts:
+  - switch to the project-recorded model file,
+  - continue with current active model,
   - cancel model initialization (review-only mode).
 - If SAM2/Torch is unavailable, analysis initializes a deterministic CPU fallback backend so segmentation tools remain usable.
 
 ## Manual Clean-Machine Validation (Phase 5)
 1. Start with no existing managed model directory.
 2. Launch app and open analysis from host.
-3. Complete checkpoint onboarding (download or manual select).
+3. Complete model onboarding (download or manual select).
 4. Run one segmentation action and confirm masks are produced.
-5. Save project, reopen, and verify checkpoint metadata warning/choice flow works when checkpoint differs.
+5. Save project, reopen, and verify model metadata warning/choice flow works when the model differs.
 6. On Windows, validate portable package:
    - unzip `sdapp-windows-x64.zip`,
    - launch `SDApp.exe`,

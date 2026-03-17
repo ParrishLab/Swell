@@ -59,6 +59,9 @@ class _App:
     def validate_assets_from_menu(self):
         return None
 
+    def open_model_manager(self):
+        return None
+
     def open_checkpoint_manager(self):
         return None
 
@@ -110,4 +113,4 @@ def test_host_menu_exposes_checkpoint_manager_action():
     with patch("sdapp.shared.menu.factory.tk.Menu", _FakeMenu):
         menu = build_shared_menu(root, app, mode="host", host_mode=False)
     model_states = _state_by_label(_model_menu(menu))
-    assert model_states["Manage Checkpoints..."] == "normal"
+    assert model_states["Manage Models..."] == "normal"

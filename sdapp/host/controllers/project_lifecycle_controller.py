@@ -246,8 +246,8 @@ class HostProjectLifecycleController:
         self.app.browser_controller.set_model_checkpoint_metadata(
             dict(checkpoint_meta or {}) if isinstance(checkpoint_meta, dict) else None
         )
-        self.app._set_status("Model checkpoint metadata updated from analysis.")
-        self.app._log_info("Updated project model checkpoint metadata from analysis window.")
+        self.app._set_status("Model metadata updated from analysis.")
+        self.app._log_info("Updated project-recorded model metadata from analysis window.")
         return {"ok": True}
 
     def on_analysis_sync_result(self, result: dict) -> None:

@@ -11,28 +11,28 @@ Package `sdapp` into reproducible GitHub Releases for a SAM2.1 scientific deskto
 - GUI runtime is `tkinter` and app startup is `python -m sdapp.main`.
 - Runtime path utilities already include frozen-app handling (`sys.frozen`, `_MEIPASS`), which aligns with PyInstaller.
 - No `.github/workflows` automation is present yet.
-- Model weights are intentionally excluded from git (`*.pt`, `models/`), so release design must define model/checkpoint delivery.
+- Model weights are intentionally excluded from git (`*.pt`, `models/`), so release design must define model/model-file delivery.
 
 ## Release Runtime Contract (v1)
 These decisions are required before implementing release automation.
 
 ### 1) Model Delivery Contract
 Primary supported behavior:
-- Packaged binaries ship without checkpoints.
-- First launch offers download of approved checkpoints into a managed app-data directory.
-- Offline/manual mode is first-class: users can point to a local checkpoint directory without download.
-- Advanced mode allows custom checkpoint override (with explicit "unsupported/custom" indicator in UI/logs).
+- Packaged binaries ship without model files.
+- First launch offers download of approved model files into a managed app-data directory.
+- Offline/manual mode is first-class: users can point to a local model directory without download.
+- Advanced mode allows custom model override (with explicit "unsupported/custom" indicator in UI/logs).
 
 Default managed directory targets:
 - macOS: `~/Library/Application Support/sdapp/models/`
 - Windows: `%APPDATA%/sdapp/models/`
 - Source installs may also use project-local paths for developers.
 
-### 1b) Checkpoint Versioning vs Project State
-- `.sdproj` metadata must persist the checkpoint identifier used for segmentation outputs (at minimum checkpoint name, ideally immutable hash).
-- On project open, app compares stored checkpoint metadata against active runtime checkpoint.
-- If mismatched, app warns clearly and offers explicit choices (continue with active checkpoint, switch to recorded checkpoint, or open read-only review mode).
-- Release notes must document checkpoint changes that can alter segmentation behavior.
+### 1b) Model Versioning vs Project State
+- `.sdproj` metadata must persist the model identifier used for segmentation outputs (at minimum model filename, ideally immutable hash).
+- On project open, app compares stored project-recorded model metadata against the active runtime model.
+- If mismatched, app warns clearly and offers explicit choices (continue with active model, switch to project-recorded model file, or open read-only review mode).
+- Release notes must document model changes that can alter segmentation behavior.
 
 ### 2) Compatibility Matrix Requirement
 Every release must include a machine-readable compatibility manifest (for example `compatibility.json`) mapping:
@@ -40,7 +40,7 @@ Every release must include a machine-readable compatibility manifest (for exampl
 - SAM2.1 code reference/version
 - PyTorch version range
 - Python version
-- supported checkpoint IDs/files
+- supported model IDs/files
 - supported OS/arch
 - runtime policy flags (CPU required, MPS/CUDA support level)
 
@@ -53,7 +53,7 @@ Every release must include a machine-readable compatibility manifest (for exampl
 ### 4) Segmentation Smoke-Test Contract
 Release gating must include:
 - Startup test: app launches and core imports succeed.
-- Model test: checkpoint resolution and model initialization succeed (tiny checkpoint or deterministic test backend).
+- Model test: model-file resolution and model initialization succeed (tiny model file or deterministic test backend).
 - Workflow test: open sample image stack, run one segmentation operation, write output artifacts.
 
 ### 5) macOS Distribution Hardening
@@ -90,11 +90,11 @@ For public macOS binary releases:
 ## Implementation Plan
 
 ### Phase 0: Packaging + Runtime Readiness (foundation)
-- Finalize checkpoint policy (managed-download + offline/manual override + custom override rules).
-- Finalize checkpoint-in-project policy (`.sdproj` stores checkpoint ID/hash + mismatch behavior on open).
+- Finalize model distribution policy (managed-download + offline/manual override + custom override rules).
+- Finalize model-in-project policy (`.sdproj` stores model ID/hash + mismatch behavior on open).
 - Define hardware/backend policy (CPU/MPS/CUDA guarantees by install type and platform).
 - Establish compatibility manifest schema and ownership.
-- Perform licensing review for SAM2.1 code + checkpoint redistribution.
+- Perform licensing review for SAM2.1 code + model-file redistribution.
 - Define standard output layout for masks/overlays/logs/project files.
 - Create tiny reproducible sample dataset for segmentation smoke tests.
 - Confirm supported Python + OS/arch matrix.
@@ -109,7 +109,7 @@ For public macOS binary releases:
   - `scripts/release/build_macos_app_arm64.sh`
   - `scripts/release/build_macos_app_x86_64.sh`
 - Add runtime hooks for:
-  - model/checkpoint path resolution
+  - model/model-file path resolution
   - resource/config resolution
   - backend/device mode selection and fallback logging
 - Configure macOS `Info.plist` (via PyInstaller spec) to register `.sdproj` document type/UTI so double-click open works.
@@ -126,7 +126,7 @@ For public macOS binary releases:
 Prioritize runtime reliability checks over broad style gates while refactor is active.
 - Build `sdist` + `wheel` in CI on every PR.
 - Run startup/import smoke test.
-- Run checkpoint-resolution/model-init smoke test.
+- Run model-resolution/model-init smoke test.
 - Run segmentation workflow smoke test against sample fixture.
 - Run packaged-binary smoke test for both macOS architectures once builds exist.
 - Run `.sdproj` association/open test (open sample project via file argument/open event path).
@@ -148,7 +148,7 @@ Prioritize runtime reliability checks over broad style gates while refactor is a
 - Enforce SemVer tag format (`vMAJOR.MINOR.PATCH`).
 - Maintain `CHANGELOG.md` (or equivalent generated notes).
 - Add release-note sections specific to scientific runtime behavior:
-  - model/checkpoint compatibility
+  - model compatibility (required changelog heading literal: `Model/checkpoint compatibility`)
   - platform limitations (CPU/MPS/CUDA)
   - migration notes for `.sdproj`/session format changes
   - known segmentation caveats/regressions
@@ -168,17 +168,17 @@ A tagged release is considered complete only when:
 - Refactor churn breaks packaged runtime:
   - Mitigation: deterministic spec, runtime hooks, segmentation smoke tests as release gates.
 - Runtime mismatch (app/model/torch):
-  - Mitigation: compatibility manifest + strict checkpoint policy.
-- Large checkpoint payloads or network issues:
+  - Mitigation: compatibility manifest + strict model policy.
+- Large model payloads or network issues:
   - Mitigation: managed download with resumable/manual offline fallback.
 - macOS distribution friction:
   - Mitigation: sign/notarize/staple and verify on a clean machine.
 
 ## Immediate Next Steps (updated)
 1. Finalize model distribution and runtime backend policy in writing.
-2. Finalize `.sdproj` checkpoint metadata/mismatch policy (checkpoint ID/hash persisted in project).
+2. Finalize `.sdproj` model metadata/mismatch policy (model ID/hash persisted in project).
 3. Add tiny reproducible segmentation fixture data and `--smoke-test` mode.
-4. Create `packaging/sdapp.spec` + runtime hooks for checkpoint/resource/device resolution + `.sdproj` file association.
+4. Create `packaging/sdapp.spec` + runtime hooks for model/resource/device resolution + `.sdproj` file association.
 5. Add architecture-specific macOS build scripts (`arm64`, `x86_64`) and validate on clean machines.
 6. Add PR CI for `sdist`/`wheel` builds plus startup/model/workflow/open-file/multiprocess smoke tests.
 7. Add tag-triggered draft release workflow for Python artifacts + dual macOS binaries.
