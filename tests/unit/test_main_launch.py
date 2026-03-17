@@ -195,3 +195,21 @@ def test_run_smoke_test_model_runtime_imports_requested(monkeypatch) -> None:
     assert detail == "ok"
     assert "torch" in loaded
     assert "sam2" in loaded
+
+
+def test_run_smoke_test_skips_sdapp_main_import_when_frozen(monkeypatch) -> None:
+    main_mod = _load_main_module(monkeypatch)
+    monkeypatch.setattr(main_mod.sys, "frozen", True, raising=False)
+
+    loaded: list[str] = []
+
+    def _importer(name: str):
+        loaded.append(name)
+        if name == "sdapp.main":
+            raise ImportError("should_not_import_sdapp_main_when_frozen")
+        return object()
+
+    ok, detail = main_mod._run_smoke_test(importer=_importer, include_model_runtime=False)
+    assert ok is True
+    assert detail == "ok"
+    assert "sdapp.main" not in loaded

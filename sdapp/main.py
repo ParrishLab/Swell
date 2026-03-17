@@ -36,12 +36,13 @@ def _parse_main_args(argv: Sequence[str]) -> tuple[bool, bool, str | None]:
 
 def _run_smoke_test(importer=importlib.import_module, *, include_model_runtime: bool = False) -> tuple[bool, str]:
     modules = [
-        "sdapp.main",
         "sdapp.host.ui.root_window",
         "sdapp.shared.persistence.unified_project_store",
         "sdapp.shared.services.unified_project_service",
         "sdapp.shared.menu.factory",
     ]
+    if not bool(getattr(sys, "frozen", False)):
+        modules.insert(0, "sdapp.main")
     if include_model_runtime:
         modules.extend(
             [
