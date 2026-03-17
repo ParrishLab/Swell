@@ -49,25 +49,36 @@ def _candidate_model_config_names(model_path: str, checkpoint_id: str | None) ->
     elif len(families) == 1:
         families = [families[0], "sam2" if families[0] == "sam2.1" else "sam2.1"]
 
-    variant = "b+"
-    if "small" in text or "hiera_s" in text:
-        variant = "s"
+    explicit_variant: str | None = None
+    if any(token in text for token in ("base_plus", "base-plus", "hiera_b+", "b+")):
+        explicit_variant = "base_plus"
+    elif "small" in text or "hiera_s" in text:
+        explicit_variant = "s"
     elif "large" in text or "hiera_l" in text:
-        variant = "l"
+        explicit_variant = "l"
     elif "tiny" in text or "hiera_t" in text:
-        variant = "t"
+        explicit_variant = "t"
 
     out: list[str] = []
     seen: set[str] = set()
     for family in families:
-        primary = f"{family}_hiera_{variant}.yaml"
-        fallback_order = [
-            primary,
-            f"{family}_hiera_b+.yaml",
-            f"{family}_hiera_s.yaml",
-            f"{family}_hiera_t.yaml",
-            f"{family}_hiera_l.yaml",
-        ]
+        if explicit_variant == "base_plus":
+            # Base-plus checkpoints should only bind to base-plus model configs.
+            fallback_order = [
+                f"{family}_hiera_base_plus.yaml",
+                f"{family}_hiera_b+.yaml",
+            ]
+        elif explicit_variant in {"s", "t", "l"}:
+            fallback_order = [f"{family}_hiera_{explicit_variant}.yaml"]
+        else:
+            # Unknown variant: probe a bounded ordered set.
+            fallback_order = [
+                f"{family}_hiera_base_plus.yaml",
+                f"{family}_hiera_b+.yaml",
+                f"{family}_hiera_s.yaml",
+                f"{family}_hiera_t.yaml",
+                f"{family}_hiera_l.yaml",
+            ]
         for name in fallback_order:
             if name not in seen:
                 out.append(name)
