@@ -124,12 +124,22 @@ class HostProjectLifecycleController:
         if not raw:
             self.app._show_warning("Open SD Project", "Project path is empty.")
             return False
-        candidate = Path(raw).expanduser()
+        try:
+            candidate = Path(raw).expanduser()
+        except Exception as exc:
+            self.app._show_warning("Open SD Project", f"Invalid project path:\n\n{raw}\n\nDetails: {exc}")
+            return False
         if candidate.suffix.lower() != ".sdproj":
             self.app._show_warning("Open SD Project", "Unsupported project format. Expected .sdproj")
             return False
-        resolved = candidate.resolve()
-        if not resolved.exists() or not resolved.is_file():
+        try:
+            resolved = candidate.resolve()
+            exists = resolved.exists()
+            is_file = resolved.is_file()
+        except Exception as exc:
+            self.app._show_warning("Open SD Project", f"Unable to resolve project path:\n\n{candidate}\n\nDetails: {exc}")
+            return False
+        if not exists or not is_file:
             self.app._show_warning("Open SD Project", f"Project file not found:\n\n{resolved}")
             return False
         self.open_project(str(resolved))

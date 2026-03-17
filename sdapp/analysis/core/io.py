@@ -99,7 +99,7 @@ class IOActions:
             )
 
         self._selected_import_files = list(valid_files)
-        label = valid_files[0].as_posix() if len(valid_files) == 1 else f"{len(valid_files)} selected files"
+        label = str(valid_files[0]) if len(valid_files) == 1 else f"{len(valid_files)} selected files"
         self.entry_input.delete(0, "end")
         self.entry_input.insert(0, label)
         return list(valid_files)

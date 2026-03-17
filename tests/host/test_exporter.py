@@ -9,6 +9,7 @@ import pytest
 
 from sdapp.host.config import EventCandidate, FrameRef, TraceResult
 from sdapp.host.exporter import export_analysis
+from sdapp.shared.persistence.event_path import allocate_event_path_segment
 
 
 class FakeReader:
@@ -113,6 +114,25 @@ def test_export_selected_event_ids_filters_output(tmp_path: Path) -> None:
     rows = _load_manifest_rows(tmp_path / "events_manifest.csv")
     event_ids = {row["event_id"] for row in rows}
     assert event_ids == {"event_0002"}
+
+
+def test_export_sanitizes_event_output_directory_names(tmp_path: Path) -> None:
+    frames = [np.full((8, 8), i, dtype=np.uint8) for i in range(10)]
+    reader = FakeReader(frames)
+    events = [_event("A:B", 2, 3), _event("A?B", 7, 8)]
+
+    export_analysis(
+        reader=reader,
+        events=events,
+        output_dir=tmp_path,
+        baseline_pre_frames=2,
+    )
+
+    used: set[str] = set()
+    seg_a = allocate_event_path_segment("A:B", used)
+    seg_b = allocate_event_path_segment("A?B", used)
+    assert (tmp_path / seg_a).exists()
+    assert (tmp_path / seg_b).exists()
 
 
 def test_export_event_starting_at_zero_has_no_baseline_frames(tmp_path: Path) -> None:

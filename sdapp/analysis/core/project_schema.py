@@ -3,6 +3,8 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any, Dict
 
+from sdapp.shared.persistence.event_path import sanitize_event_path_segment
+
 
 SCHEMA_VERSION = 3
 
@@ -58,6 +60,11 @@ def validate_project_state(state: Dict[str, Any]) -> None:
         event_id = str(event.get("id", "")).strip()
         if not event_id:
             raise ValueError(f"events[{idx}] missing non-empty id.")
+        sanitized = sanitize_event_path_segment(event_id)
+        if sanitized != event_id:
+            raise ValueError(
+                f"events[{idx}].id is not cross-platform filesystem-safe: {event_id!r} (normalized: {sanitized!r})."
+            )
         for key in ("masks_ref", "prompts_ref"):
             if key in event and event[key] is not None and not isinstance(event[key], str):
                 raise ValueError(f"events[{idx}].{key} must be a string or null.")

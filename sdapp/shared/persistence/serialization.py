@@ -4,6 +4,7 @@ from typing import Any
 
 import numpy as np
 
+from sdapp.shared.persistence.event_path import allocate_event_path_segment
 from sdapp.shared.persistence.zip_io import read_json, read_npz, write_json, write_npz
 from .schema import METADATA_GLOBAL_METRICS_DEFAULTS_KEY, METRICS_SETTINGS_KEY
 
@@ -40,9 +41,11 @@ def decode_metadata_from_read(metadata: dict[str, Any], zf) -> dict[str, Any]:
 
 def encode_analysis_sidecar(sidecar: dict[str, Any], zf) -> dict[str, Any]:
     sidecar_manifest: dict[str, Any] = {}
+    used_event_segments: set[str] = set()
     for event_id, payload in dict(sidecar or {}).items():
         key = str(event_id)
-        event_base = f"events/{key}"
+        event_segment = allocate_event_path_segment(key, used_event_segments)
+        event_base = f"events/{event_segment}"
         if not isinstance(payload, dict):
             sidecar_manifest[key] = payload
             continue

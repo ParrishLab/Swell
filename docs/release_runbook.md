@@ -5,16 +5,16 @@ This runbook produces local release artifacts for the unified `sdapp` app.
 ## Prerequisites
 - Python 3.12+
 - Build tooling installed in active env:
-  - `python3 -m pip install build`
-  - `python3 -m pip install pyinstaller`
-- Optional: `twine` for package validation (`python3 -m pip install twine`)
+  - `python -m pip install build`
+  - `python -m pip install pyinstaller`
+- Optional: `twine` for package validation (`python -m pip install twine`)
 
 ## Commands (run from repo root)
 0. Optional: bump release version + scaffold changelog section in one step:
    ```bash
-   python3 scripts/release/bump_version.py patch
+   python scripts/release/bump_version.py patch
    ```
-   - Also supports `minor`, `major`, or explicit version (`python3 scripts/release/bump_version.py 0.2.0`).
+   - Also supports `minor`, `major`, or explicit version (`python scripts/release/bump_version.py 0.2.0`).
    - Add `--tag` to create `v<new_version>` locally.
 1. Build Python artifacts (`sdist` + `wheel`):
    ```bash
@@ -27,12 +27,12 @@ This runbook produces local release artifacts for the unified `sdapp` app.
    ```
 3. Run non-interactive startup/import smoke test:
    ```bash
-   python3 -m sdapp.main --smoke-test
+   python -m sdapp.main --smoke-test
    ```
 4. Run model + segmentation workflow smoke tests:
    ```bash
-   python3 scripts/release/run_model_smoke.py
-   python3 scripts/release/run_segmentation_workflow_smoke.py
+   python scripts/release/run_model_smoke.py
+   python scripts/release/run_segmentation_workflow_smoke.py
    ```
 5. Build Windows x64 portable archive (on Windows runner):
    ```powershell
@@ -93,10 +93,10 @@ PR validation now includes four required jobs in `.github/workflows/release_phas
   - startup smoke,
   - model + segmentation workflow smokes,
   - Windows x64 package build (`dist/sdapp-windows-x64.zip`),
+  - packaged app open-request smoke for `.sdproj` handoff,
   - compatibility manifest + checksums generation.
 
 ### Deferred checks (not Phase 2 gates)
-- packaged app open-file association smoke tests,
 - segmentation workflow smoke with a real sample dataset fixture,
 - macOS signing/notarization/stapling.
 
@@ -140,6 +140,7 @@ Draft release automation is defined in `.github/workflows/release_phase3_tag.yml
   - full test suite passes,
   - startup smoke returns `SMOKE_TEST:PASS`,
   - model + segmentation workflow smokes pass,
+  - packaged app open-request smoke passes,
   - Windows x64 package is produced.
 - `release-assemble`:
   - collects Linux/macOS artifacts,

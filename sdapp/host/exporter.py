@@ -21,6 +21,7 @@ from sdapp.analysis.core.metrics import (
     roi_mask_from_points,
     smooth_boundary_fft,
 )
+from sdapp.shared.persistence.event_path import allocate_event_path_segment
 from sdapp.shared.services import MetricsSettingsResolver
 
 from .config import EventCandidate, ExportRecord, TraceResult
@@ -59,6 +60,12 @@ def export_analysis(
 
     selected_ids = set(selected_event_ids) if selected_event_ids else {e.event_id for e in events}
     selected_events = [e for e in events if e.event_id in selected_ids]
+    used_event_segments: set[str] = set()
+    event_output_segment_by_id: dict[str, str] = {}
+    for event in selected_events:
+        key = str(event.event_id)
+        if key not in event_output_segment_by_id:
+            event_output_segment_by_id[key] = allocate_event_path_segment(key, used_event_segments)
 
     has_trace = trace is not None and (
         bool(trace.frame_indices) or bool(trace.mean) or bool(trace.median) or bool(trace.std) or bool(trace.time_sec)
@@ -95,7 +102,7 @@ def export_analysis(
                     "event_id": event.event_id,
                 }
             )
-        event_dir = out_dir / event.event_id
+        event_dir = out_dir / event_output_segment_by_id[str(event.event_id)]
         baseline_dir = event_dir / "baseline"
         extent_dir = event_dir / "event_extent"
         if bool(include_baseline_images):

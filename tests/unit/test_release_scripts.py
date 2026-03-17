@@ -18,7 +18,7 @@ def test_generate_compatibility_manifest_script_outputs_expected_fields(tmp_path
     output_path = tmp_path / "compatibility.json"
 
     subprocess.run(
-        ["python3", str(script), "--repo-root", str(ROOT), "--output", str(output_path)],
+        [sys.executable, str(script), "--repo-root", str(ROOT), "--output", str(output_path)],
         check=True,
         cwd=str(ROOT),
     )
@@ -46,8 +46,8 @@ def test_generate_compatibility_manifest_is_deterministic(tmp_path: Path) -> Non
     out1 = tmp_path / "compatibility_a.json"
     out2 = tmp_path / "compatibility_b.json"
 
-    subprocess.run(["python3", str(script), "--repo-root", str(ROOT), "--output", str(out1)], check=True, cwd=str(ROOT))
-    subprocess.run(["python3", str(script), "--repo-root", str(ROOT), "--output", str(out2)], check=True, cwd=str(ROOT))
+    subprocess.run([sys.executable, str(script), "--repo-root", str(ROOT), "--output", str(out1)], check=True, cwd=str(ROOT))
+    subprocess.run([sys.executable, str(script), "--repo-root", str(ROOT), "--output", str(out2)], check=True, cwd=str(ROOT))
 
     assert out1.read_text(encoding="utf-8") == out2.read_text(encoding="utf-8")
 
@@ -125,3 +125,41 @@ def test_validate_model_runtime_script_fails_for_missing_module() -> None:
     )
     assert proc.returncode != 0
     assert "MODEL_RUNTIME_VALIDATION:FAIL" in proc.stdout
+
+
+def test_validate_windows_installer_metadata_script_passes() -> None:
+    script = ROOT / "scripts" / "release" / "validate_windows_installer_metadata.py"
+    proc = subprocess.run(
+        [sys.executable, str(script), "--repo-root", str(ROOT)],
+        cwd=str(ROOT),
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    assert "WINDOWS_INSTALLER_VALIDATION:PASS" in proc.stdout
+
+
+def test_open_request_smoke_script_passes_for_python_entrypoint() -> None:
+    try:
+        import tkinter  # noqa: F401
+    except Exception:
+        pytest.skip("tkinter is unavailable in environment.")
+    script = ROOT / "scripts" / "release" / "run_open_request_smoke.py"
+    proc = subprocess.run(
+        [
+            sys.executable,
+            str(script),
+            "--app-cmd",
+            sys.executable,
+            "-m",
+            "sdapp.main",
+        ],
+        cwd=str(ROOT),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if "OPEN_REQUEST_SMOKE:FAIL:bind_unavailable" in proc.stdout:
+        pytest.skip("localhost bind is unavailable in environment.")
+    assert proc.returncode == 0
+    assert "OPEN_REQUEST_SMOKE:PASS" in proc.stdout

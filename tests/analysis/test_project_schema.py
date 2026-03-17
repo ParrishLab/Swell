@@ -28,6 +28,18 @@ class ProjectSchemaTests(unittest.TestCase):
         ]
         validate_project_state(state)
 
+    def test_validate_rejects_filesystem_unsafe_event_ids(self):
+        state = default_project_state("x.y.z")
+        state["events"] = [
+            {
+                "id": 'bad:event?*"<>|',
+                "masks_ref": "events/sd_event_001/masks.npz",
+                "prompts_ref": "events/sd_event_001/prompts.json",
+            }
+        ]
+        with self.assertRaises(ValueError):
+            validate_project_state(state)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -69,3 +69,18 @@ def test_open_project_request_accepts_uppercase_extension_for_existing_projects(
 
     assert ok is True
     assert opened == [str(target.resolve())]
+
+
+def test_open_project_request_handles_path_resolution_errors(monkeypatch) -> None:
+    app = _build_app_stub()
+    controller = HostProjectLifecycleController(app)
+
+    def _raise_resolve(self, *args, **kwargs):  # noqa: ANN001, ARG001
+        raise OSError("invalid path")
+
+    monkeypatch.setattr(Path, "resolve", _raise_resolve)
+    ok = controller.open_project_request("bad.sdproj")
+
+    assert ok is False
+    assert app.warnings
+    assert "Unable to resolve project path" in app.warnings[-1][1]

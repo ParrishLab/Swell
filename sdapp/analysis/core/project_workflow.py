@@ -149,7 +149,11 @@ def apply_loaded_project(app, loaded, project_path: str | Path) -> ProjectLoadPl
 def prepare_loaded_project(app, loaded, project_path) -> ProjectLoadPlan:
     """Build a load plan with normalized project state and decoded image stack."""
     state = migrate_project_state(loaded.project_state)
-    validate_project_state(state)
+    try:
+        validate_project_state(state)
+    except Exception as exc:
+        app.log_error("Project", f"Project schema validation failed: {exc}")
+        raise
     ui_state = state.get("ui_state", {})
     project_path = str(project_path)
 

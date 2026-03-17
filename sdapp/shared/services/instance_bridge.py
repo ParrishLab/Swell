@@ -3,12 +3,21 @@ from __future__ import annotations
 import getpass
 import hashlib
 import json
+import os
 import socket
 import threading
 from typing import Callable
 
 
 def _default_port() -> int:
+    override = str(os.environ.get("SDAPP_INSTANCE_BRIDGE_PORT", "")).strip()
+    if override:
+        try:
+            value = int(override)
+        except ValueError:
+            value = 0
+        if 1 <= value <= 65535:
+            return value
     user = str(getpass.getuser() or "unknown")
     digest = hashlib.sha256(f"sdapp.instance_bridge:{user}".encode("utf-8")).digest()
     value = int.from_bytes(digest[:2], byteorder="big", signed=False)

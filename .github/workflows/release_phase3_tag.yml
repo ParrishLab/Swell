@@ -282,6 +282,12 @@ jobs:
           $out = (& "dist/windows-x64/SDApp/SDApp.exe" --smoke-test --smoke-model-runtime | Select-Object -Last 1)
           if ($out -ne "SMOKE_TEST:PASS") { throw "Packaged app smoke failed: $out" }
 
+      - name: Run packaged app open-request smoke test
+        shell: pwsh
+        run: |
+          $out = (python scripts/release/run_open_request_smoke.py --app-cmd "dist/windows-x64/SDApp/SDApp.exe" | Select-Object -Last 1)
+          if ($out -ne "OPEN_REQUEST_SMOKE:PASS") { throw "Open request smoke failed: $out" }
+
       - name: Verify Windows package outputs
         shell: pwsh
         run: |
@@ -416,5 +422,4 @@ jobs:
             dist/compatibility.json
             dist/SHA256SUMS.txt
 
-# TODO(phase6): Add packaged app open-file association smoke tests.
 # TODO(phase4+): Add macOS signing/notarization/stapling.

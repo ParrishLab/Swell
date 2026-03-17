@@ -1,11 +1,13 @@
 import tempfile
 import unittest
 from pathlib import Path
+import zipfile
 
 import numpy as np
 
 from sdapp.analysis.core.project_schema import default_project_state
 from sdapp.analysis.core.project_store import ProjectStore
+from sdapp.shared.persistence.event_path import sanitize_event_path_segment
 
 
 class ProjectStoreRoundtripTests(unittest.TestCase):
@@ -81,6 +83,39 @@ class ProjectStoreRoundtripTests(unittest.TestCase):
             self.assertIn("sd_event_002", loaded.event_payloads)
             self.assertEqual(loaded.event_payloads["sd_event_001"]["masks_draft"].shape, (2, 3, 3))
             self.assertIsNone(loaded.event_payloads["sd_event_002"]["masks_draft"])
+
+    def test_save_load_roundtrip_with_filesystem_unsafe_event_id(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project_path = Path(tmp) / "unsafe.sdproj"
+            unsafe_event_id = 'bad:event?*"<>|'
+            state = default_project_state("1.0.0")
+            state["events"] = [
+                {
+                    "id": unsafe_event_id,
+                    "masks_ref": "events/bad/masks.npz",
+                    "prompts_ref": "events/bad/prompts.json",
+                }
+            ]
+            masks = np.zeros((2, 3, 3), dtype=np.uint8)
+            store = ProjectStore()
+            store.save(
+                project_path,
+                project_state=state,
+                images_manifest={"images": []},
+                roi_data={"roi_points": []},
+                event_payloads={unsafe_event_id: {"masks": masks, "prompts": {"frames": {}}}},
+                embed_images=False,
+            )
+
+            expected_segment = sanitize_event_path_segment(unsafe_event_id)
+            with zipfile.ZipFile(project_path, "r") as zf:
+                names = set(zf.namelist())
+                self.assertIn(f"events/{expected_segment}/masks.npz", names)
+                self.assertIn(f"events/{expected_segment}/prompts.json", names)
+
+            loaded = store.load(project_path)
+            self.assertIn(unsafe_event_id, loaded.event_payloads)
+            self.assertEqual(loaded.event_payloads[unsafe_event_id]["masks"].shape, (2, 3, 3))
 
 
 if __name__ == "__main__":

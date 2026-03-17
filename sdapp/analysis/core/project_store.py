@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, Dict
 
 import numpy as np
+from sdapp.shared.persistence.event_path import allocate_event_path_segment
 from sdapp.shared.persistence.zip_io import (
     cleanup_stale_temp_files,
     fsync_parent_directory,
@@ -31,6 +32,55 @@ def _fsync_parent_directory(target: Path) -> None:
     fsync_parent_directory(target)
 
 
+def _build_event_segment_map(
+    project_state: Dict[str, Any],
+    event_payloads: Dict[str, Dict[str, Any]],
+) -> dict[str, str]:
+    used_segments: set[str] = set()
+    mapping: dict[str, str] = {}
+
+    for event in list(project_state.get("events", []) or []):
+        if not isinstance(event, dict):
+            continue
+        event_id = str(event.get("id", "")).strip()
+        if not event_id or event_id in mapping:
+            continue
+        mapping[event_id] = allocate_event_path_segment(event_id, used_segments)
+
+    for event_id in event_payloads.keys():
+        key = str(event_id)
+        if key in mapping:
+            continue
+        mapping[key] = allocate_event_path_segment(key, used_segments)
+    return mapping
+
+
+def _project_state_with_persisted_event_refs(
+    project_state: Dict[str, Any],
+    event_payloads: Dict[str, Dict[str, Any]],
+    event_segment_by_id: dict[str, str],
+) -> Dict[str, Any]:
+    out = dict(project_state or {})
+    events_in = list(out.get("events", []) or [])
+    events_out: list[Any] = []
+    for event in events_in:
+        if not isinstance(event, dict):
+            events_out.append(event)
+            continue
+        event_copy = dict(event)
+        event_id = str(event_copy.get("id", "")).strip()
+        segment = event_segment_by_id.get(event_id)
+        if segment:
+            event_copy["masks_ref"] = f"events/{segment}/masks.npz"
+            event_copy["prompts_ref"] = f"events/{segment}/prompts.json"
+            payload = dict(event_payloads.get(event_id, {}) or {})
+            if event_copy.get("masks_draft_ref") is not None or payload.get("masks_draft") is not None:
+                event_copy["masks_draft_ref"] = f"events/{segment}/masks_draft.npz"
+        events_out.append(event_copy)
+    out["events"] = events_out
+    return out
+
+
 class ProjectStore:
     def save(
         self,
@@ -43,6 +93,12 @@ class ProjectStore:
     ) -> None:
         target = Path(target_path)
         target.parent.mkdir(parents=True, exist_ok=True)
+        event_segment_by_id = _build_event_segment_map(project_state, event_payloads)
+        project_state_to_write = _project_state_with_persisted_event_refs(
+            project_state,
+            event_payloads,
+            event_segment_by_id,
+        )
 
         fd, tmp_name = tempfile.mkstemp(suffix=".sdproj.tmp", dir=str(target.parent))
         os.close(fd)
@@ -50,7 +106,7 @@ class ProjectStore:
 
         try:
             with zipfile.ZipFile(tmp_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
-                write_json(zf, "project_state.json", project_state)
+                write_json(zf, "project_state.json", project_state_to_write)
                 write_json(zf, "images.json", images_manifest)
                 write_json(zf, "roi.json", roi_data)
 
@@ -70,16 +126,20 @@ class ProjectStore:
                         write_json(zf, "images_embedded.json", {"embedded": embedded_map})
 
                 for event_id, payload in event_payloads.items():
+                    event_key = str(event_id)
+                    event_segment = event_segment_by_id.get(event_key)
+                    if not event_segment:
+                        continue
                     masks = np.array(payload.get("masks", np.zeros((0, 0, 0), dtype=np.uint8)), dtype=np.uint8)
                     masks_draft = payload.get("masks_draft")
                     prompts = payload.get("prompts", {})
-                    zf.writestr(f"events/{event_id}/masks.npz", write_npz_bytes(masks))
+                    zf.writestr(f"events/{event_segment}/masks.npz", write_npz_bytes(masks))
                     if masks_draft is not None:
                         zf.writestr(
-                            f"events/{event_id}/masks_draft.npz",
+                            f"events/{event_segment}/masks_draft.npz",
                             write_npz_bytes(np.array(masks_draft, dtype=np.uint8)),
                         )
-                    write_json(zf, f"events/{event_id}/prompts.json", prompts)
+                    write_json(zf, f"events/{event_segment}/prompts.json", prompts)
 
             # fsync with writable descriptor for cross-platform durability (Windows rejects read-only fsync).
             sync_fd = os.open(str(tmp_path), os.O_RDWR)

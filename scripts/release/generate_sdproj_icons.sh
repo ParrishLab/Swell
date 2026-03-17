@@ -5,10 +5,11 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 ASSET_DIR="$REPO_ROOT/sdapp/resources/assets"
 
-PRIMARY_SOURCE_DEFAULT="/Users/claydunford/Development/sdProjImg.png"
-FALLBACK_SOURCE_DEFAULT="/Users/claydunford/Development/sdProjLogo.jpg"
+PRIMARY_SOURCE_DEFAULT="$ASSET_DIR/sdproj_doc_icon_source.png"
+FALLBACK_SOURCE_DEFAULT="$ASSET_DIR/sdproj_doc_icon_reference.jpg"
 SOURCE_PATH="${1:-$PRIMARY_SOURCE_DEFAULT}"
 FALLBACK_PATH="${2:-$FALLBACK_SOURCE_DEFAULT}"
+PYTHON_BIN="${PYTHON_BIN:-python3}"
 
 if [ ! -f "$SOURCE_PATH" ]; then
   if [ -f "$FALLBACK_PATH" ]; then
@@ -22,12 +23,16 @@ if [ ! -f "$SOURCE_PATH" ]; then
 fi
 
 mkdir -p "$ASSET_DIR"
-cp "$SOURCE_PATH" "$ASSET_DIR/sdproj_doc_icon_source.png"
+if [ "$SOURCE_PATH" != "$ASSET_DIR/sdproj_doc_icon_source.png" ]; then
+  cp "$SOURCE_PATH" "$ASSET_DIR/sdproj_doc_icon_source.png"
+fi
 if [ -f "$FALLBACK_PATH" ]; then
-  cp "$FALLBACK_PATH" "$ASSET_DIR/sdproj_doc_icon_reference.jpg"
+  if [ "$FALLBACK_PATH" != "$ASSET_DIR/sdproj_doc_icon_reference.jpg" ]; then
+    cp "$FALLBACK_PATH" "$ASSET_DIR/sdproj_doc_icon_reference.jpg"
+  fi
 fi
 
-python3 - "$SOURCE_PATH" "$ASSET_DIR/sdproj_doc_icon.ico" "$ASSET_DIR/sdproj_doc_icon.icns" <<'PY'
+"$PYTHON_BIN" - "$SOURCE_PATH" "$ASSET_DIR/sdproj_doc_icon.ico" "$ASSET_DIR/sdproj_doc_icon.icns" <<'PY'
 from pathlib import Path
 import sys
 
