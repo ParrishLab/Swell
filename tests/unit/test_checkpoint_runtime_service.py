@@ -2,7 +2,11 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from urllib.error import HTTPError
 
+import pytest
+
+import sdapp.shared.services.checkpoint_runtime_service as checkpoint_module
 from sdapp.shared.services.checkpoint_runtime_service import (
     CheckpointRuntimeService,
     is_managed_uri,
@@ -82,3 +86,36 @@ def test_compare_metadata_detects_mismatch(tmp_path: Path) -> None:
     ok, message = service.compare_checkpoint_metadata(a, b)
     assert ok is False
     assert "hash" in message.lower()
+
+
+def test_download_descriptor_raises_clear_error_on_http_403(tmp_path: Path, monkeypatch) -> None:
+    catalog = _write_catalog(tmp_path / "catalog.json")
+    monkeypatch.setenv("SDAPP_MODELS_DIR", str((tmp_path / "managed_models").resolve()))
+    service = CheckpointRuntimeService(catalog_path=catalog)
+    descriptor = service.default_descriptor()
+    assert descriptor is not None
+    descriptor = type(
+        "D",
+        (),
+        {
+            "checkpoint_id": descriptor.checkpoint_id,
+            "filename": descriptor.filename,
+            "download_url": "https://example.invalid/model.pt",
+            "sha256": None,
+        },
+    )()
+
+    def _raise_http_error(_request, timeout=120):  # noqa: ARG001
+        raise HTTPError(
+            url="https://example.invalid/model.pt",
+            code=403,
+            msg="Forbidden",
+            hdrs=None,
+            fp=None,
+        )
+
+    monkeypatch.setattr(checkpoint_module, "urlopen", _raise_http_error)
+
+    with pytest.raises(RuntimeError) as exc_info:
+        service.download_descriptor(descriptor)
+    assert "forbidden" in str(exc_info.value).lower()

@@ -8,7 +8,8 @@ from pathlib import Path
 import shutil
 import tempfile
 from typing import Any
-from urllib.request import urlopen
+from urllib.error import HTTPError
+from urllib.request import Request, urlopen
 
 
 MANAGED_URI_PREFIX = "managed://"
@@ -289,8 +290,24 @@ class CheckpointRuntimeService:
         os.close(fd)
         tmp_path = Path(tmp_name)
         try:
-            with urlopen(descriptor.download_url, timeout=120) as response, tmp_path.open("wb") as out:
-                shutil.copyfileobj(response, out)
+            request = Request(
+                descriptor.download_url,
+                headers={
+                    "User-Agent": "Mozilla/5.0 (compatible; SDApp/1.0; +https://github.com)",
+                    "Accept": "*/*",
+                },
+            )
+            try:
+                with urlopen(request, timeout=120) as response, tmp_path.open("wb") as out:
+                    shutil.copyfileobj(response, out)
+            except HTTPError as exc:
+                if int(getattr(exc, "code", 0) or 0) == 403:
+                    raise RuntimeError(
+                        "Checkpoint download was forbidden (HTTP 403). "
+                        "The catalog URL may be stale or restricted. "
+                        "Use Select Local... as fallback."
+                    ) from exc
+                raise
             digest = self.compute_sha256(tmp_path)
             if descriptor.sha256 and digest and digest.lower() != descriptor.sha256.lower():
                 raise RuntimeError(

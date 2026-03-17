@@ -3,7 +3,7 @@
     {
       "id": "sam2.1_hiera_base_plus",
       "filename": "sam2.1_hiera_base_plus.pt",
-      "download_url": "https://dl.fbaipublicfiles.com/segment_anything_2/072824/sam2.1_hiera_base_plus.pt",
+      "download_url": "https://dl.fbaipublicfiles.com/segment_anything_2/092824/sam2.1_hiera_base_plus.pt",
       "sha256": null,
       "default": true
     }
