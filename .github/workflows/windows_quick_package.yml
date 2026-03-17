@@ -36,8 +36,15 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -e ".[dev,model]"
+          python -m pip install -e ".[dev]"
+          python -m pip install -e ".[model]"
+          python -m pip install pytest
           python -m pip install pyinstaller
+
+      - name: Verify pytest install
+        shell: pwsh
+        run: |
+          python -c "import pytest; print(pytest.__version__)"
 
       - name: Run test suite (optional)
         if: ${{ inputs.run_tests }}
