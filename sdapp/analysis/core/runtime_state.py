@@ -25,6 +25,7 @@ class HostModeState:
     log_notifier: Callable[[str, str, str], None] | None = None
     metrics_updater: Callable[[dict[str, Any]], dict[str, Any] | None] | None = None
     checkpoint_updater: Callable[[dict[str, Any]], dict[str, Any] | None] | None = None
+    open_model_manager: Callable[[], None] | None = None
     processing_options: dict[str, Any] | None = None
     project_metadata: dict[str, Any] | None = None
     saved_project_masks_by_event: dict[str, bool] = field(default_factory=dict)

@@ -55,8 +55,8 @@ except ImportError:
 try:
     import sam2  # noqa: F401
 except ImportError:
-    print("WARNING: 'sam2' package not found. SDApp will use deterministic CPU fallback segmentation.")
-    print("Install SAM2 for full model quality: pip install git+https://github.com/facebookresearch/sam2.git")
+    print("WARNING: 'sam2' package not found. Model-based tools will be disabled (review-only mode).")
+    print("Install SAM2 for model-based segmentation: pip install git+https://github.com/facebookresearch/sam2.git")
     print(f"Python interpreter: {sys.executable}")
 
 
@@ -530,6 +530,16 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
     def _host_checkpoint_updater(self, value) -> None:
         self._ensure_runtime_state()
         self.host_mode_state.checkpoint_updater = value
+
+    @property
+    def _host_open_model_manager(self):
+        self._ensure_runtime_state()
+        return self.host_mode_state.open_model_manager
+
+    @_host_open_model_manager.setter
+    def _host_open_model_manager(self, value) -> None:
+        self._ensure_runtime_state()
+        self.host_mode_state.open_model_manager = value
 
     @property
     def _host_processing_options(self):
@@ -1314,6 +1324,7 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         on_analysis_update=None,
         on_metrics_update=None,
         on_checkpoint_update=None,
+        on_open_model_manager=None,
         on_project_saved=None,
         on_sync_result=None,
         on_log_message=None,
@@ -1327,6 +1338,7 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
             on_analysis_update=on_analysis_update,
             on_metrics_update=on_metrics_update,
             on_checkpoint_update=on_checkpoint_update,
+            on_open_model_manager=on_open_model_manager,
             on_project_saved=on_project_saved,
             on_sync_result=on_sync_result,
             on_log_message=on_log_message,

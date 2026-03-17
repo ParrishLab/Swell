@@ -55,6 +55,7 @@ class AnalysisHostModeController:
         on_analysis_update=None,
         on_metrics_update=None,
         on_checkpoint_update=None,
+        on_open_model_manager=None,
         on_project_saved=None,
         on_sync_result=None,
         on_log_message=None,
@@ -70,6 +71,7 @@ class AnalysisHostModeController:
         self.app._host_log_notifier = on_log_message
         self.app._host_metrics_updater = on_metrics_update
         self.app._host_checkpoint_updater = on_checkpoint_update
+        self.app._host_open_model_manager = on_open_model_manager
         self.app._host_project_saver = on_host_project_save
         self.app._host_project_path_provider = on_host_project_path
         self.app._host_project_metadata = (
@@ -89,6 +91,19 @@ class AnalysisHostModeController:
             project_path = context.get("project_path")
             if isinstance(project_path, str) and project_path.strip():
                 self.app.current_project_path = str(Path(project_path).expanduser().resolve())
+            model_context = dict(context.get("model_context", {})) if isinstance(context.get("model_context"), dict) else {}
+            model_token = str(model_context.get("model_token", "") or "").strip()
+            manual_override = str(model_context.get("manual_model_override", "") or "").strip()
+            if model_token:
+                try:
+                    self.app.entry_model.delete(0, "end")
+                    self.app.entry_model.insert(0, model_token)
+                except Exception:
+                    pass
+            self.app._manual_model_override = manual_override or None
+            active_model_meta = model_context.get("active_model_metadata")
+            if isinstance(active_model_meta, dict):
+                self.app._set_active_checkpoint_metadata(active_model_meta, notify_host=False, reason="host_model_context")
         if not self.app.current_project_path and callable(self.app._host_project_path_provider):
             try:
                 host_path = self.app._host_project_path_provider()
@@ -149,16 +164,8 @@ class AnalysisHostModeController:
                 self.app.app_context.frame_source = self.app.frame_source
             if ready:
                 self.app._post_host_mode_open_ui("Host direct workspace initialized.")
-        model_path = ""
-        try:
-            model_path = str(self.app.entry_model.get() or "").strip()
-        except Exception:
-            model_path = ""
-        if model_path:
-            self.app.log_info("HostMode", "Initializing SAM2 for host-driven workspace...")
-            self.app.start_model_initialization(reason="host_context_open")
-        else:
-            self.app.log_warn("HostMode", "No SAM2 model configured; model tools will remain disabled.")
+        self.app.log_info("HostMode", "Initializing model for host-driven workspace...")
+        self.app.start_model_initialization(reason="host_context_open")
         return result
 
     def open_from_host_handoff(self, payload: dict, frame_source=None, sync_emitter=None):
@@ -170,6 +177,7 @@ class AnalysisHostModeController:
         self.app._host_log_notifier = None
         self.app._host_metrics_updater = None
         self.app._host_checkpoint_updater = None
+        self.app._host_open_model_manager = None
         self.app._host_project_saver = None
         self.app._host_project_path_provider = None
         self.app._host_project_metadata = None
@@ -220,16 +228,8 @@ class AnalysisHostModeController:
                 self.app.app_context.frame_source = self.app.frame_source
             if ready:
                 self.app._post_host_mode_open_ui("Host-driven analysis workspace initialized.")
-        model_path = ""
-        try:
-            model_path = str(self.app.entry_model.get() or "").strip()
-        except Exception:
-            model_path = ""
-        if model_path:
-            self.app.log_info("HostMode", "Initializing SAM2 for host-driven workspace...")
-            self.app.start_model_initialization(reason="host_handoff_open")
-        else:
-            self.app.log_warn("HostMode", "No SAM2 model configured; model tools will remain disabled.")
+        self.app.log_info("HostMode", "Initializing model for host-driven workspace...")
+        self.app.start_model_initialization(reason="host_handoff_open")
         return result
 
     def post_host_mode_open_ui(self, message: str) -> None:

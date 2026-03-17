@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import tkinter as tk
-from tkinter import ttk
+from tkinter import messagebox, ttk
 
 import numpy as np
 from PIL import Image, ImageTk
@@ -126,6 +126,22 @@ class AnalysisLaunchController:
         return result if bool(result.get("ok")) else None
 
     def analyze_selected_event(self) -> None:
+        model_setup = self.app._get_model_setup_controller()
+        allowed, reason = model_setup.is_analysis_allowed()
+        if not allowed:
+            self.app._show_warning(
+                "Open Analysis",
+                f"Analysis is disabled until model setup is complete.\n\nCurrent state: {reason}",
+            )
+            open_manager = messagebox.askyesno(
+                "Model Setup Required",
+                "Open Manage Models now?",
+                parent=self.app.root,
+            )
+            if open_manager:
+                model_setup.open_model_manager(required=False)
+            return
+
         if self.app.reader is None or self.app.stack_info is None:
             self.app._show_warning("Open Analysis", "Load a stack first.")
             return
@@ -149,6 +165,22 @@ class AnalysisLaunchController:
         except Exception as exc:
             self.app._show_warning("Open Analysis", f"Unable to prepare host context:\n{exc}")
             return
+
+        mismatch_result = model_setup.resolve_project_model_mismatch(context.get("project_metadata"))
+        if not bool(mismatch_result.get("ok")):
+            action = str(mismatch_result.get("action", "blocked"))
+            if action == "disabled":
+                self.app._show_warning(
+                    "Open Analysis",
+                    "Model tools are disabled (review-only mode). Resolve model setup from Model > Manage Models...",
+                )
+            elif action not in {"switch_canceled"}:
+                self.app._show_warning(
+                    "Open Analysis",
+                    str(mismatch_result.get("message", "Model mismatch must be resolved before opening analysis.")),
+                )
+            return
+        context["model_context"] = model_setup.build_host_model_context()
 
         event_payload = dict(context.get("event", {}))
         flags = dict(event_payload.get("flags", {}))
@@ -192,6 +224,7 @@ class AnalysisLaunchController:
                 on_host_project_path=lambda: self.app.current_project_path,
                 on_metrics_update=self.app._on_analysis_metrics_update,
                 on_checkpoint_update=self.app._on_analysis_checkpoint_update,
+                on_open_model_manager=self.app.open_model_manager,
                 sync_emitter=None,
             )
             if not bool(open_result.get("ok")):

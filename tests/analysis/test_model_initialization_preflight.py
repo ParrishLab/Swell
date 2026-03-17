@@ -7,7 +7,7 @@ from pathlib import Path
 import numpy as np
 
 from sdapp.analysis.app import SDSegmentationApp
-from sdapp.analysis.core.segmentation import CheckpointOnboardingResult
+from sdapp.analysis.core.segmentation import CheckpointOnboardingResult, _candidate_model_config_names
 
 
 class _EntryStub:
@@ -114,3 +114,61 @@ def test_trigger_background_propagation_blocks_when_model_not_ready() -> None:
         app._trigger_background_propagation()
 
     assert opened["count"] == 1
+
+
+def test_resolve_checkpoint_preflight_runtime_missing_disables_model() -> None:
+    app = SDSegmentationApp.__new__(SDSegmentationApp)
+    app.checkpoint_runtime = object()
+    disabled: list[dict] = []
+    app._disable_model_with_status = lambda **kwargs: disabled.append(dict(kwargs))
+
+    with patch("sdapp.analysis.core.segmentation.importlib.util.find_spec", return_value=None):
+        result = app.resolve_checkpoint_preflight()
+
+    assert result.ok is False
+    assert result.mode == "disabled"
+    assert result.source == "runtime_unavailable"
+    assert disabled
+
+
+def test_resolve_checkpoint_preflight_host_mode_does_not_prompt_on_missing_model() -> None:
+    app = SDSegmentationApp.__new__(SDSegmentationApp)
+    app._host_mode = True
+    app.checkpoint_runtime = object()
+    app._resolve_sam2_checkpoint = lambda: type("R", (), {"ok": False})()
+    disabled: list[dict] = []
+    app._disable_model_with_status = lambda **kwargs: disabled.append(dict(kwargs))
+    app.log_error = lambda *_args, **_kwargs: None
+    app._ui_alive = lambda: False
+    app.root = type("Root", (), {"after": staticmethod(lambda _ms, fn: fn())})()
+    app._set_activity_message = lambda _msg: None
+
+    with patch("sdapp.analysis.core.segmentation.importlib.util.find_spec", return_value=object()), patch(
+        "sdapp.analysis.core.segmentation.torch",
+        object(),
+    ), patch.object(
+        app, "_prompt_checkpoint_onboarding", side_effect=AssertionError("onboarding should not run in host mode")
+    ):
+        result = app.resolve_checkpoint_preflight()
+
+    assert result.ok is False
+    assert result.source == "host_missing_model"
+    assert disabled
+
+
+def test_candidate_model_configs_include_cross_family_fallbacks_for_local_models() -> None:
+    candidates = _candidate_model_config_names(
+        model_path="C:/models/custom_local_model.pt",
+        checkpoint_id=None,
+    )
+    assert candidates
+    assert any(name.startswith("sam2.1_") for name in candidates)
+    assert any(name.startswith("sam2_") for name in candidates)
+
+
+def test_candidate_model_configs_respect_model_size_hints() -> None:
+    candidates = _candidate_model_config_names(
+        model_path="/tmp/my_hiera_l_weights.pt",
+        checkpoint_id="sam2.1_hiera_large",
+    )
+    assert candidates[0] in {"sam2.1_hiera_l.yaml", "sam2_hiera_l.yaml"}

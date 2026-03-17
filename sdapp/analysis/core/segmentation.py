@@ -37,6 +37,44 @@ class CheckpointOnboardingResult:
     message: str | None = None
 
 
+def _candidate_model_config_names(model_path: str, checkpoint_id: str | None) -> list[str]:
+    text = f"{str(model_path or '')} {str(checkpoint_id or '')}".lower()
+    families: list[str] = []
+    if "2.1" in text or "sam2.1" in text:
+        families.append("sam2.1")
+    if "sam2" in text and "2.1" not in text:
+        families.append("sam2")
+    if not families:
+        families = ["sam2.1", "sam2"]
+    elif len(families) == 1:
+        families = [families[0], "sam2" if families[0] == "sam2.1" else "sam2.1"]
+
+    variant = "b+"
+    if "small" in text or "hiera_s" in text:
+        variant = "s"
+    elif "large" in text or "hiera_l" in text:
+        variant = "l"
+    elif "tiny" in text or "hiera_t" in text:
+        variant = "t"
+
+    out: list[str] = []
+    seen: set[str] = set()
+    for family in families:
+        primary = f"{family}_hiera_{variant}.yaml"
+        fallback_order = [
+            primary,
+            f"{family}_hiera_b+.yaml",
+            f"{family}_hiera_s.yaml",
+            f"{family}_hiera_t.yaml",
+            f"{family}_hiera_l.yaml",
+        ]
+        for name in fallback_order:
+            if name not in seen:
+                out.append(name)
+                seen.add(name)
+    return out
+
+
 class SegmentationActions:
     def _apply_mps_sam2_dtype_guard(self):
         if torch is None:
@@ -119,10 +157,27 @@ class SegmentationActions:
             )
         if importlib.util.find_spec("sam2") is None or torch is None:
             reason = "SAM2 missing" if importlib.util.find_spec("sam2") is None else "Torch missing"
-            return CheckpointOnboardingResult(ok=True, mode="cpu_fallback", message=reason)
+            self._disable_model_with_status(
+                disable_reason=reason,
+                log_message=f"Model initialization disabled: {reason}.",
+                activity_message=STATUS_MODEL_DISABLED,
+            )
+            return CheckpointOnboardingResult(ok=False, mode="disabled", message=reason, source="runtime_unavailable")
 
         resolution = self._resolve_sam2_checkpoint()
         if resolution is None or not bool(getattr(resolution, "ok", False)):
+            if bool(getattr(self, "_host_mode", False)):
+                self._disable_model_with_status(
+                    disable_reason="model file missing",
+                    log_message="No usable model file is available. Use host Model > Manage Models...",
+                    activity_message=STATUS_MODEL_FILE_MISSING,
+                )
+                return CheckpointOnboardingResult(
+                    ok=False,
+                    mode="disabled",
+                    message="No usable model file is configured in host mode.",
+                    source="host_missing_model",
+                )
             try:
                 onboarding = self._prompt_checkpoint_onboarding()
             except Exception as exc:
@@ -290,6 +345,8 @@ class SegmentationActions:
             self.root.after(0, self._process_pending_points)
 
     def _resolve_mismatch_choice(self, model_path: str, checkpoint_id: str | None, source: str):
+        if bool(getattr(self, "_host_mode", False)):
+            return model_path, checkpoint_id, source, True
         service = getattr(self, "checkpoint_runtime", None)
         if service is None:
             return model_path, checkpoint_id, source, True
@@ -364,47 +421,53 @@ class SegmentationActions:
                 if device == "cpu" and torch.cuda.is_available():
                     device = "cuda"
                 self.log_info("Model", f"Initializing SAM2 on {device}...")
+                self.log_info(
+                    "Model",
+                    f"Loading model file: {Path(normalized_model_path).name}"
+                    + (f" (id: {checkpoint_id})" if checkpoint_id else ""),
+                )
 
                 from sam2.build_sam import build_sam2_video_predictor
 
-                is_2_1 = "2.1" in normalized_model_path
-
-                config_name = "sam2.1_hiera_b+.yaml"
-                if "small" in normalized_model_path or "hiera_s" in normalized_model_path:
-                    config_name = "sam2.1_hiera_s.yaml" if is_2_1 else "sam2_hiera_s.yaml"
-                elif "large" in normalized_model_path or "hiera_l" in normalized_model_path:
-                    config_name = "sam2.1_hiera_l.yaml" if is_2_1 else "sam2_hiera_l.yaml"
-                elif "tiny" in normalized_model_path or "hiera_t" in normalized_model_path:
-                    config_name = "sam2.1_hiera_t.yaml" if is_2_1 else "sam2_hiera_t.yaml"
-                else:
-                    config_name = "sam2.1_hiera_b+.yaml" if is_2_1 else "sam2_hiera_b+.yaml"
-
-                cname = f"configs/sam2.1/{config_name}" if is_2_1 else f"configs/sam2/{config_name}"
-
                 base_dir = resource_root
-                local_cname = os.path.join(base_dir, "configs", "sam2.1" if is_2_1 else "sam2", config_name)
-                if os.path.exists(local_cname):
+                try:
+                    from hydra import initialize_config_dir
+                    from hydra.core.global_hydra import GlobalHydra
+
+                    GlobalHydra.instance().clear()
+                    initialize_config_dir(config_dir=base_dir, job_name="sam2_app")
+                except Exception as e:
+                    self.log_warn("Model", f"Failed to initialize Hydra config dir: {e}")
+
+                candidate_names = _candidate_model_config_names(normalized_model_path, checkpoint_id)
+                errors: list[str] = []
+                for config_name in candidate_names:
+                    family = "sam2.1" if config_name.startswith("sam2.1_") else "sam2"
+                    cname = f"configs/{family}/{config_name}"
+                    local_cname = os.path.join(base_dir, "configs", family, config_name)
+                    if not os.path.exists(local_cname):
+                        continue
+                    self.log_info("Model", f"Trying config: {cname}")
                     try:
-                        from hydra import initialize_config_dir
-                        from hydra.core.global_hydra import GlobalHydra
+                        predictor = build_sam2_video_predictor(cname, normalized_model_path, device=device)
+                        self.predictor = predictor
+                        if device == "mps":
+                            self._apply_mps_sam2_dtype_guard()
+                            predictor = self.predictor
+                        inference_state = predictor.init_state(video_path=temp_dir)
+                        return predictor, inference_state
+                    except Exception as e:  # noqa: BLE001
+                        errors.append(f"{cname}: {e}")
+                        self.log_warn("Model", f"Config {cname} failed: {e}")
 
-                        GlobalHydra.instance().clear()
-                        initialize_config_dir(config_dir=base_dir, job_name="sam2_app")
-                    except Exception as e:
-                        self.log_warn("Model", f"Failed to initialize Hydra config dir: {e}")
-                    self.log_debug("Model", f"Using local configs at: {base_dir}/configs")
-                else:
-                    if not os.path.exists(cname):
-                        raise RuntimeError(f"Config file not found: {cname}")
-
-                self.log_debug("Model", f"Using config: {cname}")
-                predictor = build_sam2_video_predictor(cname, normalized_model_path, device=device)
-                self.predictor = predictor
-                if device == "mps":
-                    self._apply_mps_sam2_dtype_guard()
-                    predictor = self.predictor
-                inference_state = predictor.init_state(video_path=temp_dir)
-                return predictor, inference_state
+                if errors:
+                    joined = "\n".join(errors[:4])
+                    raise RuntimeError(
+                        "Unable to initialize model with available configs. "
+                        "The selected model file may be incompatible.\n"
+                        f"{joined}"
+                    )
+                raise RuntimeError("No compatible SAM2 config files were found in resources/configs.")
 
             status = runtime.ensure_initialized(
                 model_path=model_path,

@@ -16,7 +16,7 @@ import tifffile
 
 from .browser_controller import BrowserController
 from .config import APP_TITLE, DEFAULT_BASELINE_PRE_FRAMES, TraceResult
-from .controllers import AnalysisLaunchController, HostProjectLifecycleController, HostWindowController
+from .controllers import AnalysisLaunchController, HostModelSetupController, HostProjectLifecycleController, HostWindowController
 from .mark_popup_controller import MarkPopupController
 from .processing_engine import PopupProcessRequest, PopupProcessResult, PopupProcessingEngine
 from .stack_reader import StackReader
@@ -28,7 +28,7 @@ from .ui_logic import (
     normalize_overlay_bounds,
 )
 
-from sdapp.shared.services import AnalysisWindowManager, SingleInstanceBridge
+from sdapp.shared.services import AnalysisWindowManager, CheckpointRuntimeService, SingleInstanceBridge
 from sdapp.shared.menu.factory import build_shared_menu
 
 
@@ -54,11 +54,22 @@ class SDAnalyzerApp:
         self.window_controller = HostWindowController(self)
         self.project_controller = HostProjectLifecycleController(self)
         self.analysis_launch_controller = AnalysisLaunchController(self)
+        self.checkpoint_runtime = CheckpointRuntimeService()
+        self.model_setup_controller = HostModelSetupController(self)
         self.current_event_id: str | None = None
         self.current_frame_idx = 0
         self.current_project_path: str | None = None
         self.popup_controller = MarkPopupController(self)
         self.baseline_pre_frames = DEFAULT_BASELINE_PRE_FRAMES
+        default_descriptor = self.checkpoint_runtime.default_descriptor()
+        self._active_model_token = f"managed://{default_descriptor.checkpoint_id}" if default_descriptor else ""
+        self._manual_model_override: str | None = None
+        self._active_model_path: str | None = None
+        self._active_checkpoint_id: str | None = None
+        self._active_model_metadata: dict[str, object] | None = None
+        self._model_setup_ready = False
+        self._model_setup_disabled = False
+        self._model_setup_reason = "Model setup required."
         self.input_var = tk.StringVar()
         self.output_var = tk.StringVar(value=str(Path.cwd() / "output"))
 
@@ -132,6 +143,7 @@ class SDAnalyzerApp:
         self._analysis_options_preview_image: ImageTk.PhotoImage | None = None
 
         self._build_ui()
+        self._refresh_model_gate_ui()
         self._build_menu()
         self.root.protocol("WM_DELETE_WINDOW", self._on_root_close)
         self._register_platform_open_handlers()
@@ -139,6 +151,7 @@ class SDAnalyzerApp:
         if initial_project_path:
             self.root.after(0, lambda p=str(initial_project_path): self.open_project_request(p))
         self._schedule_periodic_cache_gc()
+        self.root.after(0, self._run_model_startup_preflight)
 
     def _resource_root(self) -> Path:
         return Path(__file__).resolve().parents[1] / "resources"
@@ -232,9 +245,8 @@ class SDAnalyzerApp:
         ttk.Button(action_frame, text="Delete Selected", command=self._delete_selected_events).grid(
             row=0, column=1, sticky="ew", padx=2, pady=2
         )
-        ttk.Button(action_frame, text="Open Analysis...", command=self._analyze_selected_event).grid(
-            row=1, column=0, columnspan=2, sticky="ew", padx=2, pady=(6, 2)
-        )
+        self.btn_open_analysis = ttk.Button(action_frame, text="Open Analysis...", command=self._analyze_selected_event)
+        self.btn_open_analysis.grid(row=1, column=0, columnspan=2, sticky="ew", padx=2, pady=(6, 2))
         ttk.Button(action_frame, text="Metrics Defaults...", command=self._open_generate_metrics_popup).grid(
             row=2, column=0, columnspan=2, sticky="ew", padx=2, pady=2
         )
@@ -457,30 +469,7 @@ class SDAnalyzerApp:
         return self._get_project_controller().save_project_from_analysis(project_path)
 
     def open_model_manager(self) -> None:
-        active_id = self._active_event_id()
-        refs = list(self.analysis_window_manager.list_windows())
-        target = None
-        if active_id is not None:
-            target = self.analysis_window_manager.get("__project__", str(active_id))
-        if target is None and refs:
-            target = refs[0]
-        if target is None or not (
-            hasattr(target.app, "open_model_manager") or hasattr(target.app, "open_checkpoint_manager")
-        ):
-            self._show_warning(
-                "Manage Models",
-                "Open an analysis window first, then use Model > Manage Models...",
-            )
-            return
-        try:
-            target.window.lift()
-            target.window.focus_force()
-        except Exception:
-            pass
-        if hasattr(target.app, "open_model_manager"):
-            target.app.open_model_manager()
-        else:
-            target.app.open_checkpoint_manager()
+        self._get_model_setup_controller().open_model_manager(required=False)
 
     def open_checkpoint_manager(self) -> None:
         # Backward-compatible alias for older callbacks.
@@ -707,6 +696,19 @@ class SDAnalyzerApp:
 
     def _analyze_selected_event(self) -> None:
         self._get_analysis_launch_controller().analyze_selected_event()
+
+    def _run_model_startup_preflight(self) -> None:
+        self._get_model_setup_controller().run_startup_preflight()
+
+    def _refresh_model_gate_ui(self) -> None:
+        btn = getattr(self, "btn_open_analysis", None)
+        if btn is None:
+            return
+        try:
+            state = "normal" if bool(self._model_setup_ready and not self._model_setup_disabled) else "disabled"
+            btn.configure(state=state)
+        except Exception:
+            return
 
     def _on_root_close(self) -> None:
         if self._instance_bridge is not None:
@@ -1663,6 +1665,14 @@ class SDAnalyzerApp:
             return controller
         controller = AnalysisLaunchController(self)
         self.analysis_launch_controller = controller
+        return controller
+
+    def _get_model_setup_controller(self) -> HostModelSetupController:
+        controller = getattr(self, "model_setup_controller", None)
+        if isinstance(controller, HostModelSetupController):
+            return controller
+        controller = HostModelSetupController(self)
+        self.model_setup_controller = controller
         return controller
 
     def _run_export(self, event_ids: list[str], *, options: dict[str, object]) -> None:

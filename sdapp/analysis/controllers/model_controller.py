@@ -77,6 +77,16 @@ class AnalysisModelController:
         self.app.start_model_initialization(reason="browse_model")
 
     def open_model_manager(self):
+        if bool(getattr(self.app, "_host_mode", False)):
+            host_opener = getattr(self.app, "_host_open_model_manager", None)
+            if callable(host_opener):
+                self.app.log_info("Model", "Opening host model manager...")
+                try:
+                    host_opener()
+                except Exception as exc:
+                    messagebox.showwarning("Models", f"Unable to open host model manager:\n{exc}", parent=self.app.root)
+                return
+
         service = getattr(self.app, "checkpoint_runtime", None)
         if service is None:
             messagebox.showwarning("Models", "Model runtime service is unavailable.", parent=self.app.root)
