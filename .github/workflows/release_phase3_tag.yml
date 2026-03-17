@@ -41,7 +41,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -e .[dev]
+          python -m pip install -e ".[dev]"
 
       - name: Resolve release tag
         id: resolve_tag
@@ -82,7 +82,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -e .[dev,model]
+          python -m pip install -e ".[dev,model]"
           python -m pip install build twine
           sudo apt-get update
           sudo apt-get install -y xvfb
@@ -137,7 +137,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -e .[dev,model]
+          python -m pip install -e ".[dev,model]"
           python -m pip install pyinstaller
 
       - name: Run startup smoke test
@@ -187,7 +187,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -e .[dev,model]
+          python -m pip install -e ".[dev,model]"
           python -m pip install pyinstaller
 
       - name: Run startup smoke test
@@ -237,7 +237,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -e .[dev,model]
+          python -m pip install -e ".[dev,model]"
           python -m pip install build twine pyinstaller
 
       - name: Run test suite

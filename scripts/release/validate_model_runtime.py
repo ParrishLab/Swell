@@ -30,7 +30,7 @@ def main(argv: list[str] | None = None) -> int:
         print("MODEL_RUNTIME_VALIDATION:FAIL")
         for detail in missing:
             print(f" - {detail}")
-        print("Install model extras before packaging: python -m pip install -e .[model]")
+        print('Install model extras before packaging: python -m pip install -e ".[model]"')
         return 1
     print("MODEL_RUNTIME_VALIDATION:PASS")
     return 0
