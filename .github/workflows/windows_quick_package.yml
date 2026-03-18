@@ -120,4 +120,7 @@ jobs:
         uses: actions/upload-artifact@v6
         with:
           name: windows-quick-package-dist
-          path: dist/
+          path: |
+            dist/sdapp-windows-x64.zip
+            dist/compatibility.json
+            dist/SHA256SUMS.txt
