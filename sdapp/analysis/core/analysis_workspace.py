@@ -163,6 +163,11 @@ class AnalysisWorkspaceController:
 
         if masks_payload is None:
             return {}
+        if isinstance(masks_payload, np.ndarray) and masks_payload.ndim == 0 and masks_payload.dtype == object:
+            try:
+                masks_payload = masks_payload.item()
+            except Exception:
+                pass
         if isinstance(masks_payload, dict):
             out: dict[int, np.ndarray] = {}
             for frame_idx, mask in masks_payload.items():

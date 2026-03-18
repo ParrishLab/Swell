@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any
@@ -129,9 +130,39 @@ class ProjectSessionService:
         if "ui_hints" in loaded and isinstance(loaded.get("ui_hints"), dict):
             loaded["ui_hints"] = dict(loaded.get("ui_hints"))
         if "masks_committed" in loaded and loaded.get("masks_committed") is not None:
-            loaded["masks_committed"] = np.asarray(loaded.get("masks_committed")).copy()
+            committed = loaded.get("masks_committed")
+            if isinstance(committed, dict):
+                loaded["masks_committed"] = copy.deepcopy(committed)
+            else:
+                committed_arr = np.asarray(committed)
+                if committed_arr.ndim == 0 and committed_arr.dtype == object:
+                    try:
+                        unwrapped = committed_arr.item()
+                    except Exception:
+                        unwrapped = committed
+                    if isinstance(unwrapped, dict):
+                        loaded["masks_committed"] = copy.deepcopy(unwrapped)
+                    else:
+                        loaded["masks_committed"] = np.asarray(unwrapped).copy()
+                else:
+                    loaded["masks_committed"] = committed_arr.copy()
         if "masks_draft" in loaded and loaded.get("masks_draft") is not None:
-            loaded["masks_draft"] = np.asarray(loaded.get("masks_draft")).copy()
+            draft = loaded.get("masks_draft")
+            if isinstance(draft, dict):
+                loaded["masks_draft"] = copy.deepcopy(draft)
+            else:
+                draft_arr = np.asarray(draft)
+                if draft_arr.ndim == 0 and draft_arr.dtype == object:
+                    try:
+                        unwrapped = draft_arr.item()
+                    except Exception:
+                        unwrapped = draft
+                    if isinstance(unwrapped, dict):
+                        loaded["masks_draft"] = copy.deepcopy(unwrapped)
+                    else:
+                        loaded["masks_draft"] = np.asarray(unwrapped).copy()
+                else:
+                    loaded["masks_draft"] = draft_arr.copy()
         metrics_settings = loaded.get("metrics_settings")
         if isinstance(metrics_settings, dict):
             copied_metrics = dict(metrics_settings)

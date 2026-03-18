@@ -191,6 +191,41 @@ class HostModeSyncTests(unittest.TestCase):
         self.assertEqual(mask.shape, (64, 64))
         self.assertTrue(bool(np.any(mask)))
 
+    def test_open_from_host_context_unwraps_object_array_wrapped_dict_masks(self):
+        frames = [np.zeros((64, 64), dtype=np.uint8) for _ in range(11)]
+        scoped_source = EagerFrameSource(
+            raw_frames=frames,
+            subtracted_frames=frames,
+            visual_frames=frames,
+            frame_names=[f"s{i}.tif" for i in range(11)],
+            source_paths=["/tmp/scoped"] * 11,
+        )
+        wrapped = np.array({"103": np.ones((64, 64), dtype=np.uint8)}, dtype=object)
+        context = {
+            "session_id": "session_abc",
+            "stack_id": "stack_abc",
+            "event": {
+                "event_id": "event_0001",
+                "label": "Event 1",
+                "start_idx": 102,
+                "end_idx": 105,
+                "flags": {
+                    "analysis_scope_start_idx": 100,
+                    "analysis_scope_end_idx": 110,
+                    "analysis_local_event_start_idx": 2,
+                    "analysis_local_event_end_idx": 5,
+                },
+            },
+            "analysis_state": {
+                "masks_committed": wrapped,
+            },
+        }
+        result = self.controller.open_from_host_event_context(context, frame_source=scoped_source)
+        self.assertTrue(result["ok"])
+        record = self.state.event_records["event_0001"]
+        self.assertIn(3, record.analysis.masks_committed)
+        self.assertTrue(bool(np.any(record.analysis.masks_committed[3])))
+
 
 if __name__ == "__main__":
     unittest.main()

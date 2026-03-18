@@ -69,6 +69,24 @@ def test_analysis_sidecar_is_event_scoped() -> None:
     assert svc.load_analysis_sidecar("event_0002")["prompts"]["blob_ref"] == "blob://b"
 
 
+def test_load_analysis_sidecar_preserves_dict_masks() -> None:
+    svc = ProjectSessionService()
+    svc.new_project(_stack_ref("/tmp/in_a"))
+    svc.set_events([EventMeta(event_id="event_0001", label="E1", start_idx=1, end_idx=2, flags={})], "event_0001")
+    svc.upsert_analysis_sidecar(
+        "event_0001",
+        {"masks_committed": {"3": np.ones((4, 5), dtype=np.uint8)}},
+    )
+
+    loaded = svc.load_analysis_sidecar("event_0001")
+
+    assert loaded is not None
+    masks = loaded.get("masks_committed")
+    assert isinstance(masks, dict)
+    assert "3" in masks
+    assert bool(np.any(np.asarray(masks["3"])))
+
+
 def test_open_project_rejects_unknown_persistence_owner(tmp_path: Path) -> None:
     out = tmp_path / "bad_owner.sdproj"
     with zipfile.ZipFile(out, "w", compression=zipfile.ZIP_DEFLATED) as zf:

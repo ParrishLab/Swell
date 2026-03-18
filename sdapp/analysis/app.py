@@ -1529,6 +1529,12 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
     def _sync_saved_mask_overlay_state(self) -> None:
         try:
             nonempty = self._collect_nonempty_final_mask_frames()
+            if callable(getattr(self, "log_debug", None)):
+                try:
+                    sample = sorted(int(i) for i in nonempty)[:8]
+                    self.log_debug("Overlay", f"Saved-mask reseed frames={len(nonempty)} sample={sample}")
+                except Exception:
+                    pass
             self._set_propagated_frames(nonempty, mark_dirty=False)
         except Exception:
             return

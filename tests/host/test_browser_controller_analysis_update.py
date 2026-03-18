@@ -85,6 +85,23 @@ def test_host_context_for_event_includes_project_path() -> None:
     assert str(context["project_path"]).endswith("active_project.sdproj")
 
 
+def test_host_context_preserves_dict_mask_payloads() -> None:
+    host = BrowserController()
+    host.on_stack_loaded(_FakeReader(), _FakeStackInfo())
+    event = host.create_event(start_idx=2, end_idx=4, frame_count=6)
+    host.session.upsert_analysis_sidecar(
+        event.event_id,
+        {"masks_committed": {"3": np.ones((8, 9), dtype=np.uint8)}},
+    )
+
+    context = host.host_context_for_event(event.event_id)
+    masks = dict(context["analysis_state"] or {}).get("masks_committed")
+
+    assert isinstance(masks, dict)
+    assert "3" in masks
+    assert bool(np.any(np.asarray(masks["3"])))
+
+
 def test_create_event_materializes_global_metrics_defaults() -> None:
     host = BrowserController()
     host.on_stack_loaded(_FakeReader(), _FakeStackInfo())

@@ -82,7 +82,27 @@ class UnifiedProjectState:
 def _clone_np_array(value: Any) -> Any:
     if value is None:
         return None
-    arr = np.asarray(value)
+    if isinstance(value, dict):
+        return copy.deepcopy(value)
+    if isinstance(value, np.ndarray):
+        return np.array(value, copy=True)
+    if isinstance(value, (list, tuple)):
+        try:
+            arr = np.asarray(value)
+        except Exception:
+            return copy.deepcopy(value)
+        return np.array(arr, copy=True)
+    try:
+        arr = np.asarray(value)
+    except Exception:
+        return copy.deepcopy(value)
+    if arr.ndim == 0 and arr.dtype == object:
+        try:
+            item = arr.item()
+        except Exception:
+            item = value
+        if isinstance(item, (dict, list, tuple)):
+            return copy.deepcopy(item)
     return np.array(arr, copy=True)
 
 
