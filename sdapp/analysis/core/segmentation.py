@@ -1,5 +1,6 @@
 import os
 import importlib.util
+import sys
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -27,6 +28,23 @@ except Exception:
     torch = None
 
 
+class _NullTextStream:
+    def write(self, text):  # type: ignore[no-untyped-def]
+        return len(str(text or ""))
+
+    def flush(self):  # type: ignore[no-untyped-def]
+        return None
+
+
+def _ensure_runtime_stdio() -> None:
+    # In frozen GUI builds (console=False), stdout/stderr can be None.
+    # Hydra/SAM2 may write to them during config/model bootstrap.
+    if getattr(sys, "stdout", None) is None:
+        sys.stdout = _NullTextStream()
+    if getattr(sys, "stderr", None) is None:
+        sys.stderr = _NullTextStream()
+
+
 @dataclass(frozen=True)
 class CheckpointOnboardingResult:
     ok: bool
@@ -42,12 +60,10 @@ def _candidate_model_config_names(model_path: str, checkpoint_id: str | None) ->
     families: list[str] = []
     if "2.1" in text or "sam2.1" in text:
         families.append("sam2.1")
-    if "sam2" in text and "2.1" not in text:
+    elif "sam2" in text and "2.1" not in text:
         families.append("sam2")
     if not families:
         families = ["sam2.1", "sam2"]
-    elif len(families) == 1:
-        families = [families[0], "sam2" if families[0] == "sam2.1" else "sam2.1"]
 
     explicit_variant: str | None = None
     if any(token in text for token in ("base_plus", "base-plus", "hiera_b+", "b+")):
@@ -421,6 +437,7 @@ class SegmentationActions:
                 raise RuntimeError("SAM2 runtime service is unavailable.")
 
             def _build_predictor(normalized_model_path: str, temp_dir: str):
+                _ensure_runtime_stdio()
                 self.log_info("Model", "Preparing temporary frames for SAM2...")
                 for i, f_8bit in enumerate(frames_viz):
                     cv2.imwrite(
