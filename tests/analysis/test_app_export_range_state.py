@@ -37,12 +37,11 @@ class AppExportRangeStateTests(unittest.TestCase):
     def _make_app_for_recompute(self, nonempty_frames):
         app = SDSegmentationApp.__new__(SDSegmentationApp)
         app.frames_raw = [object()] * 20
+        app.propagated_frame_indices = set()
         app._export_range_auto_follow = True
         app._programmatic_spinbox_update = False
         app.spin_prop_start = _SpinStub(1)
         app.spin_prop_end = _SpinStub(20)
-        app.spin_export_start = _SpinStub(1)
-        app.spin_export_end = _SpinStub(20)
         app.slider_jump_markers = {}
         app._redraw_slider_overlay = lambda: None
         app.log_debug = lambda *_args: None
@@ -50,15 +49,21 @@ class AppExportRangeStateTests(unittest.TestCase):
         app._collect_nonempty_final_mask_frames = lambda: set(nonempty_frames)
         return app
 
-    def test_recompute_updates_propagation_and_export_ranges(self):
+    def test_recompute_updates_propagation_range(self):
         app = self._make_app_for_recompute({3, 7})
         app._recompute_slider_jump_markers()
         self.assertEqual(int(app.spin_prop_start.get()), 4)
         self.assertEqual(int(app.spin_prop_end.get()), 8)
-        self.assertEqual(int(app.spin_export_start.get()), 4)
-        self.assertEqual(int(app.spin_export_end.get()), 8)
 
-    def test_finalize_load_resets_export_range_to_full_stack(self):
+    def test_recompute_prefers_propagation_run_bounds_for_prop_spinboxes(self):
+        app = self._make_app_for_recompute({5, 6})
+        app.propagated_frame_indices = set(range(2, 10))
+        app._recompute_slider_jump_markers()
+
+        # Propagation range follows run bounds.
+        self.assertEqual(int(app.spin_prop_start.get()), 3)
+        self.assertEqual(int(app.spin_prop_end.get()), 10)
+    def test_finalize_load_resets_propagation_range_to_full_stack(self):
         app = SDSegmentationApp.__new__(SDSegmentationApp)
         app.frames_raw = [object()] * 12
         app.current_frame_idx = 0
@@ -69,8 +74,6 @@ class AppExportRangeStateTests(unittest.TestCase):
         app._programmatic_spinbox_update = False
         app.spin_prop_start = _SpinStub(1)
         app.spin_prop_end = _SpinStub(1)
-        app.spin_export_start = _SpinStub(1)
-        app.spin_export_end = _SpinStub(1)
         app.slider = _SliderStub()
         app.update_display = lambda: None
         app._recompute_slider_jump_markers = lambda: None
@@ -79,8 +82,8 @@ class AppExportRangeStateTests(unittest.TestCase):
         app.log_success = lambda *_args: None
         app._finalize_load_ui()
         self.assertTrue(app._export_range_auto_follow)
-        self.assertEqual(int(app.spin_export_start.get()), 1)
-        self.assertEqual(int(app.spin_export_end.get()), 12)
+        self.assertEqual(int(app.spin_prop_start.get()), 1)
+        self.assertEqual(int(app.spin_prop_end.get()), 12)
 
 
 if __name__ == "__main__":

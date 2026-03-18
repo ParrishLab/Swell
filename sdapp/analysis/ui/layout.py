@@ -195,12 +195,6 @@ class LayoutBuilder:
         )
         self.btn_save_masks.pack(fill="x", padx=4, pady=(4, 4))
 
-        # Retain hidden export range fields to preserve legacy state bindings.
-        self.spin_export_start = tk.Spinbox(self.root, from_=1, to=10000, width=5)
-        self.spin_export_end = tk.Spinbox(self.root, from_=1, to=10000, width=5)
-        self._set_spinbox_value(self.spin_export_start, 1)
-        self._set_spinbox_value(self.spin_export_end, 100)
-
         self._set_analysis_panel(False)
 
         activity_frame = ttk.LabelFrame(self.root, text="Activity", height=64)
@@ -218,8 +212,6 @@ class LayoutBuilder:
             self.spin_baseline,
             self.spin_prop_start,
             self.spin_prop_end,
-            self.spin_export_start,
-            self.spin_export_end,
             self.entry_frames_per_sec,
         ]:
             try:

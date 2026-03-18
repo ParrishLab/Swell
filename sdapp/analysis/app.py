@@ -1238,6 +1238,8 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         if self.frame_source is None or not self._has_loaded_stack():
             raise RuntimeError("No loaded stack to save.")
         frame_count = self._get_frame_count()
+        prop_start = int(self.spin_prop_start.get())
+        prop_end = int(self.spin_prop_end.get())
         snapshot = self.analysis_workspace.build_session_snapshot(
             WorkspaceUiState(
                 current_frame_idx=int(self.current_frame_idx),
@@ -1247,10 +1249,10 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
                 img_offset_y=int(getattr(self, "img_offset_y", 0)),
                 analysis_start=1,
                 analysis_end=max(1, int(frame_count)),
-                prop_start=int(self.spin_prop_start.get()),
-                prop_end=int(self.spin_prop_end.get()),
-                export_start=int(self.spin_export_start.get()),
-                export_end=int(self.spin_export_end.get()),
+                prop_start=prop_start,
+                prop_end=prop_end,
+                export_start=prop_start,
+                export_end=prop_end,
                 baseline_frame_count=int(self.spin_baseline.get()),
                 scale_px_per_mm=self.scale_px_per_mm,
                 roi_points=list(self.roi_points) if self.roi_points else [],

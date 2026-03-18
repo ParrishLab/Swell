@@ -319,8 +319,6 @@ class IOActions:
         self._export_range_auto_follow = True
         self._set_spinbox_value(self.spin_prop_start, 1)
         self._set_spinbox_value(self.spin_prop_end, count)
-        self._set_spinbox_value(self.spin_export_start, 1)
-        self._set_spinbox_value(self.spin_export_end, count)
 
         self.update_display()
         self._recompute_slider_jump_markers()

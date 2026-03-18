@@ -121,14 +121,30 @@ class AnalysisWorkspaceController:
         frame_count: int,
         scope_start: int | None,
         scope_end: int | None,
+        local_event_start: int | None = None,
+        local_event_end: int | None = None,
     ) -> dict[int, np.ndarray]:
+        event_span_len: int | None = None
+        if local_event_start is not None and local_event_end is not None:
+            try:
+                start_idx = int(local_event_start)
+                end_idx = int(local_event_end)
+                if end_idx >= start_idx:
+                    event_span_len = int(end_idx - start_idx + 1)
+            except (TypeError, ValueError):
+                event_span_len = None
+
         if masks_payload is None:
             return {}
         if isinstance(masks_payload, dict):
             out: dict[int, np.ndarray] = {}
             for frame_idx, mask in masks_payload.items():
+                try:
+                    frame_idx_int = int(frame_idx)
+                except (TypeError, ValueError):
+                    continue
                 local = self._normalize_frame_idx_to_local(
-                    int(frame_idx),
+                    frame_idx_int,
                     frame_count=frame_count,
                     scope_start=scope_start,
                     scope_end=scope_end,
@@ -149,6 +165,22 @@ class AnalysisWorkspaceController:
             scoped = arr[int(scope_start) : int(scope_end) + 1]
             if scoped.shape[0] == frame_count:
                 return self.session_service.array_to_masks_dict(scoped, frame_count)
+        if (
+            event_span_len is not None
+            and local_event_start is not None
+            and arr.shape[0] == int(event_span_len)
+            and 0 <= int(local_event_start) < frame_count
+        ):
+            out: dict[int, np.ndarray] = {}
+            base = int(local_event_start)
+            for idx in range(arr.shape[0]):
+                local_idx = base + int(idx)
+                if local_idx >= frame_count:
+                    break
+                mask = np.asarray(arr[idx], dtype=bool)
+                if np.any(mask):
+                    out[local_idx] = mask.copy()
+            return out
         return self.session_service.array_to_masks_dict(arr, frame_count)
 
     def bind_frame_source(self, frame_source: FrameSource | None) -> None:
@@ -266,6 +298,8 @@ class AnalysisWorkspaceController:
                             frame_count=frame_count,
                             scope_start=scope_start,
                             scope_end=scope_end,
+                            local_event_start=local_start,
+                            local_event_end=local_end,
                         )
                     except Exception:
                         pass

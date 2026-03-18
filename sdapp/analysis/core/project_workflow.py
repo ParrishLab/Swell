@@ -259,8 +259,6 @@ def apply_loaded_project_plan(app, plan: ProjectLoadPlan) -> None:
         ("spin_analysis_end", "analysis_end"),
         ("spin_prop_start", "prop_start"),
         ("spin_prop_end", "prop_end"),
-        ("spin_export_start", "export_start"),
-        ("spin_export_end", "export_end"),
     ):
         if hasattr(app, spin_name) and key in plan.ui_state:
             app._set_spinbox_value(getattr(app, spin_name), plan.ui_state.get(key))

@@ -19,13 +19,16 @@ def recompute_slider_jump_markers(app) -> None:
     markers = {}
     user_frames = app._collect_user_defined_frames()
     nonempty_mask_frames = app._collect_nonempty_final_mask_frames()
+    propagated_frames = set(getattr(app, "propagated_frame_indices", set()) or set())
 
     for frame_idx in sorted(user_frames):
         markers[frame_idx] = "user"
 
-    if nonempty_mask_frames:
-        start_idx = min(nonempty_mask_frames)
-        end_idx = max(nonempty_mask_frames)
+    # Propagation range spinboxes should follow propagation run bounds when present.
+    prop_range_frames = set(propagated_frames) if propagated_frames else set(nonempty_mask_frames)
+    if prop_range_frames:
+        start_idx = min(prop_range_frames)
+        end_idx = max(prop_range_frames)
         markers[start_idx] = "start"
         if end_idx != start_idx:
             markers[end_idx] = "end"
@@ -43,24 +46,6 @@ def recompute_slider_jump_markers(app) -> None:
                     app._set_spinbox_value(app.spin_prop_end, end_display)
             except (ValueError, TypeError, tk.TclError):
                 app._set_spinbox_value(app.spin_prop_end, end_display)
-
-        if (
-            getattr(app, "_export_range_auto_follow", True)
-            and hasattr(app, "spin_export_start")
-            and hasattr(app, "spin_export_end")
-        ):
-            start_display = start_idx + 1
-            end_display = end_idx + 1
-            try:
-                if int(app.spin_export_start.get()) != start_display:
-                    app._set_spinbox_value(app.spin_export_start, start_display)
-            except (ValueError, TypeError, tk.TclError):
-                app._set_spinbox_value(app.spin_export_start, start_display)
-            try:
-                if int(app.spin_export_end.get()) != end_display:
-                    app._set_spinbox_value(app.spin_export_end, end_display)
-            except (ValueError, TypeError, tk.TclError):
-                app._set_spinbox_value(app.spin_export_end, end_display)
 
     app.slider_jump_markers = markers
     redraw_slider_overlay(app)
