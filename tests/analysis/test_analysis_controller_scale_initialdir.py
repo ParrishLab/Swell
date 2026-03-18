@@ -15,7 +15,7 @@ def _make_controller(*, app_root: str, source_paths: list[str], last_scale_path:
         get_paint_layers=lambda: {},
         get_points=lambda: {},
         get_frame_names=lambda: [],
-        get_input_folder=lambda: input_folder,
+        get_import_source_hint=lambda: input_folder,
         get_current_image_source_paths=lambda: list(source_paths),
         get_compose_final_mask_for_frame=lambda _idx: None,
         get_nonempty_final_mask_frames=lambda: set(),

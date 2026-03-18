@@ -15,10 +15,12 @@ class AnalysisWorkspaceControllerTests(unittest.TestCase):
         self.service = ProjectSessionService()
         self.state = SessionState()
         self.seg_state = SegmentationState()
+        self.opened_events: list[str] = []
         self.controller = AnalysisWorkspaceController(
             session_service=self.service,
             session_state=self.state,
             seg_state=self.seg_state,
+            on_event_opened=lambda event_id: self.opened_events.append(str(event_id)),
         )
         frames = [np.zeros((4, 4), dtype=np.uint8) for _ in range(5)]
         self.controller.bind_frame_source(
@@ -38,6 +40,7 @@ class AnalysisWorkspaceControllerTests(unittest.TestCase):
         self.controller.sync_active_event()
         self.controller.open_event("sd_event_001")
         self.assertIn(1, self.seg_state.masks_cache)
+        self.assertIn("sd_event_001", self.opened_events)
 
     def test_build_session_snapshot_uses_frame_source(self):
         self.controller.reset_workspace_for_new_stack()

@@ -5,27 +5,15 @@ from unittest.mock import patch
 from sdapp.analysis.app import SDSegmentationApp
 
 
-class _EntryStub:
-    def __init__(self, value):
-        self.value = str(value)
-
-    def get(self):
-        return self.value
-
-    def delete(self, _start, _end):
-        self.value = ""
-
-    def insert(self, _index, text):
-        self.value = str(text)
-
-
 class ModelBrowseReloadTests(unittest.TestCase):
     @patch("sdapp.analysis.app.filedialog.askopenfilename")
     def test_no_reload_when_model_path_unchanged(self, ask_mock):
         app = SDSegmentationApp.__new__(SDSegmentationApp)
         app.root = object()
         app.app_root = "/tmp"
-        app.entry_model = _EntryStub("/tmp/models/a.pt")
+        state = {"token": "/tmp/models/a.pt"}
+        app.get_model_token = lambda: state["token"]
+        app.set_model_token = lambda value: state.__setitem__("token", str(value))
         ran = {"count": 0}
         app.start_model_initialization = lambda **_kwargs: ran.__setitem__("count", ran["count"] + 1)
         app.log_info = lambda *_args, **_kwargs: None
@@ -39,7 +27,9 @@ class ModelBrowseReloadTests(unittest.TestCase):
         app = SDSegmentationApp.__new__(SDSegmentationApp)
         app.root = object()
         app.app_root = "/tmp"
-        app.entry_model = _EntryStub("/tmp/models/a.pt")
+        state = {"token": "/tmp/models/a.pt"}
+        app.get_model_token = lambda: state["token"]
+        app.set_model_token = lambda value: state.__setitem__("token", str(value))
         ran = {"count": 0}
         app.start_model_initialization = lambda **_kwargs: ran.__setitem__("count", ran["count"] + 1)
         app.log_info = lambda *_args, **_kwargs: None
@@ -47,7 +37,7 @@ class ModelBrowseReloadTests(unittest.TestCase):
 
         app.on_browse_model()
         self.assertEqual(ran["count"], 1)
-        self.assertEqual(Path(app.entry_model.get()).resolve(), Path("/tmp/models/b.pt").resolve())
+        self.assertEqual(Path(state["token"]).resolve(), Path("/tmp/models/b.pt").resolve())
 
 
 if __name__ == "__main__":

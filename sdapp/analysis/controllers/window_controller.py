@@ -183,8 +183,34 @@ class AnalysisWindowController:
             return
         messagebox.showinfo("Masks Saved", "Current masks were saved.", parent=self._dialog_parent())
 
+    def _has_masks_ready_to_save(self) -> bool:
+        seg_state = getattr(self.app, "seg_state", None)
+        invalidate = getattr(seg_state, "invalidate_final_mask_frames", None)
+        if callable(invalidate):
+            try:
+                invalidate()
+            except Exception:
+                pass
+
+        try:
+            if bool(self.app._collect_nonempty_final_mask_frames()):
+                return True
+        except Exception:
+            pass
+
+        workspace = getattr(self.app, "analysis_workspace", None)
+        export_payload = getattr(workspace, "export_active_event_analysis_payload", None)
+        if callable(export_payload):
+            try:
+                payload = export_payload()
+                if self.analysis_payload_has_saved_masks(payload):
+                    return True
+            except Exception:
+                pass
+        return False
+
     def save_current_masks(self) -> None:
-        if not self.app._collect_nonempty_final_mask_frames():
+        if not self._has_masks_ready_to_save():
             messagebox.showwarning("No Masks", "Please generate masks first.", parent=self._dialog_parent())
             return
         self.emit_host_metrics_update(reason="save_current_masks")

@@ -157,7 +157,7 @@ class SegmentationActions:
         if service is None:
             return None
         project_meta = self._project_recorded_checkpoint_metadata() if hasattr(self, "_project_recorded_checkpoint_metadata") else None
-        configured_model = str(self.entry_model.get() or "").strip() if hasattr(self, "entry_model") else ""
+        configured_model = self.get_model_token() if hasattr(self, "get_model_token") else ""
         manual_override = str(getattr(self, "_manual_model_override", "") or "").strip()
         return service.resolve_checkpoint(
             project_checkpoint_meta=project_meta,
@@ -517,8 +517,8 @@ class SegmentationActions:
             )
             self._set_active_checkpoint_metadata(checkpoint_meta, notify_host=True, reason="sam2_init")
             try:
-                self.entry_model.delete(0, "end")
-                self.entry_model.insert(0, str(model_path))
+                if hasattr(self, "set_model_token"):
+                    self.set_model_token(str(model_path))
             except Exception:
                 pass
             self.log_success("Model", "SAM2 model is ready.")

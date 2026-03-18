@@ -141,10 +141,37 @@ class SegmentationState:
         mask = self.compose_final_mask(frame_idx, base_shape)
         return bool(mask is not None and np.any(mask))
 
+    @staticmethod
+    def _normalize_frame_key(value) -> int | None:
+        try:
+            idx = int(value)
+        except (TypeError, ValueError):
+            return None
+        return idx
+
+    def _candidate_nonempty_final_mask_frames(self, frame_count: int) -> set[int]:
+        candidates: set[int] = set()
+        max_idx = int(frame_count) - 1
+        if max_idx < 0:
+            return candidates
+
+        for key in self.masks_cache.keys():
+            idx = self._normalize_frame_key(key)
+            if idx is not None and 0 <= idx <= max_idx:
+                candidates.add(idx)
+
+        for key in self.paint_layers.keys():
+            idx = self._normalize_frame_key(key)
+            if idx is not None and 0 <= idx <= max_idx:
+                candidates.add(idx)
+
+        return candidates
+
     def get_nonempty_final_mask_frames(self, frame_count: int, base_shape) -> set[int]:
         if self.dirty_final_mask_frames:
             frames_with_masks = set()
-            for frame_idx in range(frame_count):
+            # Only frames with masks/paint can produce non-empty finals.
+            for frame_idx in self._candidate_nonempty_final_mask_frames(frame_count):
                 if self.has_nonempty_final_mask(frame_idx, base_shape):
                     frames_with_masks.add(frame_idx)
             self.frames_with_nonempty_final_mask = frames_with_masks

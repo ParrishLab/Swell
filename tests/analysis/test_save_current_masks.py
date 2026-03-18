@@ -127,6 +127,66 @@ def test_save_current_masks_saves_to_existing_project_without_overwrite_prompt(m
     assert info_calls
 
 
+def test_save_current_masks_uses_committed_payload_when_live_mask_set_empty(monkeypatch):
+    app = _build_app()
+    app.current_project_path = "/tmp/test.sdproj"
+    app._collect_nonempty_final_mask_frames = lambda: set()
+    app.seg_state = type("S", (), {"invalidate_final_mask_frames": lambda self: None})()
+    app.analysis_workspace = type(
+        "W",
+        (),
+        {
+            "export_active_event_analysis_payload": staticmethod(
+                lambda: {"masks_committed": {1: np.array([[True]], dtype=bool)}, "masks_draft": None}
+            )
+        },
+    )()
+    save_calls: list[str] = []
+    warned: list[tuple[str, str]] = []
+    app.save_project = lambda: save_calls.append("save")
+    monkeypatch.setattr(
+        "sdapp.analysis.app.messagebox.showwarning",
+        lambda title, text, **_kwargs: warned.append((str(title), str(text))),
+    )
+    monkeypatch.setattr("sdapp.analysis.app.messagebox.askyesno", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr("sdapp.analysis.app.messagebox.showinfo", lambda *_args, **_kwargs: None)
+
+    app.save_current_masks()
+
+    assert warned == []
+    assert save_calls == ["save"]
+
+
+def test_save_current_masks_uses_draft_payload_when_live_mask_set_empty(monkeypatch):
+    app = _build_app()
+    app.current_project_path = "/tmp/test.sdproj"
+    app._collect_nonempty_final_mask_frames = lambda: set()
+    app.seg_state = type("S", (), {"invalidate_final_mask_frames": lambda self: None})()
+    app.analysis_workspace = type(
+        "W",
+        (),
+        {
+            "export_active_event_analysis_payload": staticmethod(
+                lambda: {"masks_committed": {}, "masks_draft": {2: np.array([[True]], dtype=bool)}}
+            )
+        },
+    )()
+    save_calls: list[str] = []
+    warned: list[tuple[str, str]] = []
+    app.save_project = lambda: save_calls.append("save")
+    monkeypatch.setattr(
+        "sdapp.analysis.app.messagebox.showwarning",
+        lambda title, text, **_kwargs: warned.append((str(title), str(text))),
+    )
+    monkeypatch.setattr("sdapp.analysis.app.messagebox.askyesno", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr("sdapp.analysis.app.messagebox.showinfo", lambda *_args, **_kwargs: None)
+
+    app.save_current_masks()
+
+    assert warned == []
+    assert save_calls == ["save"]
+
+
 def test_apply_host_metrics_settings_prefills_values() -> None:
     app = _build_app()
     app.frames_per_sec_var = _DummyVar(1.0)

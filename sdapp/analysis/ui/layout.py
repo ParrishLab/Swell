@@ -11,19 +11,6 @@ class LayoutBuilder:
         slider_overlay_bg = "#d4d7db"
         insert_cursor = "#1f1f1f"
 
-        # Hidden compatibility controls retained for state synchronization.
-        self.entry_input = tk.Entry(self.root, width=40)
-        self.entry_input.insert(0, "Host-provided SD event scope")
-
-        self.entry_output = tk.Entry(self.root, width=40)
-        self.entry_output.insert(0, str(self.config.output_path()))
-
-        self.entry_model = tk.Entry(self.root, width=35)
-        self.entry_model.insert(0, self.config.model_token())
-
-        self.spin_baseline = tk.Spinbox(self.root, from_=1, to=100, width=5)
-        self._set_spinbox_value(self.spin_baseline, self.config.default_baseline)
-
         self.lbl_status = ttk.Label(
             self.root,
             text="Status: Idle",
@@ -206,10 +193,6 @@ class LayoutBuilder:
 
         # Ensure a visible blinking text cursor in ttk Entry/Spinbox controls.
         for text_widget in [
-            self.entry_input,
-            self.entry_output,
-            self.entry_model,
-            self.spin_baseline,
             self.spin_prop_start,
             self.spin_prop_end,
             self.entry_frames_per_sec,

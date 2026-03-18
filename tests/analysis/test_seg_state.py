@@ -42,6 +42,29 @@ class SegmentationStateTests(unittest.TestCase):
         frames = state.get_nonempty_final_mask_frames(4, (3, 3))
         self.assertEqual(frames, {1})
 
+    def test_get_nonempty_final_mask_frames_checks_only_candidate_frames(self):
+        state = SegmentationState()
+        mask = np.zeros((3, 3), dtype=bool)
+        mask[0, 0] = True
+        state.set_mask(50, mask)
+        plus = np.zeros((3, 3), dtype=bool)
+        minus = np.zeros((3, 3), dtype=bool)
+        plus[1, 1] = True
+        state.set_paint_layer(12, plus, minus)
+
+        checked: list[int] = []
+        original = state.has_nonempty_final_mask
+
+        def _track(frame_idx, base_shape):
+            checked.append(int(frame_idx))
+            return original(frame_idx, base_shape)
+
+        state.has_nonempty_final_mask = _track  # type: ignore[method-assign]
+        frames = state.get_nonempty_final_mask_frames(1000, (3, 3))
+
+        self.assertEqual(frames, {12, 50})
+        self.assertEqual(set(checked), {12, 50})
+
 
 if __name__ == "__main__":
     unittest.main()

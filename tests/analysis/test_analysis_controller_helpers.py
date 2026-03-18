@@ -15,7 +15,7 @@ class AnalysisControllerHelperTests(unittest.TestCase):
             get_paint_layers=lambda: {},
             get_points=lambda: {},
             get_frame_names=lambda: [],
-            get_input_folder=lambda: "",
+            get_import_source_hint=lambda: "",
             get_compose_final_mask_for_frame=lambda _idx: None,
             get_nonempty_final_mask_frames=lambda: set(),
             get_frames_per_sec=lambda: 1.0,

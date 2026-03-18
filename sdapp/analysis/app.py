@@ -165,17 +165,20 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         self._export_range_auto_follow = True
         self._programmatic_spinbox_update = False
         self._last_scale_image_path = ""
-        self.export_panel_open = tk.BooleanVar(value=False)
         self.analysis_panel_open = tk.BooleanVar(value=False)
         self._controls_hint_logged = False
 
         self.config = AppConfig.load()
+        self.set_input_source_hint("Host-provided SD event scope")
+        self.set_model_token(self.config.model_token())
+        self.set_baseline_frame_count(self.config.default_baseline)
         self.project_store = ProjectStore()
         self.project_session_service = ProjectSessionService()
         self.analysis_workspace = AnalysisWorkspaceController(
             session_service=self.project_session_service,
             session_state=self.session_state,
             seg_state=self.seg_state,
+            on_event_opened=self._on_workspace_event_opened,
         )
         self.mask_import_dialog = MaskImportDialogService()
         self.autosave_manager = None
@@ -227,7 +230,7 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
             get_paint_layers=lambda: self.paint_layers,
             get_points=lambda: self.points,
             get_frame_names=self._get_frame_names,
-            get_input_folder=lambda: self.entry_input.get(),
+            get_import_source_hint=self.get_input_source_hint,
             get_current_image_source_paths=lambda: (
                 list(self._current_image_source_paths)
                 if self._current_image_source_paths
@@ -380,6 +383,38 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
     def _export_range_auto_follow(self, value):
         self._ensure_session_state()
         self.session_state.export_range_auto_follow = bool(value)
+
+    def get_input_source_hint(self) -> str:
+        self._ensure_session_state()
+        return str(getattr(self.session_state, "input_source_hint", "") or "")
+
+    def set_input_source_hint(self, value: str | None) -> None:
+        self._ensure_session_state()
+        self.session_state.input_source_hint = str(value or "")
+
+    def get_model_token(self) -> str:
+        self._ensure_session_state()
+        return str(getattr(self.session_state, "model_token", "") or "").strip()
+
+    def set_model_token(self, value: str | None) -> None:
+        self._ensure_session_state()
+        self.session_state.model_token = str(value or "").strip()
+
+    def get_baseline_frame_count(self) -> int:
+        self._ensure_session_state()
+        try:
+            value = int(getattr(self.session_state, "baseline_frame_count", 30))
+        except Exception:
+            value = 30
+        return max(1, value)
+
+    def set_baseline_frame_count(self, value) -> None:
+        self._ensure_session_state()
+        try:
+            parsed = int(value)
+        except Exception:
+            parsed = 30
+        self.session_state.baseline_frame_count = max(1, parsed)
 
     def _ensure_runtime_state(self) -> None:
         if not hasattr(self, "runtime_state") or self.runtime_state is None:
@@ -644,7 +679,10 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
                 session_service=self.project_session_service,
                 session_state=self.session_state,
                 seg_state=self.seg_state,
+                on_event_opened=self._on_workspace_event_opened,
             )
+        elif hasattr(self.analysis_workspace, "_on_event_opened"):
+            self.analysis_workspace._on_event_opened = self._on_workspace_event_opened
 
     def _set_loading_indicator(self, loading: bool, text: str = "Working...") -> None:
         if not hasattr(self, "loading_status_var") or not hasattr(self, "loading_bar"):
@@ -716,8 +754,6 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
 
     def _set_busy(self, is_busy, status_text, color):
         self.lbl_status.configure(text=status_text, foreground=color)
-        if hasattr(self, "btn_import"):
-            self.btn_import.configure(state="disabled" if is_busy else "normal")
         self._set_loading_indicator(bool(is_busy), str(status_text).replace("Status:", "").strip() or "Working...")
         if hasattr(self, "btn_save_masks"):
             if is_busy:
@@ -919,16 +955,6 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
                 )
                 self._controls_hint_logged = True
 
-    def _set_export_panel(self, open_state):
-        is_open = bool(open_state)
-        self.export_panel_open.set(is_open)
-        if not hasattr(self, "btn_export_toggle") or not hasattr(self, "frame_export_body"):
-            return
-        self.btn_export_toggle.configure(text=f"Export {'▾' if is_open else '▸'}")
-        self.frame_export_body.pack_forget()
-        if is_open:
-            self.frame_export_body.pack(fill="x", padx=4, pady=(0, 4))
-
     def _set_analysis_panel(self, open_state):
         is_open = bool(open_state)
         self.analysis_panel_open.set(is_open)
@@ -938,9 +964,6 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         self.frame_analysis_body.pack_forget()
         if is_open:
             self.frame_analysis_body.pack(fill="x", padx=4, pady=(0, 4))
-
-    def _toggle_export_panel(self):
-        self._set_export_panel(not bool(self.export_panel_open.get()))
 
     def _toggle_analysis_panel(self):
         self._set_analysis_panel(not bool(self.analysis_panel_open.get()))
@@ -1081,7 +1104,7 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
 
     def _validate_assets(self):
         resource_root = str(getattr(self, "resource_root", self.app_root))
-        model_token = self.entry_model.get().strip()
+        model_token = self.get_model_token()
         missing = []
         if model_token:
             if str(model_token).startswith("managed://"):
@@ -1258,7 +1281,7 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
                 prop_end=prop_end,
                 export_start=prop_start,
                 export_end=prop_end,
-                baseline_frame_count=int(self.spin_baseline.get()),
+                baseline_frame_count=self.get_baseline_frame_count(),
                 scale_px_per_mm=self.scale_px_per_mm,
                 roi_points=list(self.roi_points) if self.roi_points else [],
                 roi_mask=self.roi_mask,
@@ -1509,6 +1532,12 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
             self._set_propagated_frames(nonempty, mark_dirty=False)
         except Exception:
             return
+
+    def _on_workspace_event_opened(self, _event_id: str) -> None:
+        # Propagation overlay state is event-local in host mode; clear stale history
+        # and rebuild from the newly opened event's saved masks.
+        self._clear_propagation_overlay_state()
+        self._sync_saved_mask_overlay_state()
 
     def _collect_current_metrics_settings(self) -> dict[str, object]:
         return self._get_window_controller().collect_current_metrics_settings()

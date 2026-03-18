@@ -67,6 +67,17 @@ class PropagationOverlayStateTests(unittest.TestCase):
         self.assertEqual(app._largest_propagated_span, (2, 4))
         self.assertEqual(app.propagated_frame_indices, {2, 3, 4})
 
+    def test_workspace_event_opened_reseeds_overlay_from_event_saved_masks(self):
+        app = self._make_app()
+        app._set_propagated_frames({2, 3, 4, 5})
+        app._collect_nonempty_final_mask_frames = lambda: {20, 21}
+
+        app._on_workspace_event_opened("event_0002")
+
+        self.assertEqual(app._largest_propagated_span, (20, 21))
+        self.assertEqual(app._propagated_history_indices, {20, 21})
+        self.assertEqual(app.propagated_frame_indices, {20, 21})
+
 
 if __name__ == "__main__":
     unittest.main()

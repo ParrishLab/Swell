@@ -96,8 +96,7 @@ class AnalysisHostModeController:
             manual_override = str(model_context.get("manual_model_override", "") or "").strip()
             if model_token:
                 try:
-                    self.app.entry_model.delete(0, "end")
-                    self.app.entry_model.insert(0, model_token)
+                    self.app.set_model_token(model_token)
                 except Exception:
                     pass
             self.app._manual_model_override = manual_override or None
@@ -272,9 +271,9 @@ class AnalysisHostModeController:
             return True
 
         baseline_count = 30
-        if hasattr(self.app, "spin_baseline"):
+        if hasattr(self.app, "get_baseline_frame_count"):
             try:
-                baseline_count = int(self.app.spin_baseline.get())
+                baseline_count = int(self.app.get_baseline_frame_count())
             except Exception:
                 baseline_count = 30
         if bool(getattr(self.app, "_host_mode", False)):
@@ -288,9 +287,9 @@ class AnalysisHostModeController:
                 except Exception:
                     pass
             baseline_count = max(1, int(baseline_count))
-            if hasattr(self.app, "spin_baseline"):
+            if hasattr(self.app, "set_baseline_frame_count"):
                 try:
-                    self.app._set_spinbox_value(self.app.spin_baseline, baseline_count)
+                    self.app.set_baseline_frame_count(baseline_count)
                 except Exception:
                     pass
         self.app.frame_names = list(getattr(frame_source, "frame_names", []))

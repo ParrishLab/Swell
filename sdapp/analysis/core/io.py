@@ -15,7 +15,7 @@ class IOActions:
 
     def browse_input_folder(self):
         initialdir = resolve_existing_directory(
-            self.entry_input.get(),
+            self.get_input_source_hint(),
             app_root=self.app_root,
             fallback_dir=self.app_root,
             prefer_parent_for_existing_dir=True,
@@ -24,8 +24,7 @@ class IOActions:
         if not folder:
             return
         self._selected_import_files = None
-        self.entry_input.delete(0, "end")
-        self.entry_input.insert(0, folder)
+        self.set_input_source_hint(folder)
         return folder
 
     def _validate_selected_files(self, paths):
@@ -57,7 +56,7 @@ class IOActions:
 
     def browse_input_files(self):
         initialdir = resolve_existing_directory(
-            self.entry_input.get(),
+            self.get_input_source_hint(),
             app_root=self.app_root,
             fallback_dir=self.app_root,
             prefer_parent_for_existing_dir=True,
@@ -100,8 +99,7 @@ class IOActions:
 
         self._selected_import_files = list(valid_files)
         label = valid_files[0].as_posix() if len(valid_files) == 1 else f"{len(valid_files)} selected files"
-        self.entry_input.delete(0, "end")
-        self.entry_input.insert(0, label)
+        self.set_input_source_hint(label)
         return list(valid_files)
 
     def browse_input_primary(self, mode):
@@ -109,25 +107,13 @@ class IOActions:
             return self.browse_input_files()
         return self.browse_input_folder()
 
-    def browse_output(self):
-        initialdir = resolve_existing_directory(
-            self.entry_output.get(),
-            app_root=self.app_root,
-            fallback_dir=self.app_root,
-            prefer_parent_for_existing_dir=True,
-        )
-        folder = filedialog.askdirectory(parent=self.root, initialdir=initialdir)
-        if folder:
-            self.entry_output.delete(0, "end")
-            self.entry_output.insert(0, folder)
-
     def _start_import(self):
         selected_files = list(getattr(self, "_selected_import_files", []) or [])
         if selected_files:
             self._start_import_with_files(selected_files, source_label=f"{len(selected_files)} selected file(s)")
             return
 
-        input_folder = self.entry_input.get()
+        input_folder = self.get_input_source_hint()
         if input_folder and os.path.isfile(input_folder):
             path = Path(input_folder)
             if path.suffix.lower() in self._supported_image_extensions:
@@ -281,7 +267,7 @@ class IOActions:
         frames_denoised = np.array(frames_denoised)
 
         self.log_info("Import", "Calculating baseline...")
-        b_frames = int(self.spin_baseline.get())
+        b_frames = int(self.get_baseline_frame_count())
         b_frames = min(b_frames, len(frames))
         baseline = np.median(frames_denoised[:b_frames], axis=0)
         frames_sub = frames_denoised - baseline

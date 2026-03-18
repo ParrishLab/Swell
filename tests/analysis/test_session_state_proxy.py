@@ -48,7 +48,6 @@ class SessionStateProxyTests(unittest.TestCase):
 
     def test_prepare_host_mode_buffers_creates_lazy_sequences(self):
         app = SDSegmentationApp.__new__(SDSegmentationApp)
-        app.spin_baseline = type("S", (), {"get": lambda self: "2"})()
 
         class _Source:
             frame_count = 2
@@ -116,7 +115,6 @@ class SessionStateProxyTests(unittest.TestCase):
         app.log_info = lambda *_args, **_kwargs: None
         app.log_warn = lambda *_args, **_kwargs: None
         app.start_model_initialization = lambda **_kwargs: setattr(app, "_thread_started", True)
-        app.entry_model = type("E", (), {"get": lambda self: "/tmp/model.pt"})()
         app.frame_source = None
         app.app_context = None
 

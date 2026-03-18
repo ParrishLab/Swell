@@ -250,13 +250,11 @@ def apply_loaded_project_plan(app, plan: ProjectLoadPlan) -> None:
     app.roi_mask = plan.roi_mask
 
     try:
-        app._set_spinbox_value(app.spin_baseline, int(plan.global_state.get("baseline_frame_count", 30)))
+        app.set_baseline_frame_count(int(plan.global_state.get("baseline_frame_count", 30)))
     except Exception:
         pass
 
     for spin_name, key in (
-        ("spin_analysis_start", "analysis_start"),
-        ("spin_analysis_end", "analysis_end"),
         ("spin_prop_start", "prop_start"),
         ("spin_prop_end", "prop_end"),
     ):
@@ -298,37 +296,112 @@ def evaluate_close_requirements(app) -> CloseRequirements:
     )
 
 
+def _close_dialog_parent(app):
+    parent = getattr(app, "root", None)
+    if parent is None:
+        return None
+    try:
+        if hasattr(parent, "winfo_exists") and not bool(parent.winfo_exists()):
+            return None
+    except Exception:
+        return None
+    return parent
+
+
+def _prepare_close_prompt_parent(parent) -> None:
+    if parent is None:
+        return
+    try:
+        if hasattr(parent, "deiconify"):
+            parent.deiconify()
+    except Exception:
+        pass
+    try:
+        if hasattr(parent, "lift"):
+            parent.lift()
+    except Exception:
+        pass
+    try:
+        if hasattr(parent, "focus_force"):
+            parent.focus_force()
+    except Exception:
+        pass
+    try:
+        if hasattr(parent, "update_idletasks"):
+            parent.update_idletasks()
+    except Exception:
+        pass
+
+
+def _show_close_prompt(app, prompt_fn, *args):
+    parent = _close_dialog_parent(app)
+    _prepare_close_prompt_parent(parent)
+    if parent is None:
+        return prompt_fn(*args)
+    return prompt_fn(*args, parent=parent)
+
+
+def _close_log_debug(app, message: str) -> None:
+    logger = getattr(app, "log_debug", None)
+    if not callable(logger):
+        return
+    try:
+        logger("Close", str(message))
+    except Exception:
+        return
+
+
 def on_close(app) -> None:
+    _close_log_debug(app, "Close requested.")
     requirements = evaluate_close_requirements(app)
+    _close_log_debug(app, f"Propagation running: {bool(requirements.has_running_propagation)}.")
     if requirements.has_running_propagation:
-        proceed = messagebox.askyesno(
+        _close_log_debug(app, "Showing propagation-running close confirmation.")
+        proceed = _show_close_prompt(
+            app,
+            messagebox.askyesno,
             "Propagation Running",
             "Propagation is still running. Closing now will stop it.\n\nClose anyway?",
-            parent=app.root,
         )
+        _close_log_debug(app, f"Propagation-running prompt response: {proceed!r}.")
         if not proceed:
+            _close_log_debug(app, "Close canceled by user at propagation-running prompt.")
             return
 
     has_unsaved_masks = bool(getattr(app, "project_dirty", False))
+    _close_log_debug(app, f"Project dirty before mask check: {has_unsaved_masks}.")
     if has_unsaved_masks and hasattr(app, "_collect_nonempty_final_mask_frames"):
         try:
-            has_unsaved_masks = bool(app._collect_nonempty_final_mask_frames())
+            nonempty = app._collect_nonempty_final_mask_frames()
+            has_unsaved_masks = bool(nonempty)
+            _close_log_debug(
+                app,
+                f"Non-empty final mask frames detected: {len(nonempty) if hasattr(nonempty, '__len__') else 'unknown'}.",
+            )
         except Exception:
             has_unsaved_masks = bool(getattr(app, "project_dirty", False))
+            _close_log_debug(app, "Mask-frame collection failed; falling back to project_dirty state.")
     if has_unsaved_masks and callable(getattr(app, "save_current_masks", None)):
-        response = messagebox.askyesnocancel(
+        _close_log_debug(app, "Showing unsaved-masks close confirmation.")
+        response = _show_close_prompt(
+            app,
+            messagebox.askyesnocancel,
             "Unsaved Masks",
             "Current masks have unsaved changes.\n\nSave masks before closing?",
-            parent=app.root,
         )
+        _close_log_debug(app, f"Unsaved-masks prompt response: {response!r}.")
         if response is None:
+            _close_log_debug(app, "Close canceled by user at unsaved-masks prompt.")
             return
         if response is True:
+            _close_log_debug(app, "User selected save before close; invoking save_current_masks().")
             app.save_current_masks()
             if bool(getattr(app, "project_dirty", False)):
                 # Save was canceled or failed; keep window open.
+                _close_log_debug(app, "Close aborted because project remains dirty after save attempt.")
                 return
 
+    _close_log_debug(app, "Proceeding with close teardown.")
     if hasattr(app, "_shutdown_model_resources"):
         app._shutdown_model_resources()
     if hasattr(app, "_emit_host_sync"):
@@ -338,5 +411,6 @@ def on_close(app) -> None:
         autosave_mgr.stop()
     app.inference_manager.stop()
     if app._ui_alive():
+        _close_log_debug(app, "Destroying analysis root window.")
         app.root.destroy()
     app.cleanup_temp_files()

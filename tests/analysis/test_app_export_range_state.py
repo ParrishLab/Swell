@@ -55,14 +55,22 @@ class AppExportRangeStateTests(unittest.TestCase):
         self.assertEqual(int(app.spin_prop_start.get()), 4)
         self.assertEqual(int(app.spin_prop_end.get()), 8)
 
-    def test_recompute_prefers_propagation_run_bounds_for_prop_spinboxes(self):
+    def test_recompute_uses_nonempty_mask_bounds_for_prop_spinboxes(self):
         app = self._make_app_for_recompute({5, 6})
         app.propagated_frame_indices = set(range(2, 10))
         app._recompute_slider_jump_markers()
 
-        # Propagation range follows run bounds.
-        self.assertEqual(int(app.spin_prop_start.get()), 3)
-        self.assertEqual(int(app.spin_prop_end.get()), 10)
+        # Propagation range follows non-empty mask bounds.
+        self.assertEqual(int(app.spin_prop_start.get()), 6)
+        self.assertEqual(int(app.spin_prop_end.get()), 7)
+
+    def test_recompute_does_not_assign_start_end_without_nonempty_masks(self):
+        app = self._make_app_for_recompute(set())
+        app.spin_prop_start = _SpinStub(4)
+        app.spin_prop_end = _SpinStub(9)
+        app._recompute_slider_jump_markers()
+        self.assertEqual(app.slider_jump_markers, {})
+
     def test_finalize_load_resets_propagation_range_to_full_stack(self):
         app = SDSegmentationApp.__new__(SDSegmentationApp)
         app.frames_raw = [object()] * 12

@@ -21,7 +21,7 @@ class AnalysisController:
         get_paint_layers,
         get_points,
         get_frame_names,
-        get_input_folder,
+        get_import_source_hint,
         get_compose_final_mask_for_frame,
         get_nonempty_final_mask_frames,
         get_frames_per_sec,
@@ -48,7 +48,7 @@ class AnalysisController:
         self.get_paint_layers = get_paint_layers
         self.get_points = get_points
         self.get_frame_names = get_frame_names
-        self.get_input_folder = get_input_folder
+        self.get_import_source_hint = get_import_source_hint
         self.get_current_image_source_paths = (
             get_current_image_source_paths if callable(get_current_image_source_paths) else (lambda: [])
         )
@@ -326,7 +326,7 @@ class AnalysisController:
                 scale_initialdir = project_initialdir
         if self._same_path(scale_initialdir, app_root_abs):
             input_initialdir = resolve_existing_directory(
-                self.get_input_folder(),
+                self.get_import_source_hint(),
                 app_root=self.app_root,
                 fallback_dir=self.app_root,
                 prefer_parent_for_existing_dir=False,

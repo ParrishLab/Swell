@@ -10,7 +10,8 @@ from sdapp.analysis.core.io import IOActions
 class _DummyIO(IOActions):
     def __init__(self):
         self.warnings = []
-        self.entry_input = _EntryStub()
+        self._input_source_hint = ""
+        self._baseline_frame_count = 30
         self.root = object()
         self.app_root = "."
         self._selected_import_files = None
@@ -18,19 +19,14 @@ class _DummyIO(IOActions):
     def log_warn(self, context, message):
         self.warnings.append((context, message))
 
+    def get_input_source_hint(self):
+        return self._input_source_hint
 
-class _EntryStub:
-    def __init__(self):
-        self.value = ""
+    def set_input_source_hint(self, value):
+        self._input_source_hint = str(value)
 
-    def get(self):
-        return self.value
-
-    def delete(self, _start, _end):
-        self.value = ""
-
-    def insert(self, _idx, text):
-        self.value = str(text)
+    def get_baseline_frame_count(self):
+        return int(self._baseline_frame_count)
 
 
 class IOImportTests(unittest.TestCase):
@@ -104,13 +100,13 @@ class IOImportTests(unittest.TestCase):
             selected = dummy.browse_input_files()
         self.assertEqual(selected, [Path("/tmp/a.png")])
         self.assertEqual(dummy._selected_import_files, [Path("/tmp/a.png")])
-        self.assertEqual(dummy.entry_input.get(), "/tmp/a.png")
+        self.assertEqual(dummy.get_input_source_hint(), "/tmp/a.png")
         warn_mock.assert_called_once()
 
     def test_browse_input_files_all_invalid_keeps_previous_state(self):
         dummy = _DummyIO()
         dummy._selected_import_files = [Path("/tmp/old.png")]
-        dummy.entry_input.insert(0, "old")
+        dummy.set_input_source_hint("old")
         with patch("sdapp.analysis.core.io.resolve_existing_directory", return_value="."), patch(
             "sdapp.analysis.core.io.filedialog.askopenfilenames",
             return_value=("/tmp/bad.txt",),
@@ -124,7 +120,7 @@ class IOImportTests(unittest.TestCase):
             selected = dummy.browse_input_files()
         self.assertIsNone(selected)
         self.assertEqual(dummy._selected_import_files, [Path("/tmp/old.png")])
-        self.assertEqual(dummy.entry_input.get(), "old")
+        self.assertEqual(dummy.get_input_source_hint(), "old")
         warn_mock.assert_called_once()
 
     def test_browse_input_folder_clears_selected_files(self):
@@ -136,7 +132,7 @@ class IOImportTests(unittest.TestCase):
             result = dummy.browse_input_folder()
         self.assertEqual(result, "/tmp/images")
         self.assertIsNone(dummy._selected_import_files)
-        self.assertEqual(dummy.entry_input.get(), "/tmp/images")
+        self.assertEqual(dummy.get_input_source_hint(), "/tmp/images")
 
 
 if __name__ == "__main__":

@@ -25,7 +25,7 @@ class AnalysisModelController:
         initialdir = str((resource_root / "models").resolve())
         current_text = ""
         try:
-            current_text = str(self.app.entry_model.get() or "").strip()
+            current_text = str(self.app.get_model_token() or "").strip()
         except Exception:
             current_text = ""
 
@@ -70,8 +70,7 @@ class AnalysisModelController:
             self.app.log_info("Model", "Selected model is unchanged; skipping reload.")
             return
 
-        self.app.entry_model.delete(0, tk.END)
-        self.app.entry_model.insert(0, selected_abs)
+        self.app.set_model_token(selected_abs)
         self.app._manual_model_override = selected_abs
         self.app.log_info("Model", f"Model changed to: {Path(selected_abs).name}. Reloading...")
         self.app.start_model_initialization(reason="browse_model")
@@ -140,15 +139,14 @@ class AnalysisModelController:
                 button.configure(state=state)
 
         def _apply_model_token(token: str, *, manual_override: str | None, reason: str) -> None:
-            self.app.entry_model.delete(0, tk.END)
-            self.app.entry_model.insert(0, str(token))
+            self.app.set_model_token(str(token))
             self.app._manual_model_override = manual_override
             self.app.log_info("Model", reason)
             self.app.start_model_initialization(reason="model_manager")
 
         def _refresh_rows() -> None:
             selected_id = None
-            current_token = str(self.app.entry_model.get() or "").strip()
+            current_token = str(self.app.get_model_token() or "").strip()
             if is_managed_uri(current_token):
                 selected_id = str(current_token).split("managed://", 1)[-1].strip() or None
             for item in tree.get_children():

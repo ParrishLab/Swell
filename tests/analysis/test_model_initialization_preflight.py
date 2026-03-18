@@ -10,20 +10,6 @@ from sdapp.analysis.app import SDSegmentationApp
 from sdapp.analysis.core.segmentation import CheckpointOnboardingResult, _candidate_model_config_names
 
 
-class _EntryStub:
-    def __init__(self, value: str = "") -> None:
-        self.value = str(value)
-
-    def get(self) -> str:
-        return self.value
-
-    def delete(self, _start, _end) -> None:
-        self.value = ""
-
-    def insert(self, _index, text) -> None:
-        self.value = str(text)
-
-
 class _RuntimeStub:
     def __init__(self) -> None:
         self.predictor = None
@@ -55,7 +41,9 @@ def test_init_runtime_background_uses_preflight_without_dialog_prompts() -> None
         )()
         app.checkpoint_runtime = type("CR", (), {"build_checkpoint_metadata": staticmethod(lambda **kwargs: dict(kwargs))})()
         app._set_active_checkpoint_metadata = lambda *_args, **_kwargs: None
-        app.entry_model = _EntryStub("managed://sam2.1_hiera_base_plus")
+        model_state = {"token": "managed://sam2.1_hiera_base_plus"}
+        app.get_model_token = lambda: model_state["token"]
+        app.set_model_token = lambda value: model_state.__setitem__("token", str(value))
         app._ui_alive = lambda: False
         app._apply_mps_sam2_dtype_guard = lambda: None
         app._process_pending_points = lambda: None
