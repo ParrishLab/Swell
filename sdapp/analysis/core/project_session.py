@@ -112,7 +112,13 @@ class ProjectSessionService:
         for frame_idx, mask in mask_dict.items():
             idx = int(frame_idx)
             if 0 <= idx < frame_count and mask is not None:
-                arr[idx] = np.asarray(mask, dtype=np.uint8)
+                mask_arr = np.asarray(mask, dtype=np.uint8)
+                if tuple(mask_arr.shape) != (h, w):
+                    squeezed = np.squeeze(mask_arr)
+                    if tuple(squeezed.shape) != (h, w):
+                        continue
+                    mask_arr = np.asarray(squeezed, dtype=np.uint8)
+                arr[idx] = mask_arr
         return arr
 
     def array_to_masks_dict(self, masks_array, frame_count: int) -> dict[int, np.ndarray]:

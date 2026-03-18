@@ -42,6 +42,17 @@ class SegmentationStateTests(unittest.TestCase):
         frames = state.get_nonempty_final_mask_frames(4, (3, 3))
         self.assertEqual(frames, {1})
 
+    def test_get_nonempty_final_mask_frames_accepts_singleton_channel_masks(self):
+        state = SegmentationState()
+        mask = np.zeros((3, 3, 1), dtype=bool)
+        mask[0, 0, 0] = True
+        state.set_mask(1, mask)
+        frames = state.get_nonempty_final_mask_frames(4, (3, 3))
+        self.assertEqual(frames, {1})
+        final_mask = state.compose_final_mask(1, (3, 3))
+        self.assertEqual(final_mask.shape, (3, 3))
+        self.assertTrue(bool(final_mask[0, 0]))
+
     def test_get_nonempty_final_mask_frames_checks_only_candidate_frames(self):
         state = SegmentationState()
         mask = np.zeros((3, 3), dtype=bool)

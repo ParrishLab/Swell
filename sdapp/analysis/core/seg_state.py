@@ -117,22 +117,37 @@ class SegmentationState:
         max_idx = frame_count - 1
         return {idx for idx in self.frames_with_user_input if 0 <= idx <= max_idx}
 
+    @staticmethod
+    def _coerce_mask_to_shape(mask, shape_hw: tuple[int, int]) -> np.ndarray | None:
+        expected = (int(shape_hw[0]), int(shape_hw[1]))
+        try:
+            arr = np.asarray(mask, dtype=bool)
+        except Exception:
+            return None
+        if arr.ndim == 2 and arr.shape == expected:
+            return arr
+        squeezed = np.squeeze(arr)
+        if squeezed.ndim == 2 and squeezed.shape == expected:
+            return np.asarray(squeezed, dtype=bool)
+        return None
+
     def compose_final_mask(self, frame_idx: int, base_shape) -> np.ndarray | None:
         if frame_idx < 0:
             return None
         h, w = base_shape[:2]
-        final_mask = np.zeros((h, w), dtype=bool)
+        expected_shape = (int(h), int(w))
+        final_mask = np.zeros(expected_shape, dtype=bool)
 
         if frame_idx in self.masks_cache and self.masks_cache[frame_idx] is not None:
-            cached_mask = self.masks_cache[frame_idx]
-            if hasattr(cached_mask, "shape") and cached_mask.shape == final_mask.shape:
-                final_mask = cached_mask.astype(bool)
+            cached_mask = self._coerce_mask_to_shape(self.masks_cache[frame_idx], expected_shape)
+            if cached_mask is not None:
+                final_mask = np.asarray(cached_mask, dtype=bool).copy()
 
         if frame_idx in self.paint_layers:
             layer = self.paint_layers[frame_idx]
-            plus = layer.get("plus")
-            minus = layer.get("minus")
-            if plus is not None and minus is not None and plus.shape == final_mask.shape and minus.shape == final_mask.shape:
+            plus = self._coerce_mask_to_shape(layer.get("plus"), expected_shape)
+            minus = self._coerce_mask_to_shape(layer.get("minus"), expected_shape)
+            if plus is not None and minus is not None:
                 final_mask = (final_mask | plus) & ~minus
 
         return final_mask

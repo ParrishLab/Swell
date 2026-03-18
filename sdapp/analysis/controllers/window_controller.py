@@ -192,6 +192,24 @@ class AnalysisWindowController:
             except Exception:
                 pass
 
+        if seg_state is not None:
+            try:
+                for mask in dict(getattr(seg_state, "masks_cache", {}) or {}).values():
+                    if mask is not None and np.any(np.asarray(mask)):
+                        return True
+            except Exception:
+                pass
+            try:
+                for layer in dict(getattr(seg_state, "paint_layers", {}) or {}).values():
+                    if not isinstance(layer, dict):
+                        continue
+                    plus = layer.get("plus")
+                    minus = layer.get("minus")
+                    if (plus is not None and np.any(np.asarray(plus))) or (minus is not None and np.any(np.asarray(minus))):
+                        return True
+            except Exception:
+                pass
+
         try:
             if bool(self.app._collect_nonempty_final_mask_frames()):
                 return True

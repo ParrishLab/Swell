@@ -121,9 +121,36 @@ class AnalysisWorkspaceController:
         frame_count: int,
         scope_start: int | None,
         scope_end: int | None,
+        frame_shape: tuple[int, int] | None = None,
         local_event_start: int | None = None,
         local_event_end: int | None = None,
     ) -> dict[int, np.ndarray]:
+        def _coerce_2d_mask(mask_payload: Any) -> np.ndarray | None:
+            try:
+                arr = np.asarray(mask_payload, dtype=bool)
+            except Exception:
+                return None
+            squeezed = np.squeeze(arr)
+            if squeezed.ndim != 2:
+                return None
+            if frame_shape is not None:
+                expected = (int(frame_shape[0]), int(frame_shape[1]))
+                if tuple(squeezed.shape) != expected:
+                    return None
+            return np.asarray(squeezed, dtype=bool).copy()
+
+        def _array_to_masks_dict(mask_array: np.ndarray) -> dict[int, np.ndarray]:
+            out: dict[int, np.ndarray] = {}
+            if mask_array.ndim != 3:
+                return out
+            if mask_array.shape[0] <= 0:
+                return out
+            for idx in range(min(int(frame_count), int(mask_array.shape[0]))):
+                mask_2d = _coerce_2d_mask(mask_array[idx])
+                if mask_2d is not None and np.any(mask_2d):
+                    out[int(idx)] = mask_2d
+            return out
+
         event_span_len: int | None = None
         if local_event_start is not None and local_event_end is not None:
             try:
@@ -151,20 +178,28 @@ class AnalysisWorkspaceController:
                 )
                 if local is None:
                     continue
-                arr = np.asarray(mask, dtype=bool)
-                if np.any(arr):
-                    out[local] = arr.copy()
+                mask_2d = _coerce_2d_mask(mask)
+                if mask_2d is not None and np.any(mask_2d):
+                    out[local] = mask_2d
             return out
 
         arr = np.asarray(masks_payload)
+        if arr.ndim == 4 and arr.shape[-1] == 1:
+            arr = np.squeeze(arr, axis=-1)
+        elif arr.ndim == 4 and arr.shape[1] == 1:
+            arr = np.squeeze(arr, axis=1)
         if arr.ndim != 3:
             return {}
+        if frame_shape is not None:
+            expected = (int(frame_shape[0]), int(frame_shape[1]))
+            if tuple(arr.shape[1:]) != expected:
+                return {}
         if arr.shape[0] == frame_count:
-            return self.session_service.array_to_masks_dict(arr, frame_count)
+            return _array_to_masks_dict(arr)
         if scope_start is not None and scope_end is not None and arr.shape[0] > int(scope_end):
             scoped = arr[int(scope_start) : int(scope_end) + 1]
             if scoped.shape[0] == frame_count:
-                return self.session_service.array_to_masks_dict(scoped, frame_count)
+                return _array_to_masks_dict(scoped)
         if (
             event_span_len is not None
             and local_event_start is not None
@@ -177,11 +212,11 @@ class AnalysisWorkspaceController:
                 local_idx = base + int(idx)
                 if local_idx >= frame_count:
                     break
-                mask = np.asarray(arr[idx], dtype=bool)
-                if np.any(mask):
-                    out[local_idx] = mask.copy()
+                mask_2d = _coerce_2d_mask(arr[idx])
+                if mask_2d is not None and np.any(mask_2d):
+                    out[local_idx] = mask_2d
             return out
-        return self.session_service.array_to_masks_dict(arr, frame_count)
+        return _array_to_masks_dict(arr)
 
     def bind_frame_source(self, frame_source: FrameSource | None) -> None:
         self.frame_source = frame_source
@@ -298,6 +333,7 @@ class AnalysisWorkspaceController:
                             frame_count=frame_count,
                             scope_start=scope_start,
                             scope_end=scope_end,
+                            frame_shape=frame_shape,
                             local_event_start=local_start,
                             local_event_end=local_end,
                         )

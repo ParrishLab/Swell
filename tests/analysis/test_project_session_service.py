@@ -98,6 +98,16 @@ class ProjectSessionServiceTests(unittest.TestCase):
         self.assertIsNotNone(transition.restored_masks)
         self.assertFalse(bool(transition.event_record.metadata.propagation_completed))
 
+    def test_masks_dict_to_array_accepts_singleton_channel_masks(self):
+        svc = ProjectSessionService()
+        arr = svc.masks_dict_to_array(
+            mask_dict={1: np.ones((3, 3, 1), dtype=bool)},
+            frame_count=4,
+            shape_hw=(3, 3),
+        )
+        self.assertEqual(arr.shape, (4, 3, 3))
+        self.assertEqual(int(arr[1].sum()), 9)
+
 
 if __name__ == "__main__":
     unittest.main()
