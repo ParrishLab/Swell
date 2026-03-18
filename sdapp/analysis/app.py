@@ -228,6 +228,11 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
             get_points=lambda: self.points,
             get_frame_names=self._get_frame_names,
             get_input_folder=lambda: self.entry_input.get(),
+            get_current_image_source_paths=lambda: (
+                list(self._current_image_source_paths)
+                if self._current_image_source_paths
+                else list(getattr(getattr(self, "frame_source", None), "source_paths", []) or [])
+            ),
             get_compose_final_mask_for_frame=self._compose_final_mask_for_frame,
             get_nonempty_final_mask_frames=self._collect_nonempty_final_mask_frames,
             get_frames_per_sec=lambda: float(self.frames_per_sec_var.get()),

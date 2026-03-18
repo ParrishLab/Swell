@@ -38,6 +38,7 @@ class AnalysisController:
         update_display,
         log_info,
         log_success,
+        get_current_image_source_paths=None,
         on_metrics_settings_changed=None,
     ):
         self.root = root
@@ -48,6 +49,9 @@ class AnalysisController:
         self.get_points = get_points
         self.get_frame_names = get_frame_names
         self.get_input_folder = get_input_folder
+        self.get_current_image_source_paths = (
+            get_current_image_source_paths if callable(get_current_image_source_paths) else (lambda: [])
+        )
         self.get_compose_final_mask_for_frame = get_compose_final_mask_for_frame
         self.get_nonempty_final_mask_frames = get_nonempty_final_mask_frames
         self.get_frames_per_sec = get_frames_per_sec
@@ -65,6 +69,31 @@ class AnalysisController:
         self.log_info = log_info
         self.log_success = log_success
         self.on_metrics_settings_changed = on_metrics_settings_changed
+
+    def _same_path(self, p1, p2):
+        try:
+            return os.path.normcase(os.path.abspath(str(p1))) == os.path.normcase(os.path.abspath(str(p2)))
+        except Exception:
+            return str(p1) == str(p2)
+
+    def _project_source_initialdir(self):
+        try:
+            source_paths = list(self.get_current_image_source_paths() or [])
+        except Exception:
+            source_paths = []
+        app_root_abs = os.path.abspath(self.app_root)
+        for raw_path in source_paths:
+            if not isinstance(raw_path, str) or not raw_path.strip():
+                continue
+            candidate = resolve_existing_directory(
+                raw_path,
+                app_root=self.app_root,
+                fallback_dir=self.app_root,
+                prefer_parent_for_existing_dir=False,
+            )
+            if not self._same_path(candidate, app_root_abs):
+                return candidate
+        return None
 
     def _get_first_frame_original_u8(self):
         frames_raw = self.get_frames_raw()
@@ -290,7 +319,12 @@ class AnalysisController:
             fallback_dir=self.app_root,
             prefer_parent_for_existing_dir=False,
         )
-        if scale_initialdir == os.path.abspath(self.app_root):
+        app_root_abs = os.path.abspath(self.app_root)
+        if self._same_path(scale_initialdir, app_root_abs):
+            project_initialdir = self._project_source_initialdir()
+            if project_initialdir:
+                scale_initialdir = project_initialdir
+        if self._same_path(scale_initialdir, app_root_abs):
             input_initialdir = resolve_existing_directory(
                 self.get_input_folder(),
                 app_root=self.app_root,
