@@ -136,11 +136,9 @@ Prioritize runtime reliability checks over broad style gates while refactor is a
 ### Phase 3: Tag-Driven Draft GitHub Releases
 - Trigger on tags `v*`.
 - Build assets:
-  - Job A: `sdist` + `wheel`
-  - Job B: macOS arm64 binary archive
-  - Job C: macOS x86_64 binary archive
-  - Job D (later): Windows binary archive
-  - Job E: checksums + compatibility manifest
+  - Job A: macOS arm64 binary archive
+  - Job B: Windows binary archive
+  - Job C: checksums + compatibility manifest
 - Publish as draft release first (no immediate public publish).
 - Maintainer promotes draft after quick manual validation.
 

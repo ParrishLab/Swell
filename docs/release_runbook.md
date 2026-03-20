@@ -124,18 +124,10 @@ Draft release automation is defined in `.github/workflows/release_phase3_tag.yml
 - `release-validate`:
   - resolves release tag from event input/tag ref,
   - validates tag format, `pyproject.toml` version match, and changelog section/headings.
-- `linux-python-artifacts`:
-  - full test suite passes,
-  - startup smoke returns `SMOKE_TEST:PASS`,
-  - wheel + sdist build succeeds.
 - `macos-arm64-package`:
   - startup smoke passes,
   - `dist/macos-arm64/SDApp.app` exists,
   - `dist/sdapp-macos-arm64.zip` exists.
-- `macos-x86_64-package`:
-  - startup smoke passes,
-  - `dist/macos-x86_64/SDApp.app` exists,
-  - `dist/sdapp-macos-x86_64.zip` exists.
 - `windows-runtime-gate`:
   - full test suite passes,
   - startup smoke returns `SMOKE_TEST:PASS`,
@@ -143,7 +135,7 @@ Draft release automation is defined in `.github/workflows/release_phase3_tag.yml
   - packaged app open-request smoke passes,
   - Windows x64 package is produced.
 - `release-assemble`:
-  - collects Linux/macOS artifacts,
+  - collects macOS arm64 artifact,
   - collects Windows x64 package,
   - generates `_release/release_notes.md` from changelog,
   - generates `dist/compatibility.json`,
@@ -169,10 +161,7 @@ Draft release automation is defined in `.github/workflows/release_phase3_tag.yml
 ### Draft validation checklist
 - Draft release exists for the expected tag.
 - Assets attached:
-  - `sdapp-<version>.tar.gz`
-  - `sdapp-<version>-py3-none-any.whl`
   - `sdapp-macos-arm64.zip`
-  - `sdapp-macos-x86_64.zip`
   - `sdapp-windows-x64.zip`
   - `compatibility.json`
   - `SHA256SUMS.txt`
