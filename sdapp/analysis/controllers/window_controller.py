@@ -135,7 +135,12 @@ class AnalysisWindowController:
         except Exception:
             host_path = None
         if isinstance(host_path, str) and host_path.strip():
-            self.app.current_project_path = str(Path(host_path).expanduser().resolve())
+            try:
+                self.app.current_project_path = str(Path(host_path).expanduser().resolve())
+            except Exception as exc:
+                logger = getattr(self.app, "log_warn", None)
+                if callable(logger):
+                    logger("Project", f"Ignoring invalid host project path {host_path!r}: {exc}")
 
     def analysis_payload_has_saved_masks(self, payload) -> bool:
         if not isinstance(payload, dict):
@@ -244,7 +249,7 @@ class AnalysisWindowController:
             self.app.log_info("Project", "No host project is active. Prompting Save Project As for mask save.")
             try:
                 self.app.save_project_as()
-            except RuntimeError as exc:
+            except Exception as exc:
                 self.app.log_error("Project", f"Save current masks failed: {exc}")
                 messagebox.showerror("Save Current Masks", str(exc), parent=self._dialog_parent())
                 return
@@ -263,7 +268,7 @@ class AnalysisWindowController:
                 return
         try:
             self.app.save_project()
-        except RuntimeError as exc:
+        except Exception as exc:
             self.app.log_error("Project", f"Save current masks failed: {exc}")
             messagebox.showerror("Save Current Masks", str(exc), parent=self._dialog_parent())
             return

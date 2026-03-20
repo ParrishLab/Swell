@@ -293,7 +293,10 @@ class HostProjectLifecycleController:
 
     def save_project_from_analysis(self, project_path: str) -> dict:
         state = self.app.save_host_session(project_path)
-        resolved = str(Path(state.project_path).expanduser().resolve())
+        try:
+            resolved = str(Path(state.project_path).expanduser().resolve())
+        except Exception:
+            resolved = str(state.project_path)
         self.app.current_project_path = resolved
         self.app.browser_controller.session.set_project_path(resolved)
         self.app._set_status(f"Saved project from analysis: {Path(resolved).name}")

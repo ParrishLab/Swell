@@ -110,7 +110,11 @@ class AnalysisHostModeController:
         if isinstance(context, dict):
             project_path = context.get("project_path")
             if isinstance(project_path, str) and project_path.strip():
-                self.app.current_project_path = str(Path(project_path).expanduser().resolve())
+                try:
+                    self.app.current_project_path = str(Path(project_path).expanduser().resolve())
+                except Exception as exc:
+                    self.app.current_project_path = str(project_path)
+                    self.app.log_warn("HostMode", f"Using non-canonical project path from host context: {exc}")
             model_context = dict(context.get("model_context", {})) if isinstance(context.get("model_context"), dict) else {}
             model_token = str(model_context.get("model_token", "") or "").strip()
             manual_override = str(model_context.get("manual_model_override", "") or "").strip()
@@ -129,7 +133,11 @@ class AnalysisHostModeController:
             except Exception:
                 host_path = None
             if isinstance(host_path, str) and host_path.strip():
-                self.app.current_project_path = str(Path(host_path).expanduser().resolve())
+                try:
+                    self.app.current_project_path = str(Path(host_path).expanduser().resolve())
+                except Exception as exc:
+                    self.app.current_project_path = str(host_path)
+                    self.app.log_warn("HostMode", f"Using non-canonical project path from host callback: {exc}")
         event_id = ""
         if isinstance(context, dict):
             event_payload = dict(context.get("event", {}))

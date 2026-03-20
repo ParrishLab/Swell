@@ -55,5 +55,21 @@ class ProjectWorkflowActionsTests(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             project_workflow.save_project_to_path(_App(), "/tmp/no_host_saver.sdproj", is_autosave=False)
 
+    def test_save_project_to_path_raises_runtime_error_for_invalid_target_path(self):
+        class _App:
+            _host_mode = True
+            _host_project_saver = staticmethod(lambda path: {"ok": True, "project_path": path})
+
+            @staticmethod
+            def _emit_host_sync(reason):  # noqa: ARG004
+                return {"ok": True}
+
+            @staticmethod
+            def log_success(_ctx, _msg):
+                return None
+
+        with self.assertRaises(RuntimeError):
+            project_workflow.save_project_to_path(_App(), "bad\0path.sdproj", is_autosave=False)
+
 if __name__ == "__main__":
     unittest.main()

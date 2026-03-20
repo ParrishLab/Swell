@@ -55,7 +55,10 @@ def setup_project_menu(app) -> None:
 
 
 def save_project_to_path(app, target_path: str | Path, is_autosave: bool = False) -> None:
-    target_path = Path(target_path).expanduser().resolve()
+    try:
+        target_path = Path(target_path).expanduser().resolve()
+    except Exception as exc:
+        raise RuntimeError(f"Invalid save target path: {target_path}") from exc
     if bool(getattr(app, "_host_mode", False)) and callable(getattr(app, "_host_project_saver", None)) and not is_autosave:
         if hasattr(app, "_emit_host_sync"):
             app._emit_host_sync(reason="save")
@@ -63,7 +66,10 @@ def save_project_to_path(app, target_path: str | Path, is_autosave: bool = False
         if isinstance(state, dict):
             path_from_state = state.get("project_path")
             if isinstance(path_from_state, str) and path_from_state:
-                target_path = Path(path_from_state).expanduser().resolve()
+                try:
+                    target_path = Path(path_from_state).expanduser().resolve()
+                except Exception:
+                    target_path = Path(path_from_state).expanduser()
         app.current_project_path = str(target_path)
         notifier = getattr(app, "_host_project_saved_notifier", None)
         if callable(notifier):
