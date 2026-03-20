@@ -1030,7 +1030,7 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
 
     def log(self, level, context, message):
         lvl = str(level).upper()
-        if lvl == "DEBUG" and self._is_release_branch:
+        if lvl == "DEBUG" and bool(getattr(self, "_is_release_branch", False)):
             return
         ctx = f"[{context}]" if context else ""
         line = f"[{lvl}]{ctx} {message}"
