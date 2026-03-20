@@ -231,6 +231,13 @@ class AnalysisWindowController:
         if not self._has_masks_ready_to_save():
             messagebox.showwarning("No Masks", "Please generate masks first.", parent=self._dialog_parent())
             return
+        if bool(getattr(self.app, "_host_mode", False)):
+            try:
+                self.app._emit_host_sync("save_current_masks")
+            except Exception as exc:
+                self.app.log_error("Project", f"Save current masks failed during host sync: {exc}")
+                messagebox.showerror("Save Current Masks", str(exc), parent=self._dialog_parent())
+                return
         self.emit_host_metrics_update(reason="save_current_masks")
         self.sync_project_path_from_host()
         if not self.app.current_project_path:

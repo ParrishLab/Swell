@@ -12,6 +12,26 @@ class AnalysisHostModeController:
     def __init__(self, app) -> None:
         self.app = app
 
+    def _debug_frame_source(self, label: str, frame_source) -> None:
+        logger = getattr(self.app, "log_debug", None)
+        if not callable(logger):
+            return
+        if frame_source is None:
+            logger("HostMode", f"{label}: frame_source=None")
+            return
+        try:
+            frame_count = getattr(frame_source, "frame_count", None)
+        except Exception as exc:
+            frame_count = f"<error:{exc}>"
+        try:
+            frame_shape = getattr(frame_source, "frame_shape", None)
+        except Exception as exc:
+            frame_shape = f"<error:{exc}>"
+        logger(
+            "HostMode",
+            f"{label}: frame_source_type={type(frame_source).__name__} frame_count={frame_count} frame_shape={frame_shape}",
+        )
+
     def emit_host_sync(self, reason: str) -> dict[str, object] | None:
         if not hasattr(self.app, "analysis_workspace") or self.app.analysis_workspace is None:
             return None
@@ -134,9 +154,14 @@ class AnalysisHostModeController:
             flags = dict(event.get("flags", {})) if isinstance(event.get("flags"), dict) else {}
             scope_start = flags.get("analysis_scope_start_idx", event.get("start_idx"))
             scope_end = flags.get("analysis_scope_end_idx", event.get("end_idx"))
+            self.app.log_debug(
+                "HostMode",
+                f"open_from_host_context event_id={event.get('event_id')} scope_start={scope_start} scope_end={scope_end}",
+            )
             if scope_start is not None and scope_end is not None:
                 scoped_source = EventScopedFrameSource(frame_source, int(scope_start), int(scope_end))
             self.app.frame_source = scoped_source
+        self._debug_frame_source("open_from_host_context.bound_source", self.app.frame_source)
         if self.app.frame_source is not None:
             self.app.analysis_workspace.bind_frame_source(self.app.frame_source)
         result = self.app.analysis_workspace.open_from_host_event_context(
@@ -189,6 +214,10 @@ class AnalysisHostModeController:
             flags = dict(event.get("flags", {})) if isinstance(event.get("flags"), dict) else {}
             scope_start = flags.get("analysis_scope_start_idx", event.get("start_idx"))
             scope_end = flags.get("analysis_scope_end_idx", event.get("end_idx"))
+            self.app.log_debug(
+                "HostMode",
+                f"open_from_host_handoff event_id={event.get('event_id')} scope_start={scope_start} scope_end={scope_end}",
+            )
             if scope_start is not None and scope_end is not None:
                 scoped_source = EventScopedFrameSource(frame_source, int(scope_start), int(scope_end))
             self.app.frame_source = scoped_source
@@ -202,6 +231,7 @@ class AnalysisHostModeController:
                 "apply_baseline_subtraction": bool(processing.get("baseline_subtraction", True)),
                 "apply_global_normalization": bool(processing.get("global_normalization", True)),
             }
+        self._debug_frame_source("open_from_host_handoff.bound_source", self.app.frame_source)
         if self.app.frame_source is not None:
             self.app.analysis_workspace.bind_frame_source(self.app.frame_source)
         result = self.app.analysis_workspace.open_from_handoff_payload(
@@ -234,6 +264,7 @@ class AnalysisHostModeController:
     def post_host_mode_open_ui(self, message: str) -> None:
         if not (hasattr(self.app, "slider") and hasattr(self.app, "canvas_left")):
             return
+        self._debug_frame_source("post_host_mode_open_ui.pre_finalize", getattr(self.app, "frame_source", None))
         self.app._finalize_load_ui()
         active_event_id = str(getattr(self.app, "active_event_id", "") or "")
         if active_event_id and hasattr(self.app, "analysis_workspace") and self.app.analysis_workspace is not None:
@@ -261,6 +292,7 @@ class AnalysisHostModeController:
         if not hasattr(self.app, "_host_buffer_sync_limit"):
             self.app._host_buffer_sync_limit = 240
         frame_count = int(getattr(frame_source, "frame_count", 0) or 0)
+        self._debug_frame_source("prepare_host_mode_buffers.input", frame_source)
         if frame_count <= 0:
             self.app.frames_raw = None
             self.app.frames_sub = None
@@ -350,6 +382,15 @@ class AnalysisHostModeController:
                 self.app.frames_sub = frames_sub
                 self.app.frames_sub_viz = frames_viz
                 self.app._host_buffer_cache_key = cache_key
+                first_raw_shape = getattr(raw_frames[0], "shape", None) if raw_frames else None
+                first_sub_shape = getattr(frames_sub[0], "shape", None) if frames_sub else None
+                first_viz_shape = getattr(frames_viz[0], "shape", None) if frames_viz else None
+                self.app.log_debug(
+                    "HostMode",
+                    f"prepare_host_mode_buffers.apply generation={generation} raw_frames={len(raw_frames)} "
+                    f"sub_frames={len(frames_sub)} viz_frames={len(frames_viz)} "
+                    f"first_raw_shape={first_raw_shape} first_sub_shape={first_sub_shape} first_viz_shape={first_viz_shape}",
+                )
                 if self.app._ui_alive():
                     self.app._post_host_mode_open_ui(on_ready_message or "Host workspace ready.")
 

@@ -51,7 +51,9 @@ class StackReader:
                     for page_idx, page in enumerate(pages):
                         if len(page.shape) < 2:
                             continue
-                        shape = (int(page.shape[-2]), int(page.shape[-1]))
+                        shape = _normalized_frame_shape_from_shape(page.shape)
+                        if shape is None:
+                            continue
                         if expected_shape is None:
                             expected_shape = shape
                             dtype_str = str(page.dtype)
@@ -242,6 +244,25 @@ def _to_grayscale(arr: np.ndarray) -> np.ndarray:
         if squeezed.ndim == 3:
             return _to_grayscale(squeezed)
     raise ValueError(f"Unsupported frame shape: {arr.shape}")
+
+
+def _normalized_frame_shape_from_shape(raw_shape) -> tuple[int, int] | None:
+    try:
+        shape = tuple(int(v) for v in tuple(raw_shape))
+    except Exception:
+        return None
+    if len(shape) == 2:
+        return shape
+    if len(shape) == 3:
+        if int(shape[2]) in (3, 4):
+            return int(shape[0]), int(shape[1])
+        return int(shape[0]), int(shape[1])
+    squeezed = tuple(int(v) for v in shape if int(v) != 1)
+    if len(squeezed) == 2:
+        return squeezed
+    if len(squeezed) == 3 and int(squeezed[2]) in (3, 4):
+        return int(squeezed[0]), int(squeezed[1])
+    return None
 
 
 def _natural_sort_key(path: Path) -> tuple:

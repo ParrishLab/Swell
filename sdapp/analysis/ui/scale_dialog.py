@@ -43,7 +43,7 @@ def open_scale_dialog(root, img_u8, snap_scale_points_axis, refine_scale_bar_poi
     zoom_max = 12.0
 
     tool_mode_var = tk.StringVar(value="edit")
-    axis_lock_var = tk.BooleanVar(value=False)
+    axis_lock_var = tk.BooleanVar(value=True)
     state = {
         "points": [],
         "preview": None,

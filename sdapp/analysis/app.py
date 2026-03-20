@@ -839,20 +839,49 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
     def _get_frame_count(self):
         frame_source = getattr(self, "frame_source", None)
         if frame_source is not None:
-            return int(getattr(frame_source, "frame_count", 0) or 0)
+            count = int(getattr(frame_source, "frame_count", 0) or 0)
+            if count > 0:
+                return count
+            self.log_debug(
+                "FrameState",
+                f"frame_source present but frame_count invalid ({count}); falling back to frames_raw",
+            )
         frames = self._get_frames_raw()
-        return len(frames) if frames is not None else 0
+        fallback = len(frames) if frames is not None else 0
+        self.log_debug("FrameState", f"_get_frame_count fallback result={fallback}")
+        return fallback
 
     def _get_frame_shape(self):
+        frames = self._get_frames_raw()
+        fallback_shape = None
+        if frames is not None and len(frames) > 0:
+            first_frame = frames[0]
+            if first_frame is not None and hasattr(first_frame, "shape"):
+                fallback_shape = tuple(int(v) for v in first_frame.shape[:2])
         frame_source = getattr(self, "frame_source", None)
         if frame_source is not None:
             shape = getattr(frame_source, "frame_shape", (0, 0))
             if shape and len(shape) >= 2:
-                return int(shape[0]), int(shape[1])
-        frames = self._get_frames_raw()
-        if frames is None or len(frames) == 0:
+                height = int(shape[0] or 0)
+                width = int(shape[1] or 0)
+                if height > 0 and width > 0:
+                    source_shape = (height, width)
+                    if fallback_shape is not None and tuple(source_shape) != tuple(fallback_shape):
+                        self.log_warn(
+                            "FrameState",
+                            f"frame_source shape {source_shape} disagrees with loaded frame shape {fallback_shape}; using loaded frames",
+                        )
+                        return fallback_shape
+                    return height, width
+                self.log_debug(
+                    "FrameState",
+                    f"frame_source present but frame_shape invalid ({shape}); falling back to frames_raw",
+                )
+        if fallback_shape is None:
+            self.log_debug("FrameState", "_get_frame_shape fallback result=(0, 0)")
             return 0, 0
-        return tuple(frames[0].shape[:2])
+        self.log_debug("FrameState", f"_get_frame_shape fallback result={fallback_shape}")
+        return fallback_shape
 
     def _has_loaded_stack(self):
         return self._get_frame_count() > 0
@@ -876,7 +905,22 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         prev_flag = self._programmatic_spinbox_update
         self._programmatic_spinbox_update = True
         try:
+            before = None
+            original_state = None
             try:
+                before = str(widget.get())
+            except Exception:
+                before = "<unreadable>"
+            try:
+                original_state = str(widget.cget("state"))
+            except Exception:
+                original_state = None
+            try:
+                if original_state and original_state != "normal":
+                    try:
+                        widget.configure(state="normal")
+                    except Exception:
+                        pass
                 widget.delete(0, tk.END)
                 widget.insert(0, text)
             except (tk.TclError, AttributeError):
@@ -885,6 +929,22 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
                     widget.set(text)
                 except (tk.TclError, AttributeError):
                     pass
+            finally:
+                if original_state and original_state != "normal":
+                    try:
+                        widget.configure(state=original_state)
+                    except Exception:
+                        pass
+            after = None
+            try:
+                after = str(widget.get())
+            except Exception:
+                after = "<unreadable>"
+            self.log_debug(
+                "Spinbox",
+                f"_set_spinbox_value widget={getattr(widget, 'widgetName', type(widget).__name__)} "
+                f"state={original_state} before={before} requested={text} after={after}",
+            )
         finally:
             self._programmatic_spinbox_update = prev_flag
 
@@ -1019,13 +1079,61 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         frame_count = self._get_frame_count()
         if frame_count <= 0 or frame_idx < 0 or frame_idx >= frame_count:
             return None
-        return self.seg_state.compose_final_mask(frame_idx, self._get_frame_shape())
+        expected_shape = self._get_frame_shape()
+        cached_mask = None
+        if hasattr(self, "seg_state") and getattr(self.seg_state, "masks_cache", None) is not None:
+            cached_mask = self.seg_state.masks_cache.get(frame_idx)
+        if cached_mask is not None:
+            cached_shape = getattr(cached_mask, "shape", None)
+            if cached_shape is not None and tuple(cached_shape[:2]) != tuple(expected_shape):
+                self.log_debug(
+                    "Overlay",
+                    f"_compose_final_mask_for_frame frame={frame_idx} cached_mask_shape={cached_shape} expected_shape={expected_shape}",
+                )
+        final_mask = self.seg_state.compose_final_mask(frame_idx, expected_shape)
+        if final_mask is not None and getattr(final_mask, "shape", None) != tuple(expected_shape):
+            self.log_debug(
+                "Overlay",
+                f"_compose_final_mask_for_frame frame={frame_idx} final_mask_shape={getattr(final_mask, 'shape', None)} expected_shape={expected_shape}",
+            )
+        return final_mask
 
     def _collect_nonempty_final_mask_frames(self):
         frame_count = self._get_frame_count()
         if frame_count <= 0:
+            self.log_debug("Overlay", "_collect_nonempty_final_mask_frames aborted: frame_count<=0")
             return set()
-        return self.seg_state.get_nonempty_final_mask_frames(frame_count, self._get_frame_shape())
+        frame_shape = self._get_frame_shape()
+        masks_cache = getattr(getattr(self, "seg_state", None), "masks_cache", {}) or {}
+        paint_layers = getattr(getattr(self, "seg_state", None), "paint_layers", {}) or {}
+        mask_sample = []
+        for frame_idx in sorted(int(i) for i in masks_cache.keys())[:8]:
+            mask = masks_cache.get(frame_idx)
+            mask_sample.append((frame_idx, getattr(mask, "shape", None)))
+        paint_sample = []
+        for frame_idx in sorted(int(i) for i in paint_layers.keys())[:8]:
+            layer = paint_layers.get(frame_idx) or {}
+            paint_sample.append(
+                (
+                    frame_idx,
+                    getattr(layer.get("plus"), "shape", None),
+                    getattr(layer.get("minus"), "shape", None),
+                )
+            )
+        frames_raw = self._get_frames_raw()
+        first_raw_shape = None
+        if frames_raw is not None and len(frames_raw) > 0 and frames_raw[0] is not None:
+            first_raw_shape = getattr(frames_raw[0], "shape", None)
+        frames = self.seg_state.get_nonempty_final_mask_frames(frame_count, frame_shape)
+        self.log_debug(
+            "Overlay",
+            f"_collect_nonempty_final_mask_frames frame_count={frame_count} frame_shape={frame_shape} "
+            f"first_raw_shape={first_raw_shape} "
+            f"mask_keys={sorted(int(i) for i in masks_cache.keys())[:12]} mask_shapes={mask_sample} "
+            f"paint_shapes={paint_sample} "
+            f"result={sorted(int(i) for i in frames)[:12]}",
+        )
+        return frames
 
     def _collect_user_defined_frames(self):
         frame_count = self._get_frame_count()
@@ -1061,6 +1169,11 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         self.slider.set(target_frame)
 
     def _clear_propagation_overlay_state(self):
+        self.log_debug(
+            "Overlay",
+            f"Clearing propagation overlay state previous_markers={getattr(self, 'slider_jump_markers', {})} "
+            f"previous_propagated={sorted(int(i) for i in getattr(self, 'propagated_frame_indices', set()))[:12]}",
+        )
         self._largest_propagated_span = None
         self._propagated_history_indices = set()
         self.propagated_frame_indices = set()
@@ -1072,8 +1185,13 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
     def _set_propagated_frames(self, indices, mark_dirty=True):
         frame_count = self._get_frame_count()
         if frame_count <= 0:
+            self.log_debug("Overlay", "_set_propagated_frames aborted: frame_count<=0")
             self._clear_propagation_overlay_state()
             return
+        self.log_debug(
+            "Overlay",
+            f"_set_propagated_frames input={sorted(int(i) for i in indices)[:20]} frame_count={frame_count} mark_dirty={mark_dirty}",
+        )
         next_state = compute_propagated_state(
             indices=indices,
             previous_history_indices=self._propagated_history_indices,
@@ -1083,6 +1201,12 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         self._largest_propagated_span = next_state.largest_propagated_span
         self.propagated_frame_indices = set(next_state.propagated_frame_indices)
         self.propagated_frame_spans = list(next_state.propagated_frame_spans)
+        self.log_debug(
+            "Overlay",
+            f"_set_propagated_frames result largest_span={self._largest_propagated_span} "
+            f"history={sorted(int(i) for i in self._propagated_history_indices)[:20]} "
+            f"propagated={sorted(int(i) for i in self.propagated_frame_indices)[:20]}",
+        )
         self._recompute_slider_jump_markers()
         if mark_dirty:
             self._mark_project_dirty("propagation_complete")
@@ -1532,16 +1656,28 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
             if callable(getattr(self, "log_debug", None)):
                 try:
                     sample = sorted(int(i) for i in nonempty)[:8]
-                    self.log_debug("Overlay", f"Saved-mask reseed frames={len(nonempty)} sample={sample}")
+                    self.log_debug(
+                        "Overlay",
+                        f"Saved-mask reseed active_event_id={getattr(self, 'active_event_id', None)} "
+                        f"frame_count={self._get_frame_count()} frame_shape={self._get_frame_shape()} "
+                        f"frames={len(nonempty)} sample={sample}",
+                    )
                 except Exception:
                     pass
             self._set_propagated_frames(nonempty, mark_dirty=False)
-        except Exception:
+        except Exception as exc:
+            self.log_warn("Overlay", f"Saved-mask reseed failed: {exc}")
             return
 
     def _on_workspace_event_opened(self, _event_id: str) -> None:
         # Propagation overlay state is event-local in host mode; clear stale history
         # and rebuild from the newly opened event's saved masks.
+        self.log_debug(
+            "Overlay",
+            f"_on_workspace_event_opened event_id={_event_id} "
+            f"active_event_id={getattr(self, 'active_event_id', None)} "
+            f"frame_count={self._get_frame_count()} frame_shape={self._get_frame_shape()}",
+        )
         self._clear_propagation_overlay_state()
         self._sync_saved_mask_overlay_state()
 

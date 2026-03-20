@@ -8,6 +8,7 @@ from sdapp.analysis.core.project_session import ProjectSessionService
 from sdapp.analysis.core.seg_state import SegmentationState
 from sdapp.analysis.core.session_state import SessionState
 from sdapp.shared.contracts import load_contract_fixture
+from sdapp.shared.frame_source import EventScopedFrameSource
 
 
 class AnalysisWorkspaceControllerTests(unittest.TestCase):
@@ -80,6 +81,87 @@ class AnalysisWorkspaceControllerTests(unittest.TestCase):
         result = self.controller.open_from_handoff_payload(payload)
         self.assertTrue(result["ok"])
         self.assertIn("normalized", result)
+
+    def test_build_session_snapshot_uses_scoped_raw_frame_shape_and_invalidates_cache_on_rebind(self):
+        first_frames = [np.zeros((2048, 3072), dtype=np.uint8) for _ in range(3)]
+        second_frames = [np.zeros((32, 48), dtype=np.uint8) for _ in range(2)]
+
+        class _BrokenShapeBase(EagerFrameSource):
+            @property
+            def frame_shape(self) -> tuple[int, int]:
+                return (3072, 3)
+
+        first_source = EventScopedFrameSource(
+            _BrokenShapeBase(
+                raw_frames=first_frames,
+                subtracted_frames=first_frames,
+                visual_frames=first_frames,
+                frame_names=["a", "b", "c"],
+                source_paths=["/tmp/one"],
+            ),
+            0,
+            2,
+        )
+        second_source = EventScopedFrameSource(
+            EagerFrameSource(
+                raw_frames=second_frames,
+                subtracted_frames=second_frames,
+                visual_frames=second_frames,
+                frame_names=["d", "e"],
+                source_paths=["/tmp/two"],
+            ),
+            0,
+            1,
+        )
+
+        self.controller.bind_frame_source(first_source)
+        snap_one = self.controller.build_session_snapshot(
+            WorkspaceUiState(
+                current_frame_idx=1,
+                tool_mode="brush",
+                display_ratio=1.0,
+                img_offset_x=0,
+                img_offset_y=0,
+                analysis_start=1,
+                analysis_end=3,
+                prop_start=1,
+                prop_end=3,
+                export_start=1,
+                export_end=3,
+                baseline_frame_count=10,
+                scale_px_per_mm=None,
+                roi_points=[],
+                roi_mask=None,
+                created_at="2026-01-01T00:00:00Z",
+            )
+        )
+
+        self.controller.bind_frame_source(second_source)
+        snap_two = self.controller.build_session_snapshot(
+            WorkspaceUiState(
+                current_frame_idx=0,
+                tool_mode="brush",
+                display_ratio=1.0,
+                img_offset_x=0,
+                img_offset_y=0,
+                analysis_start=1,
+                analysis_end=2,
+                prop_start=1,
+                prop_end=2,
+                export_start=1,
+                export_end=2,
+                baseline_frame_count=10,
+                scale_px_per_mm=None,
+                roi_points=[],
+                roi_mask=None,
+                created_at="2026-01-01T00:00:00Z",
+            )
+        )
+
+        self.assertEqual(snap_one.frame_shape, (2048, 3072))
+        self.assertEqual(snap_one.frame_count, 3)
+        self.assertEqual(snap_two.frame_shape, (32, 48))
+        self.assertEqual(snap_two.frame_count, 2)
 
 
 if __name__ == "__main__":

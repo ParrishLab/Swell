@@ -71,6 +71,7 @@ class InferenceManager:
         self._infer_stale_skip_count = 0
         self._infer_max_queue_depth = 0
         self._sensitivity_debounce_job = None
+        self._pending_marker_batch_frames = set()
 
         self.propagate_thread = None
         self._prop_stop_event = threading.Event()
@@ -113,10 +114,21 @@ class InferenceManager:
     def _is_propagation_cancelled(self, generation):
         return self._prop_stop_event.is_set() or generation != self._active_propagation_generation
 
-    def _notify_mask_updated(self):
+    def _notify_mask_updated(self, *, recompute_markers: bool = True):
         if self.is_ui_alive():
-            self.root.after(0, self.recompute_markers)
+            if recompute_markers:
+                self.root.after(0, self.recompute_markers)
             self.root.after(0, self.update_display)
+
+    def _finish_pending_marker_batch_frame(self, frame_idx: int) -> bool:
+        with self._infer_state_lock:
+            if int(frame_idx) not in self._pending_marker_batch_frames:
+                return False
+            self._pending_marker_batch_frames.discard(int(frame_idx))
+            batch_drained = not self._pending_marker_batch_frames
+        if batch_drained:
+            self._log_debug("Model", "Pending-point marker batch completed; recomputing markers once.")
+        return batch_drained
 
     def start(self):
         self._start_inference_worker()
@@ -149,6 +161,7 @@ class InferenceManager:
             self._infer_generation = 0
             self._infer_stale_skip_count = 0
             self._infer_max_queue_depth = 0
+            self._pending_marker_batch_frames.clear()
         self._infer_worker_thread = threading.Thread(target=self._inference_worker_loop, daemon=True)
         self._infer_worker_thread.start()
         self._log_debug("Model", "Started inference worker thread.")
@@ -181,6 +194,7 @@ class InferenceManager:
         with self._infer_state_lock:
             self._infer_pending_frames.clear()
             self._infer_frame_generation.clear()
+            self._pending_marker_batch_frames.clear()
 
     def _stop_propagation_thread(self, clear_event=False, timeout=1.0):
         with self._prop_thread_lock:
@@ -213,6 +227,8 @@ class InferenceManager:
         frames = sorted(list(frame_indices))
         if not frames:
             return
+        with self._infer_state_lock:
+            self._pending_marker_batch_frames.update(int(frame_idx) for frame_idx in frames)
         self._log_info("Model", f"Processing {len(frames)} frame(s) with pending points.")
         for frame_idx in frames:
             self.enqueue_frame_inference(frame_idx, reason="pending_points")
@@ -226,7 +242,8 @@ class InferenceManager:
         valid_frames = self.state.get_valid_point_frames()
         if frame_idx not in valid_frames:
             self.state.clear_mask(frame_idx)
-            self._notify_mask_updated()
+            should_recompute = self._finish_pending_marker_batch_frame(frame_idx)
+            self._notify_mask_updated(recompute_markers=should_recompute)
             return
 
         with self._infer_state_lock:
@@ -290,12 +307,15 @@ class InferenceManager:
                     if newest_generation == current_generation:
                         break
             finally:
+                should_recompute = self._finish_pending_marker_batch_frame(frame_idx)
                 with self._infer_state_lock:
                     self._infer_pending_frames.discard(frame_idx)
                 try:
                     self._infer_queue.task_done()
                 except Exception as exc:
                     self._log_debug("Model", f"Queue task_done skipped: {exc}")
+                if should_recompute and self.is_ui_alive():
+                    self.root.after(0, self.recompute_markers)
 
     def _run_single_frame_inference_core(self, frame_idx, generation):
         self.state.prune_invalid_points()
@@ -336,7 +356,9 @@ class InferenceManager:
 
             thresh = float(self.get_sensitivity())
             self.state.set_mask(frame_idx, (out_mask_logits[0] > thresh).cpu().numpy().squeeze())
-            self._notify_mask_updated()
+            with self._infer_state_lock:
+                defer_markers = int(frame_idx) in self._pending_marker_batch_frames
+            self._notify_mask_updated(recompute_markers=not defer_markers)
         except Exception as e:
             self._log_error("Model", f"Inference failed on frame {frame_idx + 1}: {e}")
 

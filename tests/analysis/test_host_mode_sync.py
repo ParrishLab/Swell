@@ -8,6 +8,7 @@ from sdapp.analysis.core.project_session import ProjectSessionService
 from sdapp.analysis.core.seg_state import SegmentationState
 from sdapp.analysis.core.session_state import SessionState
 from sdapp.shared.contracts import load_contract_fixture, validate_sync_payload
+from sdapp.shared.frame_source import EventScopedFrameSource
 
 
 class HostModeSyncTests(unittest.TestCase):
@@ -225,6 +226,116 @@ class HostModeSyncTests(unittest.TestCase):
         record = self.state.event_records["event_0001"]
         self.assertIn(3, record.analysis.masks_committed)
         self.assertTrue(bool(np.any(record.analysis.masks_committed[3])))
+
+    def test_export_active_event_analysis_payload_prefers_raw_frame_shape_over_frame_source_metadata(self):
+        frames = [np.zeros((2048, 3072), dtype=np.uint8) for _ in range(3)]
+
+        class _BrokenShapeFrameSource(EagerFrameSource):
+            @property
+            def frame_shape(self) -> tuple[int, int]:
+                return (3072, 3)
+
+        broken_source = _BrokenShapeFrameSource(
+            raw_frames=frames,
+            subtracted_frames=frames,
+            visual_frames=frames,
+            frame_names=[f"b{i}.tif" for i in range(3)],
+            source_paths=["/tmp/broken"] * 3,
+        )
+        self.controller.bind_frame_source(broken_source)
+        self.state.active_event_id = "event_0001"
+        self.state.event_records = self.service.coerce_event_records({"event_0001": {}}, 3)
+        self.seg_state.masks_cache[1] = np.ones((2048, 3072), dtype=bool)
+
+        payload = self.controller.export_active_event_analysis_payload()
+
+        self.assertIsNotNone(payload)
+        masks = np.asarray(payload["masks_committed"])
+        self.assertEqual(masks.shape, (3, 2048, 3072))
+        self.assertTrue(bool(np.any(masks[1])))
+
+    def test_open_from_host_context_uses_scoped_get_raw_frame_shape_when_metadata_is_wrong(self):
+        frames = [np.zeros((2048, 3072), dtype=np.uint8) for _ in range(11)]
+        global_masks = np.zeros((11, 2048, 3072), dtype=np.uint8)
+        global_masks[3] = 1
+
+        class _BrokenShapeBase(EagerFrameSource):
+            @property
+            def frame_shape(self) -> tuple[int, int]:
+                return (3072, 3)
+
+        scoped_source = EventScopedFrameSource(
+            _BrokenShapeBase(
+                raw_frames=frames,
+                subtracted_frames=frames,
+                visual_frames=frames,
+                frame_names=[f"s{i}.tif" for i in range(11)],
+                source_paths=["/tmp/scoped"] * 11,
+            ),
+            0,
+            10,
+        )
+        context = {
+            "session_id": "session_abc",
+            "stack_id": "stack_abc",
+            "event": {
+                "event_id": "event_0001",
+                "label": "Event 1",
+                "start_idx": 0,
+                "end_idx": 10,
+                "flags": {
+                    "analysis_scope_start_idx": 0,
+                    "analysis_scope_end_idx": 10,
+                    "analysis_local_event_start_idx": 0,
+                    "analysis_local_event_end_idx": 10,
+                },
+            },
+            "analysis_state": {
+                "masks_committed": global_masks,
+            },
+        }
+
+        result = self.controller.open_from_host_event_context(context, frame_source=scoped_source)
+
+        self.assertTrue(result["ok"])
+        record = self.state.event_records["event_0001"]
+        self.assertIn(3, record.analysis.masks_committed)
+        self.assertEqual(record.analysis.masks_committed[3].shape, (2048, 3072))
+        self.assertTrue(bool(np.any(record.analysis.masks_committed[3])))
+
+    def test_build_host_sync_payload_uses_scoped_get_raw_frame_shape_when_metadata_is_wrong(self):
+        frames = [np.zeros((2048, 3072), dtype=np.uint8) for _ in range(5)]
+
+        class _BrokenShapeBase(EagerFrameSource):
+            @property
+            def frame_shape(self) -> tuple[int, int]:
+                return (3072, 3)
+
+        scoped_source = EventScopedFrameSource(
+            _BrokenShapeBase(
+                raw_frames=frames,
+                subtracted_frames=frames,
+                visual_frames=frames,
+                frame_names=[f"s{i}.tif" for i in range(5)],
+                source_paths=["/tmp/scoped"] * 5,
+            ),
+            0,
+            4,
+        )
+        payload = load_contract_fixture("valid_handoff")
+        self.controller.open_from_handoff_payload(
+            payload,
+            frame_source=scoped_source,
+            sync_emitter=self.emitted.append,
+        )
+        self.seg_state.masks_cache[2] = np.ones((2048, 3072), dtype=bool)
+
+        sync_payload = self.controller.build_host_sync_payload(ui_hints={"last_frame": 2})
+
+        self.assertIsNotNone(sync_payload)
+        analysis_payload = sync_payload["analysis"]
+        self.assertEqual(analysis_payload["masks_committed"]["frame_count"], 5)
+        self.assertEqual(analysis_payload["masks_committed"]["shape"], [2048, 3072])
 
 
 if __name__ == "__main__":

@@ -46,6 +46,42 @@ class _FakeStackInfo:
     dtype = "uint8"
 
 
+class _BrokenMetadataReader:
+    def __init__(self) -> None:
+        self._frames = [np.zeros((2048, 3072), dtype=np.uint8), np.ones((2048, 3072), dtype=np.uint8)]
+        self._refs = [
+            FrameRef(0, source_path=Path("/tmp/rgb_a.tif"), page_index=None, source_ext=".tif", frame_name="rgb_a.tif"),
+            FrameRef(1, source_path=Path("/tmp/rgb_b.tif"), page_index=None, source_ext=".tif", frame_name="rgb_b.tif"),
+        ]
+
+    def get_frame_count(self) -> int:
+        return len(self._frames)
+
+    def get_stack_info(self):
+        class _Info:
+            frame_height = 3072
+            frame_width = 3
+
+        return _Info()
+
+    def get_frame_name(self, idx: int) -> str:
+        return self._refs[idx].frame_name
+
+    def get_frame_ref(self, idx: int):
+        return self._refs[idx]
+
+    def read_frame(self, idx: int, use_cache: bool = True):  # noqa: ARG002
+        return self._frames[idx]
+
+
+class _BrokenMetadataStackInfo:
+    input_dir = "/tmp/in"
+    frame_count = 2
+    frame_height = 3072
+    frame_width = 3
+    dtype = "uint8"
+
+
 def _controller_with_event() -> BrowserController:
     c = BrowserController()
     c.on_stack_loaded(_FakeReader(), _FakeStackInfo())
@@ -62,6 +98,14 @@ def _sync_payload_for_context(c: BrowserController) -> dict:
     payload["event_id"] = c.events.get_active_event_id()
     payload["analysis_state_ref"]["ref_id"] = f"{payload['session_id']}:{payload['event_id']}"
     return payload
+
+
+def _controller_with_broken_shape_event() -> BrowserController:
+    c = BrowserController()
+    c.on_stack_loaded(_BrokenMetadataReader(), _BrokenMetadataStackInfo())
+    ev = c.create_event(start_idx=0, end_idx=1, frame_count=2)
+    c.set_active_event(ev.event_id)
+    return c
 
 
 def test_validate_handoff_invalid_fixture_returns_payload_invalid() -> None:
@@ -172,3 +216,24 @@ def test_shared_invalid_sync_fixtures_match_expected_codes() -> None:
         result = c.validate_sync_payload(payload)
         assert result["ok"] is False
         assert result["code"] == code
+
+
+def test_validate_sync_payload_uses_normalized_host_frame_shape_when_metadata_is_bad() -> None:
+    c = _controller_with_broken_shape_event()
+    payload = _sync_payload_for_context(c)
+    payload["analysis"]["masks_committed"]["shape"] = [2048, 3072]
+
+    result = c.validate_sync_payload(payload)
+
+    assert result["ok"] is True
+
+
+def test_validate_sync_payload_still_rejects_actual_shape_mismatch_with_broken_metadata_source() -> None:
+    c = _controller_with_broken_shape_event()
+    payload = _sync_payload_for_context(c)
+    payload["analysis"]["masks_committed"]["shape"] = [3072, 3]
+
+    result = c.validate_sync_payload(payload)
+
+    assert result["ok"] is False
+    assert result["code"] == ValidatorErrorCode.MASK_SHAPE_MISMATCH

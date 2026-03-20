@@ -26,6 +26,7 @@ def _build_app() -> SDSegmentationApp:
     app._saved_project_masks_by_event = {}
     app.log_info = lambda *_args, **_kwargs: None
     app.log_error = lambda *_args, **_kwargs: None
+    app._emit_host_sync = lambda *_args, **_kwargs: {"ok": True}
     app.save_project = lambda: None
     app.save_project_as = lambda: None
     app._collect_nonempty_final_mask_frames = lambda: set()
@@ -101,6 +102,22 @@ def test_save_current_masks_uses_host_project_path_provider_without_save_as(monk
     assert save_calls == ["save"]
     assert save_as_calls == []
     assert info_calls
+
+
+def test_save_current_masks_emits_host_analysis_sync_before_save(monkeypatch):
+    app = _build_app()
+    app._host_mode = True
+    app.current_project_path = "/tmp/test.sdproj"
+    app._collect_nonempty_final_mask_frames = lambda: {1, 2}
+    calls: list[str] = []
+    app._emit_host_sync = lambda reason="": calls.append(f"sync:{reason}") or {"ok": True}
+    app.save_project = lambda: calls.append("save")
+    monkeypatch.setattr("sdapp.analysis.app.messagebox.askyesno", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr("sdapp.analysis.app.messagebox.showinfo", lambda *_args, **_kwargs: None)
+
+    app.save_current_masks()
+
+    assert calls == ["sync:save_current_masks", "save"]
 
 
 def test_save_current_masks_saves_to_existing_project_without_overwrite_prompt(monkeypatch):

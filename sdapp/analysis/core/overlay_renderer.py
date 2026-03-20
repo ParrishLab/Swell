@@ -7,11 +7,28 @@ import time
 import tkinter as tk
 
 
+def _debug_log(app, message: str) -> None:
+    logger = getattr(app, "log_debug", None)
+    if callable(logger):
+        try:
+            logger("Overlay", str(message))
+        except Exception:
+            return
+
+
+def _safe_spinbox_value(widget) -> str:
+    try:
+        return str(widget.get())
+    except Exception:
+        return "<unreadable>"
+
+
 def recompute_slider_jump_markers(app) -> None:
     """Recompute marker metadata and keep range spinboxes synchronized."""
     t0 = time.perf_counter()
     frame_count = app._get_frame_count() if hasattr(app, "_get_frame_count") else len(app.frames_raw or [])
     if frame_count <= 0:
+        _debug_log(app, "Marker recompute aborted: frame_count<=0")
         app.slider_jump_markers = {}
         redraw_slider_overlay(app)
         return
@@ -19,6 +36,14 @@ def recompute_slider_jump_markers(app) -> None:
     markers = {}
     user_frames = app._collect_user_defined_frames()
     nonempty_mask_frames = app._collect_nonempty_final_mask_frames()
+    _debug_log(
+        app,
+        "Marker recompute inputs "
+        f"frame_count={frame_count} "
+        f"user_frames={sorted(int(i) for i in user_frames)[:12]} "
+        f"nonempty_mask_frames={sorted(int(i) for i in nonempty_mask_frames)[:12]} "
+        f"active_event_id={getattr(app, 'active_event_id', None)}",
+    )
 
     for frame_idx in sorted(user_frames):
         markers[frame_idx] = "user"
@@ -29,10 +54,13 @@ def recompute_slider_jump_markers(app) -> None:
         markers[start_idx] = "start"
         if end_idx != start_idx:
             markers[end_idx] = "end"
+        _debug_log(app, f"Marker bounds derived from masks start_idx={start_idx} end_idx={end_idx}")
 
         if hasattr(app, "spin_prop_start") and hasattr(app, "spin_prop_end"):
             start_display = start_idx + 1
             end_display = end_idx + 1
+            before_start = _safe_spinbox_value(app.spin_prop_start)
+            before_end = _safe_spinbox_value(app.spin_prop_end)
             try:
                 if int(app.spin_prop_start.get()) != start_display:
                     app._set_spinbox_value(app.spin_prop_start, start_display)
@@ -43,6 +71,12 @@ def recompute_slider_jump_markers(app) -> None:
                     app._set_spinbox_value(app.spin_prop_end, end_display)
             except (ValueError, TypeError, tk.TclError):
                 app._set_spinbox_value(app.spin_prop_end, end_display)
+            _debug_log(
+                app,
+                "Propagation spinboxes synced "
+                f"before=({before_start},{before_end}) "
+                f"after=({_safe_spinbox_value(app.spin_prop_start)},{_safe_spinbox_value(app.spin_prop_end)})",
+            )
 
         if (
             getattr(app, "_export_range_auto_follow", True)
@@ -51,6 +85,8 @@ def recompute_slider_jump_markers(app) -> None:
         ):
             start_display = start_idx + 1
             end_display = end_idx + 1
+            before_start = _safe_spinbox_value(app.spin_export_start)
+            before_end = _safe_spinbox_value(app.spin_export_end)
             try:
                 if int(app.spin_export_start.get()) != start_display:
                     app._set_spinbox_value(app.spin_export_start, start_display)
@@ -61,6 +97,13 @@ def recompute_slider_jump_markers(app) -> None:
                     app._set_spinbox_value(app.spin_export_end, end_display)
             except (ValueError, TypeError, tk.TclError):
                 app._set_spinbox_value(app.spin_export_end, end_display)
+            _debug_log(
+                app,
+                "Export spinboxes synced "
+                f"before=({before_start},{before_end}) "
+                f"after=({_safe_spinbox_value(app.spin_export_start)},{_safe_spinbox_value(app.spin_export_end)}) "
+                f"auto_follow={getattr(app, '_export_range_auto_follow', None)}",
+            )
 
         if (
             getattr(app, "_analysis_range_auto_follow", True)
@@ -69,6 +112,8 @@ def recompute_slider_jump_markers(app) -> None:
         ):
             start_display = start_idx + 1
             end_display = end_idx + 1
+            before_start = _safe_spinbox_value(app.spin_analysis_start)
+            before_end = _safe_spinbox_value(app.spin_analysis_end)
             try:
                 if int(app.spin_analysis_start.get()) != start_display:
                     app._set_spinbox_value(app.spin_analysis_start, start_display)
@@ -79,11 +124,21 @@ def recompute_slider_jump_markers(app) -> None:
                     app._set_spinbox_value(app.spin_analysis_end, end_display)
             except (ValueError, TypeError, tk.TclError):
                 app._set_spinbox_value(app.spin_analysis_end, end_display)
+            _debug_log(
+                app,
+                "Analysis spinboxes synced "
+                f"before=({before_start},{before_end}) "
+                f"after=({_safe_spinbox_value(app.spin_analysis_start)},{_safe_spinbox_value(app.spin_analysis_end)}) "
+                f"auto_follow={getattr(app, '_analysis_range_auto_follow', None)}",
+            )
+    else:
+        _debug_log(app, "No nonempty mask frames detected during marker recompute")
 
     app.slider_jump_markers = markers
     redraw_slider_overlay(app)
     elapsed_ms = (time.perf_counter() - t0) * 1000.0
     app.log_debug("Perf", f"Marker recompute elapsed={elapsed_ms:.2f}ms markers={len(markers)}")
+    _debug_log(app, f"Marker recompute result markers={markers}")
 
 
 def find_clicked_marker_frame(app, x_px: float) -> int | None:
@@ -127,6 +182,7 @@ def redraw_slider_overlay(app) -> None:
 
     total = app._get_frame_count() if hasattr(app, "_get_frame_count") else len(app.frames_raw or [])
     if total <= 0:
+        _debug_log(app, "Slider overlay redraw aborted: total<=0")
         return
     marker_positions = []
     for frame_idx, marker_type in sorted(app.slider_jump_markers.items()):
@@ -181,3 +237,8 @@ def redraw_slider_overlay(app) -> None:
     app._slider_marker_bounds = marker_bounds
     elapsed_ms = (time.perf_counter() - t0) * 1000.0
     app.log_debug("Perf", f"Slider overlay redraw elapsed={elapsed_ms:.2f}ms")
+    _debug_log(
+        app,
+        f"Slider overlay redraw state total={total} canvas=({w},{h}) "
+        f"markers={len(app.slider_jump_markers)} coverage_spans={coverage_spans}",
+    )

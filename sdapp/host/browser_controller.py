@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Iterable
 
-from sdapp.host.analysis_handoff import AnalysisHandoffAdapter
+from sdapp.host.analysis_handoff import AnalysisHandoffAdapter, resolve_host_frame_shape
 from sdapp.host.config import EventCandidate
 from sdapp.host.event_catalog_service import EventCatalogService
 from sdapp.host.host_models import EventMeta, stack_ref_from_stack_info
@@ -144,7 +144,7 @@ class BrowserController:
         context = {
             "session_id": self.session.get_session_id(),
             "stack_id": self.session.get_stack_id(),
-            "frame_shape": list(self._frame_source.frame_shape),
+            "frame_shape": resolve_host_frame_shape(self._frame_source),
             "event_ids": [ev.event_id for ev in self.events.list_events()],
         }
         return _validate_sync_payload(payload, context)

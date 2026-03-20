@@ -88,6 +88,25 @@ def test_open_stack_tiff_multipage_creates_page_names(tmp_path: Path) -> None:
     assert np.array_equal(reader.read_frame(1), page1)
 
 
+def test_open_stack_rgb_tiff_uses_grayscale_frame_dimensions(tmp_path: Path) -> None:
+    tiff_path = tmp_path / "rgb_stack.tif"
+    page0 = np.zeros((2048, 3072, 3), dtype=np.uint8)
+    page1 = np.zeros((2048, 3072, 3), dtype=np.uint8)
+    page0[:, :, 0] = 10
+    page1[:, :, 1] = 20
+    tifffile.imwrite(tiff_path, page0)
+    tifffile.imwrite(tiff_path, page1, append=True)
+
+    reader = StackReader()
+    info = reader.open_stack(tmp_path)
+
+    assert info.frame_count == 2
+    assert info.frame_height == 2048
+    assert info.frame_width == 3072
+    assert reader.read_frame(0).shape == (2048, 3072)
+    assert reader.read_frame(1).shape == (2048, 3072)
+
+
 def test_read_tiff_falls_back_to_pillow_when_tifffile_decode_fails(tmp_path: Path, monkeypatch) -> None:
     tiff_path = tmp_path / "stack_fallback.tif"
     page0 = np.full((4, 5), 17, dtype=np.uint8)

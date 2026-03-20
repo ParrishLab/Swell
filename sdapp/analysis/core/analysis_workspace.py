@@ -50,6 +50,42 @@ class AnalysisWorkspaceController:
         self._on_event_opened = on_event_opened
         self._host_context: dict[str, Any] | None = None
         self._sync_emitter: Callable[[dict[str, Any]], None] | None = None
+        self._resolved_frame_dims_cache: tuple[int, tuple[int, int]] | None = None
+
+    def _resolved_frame_count_and_shape(self) -> tuple[int, tuple[int, int]]:
+        if self._resolved_frame_dims_cache is not None:
+            return self._resolved_frame_dims_cache
+        if self.frame_source is None:
+            return 0, (0, 0)
+        frame_count = int(getattr(self.frame_source, "frame_count", 0) or 0)
+        frame_shape = tuple(int(v) for v in tuple(getattr(self.frame_source, "frame_shape", (0, 0)))[:2])
+        raw_frames = getattr(self.frame_source, "raw_frames", None)
+        if raw_frames is not None:
+            try:
+                raw_count = len(raw_frames)
+            except Exception:
+                raw_count = 0
+            if raw_count > 0:
+                first_frame = raw_frames[0]
+                raw_shape = tuple(int(v) for v in tuple(np.asarray(first_frame).shape[:2]))
+                if len(raw_shape) == 2 and raw_shape[0] > 0 and raw_shape[1] > 0:
+                    frame_shape = raw_shape
+                if raw_count > 0:
+                    frame_count = raw_count
+        elif frame_count > 0:
+            get_raw_frame = getattr(self.frame_source, "get_raw_frame", None)
+            if callable(get_raw_frame):
+                try:
+                    sampled = np.asarray(get_raw_frame(0))
+                except Exception:
+                    sampled = None
+                if sampled is not None:
+                    sampled_shape = tuple(int(v) for v in tuple(sampled.shape[:2]))
+                    if len(sampled_shape) == 2 and sampled_shape[0] > 0 and sampled_shape[1] > 0:
+                        frame_shape = sampled_shape
+        resolved = int(frame_count), (int(frame_shape[0]), int(frame_shape[1]))
+        self._resolved_frame_dims_cache = resolved
+        return resolved
 
     @staticmethod
     def _normalize_frame_idx_to_local(
@@ -225,6 +261,7 @@ class AnalysisWorkspaceController:
 
     def bind_frame_source(self, frame_source: FrameSource | None) -> None:
         self.frame_source = frame_source
+        self._resolved_frame_dims_cache = None
 
     def open_from_handoff_payload(
         self,
@@ -304,8 +341,7 @@ class AnalysisWorkspaceController:
         scope_end = int(scope_end_raw) if scope_end_raw is not None else None
         local_start = int(flags.get("analysis_local_event_start_idx", event.get("start_idx", 0)))
         local_end = int(flags.get("analysis_local_event_end_idx", event.get("end_idx", local_start)))
-        frame_count = int(self.frame_source.frame_count)
-        frame_shape = tuple(int(v) for v in self.frame_source.frame_shape)
+        frame_count, frame_shape = self._resolved_frame_count_and_shape()
         records = self.session_state.event_records
         self.session_service.ensure_event_record(event_id, frame_count, records)
         self.session_service.update_event_metadata(
@@ -382,8 +418,8 @@ class AnalysisWorkspaceController:
         record = self.session_state.event_records.get(event_id)
         if record is None:
             return None
-        masks_shape = [int(v) for v in self.frame_source.frame_shape]
-        frame_count = int(self.frame_source.frame_count)
+        frame_count, resolved_shape = self._resolved_frame_count_and_shape()
+        masks_shape = [int(v) for v in resolved_shape]
         return {
             "contract_version": int(self._host_context["contract_version"]),
             "session_id": str(self._host_context["session"]["session_id"]),
@@ -435,8 +471,7 @@ class AnalysisWorkspaceController:
         record = self.session_state.event_records.get(event_id)
         if record is None:
             return None
-        frame_count = int(self.frame_source.frame_count)
-        frame_shape = tuple(self.frame_source.frame_shape)
+        frame_count, frame_shape = self._resolved_frame_count_and_shape()
         prompts_state = SegmentationState()
         prompts_state.points = self.session_service.copy_points_dict(record.analysis.points)
         prompts_state.paint_layers = self.session_service.copy_paint_layers(record.analysis.paint_layers)
@@ -465,9 +500,10 @@ class AnalysisWorkspaceController:
         if self.frame_source is None:
             raise RuntimeError("No frame source bound to analysis workspace.")
         self.sync_active_event()
+        frame_count, frame_shape = self._resolved_frame_count_and_shape()
         return SessionSnapshot(
-            frame_count=self.frame_source.frame_count,
-            frame_shape=self.frame_source.frame_shape,
+            frame_count=frame_count,
+            frame_shape=frame_shape,
             current_frame_idx=int(ui_state.current_frame_idx),
             active_event_id=str(self.session_state.active_event_id or "sd_event_001"),
             tool_mode=str(ui_state.tool_mode),
