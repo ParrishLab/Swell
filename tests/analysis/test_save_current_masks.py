@@ -120,6 +120,21 @@ def test_save_current_masks_emits_host_analysis_sync_before_save(monkeypatch):
     assert calls == ["sync:save_current_masks", "save"]
 
 
+def test_save_current_masks_handles_invalid_host_project_path_provider(monkeypatch):
+    app = _build_app()
+    app._host_mode = True
+    app._collect_nonempty_final_mask_frames = lambda: {1}
+    app._host_project_path_provider = lambda: "bad\0path.sdproj"
+    save_as_calls: list[str] = []
+    app.save_project_as = lambda: save_as_calls.append("save_as")
+    monkeypatch.setattr("sdapp.analysis.app.messagebox.showinfo", lambda *_args, **_kwargs: None)
+
+    app.save_current_masks()
+
+    assert save_as_calls == ["save_as"]
+    assert app.current_project_path is None
+
+
 def test_save_current_masks_saves_to_existing_project_without_overwrite_prompt(monkeypatch):
     app = _build_app()
     app.current_project_path = "/tmp/test.sdproj"
@@ -142,6 +157,26 @@ def test_save_current_masks_saves_to_existing_project_without_overwrite_prompt(m
     assert save_calls == ["save"]
     assert ask_calls == []
     assert info_calls
+
+
+def test_save_current_masks_shows_error_when_save_project_raises_non_runtime_error(monkeypatch):
+    app = _build_app()
+    app.current_project_path = "/tmp/test.sdproj"
+    app._collect_nonempty_final_mask_frames = lambda: {1}
+    errors: list[tuple[str, str]] = []
+
+    def _raise_os_error():
+        raise OSError("disk write failed")
+
+    app.save_project = _raise_os_error
+    monkeypatch.setattr(
+        "sdapp.analysis.app.messagebox.showerror",
+        lambda title, text, **_kwargs: errors.append((str(title), str(text))),
+    )
+
+    app.save_current_masks()
+
+    assert errors == [("Save Current Masks", "disk write failed")]
 
 
 def test_save_current_masks_uses_committed_payload_when_live_mask_set_empty(monkeypatch):
