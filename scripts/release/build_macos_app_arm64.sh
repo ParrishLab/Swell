@@ -9,6 +9,7 @@ DIST_ROOT="$REPO_ROOT/dist"
 ARCH_DIST="$DIST_ROOT/macos-arm64"
 WORK_PATH="$REPO_ROOT/build/pyinstaller-arm64"
 ZIP_OUT="$DIST_ROOT/sdapp-macos-arm64.zip"
+SIGNATURE_OUT="$DIST_ROOT/sdapp-macos-arm64-signature.json"
 
 cd "$REPO_ROOT"
 
@@ -19,7 +20,7 @@ fi
 
 "$PYTHON_BIN" "$REPO_ROOT/scripts/release/validate_model_runtime.py"
 
-rm -rf "$ARCH_DIST" "$WORK_PATH" "$ZIP_OUT"
+rm -rf "$ARCH_DIST" "$WORK_PATH" "$ZIP_OUT" "$SIGNATURE_OUT"
 mkdir -p "$ARCH_DIST"
 
 if command -v arch >/dev/null 2>&1; then
@@ -40,5 +41,11 @@ else
   (cd "$ARCH_DIST" && zip -r "$ZIP_OUT" "SDApp.app")
 fi
 
+"$PYTHON_BIN" "$REPO_ROOT/scripts/release/sign_macos_update.py" \
+  --repo-root "$REPO_ROOT" \
+  --archive "$ZIP_OUT" \
+  --output "$SIGNATURE_OUT"
+
 echo "[release] macOS arm64 bundle ready: $APP_BUNDLE" >&2
 echo "[release] Archive: $ZIP_OUT" >&2
+echo "[release] Signature: $SIGNATURE_OUT" >&2

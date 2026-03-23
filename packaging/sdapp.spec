@@ -21,6 +21,10 @@ for pkg in ("sam2", "hydra", "omegaconf"):
 # Torch runtime libraries are needed for model-backed segmentation.
 binaries += collect_dynamic_libs("torch")
 
+sparkle_framework = ROOT / "sdapp" / "resources" / "updater" / "macos" / "Sparkle.framework"
+if sparkle_framework.exists():
+    datas.append((str(sparkle_framework), "updater/macos/Sparkle.framework"))
+
 a = Analysis(
     [str(ROOT / "sdapp" / "main.py")],
     pathex=[str(ROOT)],
@@ -58,6 +62,10 @@ app = BUNDLE(
     icon=str(ROOT / "sdapp" / "resources" / "assets" / "app_icon.icns"),
     bundle_identifier="com.sdapp.desktop",
     info_plist={
+        "SUFeedURL": "https://github.com/ClayDunford/Combined-tool-test/releases/latest/download/appcast-macos.xml",
+        "SUPublicEDKey": "FuPzG0WpV5ajjd1Po8ycim/o/aWs74j0wrGTd9+MrY4=",
+        "SUEnableAutomaticChecks": True,
+        "SUAllowsAutomaticUpdates": True,
         "CFBundleDocumentTypes": [
             {
                 "CFBundleTypeName": "SDApp Project",

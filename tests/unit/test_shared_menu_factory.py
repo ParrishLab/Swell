@@ -68,6 +68,9 @@ class _App:
     def on_close(self):
         return None
 
+    def check_for_updates(self):
+        return None
+
 
 def _file_menu(menu):
     return next(c["menu"] for c in menu.cascades if c["label"] == "File")
@@ -79,6 +82,10 @@ def _model_menu(menu):
 
 def _state_by_label(file_menu):
     return {item["label"]: item["state"] for item in file_menu.commands if item.get("label")}
+
+
+def _help_menu(menu):
+    return next(c["menu"] for c in menu.cascades if c["label"] == "Help")
 
 
 def test_analysis_menu_omits_standalone_project_lifecycle_actions():
@@ -114,3 +121,21 @@ def test_host_menu_exposes_checkpoint_manager_action():
         menu = build_shared_menu(root, app, mode="host", host_mode=False)
     model_states = _state_by_label(_model_menu(menu))
     assert model_states["Manage Models..."] == "normal"
+
+
+def test_host_menu_exposes_check_for_updates_action():
+    root = _FakeRoot()
+    app = _App()
+    with patch("sdapp.shared.menu.factory.tk.Menu", _FakeMenu):
+        menu = build_shared_menu(root, app, mode="host", host_mode=False)
+    help_states = _state_by_label(_help_menu(menu))
+    assert help_states["Check for Updates..."] == "normal"
+
+
+def test_analysis_menu_omits_help_menu_update_action():
+    root = _FakeRoot()
+    app = _App()
+    with patch("sdapp.shared.menu.factory.tk.Menu", _FakeMenu):
+        menu = build_shared_menu(root, app, mode="analysis", host_mode=True)
+    labels = {item["label"] for item in menu.cascades}
+    assert "Help" not in labels

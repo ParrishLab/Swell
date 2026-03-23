@@ -76,6 +76,12 @@ Optional startup smoke check:
 python -m sdapp.main --smoke-test
 ```
 
+## Packaged macOS Warning
+
+- Current macOS release builds are intentionally unsigned and not notarized.
+- Gatekeeper warnings are expected on macOS packaged builds.
+- Sparkle update metadata is still produced, but end users may need manual trust overrides to open or update the app.
+
 ## Repository Layout
 
 - `sdapp/`: application package (`host`, `analysis`, `shared`).

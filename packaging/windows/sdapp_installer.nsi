@@ -5,6 +5,7 @@ RequestExecutionLevel user
 !define APP_VERSION "0.1.3"
 !define APP_EXE "SDApp.exe"
 !define APP_PROG_ID "SDApp.Project"
+!define WINSPARKLE_APPCAST_URL "https://github.com/ClayDunford/Combined-tool-test/releases/latest/download/appcast-windows.xml"
 
 OutFile "dist\\SDApp-Setup-${APP_VERSION}.exe"
 InstallDir "$LOCALAPPDATA\\SDApp"

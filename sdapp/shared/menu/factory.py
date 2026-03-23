@@ -21,6 +21,7 @@ def build_shared_menu(root, app, *, mode: str, host_mode: bool = False) -> tk.Me
     menu = tk.Menu(root)
     file_menu = tk.Menu(menu, tearoff=False)
     config_menu = tk.Menu(menu, tearoff=False)
+    help_menu = tk.Menu(menu, tearoff=False)
 
     if mode == "analysis":
         file_items = [
@@ -82,5 +83,26 @@ def build_shared_menu(root, app, *, mode: str, host_mode: bool = False) -> tk.Me
         config_menu.add_command(label=label, command=command)
 
     menu.add_cascade(label="Model", menu=config_menu)
+
+    help_items = [
+        ("Check for Updates...", ("check_for_updates",)),
+    ]
+    help_allow = {
+        "Check for Updates...": {"host"},
+    }
+    added_help_items = False
+    for label, names in help_items:
+        allowed = help_allow.get(label, {"host"})
+        if mode not in allowed:
+            continue
+        command = _resolve_command(app, names or ())
+        if command is None:
+            help_menu.add_command(label=label, state="disabled")
+        else:
+            help_menu.add_command(label=label, command=command)
+        added_help_items = True
+    if added_help_items:
+        menu.add_cascade(label="Help", menu=help_menu)
+
     root.config(menu=menu)
     return menu

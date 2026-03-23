@@ -8,6 +8,7 @@ from sdapp.shared.services.checkpoint_runtime_service import (
 )
 from sdapp.shared.services.instance_bridge import SingleInstanceBridge
 from sdapp.shared.services.metrics_settings_resolver import MetricsSettingsResolver
+from sdapp.shared.services.update_service import ReleaseInfo, UpdateCheckResult, UpdateService
 from sdapp.shared.services.unified_project_service import UnifiedProjectService
 
 __all__ = [
@@ -21,4 +22,7 @@ __all__ = [
     "CheckpointRuntimeService",
     "MODEL_CHECKPOINT_METADATA_KEY",
     "managed_models_dir",
+    "ReleaseInfo",
+    "UpdateCheckResult",
+    "UpdateService",
 ]

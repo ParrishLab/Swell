@@ -26,6 +26,10 @@ for pkg in ("sam2", "hydra", "omegaconf"):
 
 binaries += collect_dynamic_libs("torch")
 
+winsparkle_dll = ROOT / "sdapp" / "resources" / "updater" / "windows" / "WinSparkle.dll"
+if winsparkle_dll.exists():
+    binaries.append((str(winsparkle_dll), "."))
+
 a = Analysis(
     [str(ROOT / "sdapp" / "main.py")],
     pathex=[str(ROOT)],

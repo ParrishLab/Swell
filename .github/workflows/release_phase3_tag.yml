@@ -108,6 +108,7 @@ jobs:
         run: |
           test -d dist/macos-arm64/SDApp.app
           test -f dist/sdapp-macos-arm64.zip
+          test -f dist/sdapp-macos-arm64-signature.json
 
       - name: Upload macOS arm64 artifacts
         uses: actions/upload-artifact@v6
@@ -148,6 +149,16 @@ jobs:
         shell: pwsh
         run: |
           python -c "import pytest; print(pytest.__version__)"
+
+      - name: Ensure NSIS is available
+        shell: pwsh
+        run: |
+          if (!(Get-Command "makensis" -ErrorAction SilentlyContinue)) {
+            choco install nsis -y --no-progress
+          }
+          if (!(Get-Command "makensis" -ErrorAction SilentlyContinue)) {
+            throw "makensis is required for release installer generation."
+          }
 
       - name: Run test suite
         run: python -m pytest -q tests
@@ -192,6 +203,7 @@ jobs:
         run: |
           if (!(Test-Path "dist/windows-x64/SDApp")) { throw "missing dist/windows-x64/SDApp" }
           if (!(Test-Path "dist/sdapp-windows-x64.zip")) { throw "missing dist/sdapp-windows-x64.zip" }
+          if (!(Get-ChildItem "dist/SDApp-Setup-*.exe" -ErrorAction SilentlyContinue)) { throw "missing Windows installer" }
 
       - name: Upload Windows artifacts
         uses: actions/upload-artifact@v6
@@ -237,7 +249,9 @@ jobs:
           rm -rf dist
           mkdir -p dist
           cp _artifacts/macos-arm64/sdapp-macos-arm64.zip dist/
+          cp _artifacts/macos-arm64/sdapp-macos-arm64-signature.json dist/
           cp _artifacts/windows-x64/sdapp-windows-x64.zip dist/
+          cp _artifacts/windows-x64/SDApp-Setup-*.exe dist/
           ls -la dist
 
       - name: Generate compatibility manifest
@@ -250,13 +264,24 @@ jobs:
             --tag "${{ needs.release-validate.outputs.release_tag }}" \
             --output _release/release_notes.md
 
+      - name: Generate updater appcasts
+        run: |
+          python scripts/release/generate_appcasts.py \
+            --repo-root "${{ github.workspace }}" \
+            --release-tag "${{ needs.release-validate.outputs.release_tag }}" \
+            --github-repo "${{ github.repository }}"
+
       - name: Generate checksums
         run: ./scripts/release/generate_checksums.sh
 
       - name: Verify assembled release outputs
         run: |
           test -f dist/sdapp-macos-arm64.zip
+          test -f dist/sdapp-macos-arm64-signature.json
           test -f dist/sdapp-windows-x64.zip
+          ls dist/SDApp-Setup-*.exe
+          test -f dist/appcast-macos.xml
+          test -f dist/appcast-windows.xml
           test -f dist/compatibility.json
           test -f dist/SHA256SUMS.txt
           test -f _release/release_notes.md
@@ -294,8 +319,14 @@ jobs:
           body_path: _release/release_notes.md
           files: |
             dist/sdapp-macos-arm64.zip
+            dist/sdapp-macos-arm64-signature.json
             dist/sdapp-windows-x64.zip
+            dist/SDApp-Setup-*.exe
+            dist/appcast-macos.xml
+            dist/appcast-windows.xml
             dist/compatibility.json
             dist/SHA256SUMS.txt
 
-# TODO(phase4+): Add macOS signing/notarization/stapling.
+# macOS Apple Developer signing/notarization is intentionally deferred for now.
+# The release flow still produces Sparkle metadata and signed update-archive payloads,
+# but packaged macOS builds are expected to trigger Gatekeeper warnings on end-user machines.

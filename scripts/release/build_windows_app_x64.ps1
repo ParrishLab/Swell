@@ -12,7 +12,10 @@ $ArchDist = Join-Path $DistRoot "windows-x64"
 $WorkPath = Join-Path $RepoRoot "build/pyinstaller-windows-x64"
 $ZipOut = Join-Path $DistRoot "sdapp-windows-x64.zip"
 $InstallerFlag = if ($null -ne $env:SDAPP_BUILD_INSTALLER) { "$env:SDAPP_BUILD_INSTALLER" } else { "" }
-$BuildInstaller = @("1", "true", "yes") -contains $InstallerFlag.ToLowerInvariant()
+$BuildInstaller = $true
+if ($InstallerFlag) {
+  $BuildInstaller = @("1", "true", "yes") -contains $InstallerFlag.ToLowerInvariant()
+}
 
 & $PythonBin -m PyInstaller --version | Out-Null
 & $PythonBin "$RepoRoot/scripts/release/validate_model_runtime.py"
@@ -38,7 +41,7 @@ Write-Host "[release] Archive: $ZipOut"
 if ($BuildInstaller) {
   $makensis = Get-Command "makensis" -ErrorAction SilentlyContinue
   if (-not $makensis) {
-    throw "[release] ERROR: SDAPP_BUILD_INSTALLER is enabled but makensis was not found on PATH."
+    throw "[release] ERROR: Windows installer build is required but makensis was not found on PATH."
   }
   Push-Location $RepoRoot
   try {
@@ -50,5 +53,5 @@ if ($BuildInstaller) {
   Write-Host "[release] Windows installer build complete (NSIS)."
 }
 else {
-  Write-Host "[release] Windows installer build skipped (set SDAPP_BUILD_INSTALLER=1 to enable)."
+  Write-Host "[release] Windows installer build skipped (SDAPP_BUILD_INSTALLER disabled explicitly)."
 }

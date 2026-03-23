@@ -6,6 +6,7 @@ import shutil
 import subprocess
 import sys
 import tomllib
+import xml.etree.ElementTree as ET
 
 import pytest
 
@@ -88,6 +89,87 @@ def test_generate_checksums_script_writes_sha256sums(tmp_path: Path) -> None:
     assert len(lines) == 2
     assert any("a.txt" in line for line in lines)
     assert any("b.bin" in line for line in lines)
+
+
+def test_generate_appcasts_script_writes_platform_feeds(tmp_path: Path) -> None:
+    script = ROOT / "scripts" / "release" / "generate_appcasts.py"
+    dist_dir = tmp_path / "dist"
+    dist_dir.mkdir(parents=True, exist_ok=True)
+    (dist_dir / "sdapp-macos-arm64.zip").write_bytes(b"mac")
+    (dist_dir / "sdapp-macos-arm64-signature.json").write_text(
+        json.dumps({"archive": "sdapp-macos-arm64.zip", "ed_signature": "abc123=", "length": 3}),
+        encoding="utf-8",
+    )
+    (dist_dir / "SDApp-Setup-0.1.3.exe").write_bytes(b"win")
+
+    subprocess.run(
+        [
+            sys.executable,
+            str(script),
+            "--repo-root",
+            str(ROOT),
+            "--dist-dir",
+            str(dist_dir),
+            "--output-dir",
+            str(dist_dir),
+            "--release-tag",
+            "v0.1.3",
+            "--github-repo",
+            "ClayDunford/Combined-tool-test",
+            "--published-at",
+            "Mon, 23 Mar 2026 12:00:00 +0000",
+        ],
+        check=True,
+        cwd=str(ROOT),
+    )
+
+    windows_feed = ET.parse(dist_dir / "appcast-windows.xml").getroot()
+    mac_feed = ET.parse(dist_dir / "appcast-macos.xml").getroot()
+    windows_url = windows_feed.find("./channel/item/enclosure").attrib["url"]
+    mac_url = mac_feed.find("./channel/item/enclosure").attrib["url"]
+    mac_sig = mac_feed.find("./channel/item/enclosure").attrib[
+        "{http://www.andymatuschak.org/xml-namespaces/sparkle}edSignature"
+    ]
+
+    assert windows_url.endswith("/SDApp-Setup-0.1.3.exe")
+    assert mac_url.endswith("/sdapp-macos-arm64.zip")
+    assert mac_sig == "abc123="
+
+
+def test_sign_macos_update_script_parses_sign_update_output(tmp_path: Path) -> None:
+    script = ROOT / "scripts" / "release" / "sign_macos_update.py"
+    archive = tmp_path / "sdapp-macos-arm64.zip"
+    archive.write_bytes(b"payload")
+    sign_update = tmp_path / "sign_update"
+    sign_update.write_text(
+        "#!/bin/bash\n"
+        "echo 'sparkle:edSignature=\"signed123=\" length=\"7\"'\n",
+        encoding="utf-8",
+    )
+    sign_update.chmod(0o755)
+    output = tmp_path / "signature.json"
+
+    subprocess.run(
+        [
+            sys.executable,
+            str(script),
+            "--repo-root",
+            str(ROOT),
+            "--archive",
+            str(archive),
+            "--output",
+            str(output),
+            "--sign-update",
+            str(sign_update),
+        ],
+        check=True,
+        cwd=str(ROOT),
+    )
+
+    payload = json.loads(output.read_text(encoding="utf-8"))
+    assert payload["archive"] == "sdapp-macos-arm64.zip"
+    assert payload["ed_signature"] == "signed123="
+    assert payload["length"] == 7
 
 
 def test_model_smoke_script_passes() -> None:
