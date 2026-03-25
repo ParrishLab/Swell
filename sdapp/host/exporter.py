@@ -8,10 +8,6 @@ from pathlib import Path
 from threading import Lock
 from typing import Callable, Iterable, Optional
 
-import matplotlib
-
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
 import numpy as np
 from PIL import Image
 import tifffile
@@ -21,12 +17,22 @@ from sdapp.analysis.core.metrics import (
     roi_mask_from_points,
     smooth_boundary_fft,
 )
+from sdapp.shared.image_overlay import apply_mask_overlay
 from sdapp.shared.persistence.event_path import allocate_event_path_segment
 from sdapp.shared.services import MetricsSettingsResolver
 
 from .config import EventCandidate, ExportRecord, TraceResult
 from .signal_analysis import event_to_dict
 from .stack_reader import StackReader
+
+
+def _load_pyplot():
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    return plt
 
 
 def export_analysis(
@@ -41,6 +47,7 @@ def export_analysis(
     include_event_images: bool = True,
     include_baseline_images: bool = True,
     include_binary_masks: bool = False,
+    include_mask_overlay_images: bool = False,
     analysis_sidecar: Optional[dict[str, dict]] = None,
     include_metric_propagation_speed: bool = False,
     include_metric_area_recruited: bool = False,
@@ -52,8 +59,9 @@ def export_analysis(
         or bool(include_metric_area_recruited)
         or bool(include_metric_relative_area_recruited)
     )
-    if not bool(include_event_images) and not bool(include_baseline_images) and not include_any_metrics:
-        raise ValueError("Select at least one export target (images or metrics).")
+    include_any_mask_exports = bool(include_binary_masks) or bool(include_mask_overlay_images)
+    if not bool(include_event_images) and not bool(include_baseline_images) and not include_any_mask_exports and not include_any_metrics:
+        raise ValueError("Select at least one export target (images, masks, overlays, or metrics).")
 
     out_dir = Path(output_dir).expanduser().resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -77,14 +85,17 @@ def export_analysis(
     manifest_records: list[ExportRecord] = []
     event_summaries: list[dict] = []
     masks_exported = 0
+    mask_overlay_images_exported = 0
     metrics_files_exported = 0
     total_frames_to_export = 0
     for event in selected_events:
         baseline_end = int(event.start_idx) - 1
-        if bool(include_baseline_images) and baseline_end >= 0:
+        if baseline_end >= 0:
             baseline_start = max(0, baseline_end - int(baseline_pre_frames) + 1)
             baseline_count = baseline_end - baseline_start + 1
         else:
+            baseline_count = 0
+        if not bool(include_baseline_images):
             baseline_count = 0
         event_count = max(0, event.end_idx - event.start_idx + 1) if bool(include_event_images) else 0
         total_frames_to_export += baseline_count + event_count
@@ -113,16 +124,22 @@ def export_analysis(
         if bool(include_binary_masks):
             masks_dir = event_dir / "binary_masks"
             masks_dir.mkdir(parents=True, exist_ok=True)
+        overlay_dir: Path | None = None
+        if bool(include_mask_overlay_images):
+            overlay_dir = event_dir / "mask_overlays"
+            overlay_dir.mkdir(parents=True, exist_ok=True)
 
         baseline_end = int(event.start_idx) - 1
         baseline_start: int | None = None
         event_records: list[tuple[int, str, ExportRecord]] = []
-        if bool(include_baseline_images) and baseline_end >= 0:
+        if baseline_end >= 0:
             baseline_start = max(0, baseline_end - int(baseline_pre_frames) + 1)
-            baseline_indices = list(range(baseline_start, baseline_end + 1))
+            baseline_scope_indices = list(range(baseline_start, baseline_end + 1))
         else:
-            baseline_indices = []
-        event_indices = list(range(event.start_idx, event.end_idx + 1)) if bool(include_event_images) else []
+            baseline_scope_indices = []
+        baseline_indices = list(baseline_scope_indices) if bool(include_baseline_images) else []
+        event_scope_indices = list(range(event.start_idx, event.end_idx + 1))
+        event_indices = list(event_scope_indices) if bool(include_event_images) else []
         export_indices = set(baseline_indices + event_indices)
 
         work_items: list[tuple[int, str, int]] = []
@@ -159,26 +176,40 @@ def export_analysis(
         event_records.sort(key=lambda x: (0 if x[1] == "baseline" else 1, x[0]))
         manifest_records.extend([rec for _idx, _role, rec in event_records])
 
+        event_sidecar = dict((analysis_sidecar or {}).get(str(event.event_id), {}) or {})
+        mask_map = _build_event_global_mask_map(
+            event=event,
+            masks_payload=event_sidecar.get("masks_committed"),
+            baseline_pre_frames=int(baseline_pre_frames),
+        )
         if masks_dir is not None:
-            event_sidecar = dict((analysis_sidecar or {}).get(str(event.event_id), {}) or {})
-            mask_map = _build_event_global_mask_map(
-                event=event,
-                masks_payload=event_sidecar.get("masks_committed"),
-                baseline_pre_frames=int(baseline_pre_frames),
-            )
-            for frame_idx in sorted(export_indices):
+            for frame_idx in sorted(set(baseline_scope_indices + event_scope_indices)):
                 mask = mask_map.get(int(frame_idx))
                 if mask is None:
                     continue
                 if not np.any(mask):
                     continue
-                role = "baseline" if int(frame_idx) in baseline_indices else "event"
+                role = "baseline" if int(frame_idx) in baseline_scope_indices else "event"
                 mask_name = f"{int(frame_idx):06d}_{role}_mask.tiff"
                 _write_mask(masks_dir / mask_name, mask)
                 masks_exported += 1
+        if overlay_dir is not None:
+            overlay_indices = sorted(set(baseline_scope_indices + event_scope_indices))
+            for frame_idx in overlay_indices:
+                mask = mask_map.get(int(frame_idx))
+                if mask is None or not np.any(mask):
+                    continue
+                role = "baseline" if int(frame_idx) in baseline_scope_indices else "event"
+                _export_mask_overlay_frame(
+                    reader=reader,
+                    frame_idx=int(frame_idx),
+                    out_dir=overlay_dir,
+                    role=str(role),
+                    mask=mask,
+                )
+                mask_overlay_images_exported += 1
 
         if include_any_metrics:
-            event_sidecar = dict((analysis_sidecar or {}).get(str(event.event_id), {}) or {})
             metrics_settings = MetricsSettingsResolver.resolve_for_event(
                 event_id=str(event.event_id),
                 analysis_sidecar={str(event.event_id): event_sidecar},
@@ -211,6 +242,7 @@ def export_analysis(
         "events_exported": len(selected_events),
         "frames_exported": len(manifest_records),
         "masks_exported": int(masks_exported),
+        "mask_overlay_images_exported": int(mask_overlay_images_exported),
         "metrics_files_exported": int(metrics_files_exported),
         "manifest_csv": str(out_dir / "events_manifest.csv"),
         "manifest_json": str(out_dir / "events_manifest.json"),
@@ -255,6 +287,7 @@ def _write_metric_csv(path: Path, frame_indices: list[int], time_sec: list[float
 
 
 def _write_metric_plot(path: Path, time_sec: list[float], values: np.ndarray, title: str, ylabel: str) -> None:
+    plt = _load_pyplot()
     plt.figure()
     plt.plot(np.asarray(time_sec, dtype=np.float64), np.asarray(values, dtype=np.float64), color="k", linewidth=2)
     plt.xlabel("Time (sec)")
@@ -496,6 +529,23 @@ def _export_frame(
     )
 
 
+def _export_mask_overlay_frame(
+    reader: StackReader,
+    frame_idx: int,
+    out_dir: Path,
+    role: str,
+    mask: np.ndarray,
+) -> None:
+    frame = reader.read_frame(frame_idx, use_cache=True)
+    ref = reader.get_frame_ref(frame_idx)
+    frame_name = ref.frame_name
+    stem = Path(frame_name).stem
+    source_ext = ref.source_ext
+    output_ext = source_ext if source_ext in {".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff"} else ".tiff"
+    output_name = f"{int(frame_idx):06d}_{role}_overlay_{stem}{output_ext}"
+    _write_frame(out_dir / output_name, apply_mask_overlay(frame, mask), output_ext)
+
+
 def _write_frame(path: Path, frame: np.ndarray, ext: str) -> None:
     if ext in {".tif", ".tiff"}:
         tifffile.imwrite(str(path), frame)
@@ -540,6 +590,7 @@ def _write_trace_data_csv(path: Path, trace: TraceResult) -> None:
 
 
 def _write_trace_plot(path: Path, trace: TraceResult, events: list[EventCandidate]) -> None:
+    plt = _load_pyplot()
     x = np.asarray(trace.frame_indices)
     y_mean = np.asarray(trace.mean) if trace.mean else np.array([])
 

@@ -151,6 +151,9 @@ class SDAnalyzerApp:
         self._analysis_windows: list[tuple[tk.Toplevel, object]] = []
         self.analysis_window_manager = AnalysisWindowManager()
         self._analysis_options_preview_image: ImageTk.PhotoImage | None = None
+        self._analysis_preview_cache: OrderedDict[tuple, dict[str, object]] = OrderedDict()
+        self._analysis_app_class_cache = None
+        self._analysis_app_import_started = False
 
         self._build_ui()
         self._refresh_model_gate_ui()
@@ -258,7 +261,7 @@ class SDAnalyzerApp:
         )
         self.btn_open_analysis = ttk.Button(action_frame, text="Open Analysis...", command=self._analyze_selected_event)
         self.btn_open_analysis.grid(row=1, column=0, columnspan=2, sticky="ew", padx=2, pady=(6, 2))
-        ttk.Button(action_frame, text="Metrics Defaults...", command=self._open_generate_metrics_popup).grid(
+        ttk.Button(action_frame, text="Open Metrics...", command=self._open_generate_metrics_popup).grid(
             row=2, column=0, columnspan=2, sticky="ew", padx=2, pady=2
         )
         ttk.Button(action_frame, text="Export Selected", command=self._export_selected).grid(
@@ -466,6 +469,9 @@ class SDAnalyzerApp:
 
     def _on_analysis_metrics_update(self, payload: dict) -> dict:
         return self._get_project_controller().on_analysis_metrics_update(payload)
+
+    def _on_analysis_global_metrics_update(self, payload: dict) -> dict:
+        return self._get_project_controller().on_analysis_global_metrics_update(payload)
 
     def _on_analysis_checkpoint_update(self, payload: dict) -> dict:
         return self._get_project_controller().on_analysis_checkpoint_update(payload)
@@ -1696,6 +1702,7 @@ class SDAnalyzerApp:
         self._set_status(f"Export complete: {result['events_exported']} event(s), {result['frames_exported']} frame(s).")
         self._log_info(
             f"Export complete: {result['events_exported']} event(s), {result['frames_exported']} frame(s), "
+            f"mask_overlays={int(result.get('mask_overlay_images_exported', 0))}, "
             f"metrics_files={int(result.get('metrics_files_exported', 0))}, output={result['output_dir']}."
         )
         self._gc_runtime_caches(aggressive=False, run_python_gc=False)

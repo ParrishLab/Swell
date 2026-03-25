@@ -24,6 +24,7 @@ class HostModeState:
     project_path_provider: Callable[[], str | None] | None = None
     log_notifier: Callable[[str, str, str], None] | None = None
     metrics_updater: Callable[[dict[str, Any]], dict[str, Any] | None] | None = None
+    global_metrics_updater: Callable[[dict[str, Any]], dict[str, Any] | None] | None = None
     checkpoint_updater: Callable[[dict[str, Any]], dict[str, Any] | None] | None = None
     open_model_manager: Callable[[], None] | None = None
     processing_options: dict[str, Any] | None = None

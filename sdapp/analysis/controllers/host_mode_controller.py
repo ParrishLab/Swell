@@ -12,6 +12,24 @@ class AnalysisHostModeController:
     def __init__(self, app) -> None:
         self.app = app
 
+    def _maybe_start_host_model_initialization(self, reason: str) -> None:
+        frames_viz = getattr(self.app, "frames_sub_viz", None)
+        if frames_viz is None:
+            self.app._host_pending_model_init_reason = str(reason)
+            self.app.log_info("HostMode", "Deferring model initialization until visualization frames are ready...")
+            return
+        try:
+            frame_count = int(np.asarray(frames_viz).shape[0])
+        except Exception:
+            frame_count = 0
+        if frame_count <= 0:
+            self.app._host_pending_model_init_reason = str(reason)
+            self.app.log_info("HostMode", "Deferring model initialization until visualization frames are ready...")
+            return
+        self.app._host_pending_model_init_reason = None
+        self.app.log_info("HostMode", "Initializing model for host-driven workspace...")
+        self.app.start_model_initialization(reason=str(reason))
+
     def _debug_frame_source(self, label: str, frame_source) -> None:
         logger = getattr(self.app, "log_debug", None)
         if not callable(logger):
@@ -74,6 +92,7 @@ class AnalysisHostModeController:
         frame_source=None,
         on_analysis_update=None,
         on_metrics_update=None,
+        on_global_metrics_update=None,
         on_checkpoint_update=None,
         on_open_model_manager=None,
         on_project_saved=None,
@@ -82,14 +101,18 @@ class AnalysisHostModeController:
         on_host_project_save=None,
         on_host_project_path=None,
         sync_emitter=None,
+        launch_preparation=None,
     ):
         self.app._ensure_analysis_workspace()
         self.app._host_mode = True
+        self.app._host_post_open_ui_initialized = False
+        self.app._host_pending_model_init_reason = None
         self.app._host_analysis_updater = on_analysis_update
         self.app._host_project_saved_notifier = on_project_saved
         self.app._host_sync_result_notifier = on_sync_result
         self.app._host_log_notifier = on_log_message
         self.app._host_metrics_updater = on_metrics_update
+        self.app._host_global_metrics_updater = on_global_metrics_update
         self.app._host_checkpoint_updater = on_checkpoint_update
         self.app._host_open_model_manager = on_open_model_manager
         self.app._host_project_saver = on_host_project_save
@@ -156,6 +179,7 @@ class AnalysisHostModeController:
                 "apply_baseline_subtraction": bool(processing.get("baseline_subtraction", True)),
                 "apply_global_normalization": bool(processing.get("global_normalization", True)),
             }
+        self.app._host_launch_preparation = launch_preparation if isinstance(launch_preparation, dict) else None
         scoped_source = frame_source
         if frame_source is not None:
             event = dict(context.get("event", {})) if isinstance(context, dict) else {}
@@ -180,14 +204,20 @@ class AnalysisHostModeController:
         if not bool(result.get("ok")):
             return result
         metrics_settings = context.get("metrics_settings") if isinstance(context, dict) else None
-        self.app._apply_host_metrics_settings(metrics_settings if isinstance(metrics_settings, dict) else None)
+        local_metrics_settings = context.get("local_metrics_settings") if isinstance(context, dict) else None
+        self.app._apply_host_metrics_settings(
+            metrics_settings if isinstance(metrics_settings, dict) else None,
+            local_metrics_settings if isinstance(local_metrics_settings, dict) else None,
+        )
         self.app._sync_saved_mask_overlay_state()
+        self.app._post_host_mode_open_ui("Preparing host workspace...")
         if self.app.frame_source is not None:
             try:
                 ready = bool(
                     self.app._prepare_host_mode_buffers(
                         self.app.frame_source,
                         on_ready_message="Host direct workspace initialized.",
+                        prefer_async=True,
                     )
                 )
             except TypeError:
@@ -195,9 +225,11 @@ class AnalysisHostModeController:
             if hasattr(self.app, "app_context") and self.app.app_context is not None:
                 self.app.app_context.frame_source = self.app.frame_source
             if ready:
-                self.app._post_host_mode_open_ui("Host direct workspace initialized.")
-        self.app.log_info("HostMode", "Initializing model for host-driven workspace...")
-        self.app.start_model_initialization(reason="host_context_open")
+                self.app._finalize_load_ui()
+                self.app.update_display(update_preview=True)
+                self._maybe_start_host_model_initialization("host_context_open")
+            else:
+                self._maybe_start_host_model_initialization("host_context_open")
         return result
 
     def open_from_host_handoff(self, payload: dict, frame_source=None, sync_emitter=None):
@@ -208,6 +240,7 @@ class AnalysisHostModeController:
         self.app._host_sync_result_notifier = None
         self.app._host_log_notifier = None
         self.app._host_metrics_updater = None
+        self.app._host_global_metrics_updater = None
         self.app._host_checkpoint_updater = None
         self.app._host_open_model_manager = None
         self.app._host_project_saver = None
@@ -215,6 +248,9 @@ class AnalysisHostModeController:
         self.app._host_project_metadata = None
         self.app._set_active_checkpoint_metadata(None, notify_host=False, reason="host_handoff_reset")
         self.app._host_processing_options = None
+        self.app._host_launch_preparation = None
+        self.app._host_post_open_ui_initialized = False
+        self.app._host_pending_model_init_reason = None
         self.app._saved_project_masks_by_event = {}
         scoped_source = frame_source
         if frame_source is not None:
@@ -265,13 +301,15 @@ class AnalysisHostModeController:
                 self.app.app_context.frame_source = self.app.frame_source
             if ready:
                 self.app._post_host_mode_open_ui("Host-driven analysis workspace initialized.")
-        self.app.log_info("HostMode", "Initializing model for host-driven workspace...")
-        self.app.start_model_initialization(reason="host_handoff_open")
+                self._maybe_start_host_model_initialization("host_handoff_open")
+            else:
+                self._maybe_start_host_model_initialization("host_handoff_open")
         return result
 
     def post_host_mode_open_ui(self, message: str) -> None:
         if not (hasattr(self.app, "slider") and hasattr(self.app, "canvas_left")):
             return
+        self.app._host_post_open_ui_initialized = True
         self._debug_frame_source("post_host_mode_open_ui.pre_finalize", getattr(self.app, "frame_source", None))
         self.app._finalize_load_ui()
         active_event_id = str(getattr(self.app, "active_event_id", "") or "")
@@ -292,7 +330,7 @@ class AnalysisHostModeController:
         except Exception:
             pass
 
-    def prepare_host_mode_buffers(self, frame_source, on_ready_message: str | None = None):
+    def prepare_host_mode_buffers(self, frame_source, on_ready_message: str | None = None, prefer_async: bool = False):
         if not hasattr(self.app, "_host_buffer_generation"):
             self.app._host_buffer_generation = 0
         if not hasattr(self.app, "_host_buffer_cache_key"):
@@ -339,6 +377,12 @@ class AnalysisHostModeController:
         apply_smoothing = bool(processing_opts.get("apply_smoothing", True))
         apply_baseline_subtraction = bool(processing_opts.get("apply_baseline_subtraction", True))
         apply_global_normalization = bool(processing_opts.get("apply_global_normalization", True))
+        launch_preparation = (
+            dict(getattr(self.app, "_host_launch_preparation", {}) or {})
+            if isinstance(getattr(self.app, "_host_launch_preparation", None), dict)
+            else {}
+        )
+        prepared_stats = launch_preparation.get("stats")
         cache_key = (
             id(frame_source),
             int(frame_count),
@@ -352,13 +396,14 @@ class AnalysisHostModeController:
             return True
 
         sync_limit = int(getattr(self.app, "_host_buffer_sync_limit", 240))
-        if frame_count <= sync_limit:
+        if frame_count <= sync_limit and not bool(prefer_async):
             raw_frames, frames_sub, frames_viz = build_visualization_stack(
                 frame_source,
                 baseline_frames=baseline_count,
                 apply_smoothing=apply_smoothing,
                 apply_baseline_subtraction=apply_baseline_subtraction,
                 apply_global_normalization=apply_global_normalization,
+                stats=prepared_stats,
             )
             self.app.frames_raw = raw_frames
             self.app.frames_sub = frames_sub
@@ -369,6 +414,22 @@ class AnalysisHostModeController:
         self.app.frames_raw = None
         self.app.frames_sub = None
         self.app.frames_sub_viz = None
+        preview_raw = launch_preparation.get("raw_frame")
+        preview_sub = launch_preparation.get("sub_frame")
+        preview_viz = launch_preparation.get("viz_frame")
+        preview_idx = launch_preparation.get("local_frame_idx")
+        if preview_raw is not None and preview_viz is not None and preview_idx is not None:
+            self.app._host_launch_preparation = {
+                "local_frame_idx": int(preview_idx),
+                "raw_frame": np.asarray(preview_raw, dtype=np.float32).copy(),
+                "sub_frame": (
+                    np.asarray(preview_sub, dtype=np.float32).copy()
+                    if preview_sub is not None
+                    else None
+                ),
+                "viz_frame": np.asarray(preview_viz, dtype=np.uint8).copy(),
+                "stats": prepared_stats,
+            }
         self.app._host_buffer_cache_key = None
         self.app._host_buffer_generation += 1
         generation = self.app._host_buffer_generation
@@ -381,6 +442,7 @@ class AnalysisHostModeController:
                 apply_smoothing=apply_smoothing,
                 apply_baseline_subtraction=apply_baseline_subtraction,
                 apply_global_normalization=apply_global_normalization,
+                stats=prepared_stats,
             )
 
             def _apply() -> None:
@@ -390,17 +452,32 @@ class AnalysisHostModeController:
                 self.app.frames_sub = frames_sub
                 self.app.frames_sub_viz = frames_viz
                 self.app._host_buffer_cache_key = cache_key
-                first_raw_shape = getattr(raw_frames[0], "shape", None) if raw_frames else None
-                first_sub_shape = getattr(frames_sub[0], "shape", None) if frames_sub else None
-                first_viz_shape = getattr(frames_viz[0], "shape", None) if frames_viz else None
+                raw_count = int(len(raw_frames)) if raw_frames is not None else 0
+                sub_count = int(len(frames_sub)) if frames_sub is not None else 0
+                viz_count = int(len(frames_viz)) if frames_viz is not None else 0
+                first_raw_shape = getattr(raw_frames[0], "shape", None) if raw_count > 0 else None
+                first_sub_shape = getattr(frames_sub[0], "shape", None) if sub_count > 0 else None
+                first_viz_shape = getattr(frames_viz[0], "shape", None) if viz_count > 0 else None
                 self.app.log_debug(
                     "HostMode",
-                    f"prepare_host_mode_buffers.apply generation={generation} raw_frames={len(raw_frames)} "
-                    f"sub_frames={len(frames_sub)} viz_frames={len(frames_viz)} "
+                    f"prepare_host_mode_buffers.apply generation={generation} raw_frames={raw_count} "
+                    f"sub_frames={sub_count} viz_frames={viz_count} "
                     f"first_raw_shape={first_raw_shape} first_sub_shape={first_sub_shape} first_viz_shape={first_viz_shape}",
                 )
                 if self.app._ui_alive():
-                    self.app._post_host_mode_open_ui(on_ready_message or "Host workspace ready.")
+                    self.app._host_launch_preparation = None
+                    if bool(getattr(self.app, "_host_post_open_ui_initialized", False)):
+                        self.app._finalize_load_ui()
+                        self.app.update_display(update_preview=True)
+                        pending_reason = getattr(self.app, "_host_pending_model_init_reason", None)
+                        if pending_reason:
+                            self._maybe_start_host_model_initialization(str(pending_reason))
+                        self.app.log_info("HostMode", on_ready_message or "Host workspace ready.")
+                    else:
+                        self.app._post_host_mode_open_ui(on_ready_message or "Host workspace ready.")
+                        pending_reason = getattr(self.app, "_host_pending_model_init_reason", None)
+                        if pending_reason:
+                            self._maybe_start_host_model_initialization(str(pending_reason))
 
             if self.app._ui_alive():
                 self.app.root.after(0, _apply)

@@ -123,6 +123,8 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         self.runtime_state = AnalysisRuntimeState()
         self.model_state = AnalysisModelState()
         self.host_mode_state = HostModeState()
+        self._host_launch_preparation = None
+        self._host_post_open_ui_initialized = False
 
         self.current_frame_idx = 0
         self.seg_state = SegmentationState()
@@ -144,6 +146,8 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         self.roi_mask = None
         self.roi_points = []
         self.scale_points = []
+        self._scale_is_local_override = False
+        self._roi_is_local_override = False
         self.analysis_mode = None
 
         self.sam2_runtime = SAM2RuntimeService()
@@ -254,6 +258,11 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
             log_info=self.log_info,
             log_success=self.log_success,
             on_metrics_settings_changed=self._on_metrics_settings_changed,
+            emit_host_global_metrics_update=self._emit_host_global_metrics_update,
+            get_scale_is_local_override=lambda: bool(self._scale_is_local_override),
+            set_scale_is_local_override=lambda v: setattr(self, "_scale_is_local_override", bool(v)),
+            get_roi_is_local_override=lambda: bool(self._roi_is_local_override),
+            set_roi_is_local_override=lambda v: setattr(self, "_roi_is_local_override", bool(v)),
         )
         self.interaction_controller = InteractionController(
             seg_state=self.seg_state,
@@ -566,6 +575,16 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         self.host_mode_state.metrics_updater = value
 
     @property
+    def _host_global_metrics_updater(self):
+        self._ensure_runtime_state()
+        return self.host_mode_state.global_metrics_updater
+
+    @_host_global_metrics_updater.setter
+    def _host_global_metrics_updater(self, value) -> None:
+        self._ensure_runtime_state()
+        self.host_mode_state.global_metrics_updater = value
+
+    @property
     def _host_checkpoint_updater(self):
         self._ensure_runtime_state()
         return self.host_mode_state.checkpoint_updater
@@ -806,8 +825,11 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
 
     def _ui_alive(self):
         try:
-            return bool(self.root.winfo_exists())
-        except tk.TclError:
+            root = getattr(self, "root", None)
+            if root is None:
+                return False
+            return bool(root.winfo_exists())
+        except (AttributeError, tk.TclError):
             return False
 
     def _center_window(self, window=None) -> None:
@@ -1368,10 +1390,22 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         return
 
     def start_scale_selection(self):
-        self.analysis_controller.start_scale_selection()
+        self.analysis_controller.start_local_scale_selection()
 
     def start_roi_selection(self):
-        self.analysis_controller.start_roi_selection()
+        self.analysis_controller.start_local_roi_selection()
+
+    def start_local_scale_selection(self):
+        self.analysis_controller.start_local_scale_selection()
+
+    def start_global_scale_selection(self):
+        self.analysis_controller.start_global_scale_selection()
+
+    def start_local_roi_selection(self):
+        self.analysis_controller.start_local_roi_selection()
+
+    def start_global_roi_selection(self):
+        self.analysis_controller.start_global_roi_selection()
 
     def _setup_project_menu(self):
         project_workflow.setup_project_menu(self)
@@ -1481,6 +1515,7 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         frame_source=None,
         on_analysis_update=None,
         on_metrics_update=None,
+        on_global_metrics_update=None,
         on_checkpoint_update=None,
         on_open_model_manager=None,
         on_project_saved=None,
@@ -1489,12 +1524,14 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         on_host_project_save=None,
         on_host_project_path=None,
         sync_emitter=None,
+        launch_preparation=None,
     ):
         return self._get_host_mode_controller().open_from_host_context(
             context=context,
             frame_source=frame_source,
             on_analysis_update=on_analysis_update,
             on_metrics_update=on_metrics_update,
+            on_global_metrics_update=on_global_metrics_update,
             on_checkpoint_update=on_checkpoint_update,
             on_open_model_manager=on_open_model_manager,
             on_project_saved=on_project_saved,
@@ -1503,6 +1540,7 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
             on_host_project_save=on_host_project_save,
             on_host_project_path=on_host_project_path,
             sync_emitter=sync_emitter,
+            launch_preparation=launch_preparation,
         )
 
     def open_from_host_handoff(self, payload: dict, frame_source=None, sync_emitter=None):
@@ -1518,8 +1556,17 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
     def _shutdown_model_resources(self):
         self._get_model_controller().shutdown_model_resources()
 
-    def _prepare_host_mode_buffers(self, frame_source, on_ready_message: str | None = None):
-        return self._get_host_mode_controller().prepare_host_mode_buffers(frame_source, on_ready_message)
+    def _prepare_host_mode_buffers(
+        self,
+        frame_source,
+        on_ready_message: str | None = None,
+        prefer_async: bool = False,
+    ):
+        return self._get_host_mode_controller().prepare_host_mode_buffers(
+            frame_source,
+            on_ready_message,
+            prefer_async=prefer_async,
+        )
 
     def _is_propagation_running(self):
         return project_workflow.is_propagation_running(self)
@@ -1685,11 +1732,14 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
     def _collect_current_metrics_settings(self) -> dict[str, object]:
         return self._get_window_controller().collect_current_metrics_settings()
 
-    def _apply_host_metrics_settings(self, metrics_settings: dict | None) -> None:
-        self._get_window_controller().apply_host_metrics_settings(metrics_settings)
+    def _apply_host_metrics_settings(self, metrics_settings: dict | None, local_metrics_settings: dict | None = None) -> None:
+        self._get_window_controller().apply_host_metrics_settings(metrics_settings, local_metrics_settings)
 
     def _emit_host_metrics_update(self, reason: str) -> dict[str, object] | None:
         return self._get_window_controller().emit_host_metrics_update(reason)
+
+    def _emit_host_global_metrics_update(self, reason: str, metrics_settings: dict[str, object]) -> dict[str, object] | None:
+        return self._get_window_controller().emit_host_global_metrics_update(reason, metrics_settings)
 
     def _emit_host_checkpoint_update(self, reason: str) -> dict[str, object] | None:
         if not bool(getattr(self, "_host_mode", False)):

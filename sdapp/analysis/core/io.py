@@ -290,14 +290,14 @@ class IOActions:
         return frames_raw, frames_sub, processed_viz_frames
 
     def _finalize_load_ui(self):
-        count = len(self.frames_raw) if self.frames_raw is not None else 0
+        count = int(self._get_frame_count()) if hasattr(self, "_get_frame_count") else (len(self.frames_raw) if self.frames_raw is not None else 0)
         if count == 0:
             self._set_data_controls_enabled(False)
             self._set_busy(False, "Status: Idle", "gray")
             return
 
         self.slider.configure(to=count - 1)
-        self.current_frame_idx = 0
+        self.current_frame_idx = max(0, min(int(self.current_frame_idx), count - 1))
         self.points.clear()
         self.seg_state.invalidate_user_frames()
         self.seg_state.invalidate_final_mask_frames()
@@ -305,6 +305,12 @@ class IOActions:
         self._export_range_auto_follow = True
         self._set_spinbox_value(self.spin_prop_start, 1)
         self._set_spinbox_value(self.spin_prop_end, count)
+
+        if self.frames_raw is None or self.frames_sub_viz is None:
+            self.update_display()
+            self._set_data_controls_enabled(False)
+            self._set_busy(True, "Status: Preparing frames...", "orange")
+            return
 
         self.update_display()
         self._recompute_slider_jump_markers()

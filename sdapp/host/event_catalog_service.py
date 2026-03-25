@@ -30,6 +30,15 @@ class EventCatalogService:
         event = self._events.get(str(event_id))
         return replace(event) if event is not None else None
 
+    def upsert_event_meta(self, event: EventMeta, *, set_active: bool = True) -> EventMeta:
+        event_copy = replace(event)
+        key = str(event_copy.event_id)
+        self._events[key] = event_copy
+        self._bump_next_number_from_event_id(key)
+        if bool(set_active):
+            self._active_event_id = key
+        return replace(event_copy)
+
     def create_event(
         self,
         *,
@@ -37,6 +46,7 @@ class EventCatalogService:
         end_idx: int,
         label: str | None = None,
         frame_count: int,
+        flags: dict | None = None,
     ) -> EventMeta:
         start_idx, end_idx = self.normalize_bounds(start_idx, end_idx, frame_count)
         event_id = self._allocate_event_id()
@@ -45,7 +55,7 @@ class EventCatalogService:
             label=str(label if label is not None else event_id),
             global_start_idx=int(start_idx),
             global_end_idx=int(end_idx),
-            flags={},
+            flags=dict(flags or {}),
         )
         self._events[event_id] = event
         self._active_event_id = event_id

@@ -10,6 +10,8 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 from PIL import Image, ImageTk
 
+from sdapp.shared.image_overlay import apply_mask_overlay
+
 
 class MaskImportDialogService:
     def path_natural_key(self, path: str | Path):
@@ -76,14 +78,10 @@ class MaskImportDialogService:
 
     def build_mask_preview_image(self, frame_idx: int, mask: np.ndarray, frames_raw, frames_sub_viz):
         if frames_sub_viz and 0 <= frame_idx < len(frames_sub_viz):
-            base_u8 = np.asarray(frames_sub_viz[frame_idx], dtype=np.uint8)
+            base_frame = np.asarray(frames_sub_viz[frame_idx])
         else:
-            raw = np.asarray(frames_raw[frame_idx], dtype=np.float32)
-            base_u8 = cv2.normalize(raw, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
-        rgb = cv2.cvtColor(base_u8, cv2.COLOR_GRAY2RGB)
-        overlay = rgb.copy()
-        overlay[np.asarray(mask, dtype=bool)] = (0, 255, 255)
-        mixed = cv2.addWeighted(rgb, 0.7, overlay, 0.3, 0.0)
+            base_frame = np.asarray(frames_raw[frame_idx])
+        mixed = apply_mask_overlay(base_frame, mask)
         return Image.fromarray(mixed)
 
     def ask_alignment(

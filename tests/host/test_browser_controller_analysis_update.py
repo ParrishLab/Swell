@@ -131,9 +131,11 @@ def test_host_context_for_event_prefers_local_metrics_over_global_defaults() -> 
 
     context = host.host_context_for_event(event.event_id)
     metrics = context["metrics_settings"]
+    local_metrics = context["local_metrics_settings"]
 
     assert float(metrics["frames_per_sec"]) == 1.0
     assert float(metrics["scale_px_per_mm"]) == 11.0
+    assert float(local_metrics["scale_px_per_mm"]) == 11.0
 
 
 def test_export_candidates_after_reopen_uses_field_mapping(tmp_path: Path) -> None:
@@ -150,3 +152,42 @@ def test_export_candidates_after_reopen_uses_field_mapping(tmp_path: Path) -> No
     assert candidates[0].event_id == created.event_id
     assert candidates[0].start_idx == 2
     assert candidates[0].end_idx == 4
+
+
+def test_ensure_full_stack_analysis_event_creates_and_reuses_flagged_event() -> None:
+    host = BrowserController()
+    host.on_stack_loaded(_FakeReader(), _FakeStackInfo())
+
+    created = host.ensure_full_stack_analysis_event(frame_count=6)
+    reused = host.ensure_full_stack_analysis_event(frame_count=6)
+
+    assert created.event_id == reused.event_id
+    assert created.event_id == "event_full_stack"
+    assert created.label == "Full Stack Analysis"
+    assert created.start_idx == 0
+    assert created.end_idx == 5
+    assert bool(created.flags.get("host_full_stack_event")) is True
+    assert host.get_active_event_id() == created.event_id
+    assert len(host.list_events()) == 1
+
+
+def test_full_stack_event_persists_after_save_reopen_and_can_export(tmp_path: Path) -> None:
+    host = BrowserController()
+    host.on_stack_loaded(_FakeReader(), _FakeStackInfo())
+
+    created = host.ensure_full_stack_analysis_event(frame_count=6)
+    project_path = tmp_path / "full_stack_export.sdproj"
+    host.save_session(project_path)
+    host.open_session(str(project_path))
+
+    reopened = host.get_event("event_full_stack")
+    candidates = host.export_candidates(["event_full_stack"])
+
+    assert reopened is not None
+    assert reopened.event_id == "event_full_stack"
+    assert reopened.start_idx == 0
+    assert reopened.end_idx == 5
+    assert len(candidates) == 1
+    assert candidates[0].event_id == "event_full_stack"
+    assert candidates[0].start_idx == 0
+    assert candidates[0].end_idx == 5

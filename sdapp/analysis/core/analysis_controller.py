@@ -40,6 +40,11 @@ class AnalysisController:
         log_success,
         get_current_image_source_paths=None,
         on_metrics_settings_changed=None,
+        emit_host_global_metrics_update=None,
+        get_scale_is_local_override=None,
+        set_scale_is_local_override=None,
+        get_roi_is_local_override=None,
+        set_roi_is_local_override=None,
     ):
         self.root = root
         self.app_root = app_root
@@ -69,6 +74,21 @@ class AnalysisController:
         self.log_info = log_info
         self.log_success = log_success
         self.on_metrics_settings_changed = on_metrics_settings_changed
+        self.emit_host_global_metrics_update = (
+            emit_host_global_metrics_update if callable(emit_host_global_metrics_update) else (lambda _r, _m: None)
+        )
+        self.get_scale_is_local_override = (
+            get_scale_is_local_override if callable(get_scale_is_local_override) else (lambda: False)
+        )
+        self.set_scale_is_local_override = (
+            set_scale_is_local_override if callable(set_scale_is_local_override) else (lambda _v: None)
+        )
+        self.get_roi_is_local_override = (
+            get_roi_is_local_override if callable(get_roi_is_local_override) else (lambda: False)
+        )
+        self.set_roi_is_local_override = (
+            set_roi_is_local_override if callable(set_roi_is_local_override) else (lambda _v: None)
+        )
 
     def _same_path(self, p1, p2):
         try:
@@ -307,11 +327,11 @@ class AnalysisController:
             "p2_snap": p2_used,
         }
 
-    def start_scale_selection(self):
+    def _capture_scale_selection(self):
         frames_raw = self.get_frames_raw()
         if frames_raw is None:
             messagebox.showwarning("No Images", "Import images first.", parent=self.root)
-            return
+            return None
 
         scale_initialdir = resolve_existing_directory(
             self.get_last_scale_image_path(),
@@ -343,13 +363,13 @@ class AnalysisController:
             ],
         )
         if not image_path:
-            return
+            return None
         self.set_last_scale_image_path(image_path)
 
         img_u8 = self._load_image_u8_from_path(image_path)
         if img_u8 is None:
             messagebox.showwarning("Image Error", "Unable to read selected image for scale calibration.", parent=self.root)
-            return
+            return None
 
         result = open_scale_dialog(
             root=self.root,
@@ -359,10 +379,13 @@ class AnalysisController:
             compute_scale=compute_scale,
         )
         if result is None:
-            return
+            return None
+        return result
 
+    def _apply_local_scale_selection(self, result) -> None:
         self.set_scale_px_per_mm(result["px_per_mm"])
         self.set_scale_points(result["scale_points"])
+        self.set_scale_is_local_override(True)
         if callable(self.on_metrics_settings_changed):
             try:
                 self.on_metrics_settings_changed("scale")
@@ -379,15 +402,15 @@ class AnalysisController:
         msg += f"\n(Scale mode: {result['axis_mode']}.)"
         messagebox.showinfo("Scale Set", msg, parent=self.root)
 
-    def start_roi_selection(self):
+    def _capture_roi_selection(self):
         frames_raw = self.get_frames_raw()
         if frames_raw is None:
             messagebox.showwarning("No Images", "Import images first.", parent=self.root)
-            return
+            return None
         img_u8 = self._get_first_frame_original_u8()
         if img_u8 is None:
             messagebox.showwarning("No Images", "Unable to read first frame.", parent=self.root)
-            return
+            return None
 
         result = open_roi_dialog(
             root=self.root,
@@ -395,10 +418,13 @@ class AnalysisController:
             initial_roi_points=self.get_roi_points(),
         )
         if result is None:
-            return
+            return None
+        return result
 
+    def _apply_local_roi_selection(self, result) -> None:
         self.set_roi_mask(result["roi_mask"])
         self.set_roi_points(result["roi_points"])
+        self.set_roi_is_local_override(True)
         self.update_display()
         if callable(self.on_metrics_settings_changed):
             try:
@@ -406,3 +432,84 @@ class AnalysisController:
             except Exception:
                 pass
         messagebox.showinfo("ROI Set", "ROI polygon saved.", parent=self.root)
+
+    def start_local_scale_selection(self):
+        result = self._capture_scale_selection()
+        if result is None:
+            return
+        self._apply_local_scale_selection(result)
+
+    def _apply_global_scale_selection(self, result) -> None:
+        payload = {
+            "scale_px_per_mm": float(result["px_per_mm"]),
+            "scale_points": [[float(pt[0]), float(pt[1])] for pt in list(result.get("scale_points", []))],
+        }
+        update_result = self.emit_host_global_metrics_update("global_scale", payload)
+        if isinstance(update_result, dict) and not bool(update_result.get("ok", False)):
+            message = str(update_result.get("message", "Host rejected global scale update."))
+            messagebox.showwarning("Global Scale", message, parent=self.root)
+            return
+        if not bool(self.get_scale_is_local_override()):
+            self.set_scale_px_per_mm(result["px_per_mm"])
+            self.set_scale_points(result["scale_points"])
+            self.set_scale_is_local_override(False)
+        msg = f"Global scale set to {result['px_per_mm']:.3f} px/mm"
+        if result["refined_ok"]:
+            msg += "\n(Refined from sampled intensity profile with sub-pixel edge fit.)"
+        else:
+            msg += "\n(Using raw click points; refinement fallback applied.)"
+        msg += f"\n(Scale mode: {result['axis_mode']}.)"
+        messagebox.showinfo("Global Scale Set", msg, parent=self.root)
+
+    def start_global_scale_selection(self):
+        result = self._capture_scale_selection()
+        if result is None:
+            return
+        self._apply_global_scale_selection(result)
+
+    def start_local_roi_selection(self):
+        result = self._capture_roi_selection()
+        if result is None:
+            return
+        self._apply_local_roi_selection(result)
+
+    def _apply_global_roi_selection(self, result) -> None:
+        payload = {
+            "roi_points": [[float(pt[0]), float(pt[1])] for pt in list(result.get("roi_points", []))],
+            "roi_mask": np.asarray(result.get("roi_mask"), dtype=bool).copy() if result.get("roi_mask") is not None else None,
+        }
+        update_result = self.emit_host_global_metrics_update("global_roi", payload)
+        if isinstance(update_result, dict) and not bool(update_result.get("ok", False)):
+            message = str(update_result.get("message", "Host rejected global ROI update."))
+            messagebox.showwarning("Global ROI", message, parent=self.root)
+            return
+        if not bool(self.get_roi_is_local_override()):
+            self.set_roi_mask(result["roi_mask"])
+            self.set_roi_points(result["roi_points"])
+            self.set_roi_is_local_override(False)
+            self.update_display()
+        messagebox.showinfo("Global ROI Set", "Global ROI polygon saved.", parent=self.root)
+
+    def start_global_roi_selection(self):
+        result = self._capture_roi_selection()
+        if result is None:
+            return
+        self._apply_global_roi_selection(result)
+
+    def start_scale_selection(self):
+        result = self._capture_scale_selection()
+        if result is None:
+            return
+        if str(result.get("target_scope", "local")).lower() == "global":
+            self._apply_global_scale_selection(result)
+            return
+        self._apply_local_scale_selection(result)
+
+    def start_roi_selection(self):
+        result = self._capture_roi_selection()
+        if result is None:
+            return
+        if str(result.get("target_scope", "local")).lower() == "global":
+            self._apply_global_roi_selection(result)
+            return
+        self._apply_local_roi_selection(result)

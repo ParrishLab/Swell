@@ -3,8 +3,61 @@ import numpy as np
 import time
 from PIL import Image, ImageTk
 
+from sdapp.shared.image_overlay import apply_mask_overlay, frame_to_rgb_u8
+
 
 class RenderActions:
+    def _draw_pending_frames_placeholder(self) -> None:
+        total = int(self._get_frame_count()) if hasattr(self, "_get_frame_count") else 0
+        idx = max(0, min(int(getattr(self, "current_frame_idx", 0)), max(0, total - 1)))
+        self.lbl_frame.configure(text=f"Frame: {idx + 1} / {max(1, total)}  [Preparing frames...]")
+        if hasattr(self, "slider_value"):
+            self.slider_value.set(str(idx + 1))
+
+        preview = dict(getattr(self, "_host_launch_preparation", {}) or {})
+        preview_idx = preview.get("local_frame_idx")
+        preview_viz = preview.get("viz_frame")
+        preview_raw = preview.get("raw_frame")
+        if preview_viz is not None and preview_idx is not None and int(preview_idx) == idx:
+            img_arr_gray = np.asarray(preview_viz, dtype=np.uint8)
+            img_arr = frame_to_rgb_u8(img_arr_gray)
+            img_pil = Image.fromarray(img_arr)
+            lw = max(1, int(self.canvas_left.winfo_width()))
+            lh = max(1, int(self.canvas_left.winfo_height()))
+            if lw > 1 and lh > 1:
+                img_pil = self._resize_maintain_aspect(img_pil, lw, lh)
+            self.tk_img_left = ImageTk.PhotoImage(img_pil)
+            self.canvas_left.delete("all")
+            self.canvas_left.create_image(lw // 2, lh // 2, image=self.tk_img_left, anchor="center")
+            self.canvas_left.create_text(12, 12, text="Preparing frames...", fill="orange", anchor="nw")
+
+            rw = max(1, int(self.canvas_right.winfo_width()))
+            rh = max(1, int(self.canvas_right.winfo_height()))
+            right_pil = Image.fromarray(frame_to_rgb_u8(img_arr_gray))
+            if rw > 1 and rh > 1:
+                right_pil = self._resize_maintain_aspect(right_pil, rw, rh)
+            self.tk_img_right = ImageTk.PhotoImage(right_pil)
+            self.canvas_right.delete("all")
+            self.canvas_right.create_image(rw // 2, rh // 2, image=self.tk_img_right, anchor="center")
+            self.canvas_right.create_text(12, 12, text="Preparing frames...", fill="orange", anchor="nw")
+
+            if preview_raw is not None:
+                orig_h, orig_w = np.asarray(preview_raw).shape[:2]
+                ratio, offset_x, offset_y = self._get_display_transform(self.canvas_left, orig_w, orig_h)
+                self._draw_overlay_elements(lw, lh, np.asarray(preview_raw).shape, ratio, offset_x, offset_y)
+            self.canvas_preview.delete("all")
+            self.canvas_preview.create_text(70, 70, text="No Mask", fill="gray")
+            return
+
+        for canvas in (self.canvas_left, self.canvas_right, self.canvas_preview):
+            canvas.delete("all")
+            canvas.create_text(
+                max(40, int(canvas.winfo_width()) // 2),
+                max(40, int(canvas.winfo_height()) // 2),
+                text="Preparing frames...",
+                fill="gray",
+            )
+
     def on_slider_move(self, val):
         self.current_frame_idx = int(float(val))
         self.update_display()
@@ -14,6 +67,7 @@ class RenderActions:
     def update_display(self, update_preview=True):
         t0 = time.perf_counter()
         if self.frames_sub_viz is None:
+            self._draw_pending_frames_placeholder()
             return
 
         idx = self.current_frame_idx
@@ -25,7 +79,7 @@ class RenderActions:
             self.slider_value.set(str(display_idx))
 
         img_arr_gray = self.frames_sub_viz[idx]
-        img_arr = cv2.cvtColor(img_arr_gray, cv2.COLOR_GRAY2RGB)
+        img_arr = frame_to_rgb_u8(img_arr_gray)
 
         final_mask = None
         if idx in self.masks_cache and self.masks_cache[idx] is not None:
@@ -58,12 +112,7 @@ class RenderActions:
                 final_mask = (final_mask | plus) & ~minus
 
         if np.any(final_mask):
-            overlay = np.zeros_like(img_arr)
-            overlay[final_mask] = [0, 255, 255]
-            alpha = 0.3
-            img_arr[final_mask] = (img_arr[final_mask] * (1 - alpha) + overlay[final_mask] * alpha).astype(
-                np.uint8
-            )
+            img_arr = apply_mask_overlay(img_arr, final_mask)
 
         img_pil_left = Image.fromarray(img_arr)
 
@@ -104,7 +153,7 @@ class RenderActions:
                 self.canvas_preview.create_text(70, 70, text="No Mask", fill="gray")
 
         if not self.is_dragging:
-            img_arr_right = cv2.cvtColor(self.frames_sub_viz[idx], cv2.COLOR_GRAY2RGB)
+            img_arr_right = frame_to_rgb_u8(self.frames_sub_viz[idx])
             img_pil_right = Image.fromarray(img_arr_right)
             if w > 1 and h > 1:
                 img_pil_right = self._resize_maintain_aspect(

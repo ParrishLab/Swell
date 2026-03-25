@@ -24,11 +24,11 @@ class AnalysisWindowController:
         except Exception:
             pass
         try:
-            if self.app.scale_px_per_mm is not None and float(self.app.scale_px_per_mm) > 0:
+            if bool(getattr(self.app, "_scale_is_local_override", False)) and self.app.scale_px_per_mm is not None and float(self.app.scale_px_per_mm) > 0:
                 metrics["scale_px_per_mm"] = float(self.app.scale_px_per_mm)
         except Exception:
             pass
-        if isinstance(self.app.roi_points, list) and self.app.roi_points:
+        if bool(getattr(self.app, "_roi_is_local_override", False)) and isinstance(self.app.roi_points, list) and self.app.roi_points:
             clean_points: list[list[float]] = []
             for pt in self.app.roi_points:
                 if isinstance(pt, (list, tuple)) and len(pt) >= 2:
@@ -38,7 +38,7 @@ class AnalysisWindowController:
                         continue
             if clean_points:
                 metrics["roi_points"] = clean_points
-        if self.app.roi_mask is not None:
+        if bool(getattr(self.app, "_roi_is_local_override", False)) and self.app.roi_mask is not None:
             try:
                 roi_mask = np.asarray(self.app.roi_mask, dtype=bool)
                 if roi_mask.ndim == 2:
@@ -47,8 +47,19 @@ class AnalysisWindowController:
                 pass
         return dict(MetricsSettingsResolver.normalize(metrics))
 
-    def apply_host_metrics_settings(self, metrics_settings: dict | None) -> None:
+    def apply_host_metrics_settings(
+        self,
+        metrics_settings: dict | None,
+        local_metrics_settings: dict | None = None,
+        *_ignored_args,
+        **_ignored_kwargs,
+    ) -> None:
         normalized = MetricsSettingsResolver.normalize(metrics_settings if isinstance(metrics_settings, dict) else None)
+        local_normalized = MetricsSettingsResolver.normalize(
+            local_metrics_settings if isinstance(local_metrics_settings, dict) else None
+        )
+        self.app._scale_is_local_override = MetricsSettingsResolver.has_valid_scale(local_normalized)
+        self.app._roi_is_local_override = MetricsSettingsResolver.has_valid_roi(local_normalized)
         if not normalized:
             return
         self.app._suppress_metrics_emit = True
@@ -65,8 +76,10 @@ class AnalysisWindowController:
                     scale_value = float(normalized.get("scale_px_per_mm"))
                     if scale_value > 0:
                         self.app.scale_px_per_mm = float(scale_value)
+                    else:
+                        self.app.scale_px_per_mm = None
                 except (TypeError, ValueError):
-                    pass
+                    self.app.scale_px_per_mm = None
             if "roi_points" in normalized and isinstance(normalized.get("roi_points"), list):
                 cleaned_points: list[list[float]] = []
                 for pt in list(normalized.get("roi_points", [])):
@@ -76,6 +89,8 @@ class AnalysisWindowController:
                         except (TypeError, ValueError):
                             continue
                 self.app.roi_points = cleaned_points
+            elif not self.app._roi_is_local_override:
+                self.app.roi_points = []
             if "roi_mask" in normalized and normalized.get("roi_mask") is not None:
                 try:
                     roi_mask = np.asarray(normalized.get("roi_mask"), dtype=bool)
@@ -83,6 +98,8 @@ class AnalysisWindowController:
                         self.app.roi_mask = roi_mask.copy()
                 except Exception:
                     pass
+            elif not self.app._roi_is_local_override:
+                self.app.roi_mask = None
         finally:
             self.app._suppress_metrics_emit = False
         if self.app._ui_alive():
@@ -113,6 +130,29 @@ class AnalysisWindowController:
             code = str(result.get("code", "PAYLOAD_INVALID"))
             message = str(result.get("message", "Host rejected metrics update."))
             self.app.log_warn("HostSync", f"Host rejected metrics update [{code}]: {message}")
+        return result if isinstance(result, dict) else {"ok": True}
+
+    def emit_host_global_metrics_update(self, reason: str, metrics_settings: dict[str, object]) -> dict[str, object] | None:
+        if bool(getattr(self.app, "_suppress_metrics_emit", False)):
+            return None
+        if not bool(getattr(self.app, "_host_mode", False)):
+            return {"ok": True, "changed": False}
+        updater = getattr(self.app, "_host_global_metrics_updater", None)
+        if not callable(updater):
+            return {"ok": False, "code": "PAYLOAD_INVALID", "message": "Host global metrics updater is unavailable."}
+        payload = {
+            "metrics_settings": dict(MetricsSettingsResolver.normalize(metrics_settings)),
+            "reason": str(reason or ""),
+        }
+        try:
+            result = updater(payload)
+        except Exception as exc:
+            self.app.log_warn("HostSync", f"Direct host global metrics update failed: {exc}")
+            return {"ok": False, "code": "PAYLOAD_INVALID", "message": str(exc)}
+        if isinstance(result, dict) and not bool(result.get("ok", False)):
+            code = str(result.get("code", "PAYLOAD_INVALID"))
+            message = str(result.get("message", "Host rejected global metrics update."))
+            self.app.log_warn("HostSync", f"Host rejected global metrics update [{code}]: {message}")
         return result if isinstance(result, dict) else {"ok": True}
 
     def on_metrics_settings_changed(self, reason: str) -> None:

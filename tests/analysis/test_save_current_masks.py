@@ -24,7 +24,10 @@ def _build_app() -> SDSegmentationApp:
     app._host_mode = True
     app._host_project_path_provider = None
     app._saved_project_masks_by_event = {}
+    app._scale_is_local_override = False
+    app._roi_is_local_override = False
     app.log_info = lambda *_args, **_kwargs: None
+    app.log_warn = lambda *_args, **_kwargs: None
     app.log_error = lambda *_args, **_kwargs: None
     app._emit_host_sync = lambda *_args, **_kwargs: {"ok": True}
     app.save_project = lambda: None
@@ -293,6 +296,37 @@ def test_apply_host_metrics_settings_prefills_values() -> None:
     assert float(app.scale_px_per_mm) == 9.0
     assert len(app.roi_points) == 4
     assert np.array_equal(np.asarray(app.roi_mask, dtype=bool), mask)
+    assert app._scale_is_local_override is False
+    assert app._roi_is_local_override is False
+
+
+def test_apply_host_metrics_settings_tracks_local_override_provenance() -> None:
+    app = _build_app()
+    app.frames_per_sec_var = _DummyVar(1.0)
+    app.scale_px_per_mm = None
+    app.roi_points = []
+    app.roi_mask = None
+    app._suppress_metrics_emit = False
+    app._ui_alive = lambda: False
+
+    local_mask = np.zeros((4, 5), dtype=bool)
+    local_mask[0:2, 1:3] = True
+    app._apply_host_metrics_settings(
+        {
+            "frames_per_sec": 2.5,
+            "scale_px_per_mm": 9.0,
+            "roi_points": [[1.0, 1.0], [2.0, 1.0], [2.0, 2.0], [1.0, 2.0]],
+            "roi_mask": local_mask,
+        },
+        {
+            "scale_px_per_mm": 9.0,
+            "roi_points": [[1.0, 1.0], [2.0, 1.0], [2.0, 2.0], [1.0, 2.0]],
+            "roi_mask": local_mask,
+        },
+    )
+
+    assert app._scale_is_local_override is True
+    assert app._roi_is_local_override is True
 
 
 def test_emit_host_metrics_update_sends_event_local_payload() -> None:
@@ -303,6 +337,8 @@ def test_emit_host_metrics_update_sends_event_local_payload() -> None:
     app.scale_px_per_mm = 7.0
     app.roi_points = [[2.0, 2.0], [4.0, 2.0], [4.0, 4.0]]
     app.roi_mask = np.ones((3, 3), dtype=bool)
+    app._scale_is_local_override = True
+    app._roi_is_local_override = True
     emitted: list[dict] = []
     app._host_metrics_updater = lambda payload: emitted.append(dict(payload)) or {"ok": True}
 
@@ -313,3 +349,34 @@ def test_emit_host_metrics_update_sends_event_local_payload() -> None:
     assert emitted[0]["event_id"] == "event_0001"
     assert float(emitted[0]["metrics_settings"]["frames_per_sec"]) == 3.0
     assert float(emitted[0]["metrics_settings"]["scale_px_per_mm"]) == 7.0
+
+
+def test_emit_host_global_metrics_update_sends_payload_without_event_id() -> None:
+    app = _build_app()
+    app._host_mode = True
+    app._suppress_metrics_emit = False
+    emitted: list[dict] = []
+    app._host_global_metrics_updater = lambda payload: emitted.append(dict(payload)) or {"ok": True}
+
+    result = app._emit_host_global_metrics_update(
+        "global_scale",
+        {"scale_px_per_mm": 7.0, "roi_points": [[1.0, 1.0], [2.0, 2.0]]},
+    )
+
+    assert isinstance(result, dict) and result.get("ok") is True
+    assert len(emitted) == 1
+    assert "event_id" not in emitted[0]
+    assert emitted[0]["reason"] == "global_scale"
+    assert float(emitted[0]["metrics_settings"]["scale_px_per_mm"]) == 7.0
+
+
+def test_emit_host_global_metrics_update_handles_rejection() -> None:
+    app = _build_app()
+    app._host_mode = True
+    app._suppress_metrics_emit = False
+    app._host_global_metrics_updater = lambda payload: {"ok": False, "code": "PAYLOAD_INVALID", "message": "bad payload"}
+
+    result = app._emit_host_global_metrics_update("global_roi", {"roi_points": [[1.0, 1.0], [2.0, 2.0], [3.0, 1.0]]})
+
+    assert isinstance(result, dict)
+    assert result["ok"] is False

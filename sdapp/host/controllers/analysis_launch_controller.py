@@ -1,12 +1,19 @@
 from __future__ import annotations
 
+from collections import OrderedDict
+import threading
 import tkinter as tk
 from tkinter import messagebox, ttk
 
 import numpy as np
 from PIL import Image, ImageTk
-from scipy.ndimage import gaussian_filter
 
+from sdapp.shared.frame_source import (
+    EventScopedFrameSource,
+    VisualizationCancelled,
+    compute_visualization_stats,
+    render_visualization_frame,
+)
 from sdapp.shared.menu.factory import build_shared_menu
 
 
@@ -14,18 +21,94 @@ class AnalysisLaunchController:
     def __init__(self, app) -> None:
         self.app = app
 
-    @staticmethod
-    def load_analysis_app_class():
+    def load_analysis_app_class(self):
+        cached = getattr(self.app, "_analysis_app_class_cache", None)
+        if cached is not None:
+            return cached
         from sdapp.analysis.app import SDSegmentationApp
 
+        self.app._analysis_app_class_cache = SDSegmentationApp
         return SDSegmentationApp
+
+    def prewarm_analysis_app_class_async(self) -> None:
+        if bool(getattr(self.app, "_analysis_app_import_started", False)):
+            return
+        self.app._analysis_app_import_started = True
+
+        def _worker() -> None:
+            try:
+                self.load_analysis_app_class()
+            except Exception as exc:
+                self.app._analysis_app_import_started = False
+                self.app._log_warn(f"Analysis prewarm skipped: {exc}")
+
+        threading.Thread(target=_worker, daemon=True).start()
+
+    def _preview_cache(self) -> OrderedDict:
+        cache = getattr(self.app, "_analysis_preview_cache", None)
+        if isinstance(cache, OrderedDict):
+            return cache
+        cache = OrderedDict()
+        self.app._analysis_preview_cache = cache
+        return cache
+
+    def _cache_preview_entry(self, key: tuple, entry: dict[str, object]) -> None:
+        cache = self._preview_cache()
+        cache[key] = dict(entry)
+        cache.move_to_end(key)
+        while len(cache) > 16:
+            cache.popitem(last=False)
+
+    def _prepare_analysis_launch_preview(
+        self,
+        *,
+        event_start: int,
+        event_end: int,
+        baseline_pre_frames: int,
+        apply_smoothing: bool,
+        apply_baseline_subtraction: bool,
+        apply_global_normalization: bool,
+        should_cancel=None,
+    ) -> dict[str, object]:
+        frame_source = self.app.browser_controller.get_frame_source()
+        if frame_source is None:
+            raise RuntimeError("No host frame source is available for analysis.")
+        scope_start = max(0, int(event_start) - int(baseline_pre_frames))
+        scope_end = max(scope_start, int(event_end))
+        local_frame_idx = max(0, int(event_start) - scope_start)
+        scoped_source = EventScopedFrameSource(frame_source, scope_start, scope_end)
+        stats = compute_visualization_stats(
+            scoped_source,
+            baseline_frames=max(1, int(baseline_pre_frames)),
+            apply_smoothing=bool(apply_smoothing),
+            apply_baseline_subtraction=bool(apply_baseline_subtraction),
+            apply_global_normalization=bool(apply_global_normalization),
+            should_cancel=should_cancel,
+        )
+        raw_frame, sub_frame, frame_u8 = render_visualization_frame(
+            scoped_source,
+            local_frame_idx,
+            stats=stats,
+        )
+        return {
+            "frame_u8": frame_u8,
+            "launch_preparation": {
+                "scope_start": int(scope_start),
+                "scope_end": int(scope_end),
+                "local_frame_idx": int(local_frame_idx),
+                "raw_frame": np.asarray(raw_frame, dtype=np.float32, copy=False),
+                "sub_frame": np.asarray(sub_frame, dtype=np.float32, copy=False),
+                "viz_frame": np.asarray(frame_u8, dtype=np.uint8, copy=False),
+                "stats": stats,
+            },
+        }
 
     def prompt_analysis_open_options(self, *, event_id: str, event_start: int, event_end: int) -> dict[str, object] | None:
         dialog = tk.Toplevel(self.app.root)
+        dialog.withdraw()
         dialog.title(f"Open Analysis Options - {event_id}")
         dialog.transient(self.app.root)
         dialog.resizable(False, False)
-        dialog.grab_set()
 
         shell = ttk.Frame(dialog, padding=10)
         shell.pack(fill="both", expand=True)
@@ -39,7 +122,7 @@ class AnalysisLaunchController:
         baseline_spin = tk.Spinbox(baseline_row, from_=1, to=500, width=6, textvariable=baseline_var)
         baseline_spin.pack(side="left", padx=(8, 0))
 
-        checks = ttk.LabelFrame(shell, text="Processing")
+        checks = ttk.LabelFrame(shell, text="Preprocessing")
         checks.pack(fill="x", pady=(0, 8))
         smoothing_var = tk.BooleanVar(value=True)
         subtract_var = tk.BooleanVar(value=True)
@@ -48,17 +131,25 @@ class AnalysisLaunchController:
         ttk.Checkbutton(checks, text="Baseline Subtraction", variable=subtract_var).pack(anchor="w", padx=6, pady=2)
         ttk.Checkbutton(checks, text="Global Normalization", variable=normalize_var).pack(anchor="w", padx=6, pady=(2, 4))
 
-        preview_frame = ttk.LabelFrame(shell, text="Preview (event start frame)")
-        preview_frame.pack(fill="both", expand=True)
+        preview_frame = ttk.LabelFrame(shell, text="Preview (event start frame)", width=460, height=260)
+        preview_frame.pack(fill="x", pady=(0, 4))
+        preview_frame.pack_propagate(False)
         preview_label = ttk.Label(preview_frame, anchor="center")
         preview_label.pack(fill="both", expand=True, padx=6, pady=6)
+        preview_label.configure(text="Loading preview...")
 
         footer = ttk.Frame(shell)
         footer.pack(fill="x", pady=(8, 0))
-        status_var = tk.StringVar(value="Adjust settings to preview analysis rendering.")
+        status_var = tk.StringVar(value="Preparing exact preview...")
         ttk.Label(footer, textvariable=status_var).pack(side="left")
 
         result: dict[str, object] = {"ok": False}
+        state: dict[str, object] = {
+            "generation": 0,
+            "debounce_after_id": None,
+            "launch_preparation": None,
+            "closed": False,
+        }
 
         def _read_baseline() -> int:
             try:
@@ -66,44 +157,132 @@ class AnalysisLaunchController:
             except Exception:
                 return max(1, int(self.app.baseline_pre_frames))
 
-        def _refresh_preview() -> None:
+        def _preview_cache_key() -> tuple:
+            baseline_count = _read_baseline()
+            scope_start = max(0, int(event_start) - int(baseline_count))
+            scope_end = max(scope_start, int(event_end))
+            return (
+                str(event_id),
+                int(scope_start),
+                int(scope_end),
+                int(baseline_count),
+                bool(smoothing_var.get()),
+                bool(subtract_var.get()),
+                bool(normalize_var.get()),
+            )
+
+        def _apply_preview(payload: dict[str, object], generation: int) -> None:
+            if int(state.get("generation", 0)) != int(generation):
+                return
             try:
-                frame_u8 = self.compute_analysis_preview_frame(
-                    event_start=int(event_start),
-                    baseline_pre_frames=_read_baseline(),
-                    apply_smoothing=bool(smoothing_var.get()),
-                    apply_baseline_subtraction=bool(subtract_var.get()),
-                    apply_global_normalization=bool(normalize_var.get()),
-                )
-                img = Image.fromarray(frame_u8)
-                max_w, max_h = 440, 240
-                w, h = img.size
-                if w > 0 and h > 0:
-                    scale = min(max_w / float(w), max_h / float(h))
-                    nw = max(1, int(round(w * scale)))
-                    nh = max(1, int(round(h * scale)))
-                    resample = getattr(getattr(Image, "Resampling", Image), "NEAREST", Image.NEAREST)
-                    img = img.resize((nw, nh), resample)
-                tk_img = ImageTk.PhotoImage(img)
-                self.app._analysis_options_preview_image = tk_img
-                preview_label.configure(image=tk_img)
-                status_var.set("Preview updated.")
-            except Exception as exc:
-                status_var.set(f"Preview unavailable: {exc}")
+                if not dialog.winfo_exists():
+                    return
+            except Exception:
+                return
+            frame_u8 = np.asarray(payload.get("frame_u8"), dtype=np.uint8)
+            img = Image.fromarray(frame_u8)
+            max_w, max_h = 440, 240
+            w, h = img.size
+            if w > 0 and h > 0:
+                scale = min(max_w / float(w), max_h / float(h))
+                nw = max(1, int(round(w * scale)))
+                nh = max(1, int(round(h * scale)))
+                resample = getattr(getattr(Image, "Resampling", Image), "NEAREST", Image.NEAREST)
+                img = img.resize((nw, nh), resample)
+            tk_img = ImageTk.PhotoImage(img)
+            self.app._analysis_options_preview_image = tk_img
+            preview_label.configure(image=tk_img, text="")
+            state["launch_preparation"] = payload.get("launch_preparation")
+            status_var.set("Preview updated.")
+
+        def _refresh_preview() -> None:
+            if bool(state.get("closed")):
+                return
+            generation = int(state.get("generation", 0)) + 1
+            state["generation"] = generation
+            state["launch_preparation"] = None
+            preview_label.configure(image="", text="Loading preview...")
+            status_var.set("Preparing exact preview...")
+            cache_key = _preview_cache_key()
+            cached = self._preview_cache().get(cache_key)
+            if isinstance(cached, dict):
+                _apply_preview(cached, generation)
+                return
+
+            baseline_count = _read_baseline()
+            apply_smoothing = bool(smoothing_var.get())
+            apply_subtraction = bool(subtract_var.get())
+            apply_normalization = bool(normalize_var.get())
+
+            def _worker() -> None:
+                try:
+                    payload = self._prepare_analysis_launch_preview(
+                        event_start=int(event_start),
+                        event_end=int(event_end),
+                        baseline_pre_frames=int(baseline_count),
+                        apply_smoothing=apply_smoothing,
+                        apply_baseline_subtraction=apply_subtraction,
+                        apply_global_normalization=apply_normalization,
+                        should_cancel=lambda g=generation: bool(state.get("closed")) or int(state.get("generation", 0)) != int(g),
+                    )
+                except VisualizationCancelled:
+                    return
+                except Exception as exc:
+                    if hasattr(self.app, "root") and self.app.root is not None:
+                        self.app.root.after(
+                            0,
+                            lambda e=exc, g=generation: (
+                                status_var.set(f"Preview unavailable: {e}")
+                                if int(state.get("generation", 0)) == int(g)
+                                else None
+                            ),
+                        )
+                    return
+                self._cache_preview_entry(cache_key, payload)
+                if hasattr(self.app, "root") and self.app.root is not None:
+                    self.app.root.after(0, lambda p=payload, g=generation: _apply_preview(p, g))
+
+            threading.Thread(target=_worker, daemon=True).start()
+
+        def _schedule_preview_refresh() -> None:
+            existing = state.get("debounce_after_id")
+            if existing:
+                try:
+                    dialog.after_cancel(existing)
+                except Exception:
+                    pass
+            state["debounce_after_id"] = dialog.after(80, _refresh_preview)
 
         for var in (smoothing_var, subtract_var, normalize_var):
-            var.trace_add("write", lambda *_args: _refresh_preview())
+            var.trace_add("write", lambda *_args: _schedule_preview_refresh())
         for evt in ("<KeyRelease>", "<FocusOut>", "<<Increment>>", "<<Decrement>>", "<MouseWheel>", "<ButtonRelease-1>"):
-            baseline_spin.bind(evt, lambda _e: _refresh_preview())
+            baseline_spin.bind(evt, lambda _e: _schedule_preview_refresh())
 
         buttons = ttk.Frame(shell)
         buttons.pack(fill="x", pady=(8, 0))
 
         def _cancel() -> None:
+            state["closed"] = True
+            state["generation"] = int(state.get("generation", 0)) + 1
+            existing = state.get("debounce_after_id")
+            if existing:
+                try:
+                    dialog.after_cancel(existing)
+                except Exception:
+                    pass
             dialog.destroy()
 
         def _open() -> None:
             baseline_count = _read_baseline()
+            state["closed"] = True
+            state["generation"] = int(state.get("generation", 0)) + 1
+            existing = state.get("debounce_after_id")
+            if existing:
+                try:
+                    dialog.after_cancel(existing)
+                except Exception:
+                    pass
+            cached_payload = self._preview_cache().get(_preview_cache_key())
             result.update(
                 {
                     "ok": True,
@@ -113,6 +292,8 @@ class AnalysisLaunchController:
                         "baseline_subtraction": bool(subtract_var.get()),
                         "global_normalization": bool(normalize_var.get()),
                     },
+                    "launch_preparation": state.get("launch_preparation")
+                    or (cached_payload.get("launch_preparation") if isinstance(cached_payload, dict) else None),
                 }
             )
             dialog.destroy()
@@ -120,8 +301,10 @@ class AnalysisLaunchController:
         ttk.Button(buttons, text="Cancel", command=_cancel).pack(side="right")
         ttk.Button(buttons, text="Open Analysis", command=_open).pack(side="right", padx=(0, 8))
 
-        _refresh_preview()
         self.center_window_on_screen(dialog)
+        dialog.deiconify()
+        dialog.grab_set()
+        _schedule_preview_refresh()
         self.app.root.wait_window(dialog)
         return result if bool(result.get("ok")) else None
 
@@ -147,8 +330,23 @@ class AnalysisLaunchController:
             return
         active_event_id = self.app._active_event_id()
         if active_event_id is None:
-            self.app._show_warning("Open Analysis", "Select an event first.")
-            return
+            open_full_stack = messagebox.askyesno(
+                "Open Analysis",
+                "No SD event is selected.\n\n"
+                "Open analysis on the entire host stack instead?\n\n"
+                "This will create or reuse a Full Stack Analysis event before opening the analysis preview.",
+                parent=self.app.root,
+            )
+            if not open_full_stack:
+                return
+            try:
+                full_stack_event = self.app.browser_controller.ensure_full_stack_analysis_event(
+                    frame_count=int(self.app.stack_info.frame_count)
+                )
+            except Exception as exc:
+                self.app._show_warning("Open Analysis", f"Unable to prepare full-stack event:\n{exc}")
+                return
+            active_event_id = str(full_stack_event.event_id)
 
         window_scope = "__project__"
         if self.app.analysis_window_manager.focus_event_window(window_scope, active_event_id):
@@ -206,6 +404,7 @@ class AnalysisLaunchController:
         flags["analysis_local_event_end_idx"] = event_end - scope_start
         event_payload["flags"] = flags
         context["event"] = event_payload
+        launch_preparation = options.get("launch_preparation")
         try:
             app_cls = self.load_analysis_app_class()
             win = tk.Toplevel(self.app.root)
@@ -223,9 +422,11 @@ class AnalysisLaunchController:
                 on_host_project_save=self.app._save_project_from_analysis,
                 on_host_project_path=lambda: self.app.current_project_path,
                 on_metrics_update=self.app._on_analysis_metrics_update,
+                on_global_metrics_update=self.app._on_analysis_global_metrics_update,
                 on_checkpoint_update=self.app._on_analysis_checkpoint_update,
                 on_open_model_manager=self.app.open_model_manager,
                 sync_emitter=None,
+                launch_preparation=launch_preparation,
             )
             if not bool(open_result.get("ok")):
                 code = str(open_result.get("code", "PAYLOAD_INVALID"))
@@ -285,40 +486,21 @@ class AnalysisLaunchController:
         apply_baseline_subtraction: bool,
         apply_global_normalization: bool,
     ) -> np.ndarray:
-        if self.app.reader is None:
+        frame_source = self.app.browser_controller.get_frame_source()
+        if frame_source is None:
             return np.zeros((64, 64), dtype=np.uint8)
-        frame_idx = max(0, int(event_start))
-        raw = np.asarray(self.app.reader.read_frame(frame_idx), dtype=np.float32)
-        if raw.ndim == 3 and raw.shape[2] in (3, 4):
-            raw = raw[:, :, :3].mean(axis=2)
-        target = gaussian_filter(raw, sigma=0.5) if bool(apply_smoothing) else raw
-
-        source_stack = [target]
-        working = target
-        if bool(apply_baseline_subtraction):
-            bcount = max(1, int(baseline_pre_frames))
-            bstart = max(0, frame_idx - bcount)
-            bindices = list(range(bstart, frame_idx))
-            if not bindices:
-                bindices = [frame_idx]
-            baseline_parts: list[np.ndarray] = []
-            for idx in bindices:
-                src = np.asarray(self.app.reader.read_frame(int(idx)), dtype=np.float32)
-                if src.ndim == 3 and src.shape[2] in (3, 4):
-                    src = src[:, :, :3].mean(axis=2)
-                baseline_parts.append(gaussian_filter(src, sigma=0.5) if bool(apply_smoothing) else src)
-            baseline = np.median(np.stack(baseline_parts, axis=0), axis=0).astype(np.float32, copy=False)
-            working = target - baseline
-            source_stack = [(part - baseline).astype(np.float32, copy=False) for part in baseline_parts]
-            source_stack.append(working)
-
-        if bool(apply_global_normalization):
-            sampled = np.stack(source_stack, axis=0)
-            p1 = float(np.percentile(sampled, 1))
-            p99 = float(np.percentile(sampled, 99))
-            denom = p99 - p1
-            if denom <= 0:
-                denom = 1e-8
-            clipped = np.clip(working, p1, p99)
-            return np.clip(((clipped - p1) / denom) * 255.0, 0.0, 255.0).astype(np.uint8)
-        return self.app._preview_to_u8(working)
+        scope_start = max(0, int(event_start) - int(max(1, baseline_pre_frames)))
+        scoped_source = EventScopedFrameSource(frame_source, scope_start, int(event_start))
+        stats = compute_visualization_stats(
+            scoped_source,
+            baseline_frames=max(1, int(baseline_pre_frames)),
+            apply_smoothing=bool(apply_smoothing),
+            apply_baseline_subtraction=bool(apply_baseline_subtraction),
+            apply_global_normalization=bool(apply_global_normalization),
+        )
+        _raw, _sub, viz = render_visualization_frame(
+            scoped_source,
+            int(event_start) - int(scope_start),
+            stats=stats,
+        )
+        return viz

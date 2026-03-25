@@ -6,6 +6,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+import tifffile
 
 from sdapp.host.config import EventCandidate, FrameRef, TraceResult
 from sdapp.host.exporter import export_analysis
@@ -269,6 +270,29 @@ def test_export_options_require_at_least_one_image_group(tmp_path: Path) -> None
         )
 
 
+def test_export_binary_masks_only_is_allowed(tmp_path: Path) -> None:
+    frames = [np.full((8, 8), i, dtype=np.uint8) for i in range(8)]
+    reader = FakeReader(frames)
+    events = [_event("event_0001", 2, 4)]
+    masks = np.zeros((8, 8, 8), dtype=np.uint8)
+    masks[2, 1:4, 1:4] = 1
+
+    result = export_analysis(
+        reader=reader,
+        events=events,
+        output_dir=tmp_path,
+        baseline_pre_frames=2,
+        include_event_images=False,
+        include_baseline_images=False,
+        include_binary_masks=True,
+        analysis_sidecar={"event_0001": {"masks_committed": masks}},
+    )
+
+    assert result["frames_exported"] == 0
+    assert result["masks_exported"] == 1
+    assert (tmp_path / "event_0001" / "binary_masks" / "000002_event_mask.tiff").exists()
+
+
 def test_export_metrics_only_writes_per_event_metrics_outputs(tmp_path: Path) -> None:
     frames = [np.full((8, 8), i, dtype=np.uint8) for i in range(10)]
     reader = FakeReader(frames)
@@ -372,3 +396,34 @@ def test_export_binary_masks_writes_mask_images_when_available(tmp_path: Path) -
     exported_masks = sorted(p.name for p in masks_dir.glob("*.tiff"))
     assert exported_masks == ["000003_baseline_mask.tiff", "000005_event_mask.tiff"]
     assert result["masks_exported"] == 2
+
+
+def test_export_mask_overlay_images_match_analysis_overlay_tint(tmp_path: Path) -> None:
+    frames = [np.full((6, 6), 100, dtype=np.uint8) for _ in range(8)]
+    reader = FakeReader(frames)
+    events = [_event("event_0001", 3, 4)]
+    masks = np.zeros((8, 6, 6), dtype=np.uint8)
+    masks[2, 1:5, 1:5] = 1  # baseline frame
+    masks[4, 2:4, 2:4] = 1  # event frame
+
+    result = export_analysis(
+        reader=reader,
+        events=events,
+        output_dir=tmp_path,
+        baseline_pre_frames=2,
+        include_event_images=False,
+        include_baseline_images=False,
+        include_mask_overlay_images=True,
+        analysis_sidecar={"event_0001": {"masks_committed": masks}},
+    )
+
+    overlays_dir = tmp_path / "event_0001" / "mask_overlays"
+    exported = sorted(p.name for p in overlays_dir.glob("*"))
+    assert exported == [
+        "000002_baseline_overlay_frame_0002.tif",
+        "000004_event_overlay_frame_0004.tif",
+    ]
+    baseline_overlay = tifffile.imread(str(overlays_dir / "000002_baseline_overlay_frame_0002.tif"))
+    assert tuple(int(v) for v in baseline_overlay[0, 0]) == (100, 100, 100)
+    assert tuple(int(v) for v in baseline_overlay[2, 2]) == (70, 146, 146)
+    assert result["mask_overlay_images_exported"] == 2

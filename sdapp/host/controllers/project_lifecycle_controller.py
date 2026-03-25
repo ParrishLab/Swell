@@ -180,6 +180,8 @@ class HostProjectLifecycleController:
                             frame_idx = int(active_event.start_idx)
                         self.app.preview_scale.set(frame_idx)
                         self.app._update_preview(frame_idx)
+                        self.warmup_main_preview_async()
+                        self.app.analysis_launch_controller.prewarm_analysis_app_class_async()
                     self.app._sync_event_projections()
                     if warning:
                         self.app._show_warning("Open SD Project", warning)
@@ -244,6 +246,38 @@ class HostProjectLifecycleController:
             self.app._set_status(f"Metrics settings updated: {event_id}")
             self.app._log_info(f"Updated local metrics settings for event {event_id}.")
         return {"ok": True, "event_id": event_id, "changed": bool(changed)}
+
+    def on_analysis_global_metrics_update(self, payload: dict) -> dict:
+        metrics_settings = dict(dict(payload or {}).get("metrics_settings") or {})
+        if not metrics_settings:
+            return {
+                "ok": False,
+                "code": "PAYLOAD_INVALID",
+                "message": "Missing metrics_settings in global metrics update payload.",
+            }
+        existing = dict(self.app.browser_controller.get_global_metrics_defaults() or {})
+        for key in ("scale_px_per_mm", "roi_points", "roi_mask"):
+            if key in metrics_settings:
+                existing[key] = metrics_settings[key]
+        updated = self.app.browser_controller.set_global_metrics_defaults(existing)
+        materialized = int(self.app.browser_controller.materialize_metrics_defaults_to_events())
+        self.app._set_status("Global metrics defaults updated.")
+        self.app._log_info(
+            "Updated global metrics defaults from analysis window and applied missing values to "
+            f"{materialized} event(s)."
+        )
+        refresh_metrics_popup = getattr(self.app, "_refresh_open_metrics_popup", None)
+        if callable(refresh_metrics_popup):
+            try:
+                refresh_metrics_popup()
+            except Exception:
+                pass
+        return {
+            "ok": True,
+            "changed": True,
+            "metrics_settings": dict(updated or {}),
+            "materialized_events": materialized,
+        }
 
     def on_analysis_checkpoint_update(self, payload: dict) -> dict:
         checkpoint_meta = dict(payload or {}).get("model_checkpoint")
@@ -389,6 +423,7 @@ class HostProjectLifecycleController:
             f"Stack load completed: {info.frame_count} frame(s), shape={info.frame_width}x{info.frame_height}, dtype={info.dtype}."
         )
         self.warmup_main_preview_async()
+        self.app.analysis_launch_controller.prewarm_analysis_app_class_async()
         self.app._gc_runtime_caches(aggressive=False, run_python_gc=True)
 
     def warmup_main_preview_async(self) -> None:

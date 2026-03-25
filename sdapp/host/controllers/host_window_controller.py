@@ -18,6 +18,47 @@ class HostWindowController:
     def __init__(self, app) -> None:
         self.app = app
 
+    def _global_metrics_defaults_state(self) -> tuple[float, float | None, list[list[float]], np.ndarray | None]:
+        defaults = dict(self.app.browser_controller.get_global_metrics_defaults() or {})
+        fps_initial = defaults.get("frames_per_sec", 1.0)
+        try:
+            fps_initial = float(fps_initial)
+            if fps_initial <= 0:
+                fps_initial = 1.0
+        except (TypeError, ValueError):
+            fps_initial = 1.0
+
+        scale_value = defaults.get("scale_px_per_mm")
+        try:
+            scale_value = float(scale_value) if scale_value is not None else None
+            if scale_value is not None and scale_value <= 0:
+                scale_value = None
+        except (TypeError, ValueError):
+            scale_value = None
+        roi_points = list(defaults.get("roi_points", [])) if isinstance(defaults.get("roi_points"), list) else []
+        roi_mask = defaults.get("roi_mask")
+        if roi_mask is not None:
+            try:
+                roi_mask = np.asarray(roi_mask, dtype=bool).copy()
+                if roi_mask.ndim != 2:
+                    roi_mask = None
+            except Exception:
+                roi_mask = None
+        return float(fps_initial), scale_value, roi_points, roi_mask
+
+    def refresh_open_metrics_popup(self) -> None:
+        dialog = getattr(self.app, "_open_metrics_dialog", None)
+        refresher = getattr(self.app, "_refresh_open_metrics_dialog", None)
+        if dialog is None or refresher is None:
+            return
+        try:
+            if not bool(dialog.winfo_exists()):
+                return
+        except Exception:
+            return
+        if callable(refresher):
+            refresher()
+
     def has_binary_masks_for_events(self, event_ids: list[str]) -> bool:
         try:
             sidecar = dict(self.app.browser_controller.session.state().analysis_sidecar or {})
@@ -88,6 +129,7 @@ class HostWindowController:
         include_event_var = tk.BooleanVar(value=True)
         include_baseline_var = tk.BooleanVar(value=True)
         include_masks_var = tk.BooleanVar(value=True)
+        include_mask_overlay_var = tk.BooleanVar(value=True)
         include_metric_speed_var = tk.BooleanVar(value=True)
         include_metric_area_var = tk.BooleanVar(value=True)
         include_metric_rel_area_var = tk.BooleanVar(value=True)
@@ -120,10 +162,15 @@ class HostWindowController:
         ttk.Checkbutton(checks, text="Baseline Images", variable=include_baseline_var).pack(anchor="w")
         masks_check = ttk.Checkbutton(checks, text="Binary Masks", variable=include_masks_var)
         masks_check.pack(anchor="w")
+        overlay_check = ttk.Checkbutton(checks, text="Mask Overlay Images", variable=include_mask_overlay_var)
+        overlay_check.pack(anchor="w")
         if not has_masks:
             include_masks_var.set(False)
             masks_check.configure(state="disabled")
             self.attach_disabled_tooltip(dialog, masks_check, "No binary masks exist for the selected events.")
+            include_mask_overlay_var.set(False)
+            overlay_check.configure(state="disabled")
+            self.attach_disabled_tooltip(dialog, overlay_check, "No binary masks exist for the selected events.")
 
         ttk.Separator(checks, orient="horizontal").pack(fill="x", pady=(6, 4))
         ttk.Label(checks, text="Metrics").pack(anchor="w")
@@ -164,6 +211,8 @@ class HostWindowController:
             include_any = (
                 bool(include_event_var.get())
                 or bool(include_baseline_var.get())
+                or bool(include_masks_var.get())
+                or bool(include_mask_overlay_var.get())
                 or bool(include_metric_speed_var.get())
                 or bool(include_metric_area_var.get())
                 or bool(include_metric_rel_area_var.get())
@@ -180,6 +229,7 @@ class HostWindowController:
                 "include_event_images": bool(include_event_var.get()),
                 "include_baseline_images": bool(include_baseline_var.get()),
                 "include_binary_masks": bool(include_masks_var.get()),
+                "include_mask_overlay_images": bool(include_mask_overlay_var.get()),
                 "include_metric_propagation_speed": bool(include_metric_speed_var.get()),
                 "include_metric_area_recruited": bool(include_metric_area_var.get()),
                 "include_metric_relative_area_recruited": bool(include_metric_rel_area_var.get()),
@@ -212,40 +262,26 @@ class HostWindowController:
 
     def open_generate_metrics_popup(self) -> None:
         if self.app.reader is None or self.app.stack_info is None:
-            self.app._show_warning("Metrics Defaults", "Load a stack first.")
+            self.app._show_warning("Open Metrics", "Load a stack first.")
             return
-
-        defaults = dict(self.app.browser_controller.get_global_metrics_defaults() or {})
-        fps_initial = defaults.get("frames_per_sec", 1.0)
+        existing = getattr(self.app, "_open_metrics_dialog", None)
         try:
-            fps_initial = float(fps_initial)
-            if fps_initial <= 0:
-                fps_initial = 1.0
-        except (TypeError, ValueError):
-            fps_initial = 1.0
+            if existing is not None and bool(existing.winfo_exists()):
+                self.refresh_open_metrics_popup()
+                existing.lift()
+                existing.focus_force()
+                return
+        except Exception:
+            pass
 
-        scale_value = defaults.get("scale_px_per_mm")
-        try:
-            scale_value = float(scale_value) if scale_value is not None else None
-            if scale_value is not None and scale_value <= 0:
-                scale_value = None
-        except (TypeError, ValueError):
-            scale_value = None
-        roi_points = list(defaults.get("roi_points", [])) if isinstance(defaults.get("roi_points"), list) else []
-        roi_mask = defaults.get("roi_mask")
-        if roi_mask is not None:
-            try:
-                roi_mask = np.asarray(roi_mask, dtype=bool).copy()
-                if roi_mask.ndim != 2:
-                    roi_mask = None
-            except Exception:
-                roi_mask = None
+        fps_initial, scale_value, roi_points, roi_mask = self._global_metrics_defaults_state()
 
         dialog = tk.Toplevel(self.app.root)
-        dialog.title("Metrics Defaults")
+        dialog.title("Open Metrics")
         dialog.transient(self.app.root)
         dialog.grab_set()
         dialog.resizable(False, False)
+        self.app._open_metrics_dialog = dialog
 
         shell = ttk.Frame(dialog, padding=12)
         shell.pack(fill="both", expand=True)
@@ -274,6 +310,13 @@ class HostWindowController:
                 roi_status_var.set(f"ROI: {len(roi_points)} points")
             else:
                 roi_status_var.set("ROI: Not set")
+
+        def _refresh_from_host() -> None:
+            nonlocal scale_value, roi_points, roi_mask
+            _fps_value, scale_value, roi_points, roi_mask = self._global_metrics_defaults_state()
+            _refresh_labels()
+
+        self.app._refresh_open_metrics_dialog = _refresh_from_host
 
         controls = ttk.Frame(shell)
         controls.pack(fill="x", pady=(6, 6))
@@ -344,7 +387,7 @@ class HostWindowController:
                 if frames_per_sec <= 0:
                     raise ValueError("Frames/sec must be greater than zero.")
             except (TypeError, ValueError):
-                self.app._show_warning("Metrics Defaults", "Frames/sec must be a positive number.")
+                self.app._show_warning("Open Metrics", "Frames/sec must be a positive number.")
                 return
 
             payload: dict[str, object] = {"frames_per_sec": float(frames_per_sec)}
@@ -367,6 +410,12 @@ class HostWindowController:
         ttk.Button(actions, text="Cancel", command=_cancel).pack(side="right")
         ttk.Button(actions, text="Apply", command=_apply).pack(side="right", padx=(0, 8))
 
+        def _on_destroy(_event=None) -> None:
+            if getattr(self.app, "_open_metrics_dialog", None) is dialog:
+                self.app._open_metrics_dialog = None
+                self.app._refresh_open_metrics_dialog = None
+
+        dialog.bind("<Destroy>", _on_destroy)
         self.center_window_on_screen(dialog)
         dialog.wait_window()
 
@@ -392,6 +441,7 @@ class HostWindowController:
             f"event_images={bool(options.get('include_event_images'))}, "
             f"baseline_images={bool(options.get('include_baseline_images'))}, "
             f"binary_masks={bool(options.get('include_binary_masks'))}, "
+            f"mask_overlay_images={bool(options.get('include_mask_overlay_images'))}, "
             f"metric_propagation_speed={bool(options.get('include_metric_propagation_speed'))}, "
             f"metric_area_recruited={bool(options.get('include_metric_area_recruited'))}, "
             f"metric_relative_area_recruited={bool(options.get('include_metric_relative_area_recruited'))}."
@@ -414,6 +464,7 @@ class HostWindowController:
                     include_event_images=bool(options.get("include_event_images")),
                     include_baseline_images=bool(options.get("include_baseline_images")),
                     include_binary_masks=bool(options.get("include_binary_masks")),
+                    include_mask_overlay_images=bool(options.get("include_mask_overlay_images")),
                     analysis_sidecar=sidecar,
                     include_metric_propagation_speed=bool(options.get("include_metric_propagation_speed")),
                     include_metric_area_recruited=bool(options.get("include_metric_area_recruited")),

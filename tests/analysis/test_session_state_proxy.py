@@ -1,6 +1,10 @@
 import unittest
 
+import numpy as np
+
 from sdapp.analysis.app import SDSegmentationApp
+from sdapp.analysis.controllers.host_mode_controller import AnalysisHostModeController
+from sdapp.shared.frame_source.preprocessing import compute_visualization_stats
 
 
 class SessionStateProxyTests(unittest.TestCase):
@@ -75,6 +79,118 @@ class SessionStateProxyTests(unittest.TestCase):
         self.assertEqual(app.frames_sub_viz[1].shape, (3, 4))
         self.assertEqual(app.frame_names, ["a", "b"])
 
+    def test_prepare_host_mode_buffers_can_queue_async_launch_build_with_preview_seed(self):
+        app = SDSegmentationApp.__new__(SDSegmentationApp)
+
+        class _Source:
+            frame_count = 4
+            frame_shape = (3, 4)
+            frame_names = ["a", "b", "c", "d"]
+            source_paths = ["/tmp/a", "/tmp/b", "/tmp/c", "/tmp/d"]
+
+            @staticmethod
+            def get_raw_frame(idx):
+                return np.full((3, 4), idx + 1, dtype=np.float32)
+
+            @staticmethod
+            def get_subtracted_frame(_idx):
+                raise NotImplementedError
+
+            @staticmethod
+            def get_visual_frame(_idx):
+                raise NotImplementedError
+
+        source = _Source()
+        stats = compute_visualization_stats(source, baseline_frames=2)
+        app._host_mode = True
+        app._host_processing_options = None
+        app._host_buffer_sync_limit = 200
+        app._host_buffer_cache_key = None
+        app.frames_sub_viz = None
+        app._host_buffer_generation = 0
+        app._host_launch_preparation = {
+            "local_frame_idx": 1,
+            "raw_frame": np.full((3, 4), 2, dtype=np.float32),
+            "sub_frame": np.full((3, 4), 1, dtype=np.float32),
+            "viz_frame": np.full((3, 4), 128, dtype=np.uint8),
+            "stats": stats,
+        }
+        app.root = type(
+            "R",
+            (),
+            {
+                "winfo_exists": staticmethod(lambda: False),
+                "after": staticmethod(lambda *_args, **_kwargs: None),
+            },
+        )()
+        app.log_info = lambda *_args, **_kwargs: None
+        queued = {}
+        app._run_thread = lambda target, **_kwargs: queued.setdefault("target", target)
+
+        ready = app._prepare_host_mode_buffers(source, prefer_async=True)
+
+        self.assertFalse(ready)
+        self.assertIn("target", queued)
+        self.assertIsNone(app.frames_raw)
+        self.assertEqual(int(app._host_launch_preparation["local_frame_idx"]), 1)
+        self.assertEqual(np.asarray(app._host_launch_preparation["viz_frame"]).shape, (3, 4))
+
+    def test_prepare_host_mode_buffers_async_apply_populates_frames_without_numpy_truthiness_error(self):
+        app = SDSegmentationApp.__new__(SDSegmentationApp)
+
+        class _Source:
+            frame_count = 3
+            frame_shape = (3, 4)
+            frame_names = ["a", "b", "c"]
+            source_paths = ["/tmp/a", "/tmp/b", "/tmp/c"]
+
+            @staticmethod
+            def get_raw_frame(idx):
+                return np.full((3, 4), idx + 1, dtype=np.float32)
+
+            @staticmethod
+            def get_subtracted_frame(_idx):
+                raise NotImplementedError
+
+            @staticmethod
+            def get_visual_frame(_idx):
+                raise NotImplementedError
+
+        app._host_mode = True
+        app._host_processing_options = None
+        app._host_buffer_sync_limit = 1
+        app._host_buffer_cache_key = None
+        app.frames_sub_viz = None
+        app._host_buffer_generation = 0
+        app._host_post_open_ui_initialized = True
+        app._host_pending_model_init_reason = None
+        app.frame_names = []
+        app._current_image_source_paths = []
+        app.root = type(
+            "R",
+            (),
+            {
+                "winfo_exists": staticmethod(lambda: True),
+                "after": staticmethod(lambda _ms, fn: fn()),
+            },
+        )()
+        app._ui_alive = lambda: True
+        app.log_info = lambda *_args, **_kwargs: None
+        app.log_debug = lambda *_args, **_kwargs: None
+        app._finalize_load_ui = lambda: setattr(app, "_finalized", True)
+        app.update_display = lambda **_kwargs: setattr(app, "_updated", True)
+        queued = {}
+        app._run_thread = lambda target, **_kwargs: queued.setdefault("target", target)
+
+        ready = app._prepare_host_mode_buffers(_Source(), prefer_async=True)
+
+        self.assertFalse(ready)
+        queued["target"]()
+        self.assertEqual(app.frames_raw.shape, (3, 3, 4))
+        self.assertEqual(app.frames_sub_viz.shape, (3, 3, 4))
+        self.assertTrue(getattr(app, "_finalized", False))
+        self.assertTrue(getattr(app, "_updated", False))
+
     def test_open_from_host_handoff_scopes_frame_source_to_event_bounds(self):
         app = SDSegmentationApp.__new__(SDSegmentationApp)
 
@@ -117,6 +233,7 @@ class SessionStateProxyTests(unittest.TestCase):
         app.start_model_initialization = lambda **_kwargs: setattr(app, "_thread_started", True)
         app.frame_source = None
         app.app_context = None
+        app.frames_sub_viz = np.zeros((1, 3, 4), dtype=np.uint8)
 
         result = app.open_from_host_handoff(
             {"event": {"start_idx": 2, "end_idx": 5}},
@@ -125,6 +242,68 @@ class SessionStateProxyTests(unittest.TestCase):
         self.assertTrue(result["ok"])
         self.assertEqual(result["frame_count"], 4)
         self.assertTrue(getattr(app, "_thread_started", False))
+
+    def test_open_from_host_handoff_defers_model_init_until_frames_ready(self):
+        app = SDSegmentationApp.__new__(SDSegmentationApp)
+
+        class _Workspace:
+            def bind_frame_source(self, _frame_source):
+                return None
+
+            def open_from_handoff_payload(self, payload, frame_source=None, sync_emitter=None):
+                return {"ok": True, "frame_count": int(frame_source.frame_count)}
+
+        class _Source:
+            frame_count = 5
+            frame_shape = (3, 4)
+            frame_names = [f"f{i}" for i in range(5)]
+            source_paths = [f"/tmp/{i}" for i in range(5)]
+
+            @staticmethod
+            def get_raw_frame(idx):
+                return np.full((3, 4), idx, dtype=np.uint8)
+
+            @staticmethod
+            def get_subtracted_frame(idx):
+                return _Source.get_raw_frame(idx)
+
+            @staticmethod
+            def get_visual_frame(idx):
+                return _Source.get_raw_frame(idx)
+
+        app.analysis_workspace = _Workspace()
+        app._ensure_analysis_workspace = lambda: None
+        app._prepare_host_mode_buffers = lambda _fs, **_kwargs: False
+        app._finalize_load_ui = lambda: None
+        app.log_info = lambda *_args, **_kwargs: None
+        app.log_warn = lambda *_args, **_kwargs: None
+        app.frame_source = None
+        app.app_context = None
+        started: list[str] = []
+        app.start_model_initialization = lambda **kwargs: started.append(str(kwargs.get("reason")))
+
+        result = app.open_from_host_handoff(
+            {"event": {"start_idx": 1, "end_idx": 3}},
+            frame_source=_Source(),
+        )
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(started, [])
+        self.assertEqual(getattr(app, "_host_pending_model_init_reason", None), "host_handoff_open")
+
+    def test_host_mode_controller_starts_pending_model_init_once_frames_exist(self):
+        app = SDSegmentationApp.__new__(SDSegmentationApp)
+        app.frames_sub_viz = np.zeros((2, 3, 4), dtype=np.uint8)
+        app._host_pending_model_init_reason = "host_context_open"
+        app.log_info = lambda *_args, **_kwargs: None
+        started: list[str] = []
+        app.start_model_initialization = lambda **kwargs: started.append(str(kwargs.get("reason")))
+
+        controller = AnalysisHostModeController(app)
+        controller._maybe_start_host_model_initialization("host_context_open")
+
+        self.assertEqual(started, ["host_context_open"])
+        self.assertIsNone(getattr(app, "_host_pending_model_init_reason", None))
 
     def test_post_host_mode_open_ui_reloads_active_event_state_after_finalize(self):
         app = SDSegmentationApp.__new__(SDSegmentationApp)

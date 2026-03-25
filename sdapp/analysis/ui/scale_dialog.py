@@ -298,7 +298,7 @@ def open_scale_dialog(root, img_u8, snap_scale_points_axis, refine_scale_bar_poi
         py = popup.winfo_pointery() - canvas.winfo_rooty()
         canvas.scan_dragto(int(px), int(py), gain=1)
 
-    def on_set_scale():
+    def on_set_scale(target_scope: str):
         if len(state["points"]) != 2:
             messagebox.showwarning("Set Scale", "Select exactly 2 points for scale bar.", parent=popup)
             return
@@ -322,6 +322,7 @@ def open_scale_dialog(root, img_u8, snap_scale_points_axis, refine_scale_bar_poi
         scale_points_used = (p1_ref, p2_ref) if refined_ok else (p1_snap, p2_snap)
         scale_data = compute_scale(scale_points_used, mm_length)
         result["value"] = {
+            "target_scope": str(target_scope),
             "px_per_mm": scale_data["px_per_mm"],
             "scale_points": [tuple(map(float, scale_points_used[0])), tuple(map(float, scale_points_used[1]))],
             "axis_mode": axis_mode,
@@ -345,7 +346,8 @@ def open_scale_dialog(root, img_u8, snap_scale_points_axis, refine_scale_bar_poi
     ttk.Radiobutton(controls, text="Zoom In", value="zoom_in", variable=tool_mode_var).pack(side="left", padx=3)
     ttk.Radiobutton(controls, text="Zoom Out", value="zoom_out", variable=tool_mode_var).pack(side="left", padx=3)
     ttk.Checkbutton(controls, text="Axis Lock", variable=axis_lock_var, command=redraw).pack(side="left", padx=(8, 3))
-    ttk.Button(controls, text="Set Scale", command=on_set_scale).pack(side="right", padx=3)
+    ttk.Button(controls, text="Set Global Scale", command=lambda: on_set_scale("global")).pack(side="right", padx=3)
+    ttk.Button(controls, text="Set Local Scale", command=lambda: on_set_scale("local")).pack(side="right", padx=3)
     ttk.Button(controls, text="Cancel", command=popup.destroy).pack(side="right", padx=3)
 
     popup.wait_window()

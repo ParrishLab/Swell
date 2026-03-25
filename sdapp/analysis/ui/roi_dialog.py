@@ -195,7 +195,7 @@ def open_roi_dialog(root, img_u8, initial_roi_points=None):
         state["selected_idx"] = None
         redraw()
 
-    def on_finish():
+    def on_finish(target_scope: str):
         if len(state["points"]) < 3:
             messagebox.showwarning("ROI", "Need at least 3 points to create ROI.", parent=popup)
             return
@@ -210,6 +210,7 @@ def open_roi_dialog(root, img_u8, initial_roi_points=None):
         pts = np.array(state["points"], dtype=np.int32).reshape((-1, 1, 2))
         cv2.fillPoly(roi_mask, [pts], 1)
         result["value"] = {
+            "target_scope": str(target_scope),
             "roi_mask": roi_mask.astype(bool),
             "roi_points": list(state["points"]),
         }
@@ -228,7 +229,8 @@ def open_roi_dialog(root, img_u8, initial_roi_points=None):
     ttk.Button(controls, text="Undo Point", command=on_undo).pack(side="left", padx=3)
     ttk.Button(controls, text="Delete Selected", command=on_delete_selected).pack(side="left", padx=3)
     ttk.Button(controls, text="Clear", command=on_clear).pack(side="left", padx=3)
-    ttk.Button(controls, text="Save ROI", command=on_finish).pack(side="right", padx=3)
+    ttk.Button(controls, text="Save Global ROI", command=lambda: on_finish("global")).pack(side="right", padx=3)
+    ttk.Button(controls, text="Save Local ROI", command=lambda: on_finish("local")).pack(side="right", padx=3)
     ttk.Button(controls, text="Cancel", command=popup.destroy).pack(side="right", padx=3)
 
     redraw()

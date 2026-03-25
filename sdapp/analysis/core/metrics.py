@@ -1,16 +1,13 @@
 import json
 import os
-from typing import List, Optional, Tuple
+from typing import TYPE_CHECKING, List, Optional, Tuple
 
 import cv2
-import matplotlib
 import numpy as np
-import pandas as pd
 from PIL import Image, ImageDraw
 
-# Use non-interactive backend to avoid Tk/matplotlib event-loop conflicts.
-matplotlib.use("Agg", force=True)
-import matplotlib.pyplot as plt
+if TYPE_CHECKING:
+    import pandas as pd
 
 
 def load_binary_masks(mask_dir: str, frame_names: List[str], start_idx: int, end_idx: int) -> List[np.ndarray]:
@@ -158,7 +155,9 @@ def compute_roi_metrics(
     }
 
 
-def write_metrics_outputs(output_dir: str, frame_metrics_df: pd.DataFrame, summary: dict) -> None:
+def write_metrics_outputs(output_dir: str, frame_metrics_df: "pd.DataFrame", summary: dict) -> None:
+    import pandas as pd
+
     os.makedirs(output_dir, exist_ok=True)
     frame_metrics_df.to_csv(os.path.join(output_dir, "frame_metrics.csv"), index=False)
     pd.DataFrame([summary]).to_csv(os.path.join(output_dir, "summary_metrics.csv"), index=False)
@@ -166,7 +165,12 @@ def write_metrics_outputs(output_dir: str, frame_metrics_df: pd.DataFrame, summa
         json.dump(summary, f, indent=2)
 
 
-def generate_metrics_plots(output_dir: str, frame_metrics_df: pd.DataFrame, summary: dict) -> None:
+def generate_metrics_plots(output_dir: str, frame_metrics_df: "pd.DataFrame", summary: dict) -> None:
+    import matplotlib
+
+    matplotlib.use("Agg", force=True)
+    import matplotlib.pyplot as plt
+
     os.makedirs(output_dir, exist_ok=True)
 
     t = frame_metrics_df["time_sec"].to_numpy()

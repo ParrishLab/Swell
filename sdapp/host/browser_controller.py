@@ -11,6 +11,10 @@ from sdapp.shared.frame_source import SDStackFrameSource
 
 from sdapp.shared.contracts import validate_sync_payload as _validate_sync_payload
 
+HOST_FULL_STACK_EVENT_FLAG = "host_full_stack_event"
+HOST_FULL_STACK_EVENT_LABEL = "Full Stack Analysis"
+HOST_FULL_STACK_EVENT_ID = "event_full_stack"
+
 
 class BrowserController:
     def __init__(self) -> None:
@@ -53,12 +57,20 @@ class BrowserController:
         self.events.set_active_event(event_id)
         self._sync_session()
 
-    def create_event(self, start_idx: int, end_idx: int, frame_count: int, label: str | None = None) -> EventMeta:
+    def create_event(
+        self,
+        start_idx: int,
+        end_idx: int,
+        frame_count: int,
+        label: str | None = None,
+        flags: dict | None = None,
+    ) -> EventMeta:
         event = self.events.create_event(
             start_idx=start_idx,
             end_idx=end_idx,
             label=label,
             frame_count=frame_count,
+            flags=flags,
         )
         self._sync_session()
         defaults = self.session.get_global_metrics_defaults()
@@ -67,8 +79,57 @@ class BrowserController:
                 str(event.event_id),
                 defaults,
                 merge_missing_only=True,
-            )
+        )
         return event
+
+    def ensure_full_stack_analysis_event(self, *, frame_count: int) -> EventMeta:
+        start_idx, end_idx = self.events.normalize_bounds(0, max(0, int(frame_count) - 1), int(frame_count))
+        canonical_flags = {HOST_FULL_STACK_EVENT_FLAG: True}
+        canonical_event = EventMeta(
+            event_id=HOST_FULL_STACK_EVENT_ID,
+            label=HOST_FULL_STACK_EVENT_LABEL,
+            global_start_idx=int(start_idx),
+            global_end_idx=int(end_idx),
+            flags=canonical_flags,
+        )
+        existing_canonical = self.events.get_event(HOST_FULL_STACK_EVENT_ID)
+        if existing_canonical is not None:
+            if (
+                int(existing_canonical.start_idx) != int(start_idx)
+                or int(existing_canonical.end_idx) != int(end_idx)
+                or not bool(dict(existing_canonical.flags or {}).get(HOST_FULL_STACK_EVENT_FLAG))
+                or str(existing_canonical.label) != HOST_FULL_STACK_EVENT_LABEL
+            ):
+                self.events.upsert_event_meta(canonical_event, set_active=True)
+            else:
+                self.events.set_active_event(HOST_FULL_STACK_EVENT_ID)
+            self._sync_session()
+            current = self.events.get_event(HOST_FULL_STACK_EVENT_ID)
+            return current if current is not None else canonical_event
+
+        for event in self.events.list_events():
+            flags = dict(event.flags or {})
+            if not bool(flags.get(HOST_FULL_STACK_EVENT_FLAG)):
+                continue
+            if int(event.start_idx) != int(start_idx) or int(event.end_idx) != int(end_idx):
+                continue
+            legacy_sidecar = self.session.load_analysis_sidecar(str(event.event_id))
+            if str(event.event_id) != HOST_FULL_STACK_EVENT_ID:
+                self.events.delete_event(str(event.event_id))
+                self.events.upsert_event_meta(canonical_event, set_active=True)
+                self._sync_session()
+                if isinstance(legacy_sidecar, dict) and legacy_sidecar:
+                    self.session.upsert_analysis_sidecar(HOST_FULL_STACK_EVENT_ID, legacy_sidecar)
+                current = self.events.get_event(HOST_FULL_STACK_EVENT_ID)
+                return current if current is not None else canonical_event
+            self.events.set_active_event(HOST_FULL_STACK_EVENT_ID)
+            self._sync_session()
+            current = self.events.get_event(HOST_FULL_STACK_EVENT_ID)
+            return current if current is not None else event
+        self.events.upsert_event_meta(canonical_event, set_active=True)
+        self._sync_session()
+        current = self.events.get_event(HOST_FULL_STACK_EVENT_ID)
+        return current if current is not None else canonical_event
 
     def update_event(
         self,
@@ -240,6 +301,7 @@ class BrowserController:
                 "flags": dict(event.flags),
             },
             "analysis_state": state.analysis_sidecar.get(str(event.event_id)),
+            "local_metrics_settings": self.load_event_metrics_settings(str(event.event_id)),
             "metrics_settings": self.resolve_event_metrics_settings(str(event.event_id)),
         }
 

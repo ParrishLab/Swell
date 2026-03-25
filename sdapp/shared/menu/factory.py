@@ -20,6 +20,7 @@ def build_shared_menu(root, app, *, mode: str, host_mode: bool = False) -> tk.Me
     """Build a unified menu bar for both host and analysis windows."""
     menu = tk.Menu(root)
     file_menu = tk.Menu(menu, tearoff=False)
+    masks_menu = tk.Menu(menu, tearoff=False)
     config_menu = tk.Menu(menu, tearoff=False)
     help_menu = tk.Menu(menu, tearoff=False)
 
@@ -27,7 +28,6 @@ def build_shared_menu(root, app, *, mode: str, host_mode: bool = False) -> tk.Me
         file_items = [
             ("Save SD Project", ("save_project", "_save_project", "save_session")),
             ("Save SD Project As...", ("save_project_as", "_save_project_as")),
-            ("Import External Masks...", ("import_external_masks",)),
             (None, None),
             ("Exit", ("_on_root_close", "on_close")),
         ]
@@ -64,6 +64,14 @@ def build_shared_menu(root, app, *, mode: str, host_mode: bool = False) -> tk.Me
         file_menu.add_command(label=label, command=command)
 
     menu.add_cascade(label="File", menu=file_menu)
+
+    if mode == "analysis":
+        command = _resolve_command(app, ("import_external_masks",))
+        if command is None:
+            masks_menu.add_command(label="Import External Masks...", state="disabled")
+        else:
+            masks_menu.add_command(label="Import External Masks...", command=command)
+        menu.add_cascade(label="Masks", menu=masks_menu)
 
     config_allow = {
         MENU_MANAGE_MODELS: {"analysis", "host"},

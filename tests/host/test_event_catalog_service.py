@@ -34,3 +34,16 @@ def test_event_catalog_normalization_and_clamp() -> None:
 
     with pytest.raises(ValueError):
         svc.normalize_bounds(0, 1, 0)
+
+
+def test_event_catalog_create_event_preserves_flags() -> None:
+    svc = EventCatalogService()
+
+    event = svc.create_event(
+        start_idx=0,
+        end_idx=4,
+        frame_count=10,
+        flags={"host_full_stack_event": True},
+    )
+
+    assert bool(event.flags.get("host_full_stack_event")) is True
