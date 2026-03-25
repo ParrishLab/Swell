@@ -2,14 +2,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-import importlib.metadata
-from pathlib import Path
 import re
 import sys
 from typing import TYPE_CHECKING, Callable
 import urllib.request
 import webbrowser
 import xml.etree.ElementTree as ET
+
+from sdapp.shared.app_metadata import detect_app_version
 
 if TYPE_CHECKING:
     from sdapp.analysis.core.state import AppConfig
@@ -270,21 +270,7 @@ class UpdateService:
         )
 
     def _detect_version(self) -> str:
-        try:
-            return importlib.metadata.version("sdapp")
-        except Exception:
-            pass
-        pyproject_path = Path(__file__).resolve().parents[3] / "pyproject.toml"
-        if pyproject_path.exists():
-            try:
-                import tomllib
-
-                with pyproject_path.open("rb") as handle:
-                    payload = tomllib.load(handle)
-                return str(payload.get("project", {}).get("version", "0.0.0"))
-            except Exception:
-                pass
-        return "0.0.0"
+        return detect_app_version()
 
     @staticmethod
     def _parse_version(raw: str) -> tuple[int, int, int] | None:

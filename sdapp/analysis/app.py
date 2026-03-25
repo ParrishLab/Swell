@@ -38,6 +38,7 @@ from sdapp.analysis.core.preview_resize import stop_resize_preview as do_stop_re
 from sdapp.analysis.core.propagation_progress import PropagationProgressLogger
 from sdapp.analysis.core.app_context import AppContext
 from sdapp.analysis.core import project_workflow
+from sdapp.shared.app_metadata import format_window_title
 from sdapp.analysis.controllers import AnalysisHostModeController, AnalysisModelController, AnalysisWindowController
 from sdapp.analysis.ui.layout import LayoutBuilder
 from sdapp.analysis.utils.paths import get_app_root, get_resources_root
@@ -92,7 +93,7 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
                 "Open analysis from the SD ID main window."
             )
         self.root = root
-        self.root.title("IOS SD Segmenter (Merged Final)")
+        self.root.title(format_window_title("IOS SD Analysis"))
         self.root.geometry("1400x950")
 
         self.app_root = str(get_app_root())

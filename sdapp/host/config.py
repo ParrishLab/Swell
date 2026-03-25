@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
-APP_TITLE = "IOS SD Manual Event Marker"
+APP_TITLE = "IOS SD Event Marker"
 SUPPORTED_EXTENSIONS = (".tif", ".tiff", ".png", ".jpg", ".jpeg", ".bmp")
 DEFAULT_BASELINE_PRE_FRAMES = 30
 MAX_PREVIEW_CACHE = 16

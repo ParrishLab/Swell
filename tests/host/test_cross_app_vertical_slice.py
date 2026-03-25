@@ -1,12 +1,20 @@
 from __future__ import annotations
 
 from pathlib import Path
+from unittest.mock import patch
 
 import numpy as np
 
+from sdapp.analysis.controllers.host_mode_controller import AnalysisHostModeController
+from sdapp.analysis.core import mask_import_workflow
+from sdapp.analysis.core.analysis_workspace import AnalysisWorkspaceController
+from sdapp.analysis.core.project_session import ProjectSessionService
+from sdapp.analysis.core.seg_state import SegmentationState
+from sdapp.analysis.core.session_state import SessionState
 from sdapp.host.browser_controller import BrowserController
 from sdapp.host.config import FrameRef
 from sdapp.shared.contracts import ValidatorErrorCode
+from sdapp.shared.frame_source import EventScopedFrameSource
 
 
 class FakeReader:
@@ -47,16 +55,27 @@ class FakeStackInfo:
 
 
 def _analysis_controller():
-    from sdapp.analysis.core.analysis_workspace import AnalysisWorkspaceController
-    from sdapp.analysis.core.project_session import ProjectSessionService
-    from sdapp.analysis.core.seg_state import SegmentationState
-    from sdapp.analysis.core.session_state import SessionState
-
     return AnalysisWorkspaceController(
         session_service=ProjectSessionService(),
         session_state=SessionState(),
         seg_state=SegmentationState(),
     )
+
+
+class _DialogStub:
+    def __init__(self, paths, masks, offset) -> None:
+        self._paths = paths
+        self._masks = masks
+        self._offset = offset
+
+    def choose_paths(self, _root):
+        return list(self._paths)
+
+    def load_external_mask_images(self, _paths):
+        return list(self._masks)
+
+    def ask_alignment(self, **_kwargs):
+        return self._offset
 
 
 def test_vertical_slice_event_roundtrip_no_id_drift() -> None:
@@ -129,3 +148,91 @@ def test_vertical_slice_rejects_payload_from_previous_project_context() -> None:
     rejected = host.apply_analysis_sync(sync_payload)
     assert rejected["ok"] is False
     assert rejected["code"] == ValidatorErrorCode.SESSION_MISMATCH
+
+
+def test_import_workflow_updates_host_analysis_sidecar_immediately() -> None:
+    host = BrowserController()
+    host.on_stack_loaded(FakeReader(), FakeStackInfo("/tmp/in_a"))
+    event = host.create_event(start_idx=2, end_idx=5, frame_count=8)
+    host.set_active_event(event.event_id)
+
+    context = host.host_context_for_event(event.event_id)
+    context["event"]["flags"] = {
+        "analysis_scope_start_idx": 2,
+        "analysis_scope_end_idx": 5,
+        "analysis_local_event_start_idx": 0,
+        "analysis_local_event_end_idx": 3,
+    }
+
+    scoped_source = EventScopedFrameSource(host.get_frame_source(), 2, 5)
+    analysis_workspace = AnalysisWorkspaceController(
+        session_service=ProjectSessionService(),
+        session_state=SessionState(),
+        seg_state=SegmentationState(),
+    )
+    analysis_workspace.bind_frame_source(scoped_source)
+    open_result = analysis_workspace.open_from_host_event_context(context, frame_source=scoped_source)
+    assert open_result["ok"] is True
+
+    class _App:
+        def __init__(self) -> None:
+            self.root = object()
+            self.frames_raw = [np.zeros((64, 64), dtype=np.uint8) for _ in range(4)]
+            self.frames_sub_viz = list(self.frames_raw)
+            self.mask_import_dialog = _DialogStub(
+                paths=["mask_a.tif", "mask_b.tif"],
+                masks=[np.ones((64, 64), dtype=bool), np.ones((64, 64), dtype=bool)],
+                offset=1,
+            )
+            self.project_session_service = analysis_workspace.session_service
+            self.analysis_workspace = analysis_workspace
+            self.event_records = analysis_workspace.session_state.event_records
+            self.active_event_id = event.event_id
+            self.seg_state = analysis_workspace.seg_state
+            self._host_mode = True
+            self._host_analysis_updater = host.apply_direct_analysis_update
+            self._host_sync_result_notifier = None
+            self.lbl_status = None
+            self.project_dirty = False
+            self.sync_reasons = []
+            self.host_mode_controller = AnalysisHostModeController(self)
+
+        def _collect_nonempty_final_mask_frames(self):
+            return {1, 2}
+
+        def _set_propagated_frames(self, *_args, **_kwargs):
+            return None
+
+        def update_display(self):
+            return None
+
+        def _mark_project_dirty(self, reason=""):
+            self.project_dirty = True
+
+        def _emit_host_sync(self, reason):
+            self.sync_reasons.append(str(reason))
+            return self.host_mode_controller.emit_host_sync(reason)
+
+        def _collect_current_metrics_settings(self):
+            return {}
+
+        def log_debug(self, *_args, **_kwargs):
+            return None
+
+        def log_warn(self, *_args, **_kwargs):
+            return None
+
+    app = _App()
+
+    with (
+        patch("sdapp.analysis.core.mask_import_workflow.messagebox.showinfo"),
+        patch("sdapp.analysis.core.mask_import_workflow.messagebox.showwarning"),
+    ):
+        mask_import_workflow.import_external_masks(app)
+
+    assert app.sync_reasons == ["import_external_masks"]
+    sidecar = host.session.load_analysis_sidecar(event.event_id)
+    assert sidecar is not None
+    assert sidecar["masks_committed"].shape == (4, 64, 64)
+    assert bool(np.any(sidecar["masks_committed"][1]))
+    assert bool(np.any(sidecar["masks_committed"][2]))

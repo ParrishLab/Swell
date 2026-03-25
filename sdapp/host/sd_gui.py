@@ -37,6 +37,7 @@ from .ui_logic import (
 
 from sdapp.shared.services import AnalysisWindowManager, CheckpointRuntimeService, SingleInstanceBridge
 from sdapp.shared.menu.factory import build_shared_menu
+from sdapp.shared.app_metadata import format_window_title
 
 
 class SDAnalyzerApp:
@@ -48,7 +49,7 @@ class SDAnalyzerApp:
         instance_bridge: SingleInstanceBridge | None = None,
     ):
         self.root = root
-        self.root.title(APP_TITLE)
+        self.root.title(format_window_title(APP_TITLE))
         self.root.geometry("1400x900")
         self._app_icon_image: ImageTk.PhotoImage | None = None
         self._apply_runtime_icon()

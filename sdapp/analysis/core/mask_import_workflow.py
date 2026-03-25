@@ -93,6 +93,30 @@ def import_external_masks(app) -> None:
         app._set_propagated_frames(nonempty, mark_dirty=False)
         app.update_display()
     app._mark_project_dirty("import_external_masks")
+
+    # In host mode, treat imported masks like any other analysis-side edit and
+    # push the updated event payload back to the host immediately.
+    if bool(getattr(app, "_host_mode", False)) and callable(getattr(app, "_emit_host_sync", None)):
+        try:
+            sync_result = app._emit_host_sync("import_external_masks")
+        except Exception as exc:
+            log_warn = getattr(app, "log_warn", None)
+            if callable(log_warn):
+                log_warn("HostSync", f"Host update after mask import failed: {exc}")
+            messagebox.showwarning(
+                "Import Masks",
+                f"Masks were imported locally, but the host update failed.\n\n{exc}",
+                parent=app.root,
+            )
+        else:
+            if isinstance(sync_result, dict) and not bool(sync_result.get("ok", True)):
+                code = str(sync_result.get("code", "PAYLOAD_INVALID"))
+                message = str(sync_result.get("message", "Host rejected imported masks."))
+                messagebox.showwarning(
+                    "Import Masks",
+                    f"Masks were imported locally, but the host rejected the update [{code}].\n\n{message}",
+                    parent=app.root,
+                )
     messagebox.showinfo(
         "Import Masks",
         f"Imported {applied} mask frame(s) using '{guess.get('strategy')}' mapping into event '{event_id}'.",
