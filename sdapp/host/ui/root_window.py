@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import tkinter as tk
 
-from sdapp.host.sd_gui import SDAnalyzerApp
+from sdapp.host.app import SDAnalyzerApp
 from sdapp.shared.services import SingleInstanceBridge
 
 

@@ -37,6 +37,21 @@ def _frame_to_uint8(frame: np.ndarray) -> np.ndarray:
     return np.clip(norm * 255.0, 0.0, 255.0).astype(np.uint8)
 
 
+def normalize_visual_frame(frame: np.ndarray, *, p1: float | None = None, p99: float | None = None) -> np.ndarray:
+    arr = np.asarray(frame, dtype=np.float32)
+    if arr.size == 0:
+        return np.zeros((0, 0), dtype=np.uint8)
+    if p1 is None or p99 is None:
+        return _frame_to_uint8(arr)
+    lo = float(p1)
+    hi = float(p99)
+    denom = hi - lo
+    if denom <= 0:
+        denom = 1e-8
+    clipped = np.clip(arr, lo, hi)
+    return np.clip(((clipped - lo) / denom) * 255.0, 0.0, 255.0).astype(np.uint8)
+
+
 def _read_frame_float32(frame_source, idx: int) -> np.ndarray:
     raw = np.asarray(frame_source.get_raw_frame(int(idx)))
     if raw.ndim == 3 and raw.shape[2] in (3, 4):
@@ -146,15 +161,13 @@ def render_visualization_frame(
         subtracted = source.astype(np.float32, copy=False)
 
     if bool(resolved_stats.apply_global_normalization):
-        p1 = float(resolved_stats.p1 if resolved_stats.p1 is not None else 0.0)
-        p99 = float(resolved_stats.p99 if resolved_stats.p99 is not None else 1.0)
-        denom = p99 - p1
-        if denom <= 0:
-            denom = 1e-8
-        clipped = np.clip(subtracted, p1, p99)
-        visual = np.clip(((clipped - p1) / denom) * 255.0, 0.0, 255.0).astype(np.uint8)
+        visual = normalize_visual_frame(
+            subtracted,
+            p1=float(resolved_stats.p1 if resolved_stats.p1 is not None else 0.0),
+            p99=float(resolved_stats.p99 if resolved_stats.p99 is not None else 1.0),
+        )
     else:
-        visual = _frame_to_uint8(subtracted)
+        visual = normalize_visual_frame(subtracted)
     return raw.astype(np.float32, copy=False), subtracted, visual
 
 

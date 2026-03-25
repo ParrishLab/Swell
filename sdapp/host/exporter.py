@@ -103,57 +103,52 @@ def export_analysis(
     progress_lock = Lock()
     max_workers = 4
 
-    for event_idx, event in enumerate(selected_events, start=1):
-        if progress_callback is not None:
-            progress_callback(
-                {
-                    "phase": "event",
-                    "current": event_idx,
-                    "total": len(selected_events),
-                    "event_id": event.event_id,
-                }
-            )
-        event_dir = out_dir / event_output_segment_by_id[str(event.event_id)]
-        baseline_dir = event_dir / "baseline"
-        extent_dir = event_dir / "event_extent"
-        if bool(include_baseline_images):
-            baseline_dir.mkdir(parents=True, exist_ok=True)
-        if bool(include_event_images):
-            extent_dir.mkdir(parents=True, exist_ok=True)
-        masks_dir: Path | None = None
-        if bool(include_binary_masks):
-            masks_dir = event_dir / "binary_masks"
-            masks_dir.mkdir(parents=True, exist_ok=True)
-        overlay_dir: Path | None = None
-        if bool(include_mask_overlay_images):
-            overlay_dir = event_dir / "mask_overlays"
-            overlay_dir.mkdir(parents=True, exist_ok=True)
+    with ThreadPoolExecutor(max_workers=max_workers) as pool:
+        for event_idx, event in enumerate(selected_events, start=1):
+            if progress_callback is not None:
+                progress_callback(
+                    {
+                        "phase": "event",
+                        "current": event_idx,
+                        "total": len(selected_events),
+                        "event_id": event.event_id,
+                    }
+                )
+            event_dir = out_dir / event_output_segment_by_id[str(event.event_id)]
+            baseline_dir = event_dir / "baseline"
+            extent_dir = event_dir / "event_extent"
+            if bool(include_baseline_images):
+                baseline_dir.mkdir(parents=True, exist_ok=True)
+            if bool(include_event_images):
+                extent_dir.mkdir(parents=True, exist_ok=True)
+            masks_dir: Path | None = None
+            if bool(include_binary_masks):
+                masks_dir = event_dir / "binary_masks"
+                masks_dir.mkdir(parents=True, exist_ok=True)
+            overlay_dir: Path | None = None
+            if bool(include_mask_overlay_images):
+                overlay_dir = event_dir / "mask_overlays"
+                overlay_dir.mkdir(parents=True, exist_ok=True)
 
-        baseline_end = int(event.start_idx) - 1
-        baseline_start: int | None = None
-        event_records: list[tuple[int, str, ExportRecord]] = []
-        if baseline_end >= 0:
-            baseline_start = max(0, baseline_end - int(baseline_pre_frames) + 1)
-            baseline_scope_indices = list(range(baseline_start, baseline_end + 1))
-        else:
-            baseline_scope_indices = []
-        baseline_indices = list(baseline_scope_indices) if bool(include_baseline_images) else []
-        event_scope_indices = list(range(event.start_idx, event.end_idx + 1))
-        event_indices = list(event_scope_indices) if bool(include_event_images) else []
-        export_indices = set(baseline_indices + event_indices)
+            baseline_end = int(event.start_idx) - 1
+            baseline_start: int | None = None
+            event_records: list[tuple[int, str, ExportRecord]] = []
+            if baseline_end >= 0:
+                baseline_start = max(0, baseline_end - int(baseline_pre_frames) + 1)
+                baseline_scope_indices = list(range(baseline_start, baseline_end + 1))
+            else:
+                baseline_scope_indices = []
+            baseline_indices = list(baseline_scope_indices) if bool(include_baseline_images) else []
+            event_scope_indices = list(range(event.start_idx, event.end_idx + 1))
+            event_indices = list(event_scope_indices) if bool(include_event_images) else []
 
-        work_items: list[tuple[int, str, int]] = []
-        for frame_idx in baseline_indices:
-            work_items.append((frame_idx, "baseline", 0))
-        for frame_idx in event_indices:
-            work_items.append((frame_idx, "event", 1))
-
-        with ThreadPoolExecutor(max_workers=max_workers) as pool:
             future_map = {}
-            for frame_idx, role, _order in work_items:
-                target_dir = baseline_dir if role == "baseline" else extent_dir
-                fut = pool.submit(_export_frame, reader, frame_idx, target_dir, event.event_id, role, trace)
-                future_map[fut] = (frame_idx, role)
+            for frame_idx in baseline_indices:
+                fut = pool.submit(_export_frame, reader, frame_idx, baseline_dir, event.event_id, "baseline", trace)
+                future_map[fut] = (frame_idx, "baseline")
+            for frame_idx in event_indices:
+                fut = pool.submit(_export_frame, reader, frame_idx, extent_dir, event.event_id, "event", trace)
+                future_map[fut] = (frame_idx, "event")
 
             for fut in as_completed(future_map):
                 frame_idx, role = future_map[fut]
@@ -173,66 +168,66 @@ def export_analysis(
                         }
                     )
 
-        event_records.sort(key=lambda x: (0 if x[1] == "baseline" else 1, x[0]))
-        manifest_records.extend([rec for _idx, _role, rec in event_records])
+            event_records.sort(key=lambda x: (0 if x[1] == "baseline" else 1, x[0]))
+            manifest_records.extend([rec for _idx, _role, rec in event_records])
 
-        event_sidecar = dict((analysis_sidecar or {}).get(str(event.event_id), {}) or {})
-        mask_map = _build_event_global_mask_map(
-            event=event,
-            masks_payload=event_sidecar.get("masks_committed"),
-            baseline_pre_frames=int(baseline_pre_frames),
-        )
-        if masks_dir is not None:
-            for frame_idx in sorted(set(baseline_scope_indices + event_scope_indices)):
-                mask = mask_map.get(int(frame_idx))
-                if mask is None:
-                    continue
-                if not np.any(mask):
-                    continue
-                role = "baseline" if int(frame_idx) in baseline_scope_indices else "event"
-                mask_name = f"{int(frame_idx):06d}_{role}_mask.tiff"
-                _write_mask(masks_dir / mask_name, mask)
-                masks_exported += 1
-        if overlay_dir is not None:
-            overlay_indices = sorted(set(baseline_scope_indices + event_scope_indices))
-            for frame_idx in overlay_indices:
-                mask = mask_map.get(int(frame_idx))
-                if mask is None or not np.any(mask):
-                    continue
-                role = "baseline" if int(frame_idx) in baseline_scope_indices else "event"
-                _export_mask_overlay_frame(
-                    reader=reader,
-                    frame_idx=int(frame_idx),
-                    out_dir=overlay_dir,
-                    role=str(role),
-                    mask=mask,
-                )
-                mask_overlay_images_exported += 1
-
-        if include_any_metrics:
-            metrics_settings = MetricsSettingsResolver.resolve_for_event(
-                event_id=str(event.event_id),
-                analysis_sidecar={str(event.event_id): event_sidecar},
-                project_metadata=project_metadata if isinstance(project_metadata, dict) else {},
-            )
-            metric_result = _export_event_metrics(
-                reader=reader,
+            event_sidecar = dict((analysis_sidecar or {}).get(str(event.event_id), {}) or {})
+            mask_map = _build_event_global_mask_map(
                 event=event,
-                event_dir=event_dir,
                 masks_payload=event_sidecar.get("masks_committed"),
-                metrics_settings=metrics_settings,
-                include_metric_propagation_speed=bool(include_metric_propagation_speed),
-                include_metric_area_recruited=bool(include_metric_area_recruited),
-                include_metric_relative_area_recruited=bool(include_metric_relative_area_recruited),
+                baseline_pre_frames=int(baseline_pre_frames),
             )
-            metrics_files_exported += int(metric_result.get("files_written", 0))
+            if masks_dir is not None:
+                for frame_idx in sorted(set(baseline_scope_indices + event_scope_indices)):
+                    mask = mask_map.get(int(frame_idx))
+                    if mask is None:
+                        continue
+                    if not np.any(mask):
+                        continue
+                    role = "baseline" if int(frame_idx) in baseline_scope_indices else "event"
+                    mask_name = f"{int(frame_idx):06d}_{role}_mask.tiff"
+                    _write_mask(masks_dir / mask_name, mask)
+                    masks_exported += 1
+            if overlay_dir is not None:
+                overlay_indices = sorted(set(baseline_scope_indices + event_scope_indices))
+                for frame_idx in overlay_indices:
+                    mask = mask_map.get(int(frame_idx))
+                    if mask is None or not np.any(mask):
+                        continue
+                    role = "baseline" if int(frame_idx) in baseline_scope_indices else "event"
+                    _export_mask_overlay_frame(
+                        reader=reader,
+                        frame_idx=int(frame_idx),
+                        out_dir=overlay_dir,
+                        role=str(role),
+                        mask=mask,
+                    )
+                    mask_overlay_images_exported += 1
 
-        summary = event_to_dict(event)
-        summary["baseline_start_idx"] = baseline_start
-        summary["baseline_end_idx"] = baseline_end if baseline_end >= 0 else None
-        summary_path = event_dir / "event_summary.json"
-        summary_path.write_text(json.dumps(summary, indent=2), encoding="utf-8")
-        event_summaries.append(summary)
+            if include_any_metrics:
+                metrics_settings = MetricsSettingsResolver.resolve_for_event(
+                    event_id=str(event.event_id),
+                    analysis_sidecar={str(event.event_id): event_sidecar},
+                    project_metadata=project_metadata if isinstance(project_metadata, dict) else {},
+                )
+                metric_result = _export_event_metrics(
+                    reader=reader,
+                    event=event,
+                    event_dir=event_dir,
+                    masks_payload=event_sidecar.get("masks_committed"),
+                    metrics_settings=metrics_settings,
+                    include_metric_propagation_speed=bool(include_metric_propagation_speed),
+                    include_metric_area_recruited=bool(include_metric_area_recruited),
+                    include_metric_relative_area_recruited=bool(include_metric_relative_area_recruited),
+                )
+                metrics_files_exported += int(metric_result.get("files_written", 0))
+
+            summary = event_to_dict(event)
+            summary["baseline_start_idx"] = baseline_start
+            summary["baseline_end_idx"] = baseline_end if baseline_end >= 0 else None
+            summary_path = event_dir / "event_summary.json"
+            summary_path.write_text(json.dumps(summary, indent=2), encoding="utf-8")
+            event_summaries.append(summary)
 
     _write_manifest_csv(out_dir / "events_manifest.csv", manifest_records)
     _write_manifest_json(out_dir / "events_manifest.json", manifest_records, event_summaries)

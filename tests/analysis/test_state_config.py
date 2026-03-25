@@ -54,6 +54,25 @@ class AppConfigTests(unittest.TestCase):
             self.assertEqual(cfg.default_output, "output")
             self.assertEqual(cfg.default_baseline, 30)
 
+    def test_loads_packaged_default_config_when_runtime_config_missing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            runtime_root = Path(tmp) / "runtime"
+            app_root = Path(tmp) / "app"
+            resources_root = Path(tmp) / "resources"
+            runtime_root.mkdir()
+            app_root.mkdir()
+            resources_root.mkdir()
+            (resources_root / "default_config.json").write_text(
+                '{"default_output":"packaged","default_model":"managed://sam2.1_hiera_base_plus","default_baseline":18}',
+                encoding="utf-8",
+            )
+            with patch("sdapp.analysis.core.state.get_runtime_root", return_value=runtime_root), patch(
+                "sdapp.analysis.core.state.get_app_root", return_value=app_root
+            ), patch("sdapp.analysis.core.state.get_resources_root", return_value=resources_root):
+                cfg = AppConfig.load()
+            self.assertEqual(cfg.default_output, "packaged")
+            self.assertEqual(cfg.default_baseline, 18)
+
     def test_model_token_preserves_managed_uri(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

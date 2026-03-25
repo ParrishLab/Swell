@@ -17,7 +17,7 @@ from sdapp.analysis.core.io import IOActions
 from sdapp.analysis.core.segmentation import SegmentationActions
 from sdapp.analysis.core.render import RenderActions
 from sdapp.analysis.core.undo import UndoActions
-from sdapp.analysis.core.frame_source import EagerFrameSource
+from sdapp.analysis.core.frame_source import EagerFrameSource, FrameSequenceView
 from sdapp.analysis.core.analysis_controller import AnalysisController
 from sdapp.analysis.core.seg_state import SegmentationState
 from sdapp.analysis.core.inference_manager import InferenceManager
@@ -856,7 +856,7 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         frame_source = getattr(self, "frame_source", None)
         frames_raw = getattr(self, "frames_raw", None)
         if frame_source is not None:
-            return getattr(frame_source, "raw_frames", frames_raw)
+            return FrameSequenceView(frame_source, "get_raw_frame")
         return frames_raw
 
     def _get_frame_count(self):
@@ -913,7 +913,9 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         frame_source = getattr(self, "frame_source", None)
         frames_sub_viz = getattr(self, "frames_sub_viz", None)
         if frame_source is not None:
-            return getattr(frame_source, "visual_frames", frames_sub_viz)
+            capabilities = dict(getattr(frame_source, "capabilities", {}) or {})
+            if bool(capabilities.get("visual")):
+                return FrameSequenceView(frame_source, "get_visual_frame")
         return frames_sub_viz
 
     def _get_frame_names(self):

@@ -66,6 +66,7 @@ def test_check_for_updates_returns_available_release() -> None:
 def test_automatic_check_honors_ignored_version() -> None:
     cfg = AppConfig.load()
     cfg.ignored_version = "0.1.4"
+    cfg.last_update_check_at = None
     service = _service()
 
     result = service.check_for_updates(cfg, automatic=True, now=datetime(2026, 3, 23, 12, 0, tzinfo=timezone.utc))

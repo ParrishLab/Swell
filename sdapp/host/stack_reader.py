@@ -45,10 +45,10 @@ class StackReader:
             ext = file_path.suffix.lower()
             if ext in {".tif", ".tiff"}:
                 with tifffile.TiffFile(str(file_path)) as tif:
-                    pages = list(tif.pages)
-                    if not pages:
+                    page_count = int(len(tif.pages))
+                    if page_count <= 0:
                         continue
-                    for page_idx, page in enumerate(pages):
+                    for page_idx, page in enumerate(tif.pages):
                         if len(page.shape) < 2:
                             continue
                         shape = _normalized_frame_shape_from_shape(page.shape)
@@ -59,7 +59,7 @@ class StackReader:
                             dtype_str = str(page.dtype)
                         if shape != expected_shape:
                             continue
-                        name = file_path.name if len(pages) == 1 else f"{file_path.name}_p{page_idx:04d}"
+                        name = file_path.name if page_count == 1 else f"{file_path.name}_p{page_idx:04d}"
                         frame_refs.append(
                             FrameRef(
                                 frame_idx=counter,
@@ -72,12 +72,13 @@ class StackReader:
                         counter += 1
             else:
                 with Image.open(file_path) as img:
-                    arr = np.asarray(img)
-                arr = _to_grayscale(arr)
-                shape = arr.shape
+                    shape = _normalized_pil_frame_shape(img)
+                    dtype_guess = _pil_dtype_str(img)
+                if shape is None:
+                    continue
                 if expected_shape is None:
                     expected_shape = shape
-                    dtype_str = str(arr.dtype)
+                    dtype_str = dtype_guess
                 if shape != expected_shape:
                     continue
                 frame_refs.append(
@@ -263,6 +264,27 @@ def _normalized_frame_shape_from_shape(raw_shape) -> tuple[int, int] | None:
     if len(squeezed) == 3 and int(squeezed[2]) in (3, 4):
         return int(squeezed[0]), int(squeezed[1])
     return None
+
+
+def _normalized_pil_frame_shape(image: Image.Image) -> tuple[int, int] | None:
+    try:
+        width, height = image.size
+    except Exception:
+        return None
+    if int(width) <= 0 or int(height) <= 0:
+        return None
+    return int(height), int(width)
+
+
+def _pil_dtype_str(image: Image.Image) -> str:
+    mode = str(getattr(image, "mode", "") or "").upper()
+    if mode in {"I;16", "I;16B", "I;16L", "I;16N"}:
+        return "uint16"
+    if mode == "I":
+        return "int32"
+    if mode == "F":
+        return "float32"
+    return "uint8"
 
 
 def _natural_sort_key(path: Path) -> tuple:

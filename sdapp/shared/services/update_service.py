@@ -2,17 +2,15 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 import re
 import sys
-from typing import TYPE_CHECKING, Callable
+from typing import Callable
 import urllib.request
 import webbrowser
 import xml.etree.ElementTree as ET
 
 from sdapp.shared.app_metadata import detect_app_version
-
-if TYPE_CHECKING:
-    from sdapp.analysis.core.state import AppConfig
 
 
 SPARKLE_NS = "http://www.andymatuschak.org/xml-namespaces/sparkle"

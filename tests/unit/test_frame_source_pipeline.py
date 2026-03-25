@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from sdapp.shared.frame_source import EventScopedFrameSource, build_visualization_stack
+from sdapp.shared.frame_source import EventScopedFrameSource, PreparedFrameSource, build_visualization_stack
 
 
 class DummyFrameSource:
@@ -56,3 +56,17 @@ def test_shared_visualization_stack_pipeline_shapes() -> None:
     assert sub.shape == (10, 16, 16)
     assert viz.shape == (10, 16, 16)
     assert viz.dtype == np.uint8
+
+
+def test_prepared_frame_source_matches_shared_pipeline() -> None:
+    rng = np.random.default_rng(4)
+    frames = [rng.normal(100, 7, size=(12, 10)).astype(np.float32) for _ in range(8)]
+    src = DummyFrameSource(frames)
+    expected_raw, expected_sub, expected_viz = build_visualization_stack(src, baseline_frames=3)
+    prepared = PreparedFrameSource(src, baseline_frames=3)
+
+    assert prepared.capabilities == {"raw": True, "subtracted": True, "visual": True}
+    for idx in range(src.frame_count):
+        assert np.array_equal(prepared.get_raw_frame(idx), expected_raw[idx])
+        assert np.array_equal(prepared.get_subtracted_frame(idx), expected_sub[idx])
+        assert np.array_equal(prepared.get_visual_frame(idx), expected_viz[idx])

@@ -3,9 +3,28 @@ from __future__ import annotations
 """Frame-source abstractions for analysis workspace consumers."""
 
 from dataclasses import dataclass, field
+from typing import Iterator
 
 import numpy as np
 from sdapp.shared.frame_source.protocols import FrameSource
+
+
+@dataclass
+class FrameSequenceView:
+    frame_source: FrameSource
+    getter_name: str
+
+    def __len__(self) -> int:
+        return int(getattr(self.frame_source, "frame_count", 0) or 0)
+
+    def __iter__(self) -> Iterator[np.ndarray]:
+        getter = getattr(self.frame_source, self.getter_name)
+        for idx in range(len(self)):
+            yield getter(idx)
+
+    def __getitem__(self, idx: int) -> np.ndarray:
+        getter = getattr(self.frame_source, self.getter_name)
+        return getter(int(idx))
 
 
 @dataclass
@@ -28,7 +47,11 @@ class EagerFrameSource:
 
     @property
     def capabilities(self) -> dict[str, bool]:
-        return {"raw": True, "subtracted": True, "visual": True}
+        return {
+            "raw": bool(self.raw_frames),
+            "subtracted": bool(self.subtracted_frames),
+            "visual": bool(self.visual_frames),
+        }
 
     def _validate_index(self, idx: int) -> int:
         idx = int(idx)
@@ -40,7 +63,11 @@ class EagerFrameSource:
         return self.raw_frames[self._validate_index(idx)]
 
     def get_subtracted_frame(self, idx: int) -> np.ndarray:
+        if not self.subtracted_frames:
+            raise NotImplementedError("Subtracted frames are not available for this frame source.")
         return self.subtracted_frames[self._validate_index(idx)]
 
     def get_visual_frame(self, idx: int) -> np.ndarray:
+        if not self.visual_frames:
+            raise NotImplementedError("Visualization frames are not available for this frame source.")
         return self.visual_frames[self._validate_index(idx)]

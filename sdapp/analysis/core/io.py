@@ -4,9 +4,10 @@ from pathlib import Path
 import cv2
 import numpy as np
 import tifffile
-from scipy.ndimage import gaussian_filter
 from tkinter import filedialog, messagebox
 
+from sdapp.analysis.core.frame_source import EagerFrameSource
+from sdapp.shared.frame_source import build_visualization_stack
 from sdapp.analysis.utils.paths import resolve_existing_directory
 
 
@@ -258,36 +259,15 @@ class IOActions:
             self.root.after(0, lambda: self._set_busy(False, "Status: Error", "red"))
 
     def _prepare_frame_arrays(self, frames):
-        frames_raw = np.array(frames).astype(np.float32)
-
-        self.log_info("Import", "Applying smoothing...")
-        frames_denoised = []
-        for f in frames_raw:
-            frames_denoised.append(gaussian_filter(f, sigma=0.5))
-        frames_denoised = np.array(frames_denoised)
-
-        self.log_info("Import", "Calculating baseline...")
-        b_frames = int(self.get_baseline_frame_count())
-        b_frames = min(b_frames, len(frames))
-        baseline = np.median(frames_denoised[:b_frames], axis=0)
-        frames_sub = frames_denoised - baseline
-
-        self.log_info("Import", "Calculating global normalization...")
-        subsample = frames_sub[::5]
-        global_p1 = np.percentile(subsample, 1)
-        global_p99 = np.percentile(subsample, 99)
-        denom = global_p99 - global_p1
-        if denom == 0:
-            denom = 1e-8
-
-        self.log_info("Import", "Generating display cache...")
-        processed_viz_frames = []
-        for frame in frames_sub:
-            frame_clipped = np.clip(frame, global_p1, global_p99)
-            f_norm = (frame_clipped - global_p1) / denom
-            f_8bit = (f_norm * 255).astype(np.uint8)
-            processed_viz_frames.append(f_8bit)
-        return frames_raw, frames_sub, processed_viz_frames
+        self.log_info("Import", "Preparing shared preprocessing pipeline...")
+        source = EagerFrameSource(raw_frames=[np.asarray(frame, dtype=np.float32, copy=False) for frame in frames])
+        return build_visualization_stack(
+            source,
+            baseline_frames=max(1, int(self.get_baseline_frame_count())),
+            apply_smoothing=True,
+            apply_baseline_subtraction=True,
+            apply_global_normalization=True,
+        )
 
     def _finalize_load_ui(self):
         count = int(self._get_frame_count()) if hasattr(self, "_get_frame_count") else (len(self.frames_raw) if self.frames_raw is not None else 0)

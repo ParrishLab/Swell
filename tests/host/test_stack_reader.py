@@ -70,6 +70,25 @@ def test_open_stack_png_filters_mismatched_shapes_and_reads_frames(tmp_path: Pat
     assert np.array_equal(f1, b)
 
 
+def test_open_stack_png_uses_metadata_during_indexing(tmp_path: Path, monkeypatch) -> None:
+    arr = np.full((6, 7), 10, dtype=np.uint8)
+    _save_png(tmp_path / "a.png", arr)
+    _save_png(tmp_path / "b.png", arr)
+
+    real_asarray = np.asarray
+
+    def _guard(value, *args, **kwargs):
+        if isinstance(value, Image.Image):
+            raise AssertionError("open_stack should not decode PNG files while indexing")
+        return real_asarray(value, *args, **kwargs)
+
+    monkeypatch.setattr("sdapp.host.stack_reader.np.asarray", _guard)
+
+    reader = StackReader()
+    info = reader.open_stack(tmp_path)
+    assert info.frame_count == 2
+
+
 def test_open_stack_tiff_multipage_creates_page_names(tmp_path: Path) -> None:
     tiff_path = tmp_path / "stack.tif"
     page0 = np.full((4, 5), 11, dtype=np.uint16)

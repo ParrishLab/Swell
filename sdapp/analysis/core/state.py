@@ -51,10 +51,13 @@ def _runtime_config_dir() -> Path:
 def _config_path_candidates() -> list[Path]:
     runtime_path = _runtime_config_dir() / "config.json"
     candidates = [runtime_path]
-    for base in (get_runtime_root(), get_resources_root(), get_app_root()):
+    for base in (get_runtime_root(), get_app_root()):
         path = Path(base) / "config.json"
         if path not in candidates:
             candidates.append(path)
+    packaged_default = Path(get_resources_root()) / "default_config.json"
+    if packaged_default not in candidates:
+        candidates.append(packaged_default)
     return candidates
 
 

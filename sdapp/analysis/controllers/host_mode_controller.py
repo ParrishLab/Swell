@@ -4,7 +4,8 @@ from pathlib import Path
 
 import numpy as np
 
-from sdapp.shared.frame_source import EventScopedFrameSource, build_visualization_stack
+from sdapp.analysis.core.frame_source import FrameSequenceView
+from sdapp.shared.frame_source import EventScopedFrameSource, PreparedFrameSource
 from sdapp.shared.services import MODEL_CHECKPOINT_METADATA_KEY
 
 
@@ -331,12 +332,8 @@ class AnalysisHostModeController:
             pass
 
     def prepare_host_mode_buffers(self, frame_source, on_ready_message: str | None = None, prefer_async: bool = False):
-        if not hasattr(self.app, "_host_buffer_generation"):
-            self.app._host_buffer_generation = 0
         if not hasattr(self.app, "_host_buffer_cache_key"):
             self.app._host_buffer_cache_key = None
-        if not hasattr(self.app, "_host_buffer_sync_limit"):
-            self.app._host_buffer_sync_limit = 240
         frame_count = int(getattr(frame_source, "frame_count", 0) or 0)
         self._debug_frame_source("prepare_host_mode_buffers.input", frame_source)
         if frame_count <= 0:
@@ -370,9 +367,9 @@ class AnalysisHostModeController:
                     self.app.set_baseline_frame_count(baseline_count)
                 except Exception:
                     pass
+
         self.app.frame_names = list(getattr(frame_source, "frame_names", []))
         self.app._current_image_source_paths = list(getattr(frame_source, "source_paths", []))
-        baseline_count = int(max(1, baseline_count))
         processing_opts = dict(getattr(self.app, "_host_processing_options", {}) or {})
         apply_smoothing = bool(processing_opts.get("apply_smoothing", True))
         apply_baseline_subtraction = bool(processing_opts.get("apply_baseline_subtraction", True))
@@ -387,7 +384,7 @@ class AnalysisHostModeController:
             id(frame_source),
             int(frame_count),
             tuple(int(v) for v in getattr(frame_source, "frame_shape", (0, 0))),
-            int(baseline_count),
+            int(max(1, baseline_count)),
             bool(apply_smoothing),
             bool(apply_baseline_subtraction),
             bool(apply_global_normalization),
@@ -395,92 +392,27 @@ class AnalysisHostModeController:
         if self.app._host_buffer_cache_key == cache_key and self.app.frames_sub_viz is not None:
             return True
 
-        sync_limit = int(getattr(self.app, "_host_buffer_sync_limit", 240))
-        if frame_count <= sync_limit and not bool(prefer_async):
-            raw_frames, frames_sub, frames_viz = build_visualization_stack(
-                frame_source,
-                baseline_frames=baseline_count,
-                apply_smoothing=apply_smoothing,
-                apply_baseline_subtraction=apply_baseline_subtraction,
-                apply_global_normalization=apply_global_normalization,
-                stats=prepared_stats,
-            )
-            self.app.frames_raw = raw_frames
-            self.app.frames_sub = frames_sub
-            self.app.frames_sub_viz = frames_viz
-            self.app._host_buffer_cache_key = cache_key
-            return True
-
-        self.app.frames_raw = None
-        self.app.frames_sub = None
-        self.app.frames_sub_viz = None
-        preview_raw = launch_preparation.get("raw_frame")
-        preview_sub = launch_preparation.get("sub_frame")
-        preview_viz = launch_preparation.get("viz_frame")
-        preview_idx = launch_preparation.get("local_frame_idx")
-        if preview_raw is not None and preview_viz is not None and preview_idx is not None:
-            self.app._host_launch_preparation = {
-                "local_frame_idx": int(preview_idx),
-                "raw_frame": np.asarray(preview_raw, dtype=np.float32).copy(),
-                "sub_frame": (
-                    np.asarray(preview_sub, dtype=np.float32).copy()
-                    if preview_sub is not None
-                    else None
-                ),
-                "viz_frame": np.asarray(preview_viz, dtype=np.uint8).copy(),
-                "stats": prepared_stats,
-            }
-        self.app._host_buffer_cache_key = None
-        self.app._host_buffer_generation += 1
-        generation = self.app._host_buffer_generation
-        self.app.log_info("HostMode", f"Preparing visualization cache in background ({frame_count} frames)...")
-
-        def _worker() -> None:
-            raw_frames, frames_sub, frames_viz = build_visualization_stack(
-                frame_source,
-                baseline_frames=baseline_count,
-                apply_smoothing=apply_smoothing,
-                apply_baseline_subtraction=apply_baseline_subtraction,
-                apply_global_normalization=apply_global_normalization,
-                stats=prepared_stats,
-            )
-
-            def _apply() -> None:
-                if generation != self.app._host_buffer_generation:
-                    return
-                self.app.frames_raw = raw_frames
-                self.app.frames_sub = frames_sub
-                self.app.frames_sub_viz = frames_viz
-                self.app._host_buffer_cache_key = cache_key
-                raw_count = int(len(raw_frames)) if raw_frames is not None else 0
-                sub_count = int(len(frames_sub)) if frames_sub is not None else 0
-                viz_count = int(len(frames_viz)) if frames_viz is not None else 0
-                first_raw_shape = getattr(raw_frames[0], "shape", None) if raw_count > 0 else None
-                first_sub_shape = getattr(frames_sub[0], "shape", None) if sub_count > 0 else None
-                first_viz_shape = getattr(frames_viz[0], "shape", None) if viz_count > 0 else None
-                self.app.log_debug(
-                    "HostMode",
-                    f"prepare_host_mode_buffers.apply generation={generation} raw_frames={raw_count} "
-                    f"sub_frames={sub_count} viz_frames={viz_count} "
-                    f"first_raw_shape={first_raw_shape} first_sub_shape={first_sub_shape} first_viz_shape={first_viz_shape}",
-                )
-                if self.app._ui_alive():
-                    self.app._host_launch_preparation = None
-                    if bool(getattr(self.app, "_host_post_open_ui_initialized", False)):
-                        self.app._finalize_load_ui()
-                        self.app.update_display(update_preview=True)
-                        pending_reason = getattr(self.app, "_host_pending_model_init_reason", None)
-                        if pending_reason:
-                            self._maybe_start_host_model_initialization(str(pending_reason))
-                        self.app.log_info("HostMode", on_ready_message or "Host workspace ready.")
-                    else:
-                        self.app._post_host_mode_open_ui(on_ready_message or "Host workspace ready.")
-                        pending_reason = getattr(self.app, "_host_pending_model_init_reason", None)
-                        if pending_reason:
-                            self._maybe_start_host_model_initialization(str(pending_reason))
-
-            if self.app._ui_alive():
-                self.app.root.after(0, _apply)
-
-        self.app._run_thread(_worker)
-        return False
+        prepared_source = PreparedFrameSource(
+            frame_source,
+            baseline_frames=max(1, int(baseline_count)),
+            apply_smoothing=apply_smoothing,
+            apply_baseline_subtraction=apply_baseline_subtraction,
+            apply_global_normalization=apply_global_normalization,
+            stats=prepared_stats if prepared_stats is not None else None,
+        )
+        prepared_source.prepare()
+        self.app.frame_source = prepared_source
+        workspace = getattr(self.app, "analysis_workspace", None)
+        if workspace is not None:
+            workspace.bind_frame_source(prepared_source)
+        if hasattr(self.app, "app_context") and self.app.app_context is not None:
+            self.app.app_context.frame_source = prepared_source
+        self.app.frames_raw = FrameSequenceView(prepared_source, "get_raw_frame")
+        self.app.frames_sub = FrameSequenceView(prepared_source, "get_subtracted_frame")
+        self.app.frames_sub_viz = FrameSequenceView(prepared_source, "get_visual_frame")
+        self.app._host_buffer_cache_key = cache_key
+        self.app._host_launch_preparation = None
+        self.app.log_info("HostMode", f"Prepared lazy visualization source ({frame_count} frames).")
+        if on_ready_message:
+            self.app.log_info("HostMode", str(on_ready_message))
+        return True
