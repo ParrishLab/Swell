@@ -20,6 +20,22 @@ def _write_fixture_repo(tmp_path: Path, version: str = "1.2.3") -> None:
         + "\n",
         encoding="utf-8",
     )
+    installer_dir = tmp_path / "packaging" / "windows"
+    installer_dir.mkdir(parents=True, exist_ok=True)
+    (installer_dir / "sdapp_installer.nsi").write_text(
+        "\n".join(
+            [
+                'Unicode true',
+                'RequestExecutionLevel user',
+                '',
+                '!define APP_NAME "SDApp"',
+                f'!define APP_VERSION "{version}"',
+                '!define APP_EXE "SDApp.exe"',
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
     (tmp_path / "CHANGELOG.md").write_text(
         "\n".join(
             [
@@ -70,8 +86,11 @@ def test_bump_version_patch_updates_pyproject_and_changelog(tmp_path: Path) -> N
         check=True,
     )
     assert "BUMP_VERSION:OK:old=1.2.3;new=1.2.4;" in proc.stdout
+    assert "windows_installer_updated=true" in proc.stdout
     pyproject = (tmp_path / "pyproject.toml").read_text(encoding="utf-8")
     assert 'version = "1.2.4"' in pyproject
+    installer = (tmp_path / "packaging" / "windows" / "sdapp_installer.nsi").read_text(encoding="utf-8")
+    assert '!define APP_VERSION "1.2.4"' in installer
     changelog = (tmp_path / "CHANGELOG.md").read_text(encoding="utf-8")
     assert "## [1.2.4] - 2026-03-17" in changelog
     assert "### Model/checkpoint compatibility" in changelog
@@ -84,6 +103,7 @@ def test_bump_version_explicit_dry_run_makes_no_changes(tmp_path: Path) -> None:
     _write_fixture_repo(tmp_path, version="1.2.3")
     before_pyproject = (tmp_path / "pyproject.toml").read_text(encoding="utf-8")
     before_changelog = (tmp_path / "CHANGELOG.md").read_text(encoding="utf-8")
+    before_installer = (tmp_path / "packaging" / "windows" / "sdapp_installer.nsi").read_text(encoding="utf-8")
     script = ROOT / "scripts" / "release" / "bump_version.py"
     proc = subprocess.run(
         [sys.executable, str(script), "2.0.0", "--dry-run"],
@@ -95,3 +115,4 @@ def test_bump_version_explicit_dry_run_makes_no_changes(tmp_path: Path) -> None:
     assert "BUMP_VERSION:DRY_RUN:old=1.2.3;new=2.0.0" in proc.stdout
     assert (tmp_path / "pyproject.toml").read_text(encoding="utf-8") == before_pyproject
     assert (tmp_path / "CHANGELOG.md").read_text(encoding="utf-8") == before_changelog
+    assert (tmp_path / "packaging" / "windows" / "sdapp_installer.nsi").read_text(encoding="utf-8") == before_installer

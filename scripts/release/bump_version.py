@@ -39,6 +39,11 @@ def _parse_args() -> argparse.Namespace:
         help="Path to CHANGELOG.md (default: CHANGELOG.md).",
     )
     parser.add_argument(
+        "--windows-installer",
+        default="packaging/windows/sdapp_installer.nsi",
+        help="Path to Windows NSIS installer script (default: packaging/windows/sdapp_installer.nsi).",
+    )
+    parser.add_argument(
         "--date",
         dest="release_date",
         default=date.today().isoformat(),
@@ -87,6 +92,18 @@ def _write_pyproject_version(pyproject_path: Path, new_version: str) -> None:
     if count != 1:
         raise RuntimeError(f"Unable to update version in {pyproject_path}")
     pyproject_path.write_text(updated, encoding="utf-8")
+
+
+def _write_windows_installer_version(installer_path: Path, new_version: str) -> bool:
+    if not installer_path.exists():
+        return False
+    text = installer_path.read_text(encoding="utf-8")
+    pattern = re.compile(r'(?m)^!define\s+APP_VERSION\s+"[^"]+"\s*$')
+    updated, count = pattern.subn(f'!define APP_VERSION "{new_version}"', text, count=1)
+    if count != 1:
+        raise RuntimeError(f"Unable to update APP_VERSION in {installer_path}")
+    installer_path.write_text(updated, encoding="utf-8")
+    return True
 
 
 def _release_block(version: str, release_date: str) -> str:
@@ -159,6 +176,7 @@ def main() -> int:
     repo_root = Path.cwd()
     pyproject_path = (repo_root / args.pyproject).resolve()
     changelog_path = (repo_root / args.changelog).resolve()
+    windows_installer_path = (repo_root / args.windows_installer).resolve()
 
     if not pyproject_path.exists():
         raise FileNotFoundError(f"Missing pyproject.toml: {pyproject_path}")
@@ -173,6 +191,7 @@ def main() -> int:
         return 0
 
     _write_pyproject_version(pyproject_path, new_version)
+    windows_installer_updated = _write_windows_installer_version(windows_installer_path, new_version)
     inserted = _insert_changelog_section(changelog_path, new_version, args.release_date)
 
     tag_name = f"v{new_version}"
@@ -181,6 +200,7 @@ def main() -> int:
 
     print(
         f"BUMP_VERSION:OK:old={current_version};new={new_version};"
+        f"windows_installer_updated={'true' if windows_installer_updated else 'false'};"
         f"changelog_inserted={'true' if inserted else 'false'};"
         f"tag_created={'true' if args.tag else 'false'}"
     )
