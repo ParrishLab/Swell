@@ -54,11 +54,11 @@ def test_windows_spec_bundles_winsparkle_runtime() -> None:
     assert 'binaries.append((str(winsparkle_dll), "."))' in spec
 
 
-def test_release_workflow_publishes_updater_artifacts() -> None:
+def test_release_workflow_disables_updater_artifacts_by_default() -> None:
     workflow = (ROOT / ".github" / "workflows" / "release_phase3_tag.yml").read_text(encoding="utf-8")
-    assert "scripts/release/generate_appcasts.py" in workflow
-    assert "scripts/release/sign_macos_update.py" in workflow or "build_macos_app_arm64.sh" in workflow
-    assert "dist/appcast-macos.xml" in workflow
-    assert "dist/appcast-windows.xml" in workflow
-    assert "dist/SDApp-Setup-*.exe" in workflow
-    assert "dist/sdapp-macos-arm64-signature.json" in workflow
+    assert 'SDAPP_ENABLE_UPDATER_ARTIFACTS: "false"' in workflow
+    assert "SDAPP_SIGN_UPDATES" in workflow
+    assert "SDAPP_BUILD_INSTALLER" in workflow
+    assert "if: env.SDAPP_ENABLE_UPDATER_ARTIFACTS == 'true'" in workflow
+    assert "dist/sdapp-macos-arm64.zip" in workflow
+    assert "dist/sdapp-windows-x64.zip" in workflow

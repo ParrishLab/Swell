@@ -11,7 +11,7 @@ This runbook produces local release artifacts for the unified `sdapp` app.
 
 ## Current macOS distribution stance
 - Apple Developer code signing, notarization, and stapling are intentionally deferred.
-- macOS release artifacts are still packaged and Sparkle archive signatures are still generated.
+- macOS release artifacts are still packaged, but updater signing and appcast generation are currently disabled in the default release workflow.
 - End users should expect Gatekeeper warnings and may need to use `Open Anyway` or equivalent manual override steps.
 - This is a deliberate tradeoff, not a release-blocking failure.
 
@@ -58,7 +58,6 @@ After a successful run, `dist/` should contain:
 - `sdapp-<version>.tar.gz`
 - `sdapp-<version>-py3-none-any.whl`
 - `sdapp-macos-arm64.zip`
-- `sdapp-macos-arm64-signature.json`
 - `sdapp-macos-x86_64.zip`
 - `sdapp-windows-x64.zip` (when built on Windows)
 - `compatibility.json`
@@ -74,7 +73,6 @@ After a successful run, `dist/` should contain:
   - `supported_platforms`
   - `runtime_policy`
 - `dist/SHA256SUMS.txt` exists and includes hashes for produced top-level `dist` files.
-- `dist/sdapp-macos-arm64-signature.json` exists when the arm64 macOS archive is built.
 
 ## CI Phase 2 Gates (PR)
 PR validation now includes four required jobs in `.github/workflows/release_phase2_pr.yml`:
@@ -135,8 +133,7 @@ Draft release automation is defined in `.github/workflows/release_phase3_tag.yml
 - `macos-arm64-package`:
   - startup smoke passes,
   - `dist/macos-arm64/SDApp.app` exists,
-  - `dist/sdapp-macos-arm64.zip` exists,
-  - `dist/sdapp-macos-arm64-signature.json` exists.
+  - `dist/sdapp-macos-arm64.zip` exists.
 - `windows-runtime-gate`:
   - full test suite passes,
   - startup smoke returns `SMOKE_TEST:PASS`,
@@ -145,7 +142,6 @@ Draft release automation is defined in `.github/workflows/release_phase3_tag.yml
   - Windows x64 package is produced.
 - `release-assemble`:
   - collects macOS arm64 artifact,
-  - collects macOS Sparkle signature metadata,
   - collects Windows x64 package,
   - generates `_release/release_notes.md` from changelog,
   - generates `dist/compatibility.json`,
@@ -172,7 +168,6 @@ Draft release automation is defined in `.github/workflows/release_phase3_tag.yml
 - Draft release exists for the expected tag.
 - Assets attached:
   - `sdapp-macos-arm64.zip`
-  - `sdapp-macos-arm64-signature.json`
   - `sdapp-windows-x64.zip`
   - `compatibility.json`
   - `SHA256SUMS.txt`

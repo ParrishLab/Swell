@@ -10,6 +10,7 @@ ARCH_DIST="$DIST_ROOT/macos-arm64"
 WORK_PATH="$REPO_ROOT/build/pyinstaller-arm64"
 ZIP_OUT="$DIST_ROOT/sdapp-macos-arm64.zip"
 SIGNATURE_OUT="$DIST_ROOT/sdapp-macos-arm64-signature.json"
+SIGN_UPDATES_FLAG="${SDAPP_SIGN_UPDATES:-true}"
 
 cd "$REPO_ROOT"
 
@@ -41,11 +42,15 @@ else
   (cd "$ARCH_DIST" && zip -r "$ZIP_OUT" "SDApp.app")
 fi
 
-"$PYTHON_BIN" "$REPO_ROOT/scripts/release/sign_macos_update.py" \
-  --repo-root "$REPO_ROOT" \
-  --archive "$ZIP_OUT" \
-  --output "$SIGNATURE_OUT"
+if [[ "${SIGN_UPDATES_FLAG,,}" == "1" || "${SIGN_UPDATES_FLAG,,}" == "true" || "${SIGN_UPDATES_FLAG,,}" == "yes" ]]; then
+  "$PYTHON_BIN" "$REPO_ROOT/scripts/release/sign_macos_update.py" \
+    --repo-root "$REPO_ROOT" \
+    --archive "$ZIP_OUT" \
+    --output "$SIGNATURE_OUT"
+  echo "[release] Signature: $SIGNATURE_OUT" >&2
+else
+  echo "[release] Sparkle signature generation skipped (SDAPP_SIGN_UPDATES disabled)." >&2
+fi
 
 echo "[release] macOS arm64 bundle ready: $APP_BUNDLE" >&2
 echo "[release] Archive: $ZIP_OUT" >&2
-echo "[release] Signature: $SIGNATURE_OUT" >&2

@@ -93,6 +93,8 @@ def test_generate_checksums_script_writes_sha256sums(tmp_path: Path) -> None:
 
 def test_generate_appcasts_script_writes_platform_feeds(tmp_path: Path) -> None:
     script = ROOT / "scripts" / "release" / "generate_appcasts.py"
+    pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    version = str(pyproject["project"]["version"])
     dist_dir = tmp_path / "dist"
     dist_dir.mkdir(parents=True, exist_ok=True)
     (dist_dir / "sdapp-macos-arm64.zip").write_bytes(b"mac")
@@ -100,7 +102,7 @@ def test_generate_appcasts_script_writes_platform_feeds(tmp_path: Path) -> None:
         json.dumps({"archive": "sdapp-macos-arm64.zip", "ed_signature": "abc123=", "length": 3}),
         encoding="utf-8",
     )
-    (dist_dir / "SDApp-Setup-0.1.3.exe").write_bytes(b"win")
+    (dist_dir / f"SDApp-Setup-{version}.exe").write_bytes(b"win")
 
     subprocess.run(
         [
@@ -113,7 +115,7 @@ def test_generate_appcasts_script_writes_platform_feeds(tmp_path: Path) -> None:
             "--output-dir",
             str(dist_dir),
             "--release-tag",
-            "v0.1.3",
+            f"v{version}",
             "--github-repo",
             "ClayDunford/Combined-tool-test",
             "--published-at",
@@ -131,7 +133,7 @@ def test_generate_appcasts_script_writes_platform_feeds(tmp_path: Path) -> None:
         "{http://www.andymatuschak.org/xml-namespaces/sparkle}edSignature"
     ]
 
-    assert windows_url.endswith("/SDApp-Setup-0.1.3.exe")
+    assert windows_url.endswith(f"/SDApp-Setup-{version}.exe")
     assert mac_url.endswith("/sdapp-macos-arm64.zip")
     assert mac_sig == "abc123="
 
