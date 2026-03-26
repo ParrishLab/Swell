@@ -12,6 +12,7 @@ class VisualizationStats:
     frame_count: int
     frame_shape: tuple[int, int]
     baseline_frames: int
+    apply_horizontal_bar_denoise: bool
     apply_smoothing: bool
     apply_baseline_subtraction: bool
     apply_global_normalization: bool
@@ -59,11 +60,38 @@ def _read_frame_float32(frame_source, idx: int) -> np.ndarray:
     return raw.astype(np.float32, copy=False)
 
 
-def _processed_source_frame(frame_source, idx: int, *, apply_smoothing: bool) -> np.ndarray:
-    raw = _read_frame_float32(frame_source, idx)
+def remove_horizontal_bar_artifacts(frame: np.ndarray) -> np.ndarray:
+    arr = np.asarray(frame, dtype=np.float32)
+    if arr.ndim != 2 or arr.size == 0:
+        return arr.astype(np.float32, copy=False)
+    row_bias = np.median(arr, axis=1, keepdims=True).astype(np.float32, copy=False)
+    global_bias = float(np.median(row_bias))
+    corrected = arr - (row_bias - global_bias)
+    return corrected.astype(np.float32, copy=False)
+
+
+def _processed_frame(raw: np.ndarray, *, apply_horizontal_bar_denoise: bool, apply_smoothing: bool) -> np.ndarray:
+    source = np.asarray(raw, dtype=np.float32, copy=False)
+    if bool(apply_horizontal_bar_denoise):
+        source = remove_horizontal_bar_artifacts(source)
     if not bool(apply_smoothing):
-        return raw
-    return gaussian_filter(raw, sigma=0.5)
+        return source
+    return gaussian_filter(source, sigma=0.5)
+
+
+def _processed_source_frame(
+    frame_source,
+    idx: int,
+    *,
+    apply_horizontal_bar_denoise: bool,
+    apply_smoothing: bool,
+) -> np.ndarray:
+    raw = _read_frame_float32(frame_source, idx)
+    return _processed_frame(
+        raw,
+        apply_horizontal_bar_denoise=bool(apply_horizontal_bar_denoise),
+        apply_smoothing=bool(apply_smoothing),
+    )
 
 
 def _raise_if_cancelled(should_cancel: Callable[[], bool] | None) -> None:
@@ -75,6 +103,7 @@ def compute_visualization_stats(
     frame_source,
     *,
     baseline_frames: int = 30,
+    apply_horizontal_bar_denoise: bool = False,
     apply_smoothing: bool = True,
     apply_baseline_subtraction: bool = True,
     apply_global_normalization: bool = True,
@@ -86,6 +115,7 @@ def compute_visualization_stats(
             frame_count=0,
             frame_shape=(0, 0),
             baseline_frames=0,
+            apply_horizontal_bar_denoise=bool(apply_horizontal_bar_denoise),
             apply_smoothing=bool(apply_smoothing),
             apply_baseline_subtraction=bool(apply_baseline_subtraction),
             apply_global_normalization=bool(apply_global_normalization),
@@ -99,7 +129,12 @@ def compute_visualization_stats(
         baseline_parts = [
             (
                 _raise_if_cancelled(should_cancel),
-                _processed_source_frame(frame_source, idx, apply_smoothing=bool(apply_smoothing)),
+                _processed_source_frame(
+                    frame_source,
+                    idx,
+                    apply_horizontal_bar_denoise=bool(apply_horizontal_bar_denoise),
+                    apply_smoothing=bool(apply_smoothing),
+                ),
             )[1]
             for idx in range(baseline_count)
         ]
@@ -111,7 +146,12 @@ def compute_visualization_stats(
         sampled_frames: list[np.ndarray] = []
         for idx in range(0, frame_count, 5):
             _raise_if_cancelled(should_cancel)
-            source = _processed_source_frame(frame_source, idx, apply_smoothing=bool(apply_smoothing))
+            source = _processed_source_frame(
+                frame_source,
+                idx,
+                apply_horizontal_bar_denoise=bool(apply_horizontal_bar_denoise),
+                apply_smoothing=bool(apply_smoothing),
+            )
             if baseline is not None:
                 source = source - baseline
             sampled_frames.append(source.astype(np.float32, copy=False))
@@ -124,6 +164,7 @@ def compute_visualization_stats(
         frame_count=frame_count,
         frame_shape=frame_shape,
         baseline_frames=baseline_count,
+        apply_horizontal_bar_denoise=bool(apply_horizontal_bar_denoise),
         apply_smoothing=bool(apply_smoothing),
         apply_baseline_subtraction=bool(apply_baseline_subtraction),
         apply_global_normalization=bool(apply_global_normalization),
@@ -139,6 +180,7 @@ def render_visualization_frame(
     *,
     stats: VisualizationStats | None = None,
     baseline_frames: int = 30,
+    apply_horizontal_bar_denoise: bool = False,
     apply_smoothing: bool = True,
     apply_baseline_subtraction: bool = True,
     apply_global_normalization: bool = True,
@@ -148,13 +190,18 @@ def render_visualization_frame(
         resolved_stats = compute_visualization_stats(
             frame_source,
             baseline_frames=baseline_frames,
+            apply_horizontal_bar_denoise=apply_horizontal_bar_denoise,
             apply_smoothing=apply_smoothing,
             apply_baseline_subtraction=apply_baseline_subtraction,
             apply_global_normalization=apply_global_normalization,
         )
     idx = max(0, min(int(frame_idx), max(0, int(resolved_stats.frame_count) - 1)))
     raw = _read_frame_float32(frame_source, idx)
-    source = gaussian_filter(raw, sigma=0.5) if bool(resolved_stats.apply_smoothing) else raw
+    source = _processed_frame(
+        raw,
+        apply_horizontal_bar_denoise=bool(getattr(resolved_stats, "apply_horizontal_bar_denoise", False)),
+        apply_smoothing=bool(resolved_stats.apply_smoothing),
+    )
     if bool(resolved_stats.apply_baseline_subtraction) and resolved_stats.baseline is not None:
         subtracted = (source - resolved_stats.baseline).astype(np.float32, copy=False)
     else:
@@ -175,6 +222,7 @@ def build_visualization_stack(
     frame_source,
     *,
     baseline_frames: int = 30,
+    apply_horizontal_bar_denoise: bool = False,
     apply_smoothing: bool = True,
     apply_baseline_subtraction: bool = True,
     apply_global_normalization: bool = True,
@@ -205,10 +253,13 @@ def build_visualization_stack(
 
     source_frames: list[np.ndarray] = []
     for i, frame in enumerate(raw_frames):
-        if bool(apply_smoothing):
-            source_frames.append(gaussian_filter(frame, sigma=0.5))
-        else:
-            source_frames.append(np.asarray(frame, dtype=np.float32))
+        source_frames.append(
+            _processed_frame(
+                frame,
+                apply_horizontal_bar_denoise=bool(apply_horizontal_bar_denoise),
+                apply_smoothing=bool(apply_smoothing),
+            )
+        )
         if callable(progress_callback):
             progress_callback(
                 {

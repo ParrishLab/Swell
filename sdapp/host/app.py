@@ -690,6 +690,7 @@ class SDAnalyzerApp:
         *,
         event_start: int,
         baseline_pre_frames: int,
+        apply_horizontal_bar_denoise: bool,
         apply_smoothing: bool,
         apply_baseline_subtraction: bool,
         apply_global_normalization: bool,
@@ -697,6 +698,7 @@ class SDAnalyzerApp:
         return self._get_analysis_launch_controller().compute_analysis_preview_frame(
             event_start=event_start,
             baseline_pre_frames=baseline_pre_frames,
+            apply_horizontal_bar_denoise=apply_horizontal_bar_denoise,
             apply_smoothing=apply_smoothing,
             apply_baseline_subtraction=apply_baseline_subtraction,
             apply_global_normalization=apply_global_normalization,

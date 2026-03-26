@@ -575,6 +575,7 @@ def analysis_image_export_plan(event: EventCandidate, *, default_baseline_pre_fr
     baseline_pre = max(1, int(flags.get("baseline_pre_frames", default_baseline_pre_frames)))
     processing_raw = dict(flags.get("analysis_processing", {})) if isinstance(flags.get("analysis_processing"), dict) else {}
     processing = {
+        "horizontal_bar_denoise": bool(processing_raw.get("horizontal_bar_denoise", False)),
         "smoothing": bool(processing_raw.get("smoothing", True)),
         "baseline_subtraction": bool(processing_raw.get("baseline_subtraction", True)),
         "global_normalization": bool(processing_raw.get("global_normalization", True)),
@@ -596,6 +597,7 @@ def analysis_image_cache_key(event: EventCandidate, *, default_baseline_pre_fram
         int(scope_start),
         int(scope_end),
         int(baseline_pre),
+        bool(processing["horizontal_bar_denoise"]),
         bool(processing["smoothing"]),
         bool(processing["baseline_subtraction"]),
         bool(processing["global_normalization"]),
@@ -623,6 +625,7 @@ def resolve_analysis_image_stack(
     _raw, _sub, frames_viz = build_visualization_stack(
         scoped_source,
         baseline_frames=int(baseline_pre),
+        apply_horizontal_bar_denoise=bool(processing["horizontal_bar_denoise"]),
         apply_smoothing=bool(processing["smoothing"]),
         apply_baseline_subtraction=bool(processing["baseline_subtraction"]),
         apply_global_normalization=bool(processing["global_normalization"]),

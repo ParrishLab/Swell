@@ -21,6 +21,7 @@ class PreparedFrameSource:
         base_source: FrameSource,
         *,
         baseline_frames: int = 30,
+        apply_horizontal_bar_denoise: bool = False,
         apply_smoothing: bool = True,
         apply_baseline_subtraction: bool = True,
         apply_global_normalization: bool = True,
@@ -29,6 +30,7 @@ class PreparedFrameSource:
     ) -> None:
         self._base_source = base_source
         self._baseline_frames = max(1, int(baseline_frames))
+        self._apply_horizontal_bar_denoise = bool(apply_horizontal_bar_denoise)
         self._apply_smoothing = bool(apply_smoothing)
         self._apply_baseline_subtraction = bool(apply_baseline_subtraction)
         self._apply_global_normalization = bool(apply_global_normalization)
@@ -70,6 +72,7 @@ class PreparedFrameSource:
         stats = compute_visualization_stats(
             self._base_source,
             baseline_frames=self._baseline_frames,
+            apply_horizontal_bar_denoise=self._apply_horizontal_bar_denoise,
             apply_smoothing=self._apply_smoothing,
             apply_baseline_subtraction=self._apply_baseline_subtraction,
             apply_global_normalization=self._apply_global_normalization,
@@ -100,6 +103,7 @@ class PreparedFrameSource:
             idx,
             stats=self.stats(),
             baseline_frames=self._baseline_frames,
+            apply_horizontal_bar_denoise=self._apply_horizontal_bar_denoise,
             apply_smoothing=self._apply_smoothing,
             apply_baseline_subtraction=self._apply_baseline_subtraction,
             apply_global_normalization=self._apply_global_normalization,

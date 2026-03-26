@@ -453,6 +453,7 @@ def test_export_analysis_images_match_visualization_stack(tmp_path: Path) -> Non
         flags={
             "baseline_pre_frames": 2,
             "analysis_processing": {
+                "horizontal_bar_denoise": False,
                 "smoothing": False,
                 "baseline_subtraction": True,
                 "global_normalization": False,
@@ -503,6 +504,7 @@ def test_export_analysis_images_reuse_cache_when_available(tmp_path: Path) -> No
         3,
         flags={
             "baseline_pre_frames": 2,
+            "analysis_processing": {"horizontal_bar_denoise": False},
             "analysis_scope_start_idx": 0,
             "analysis_scope_end_idx": 3,
         },
@@ -564,3 +566,45 @@ def test_export_analysis_images_emits_prepare_progress(tmp_path: Path) -> None:
     assert prepare_updates
     assert prepare_updates[0]["event_id"] == "event_0001"
     assert prepare_updates[-1]["current"] == prepare_updates[-1]["total"]
+
+
+def test_export_analysis_images_honors_horizontal_bar_denoise_flag(tmp_path: Path) -> None:
+    striped = np.array(
+        [
+            [0, 0, 0, 0],
+            [100, 100, 100, 100],
+            [0, 0, 0, 0],
+            [100, 100, 100, 100],
+        ],
+        dtype=np.uint8,
+    )
+    reader = FakeReader([striped, striped, striped])
+    event = _event(
+        "event_0001",
+        1,
+        2,
+        flags={
+            "baseline_pre_frames": 1,
+            "analysis_processing": {
+                "horizontal_bar_denoise": True,
+                "smoothing": False,
+                "baseline_subtraction": False,
+                "global_normalization": False,
+            },
+            "analysis_scope_start_idx": 0,
+            "analysis_scope_end_idx": 2,
+        },
+    )
+
+    export_analysis(
+        reader=reader,
+        events=[event],
+        output_dir=tmp_path,
+        baseline_pre_frames=30,
+        include_event_images=False,
+        include_baseline_images=False,
+        include_analysis_images=True,
+    )
+
+    arr = tifffile.imread(str(tmp_path / "event_0001" / "analysis_images" / "000001_event_frame_0001.tif"))
+    assert np.all(arr == 0)

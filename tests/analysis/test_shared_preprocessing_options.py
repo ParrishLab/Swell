@@ -56,6 +56,32 @@ def test_preprocessing_options_apply_baseline_without_normalization() -> None:
     assert viz.dtype == np.uint8
 
 
+def test_horizontal_bar_denoise_reduces_row_banding() -> None:
+    frames = [
+        np.array(
+            [
+                [0, 0, 0, 0],
+                [100, 100, 100, 100],
+                [0, 0, 0, 0],
+                [100, 100, 100, 100],
+            ],
+            dtype=np.float32,
+        )
+    ]
+    source = _Source(frames)
+
+    _raw, sub, _viz = build_visualization_stack(
+        source,
+        baseline_frames=1,
+        apply_horizontal_bar_denoise=True,
+        apply_smoothing=False,
+        apply_baseline_subtraction=False,
+        apply_global_normalization=False,
+    )
+
+    assert np.allclose(sub[0], np.full((4, 4), 50.0, dtype=np.float32))
+
+
 def test_render_visualization_frame_matches_full_stack_exactly() -> None:
     frames = [
         np.array([[0, 5], [10, 15]], dtype=np.float32),

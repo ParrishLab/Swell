@@ -40,6 +40,7 @@ def build_sam2_frame_cache_key(
     frame_count: int,
     frame_shape: tuple[int, int],
     baseline_frames: int,
+    apply_horizontal_bar_denoise: bool,
     apply_smoothing: bool,
     apply_baseline_subtraction: bool,
     apply_global_normalization: bool,
@@ -53,6 +54,7 @@ def build_sam2_frame_cache_key(
         "frame_count": int(frame_count),
         "frame_shape": list(_safe_tuple(frame_shape)),
         "baseline_frames": int(baseline_frames),
+        "apply_horizontal_bar_denoise": bool(apply_horizontal_bar_denoise),
         "apply_smoothing": bool(apply_smoothing),
         "apply_baseline_subtraction": bool(apply_baseline_subtraction),
         "apply_global_normalization": bool(apply_global_normalization),
@@ -60,6 +62,9 @@ def build_sam2_frame_cache_key(
             "frame_count": int(getattr(stats, "frame_count", 0) or 0),
             "frame_shape": list(_safe_tuple(getattr(stats, "frame_shape", ()))),
             "baseline_frames": int(getattr(stats, "baseline_frames", 0) or 0),
+            "apply_horizontal_bar_denoise": bool(
+                getattr(stats, "apply_horizontal_bar_denoise", apply_horizontal_bar_denoise)
+            ),
             "apply_smoothing": bool(getattr(stats, "apply_smoothing", apply_smoothing)),
             "apply_baseline_subtraction": bool(
                 getattr(stats, "apply_baseline_subtraction", apply_baseline_subtraction)

@@ -182,6 +182,7 @@ class AnalysisHostModeController:
                 else {}
             )
             self.app._host_processing_options = {
+                "apply_horizontal_bar_denoise": bool(processing.get("horizontal_bar_denoise", False)),
                 "apply_smoothing": bool(processing.get("smoothing", True)),
                 "apply_baseline_subtraction": bool(processing.get("baseline_subtraction", True)),
                 "apply_global_normalization": bool(processing.get("global_normalization", True)),
@@ -278,6 +279,7 @@ class AnalysisHostModeController:
                 else {}
             )
             self.app._host_processing_options = {
+                "apply_horizontal_bar_denoise": bool(processing.get("horizontal_bar_denoise", False)),
                 "apply_smoothing": bool(processing.get("smoothing", True)),
                 "apply_baseline_subtraction": bool(processing.get("baseline_subtraction", True)),
                 "apply_global_normalization": bool(processing.get("global_normalization", True)),
@@ -377,6 +379,7 @@ class AnalysisHostModeController:
         self.app.frame_names = list(getattr(frame_source, "frame_names", []))
         self.app._current_image_source_paths = list(getattr(frame_source, "source_paths", []))
         processing_opts = dict(getattr(self.app, "_host_processing_options", {}) or {})
+        apply_horizontal_bar_denoise = bool(processing_opts.get("apply_horizontal_bar_denoise", False))
         apply_smoothing = bool(processing_opts.get("apply_smoothing", True))
         apply_baseline_subtraction = bool(processing_opts.get("apply_baseline_subtraction", True))
         apply_global_normalization = bool(processing_opts.get("apply_global_normalization", True))
@@ -391,6 +394,7 @@ class AnalysisHostModeController:
             int(frame_count),
             tuple(int(v) for v in getattr(frame_source, "frame_shape", (0, 0))),
             int(max(1, baseline_count)),
+            bool(apply_horizontal_bar_denoise),
             bool(apply_smoothing),
             bool(apply_baseline_subtraction),
             bool(apply_global_normalization),
@@ -403,6 +407,7 @@ class AnalysisHostModeController:
             prepared_source = PreparedFrameSource(
                 frame_source,
                 baseline_frames=max(1, int(baseline_count)),
+                apply_horizontal_bar_denoise=apply_horizontal_bar_denoise,
                 apply_smoothing=apply_smoothing,
                 apply_baseline_subtraction=apply_baseline_subtraction,
                 apply_global_normalization=apply_global_normalization,

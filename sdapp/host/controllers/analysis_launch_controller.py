@@ -66,6 +66,7 @@ class AnalysisLaunchController:
         event_start: int,
         event_end: int,
         baseline_pre_frames: int,
+        apply_horizontal_bar_denoise: bool,
         apply_smoothing: bool,
         apply_baseline_subtraction: bool,
         apply_global_normalization: bool,
@@ -82,6 +83,7 @@ class AnalysisLaunchController:
         stats = compute_visualization_stats(
             scoped_source,
             baseline_frames=max(1, int(baseline_pre_frames)),
+            apply_horizontal_bar_denoise=bool(apply_horizontal_bar_denoise),
             apply_smoothing=bool(apply_smoothing),
             apply_baseline_subtraction=bool(apply_baseline_subtraction),
             apply_global_normalization=bool(apply_global_normalization),
@@ -135,10 +137,12 @@ class AnalysisLaunchController:
 
         checks = ttk.LabelFrame(shell, text="Preprocessing")
         checks.pack(fill="x", pady=(0, 8))
+        bar_denoise_var = tk.BooleanVar(value=False)
         smoothing_var = tk.BooleanVar(value=True)
         subtract_var = tk.BooleanVar(value=True)
         normalize_var = tk.BooleanVar(value=True)
-        ttk.Checkbutton(checks, text="Smoothing", variable=smoothing_var).pack(anchor="w", padx=6, pady=(4, 2))
+        ttk.Checkbutton(checks, text="Horizontal Bar Denoise", variable=bar_denoise_var).pack(anchor="w", padx=6, pady=(4, 2))
+        ttk.Checkbutton(checks, text="Smoothing", variable=smoothing_var).pack(anchor="w", padx=6, pady=2)
         ttk.Checkbutton(checks, text="Baseline Subtraction", variable=subtract_var).pack(anchor="w", padx=6, pady=2)
         ttk.Checkbutton(checks, text="Global Normalization", variable=normalize_var).pack(anchor="w", padx=6, pady=(2, 4))
 
@@ -177,6 +181,7 @@ class AnalysisLaunchController:
                 int(scope_start),
                 int(scope_end),
                 int(baseline_count),
+                bool(bar_denoise_var.get()),
                 bool(smoothing_var.get()),
                 bool(subtract_var.get()),
                 bool(normalize_var.get()),
@@ -221,6 +226,7 @@ class AnalysisLaunchController:
                 return
 
             baseline_count = _read_baseline()
+            apply_horizontal_bar_denoise = bool(bar_denoise_var.get())
             apply_smoothing = bool(smoothing_var.get())
             apply_subtraction = bool(subtract_var.get())
             apply_normalization = bool(normalize_var.get())
@@ -231,6 +237,7 @@ class AnalysisLaunchController:
                         event_start=int(event_start),
                         event_end=int(event_end),
                         baseline_pre_frames=int(baseline_count),
+                        apply_horizontal_bar_denoise=apply_horizontal_bar_denoise,
                         apply_smoothing=apply_smoothing,
                         apply_baseline_subtraction=apply_subtraction,
                         apply_global_normalization=apply_normalization,
@@ -264,7 +271,7 @@ class AnalysisLaunchController:
                     pass
             state["debounce_after_id"] = dialog.after(80, _refresh_preview)
 
-        for var in (smoothing_var, subtract_var, normalize_var):
+        for var in (bar_denoise_var, smoothing_var, subtract_var, normalize_var):
             var.trace_add("write", lambda *_args: _schedule_preview_refresh())
         for evt in ("<KeyRelease>", "<FocusOut>", "<<Increment>>", "<<Decrement>>", "<MouseWheel>", "<ButtonRelease-1>"):
             baseline_spin.bind(evt, lambda _e: _schedule_preview_refresh())
@@ -299,6 +306,7 @@ class AnalysisLaunchController:
                     "ok": True,
                     "baseline_pre_frames": int(baseline_count),
                     "processing": {
+                        "horizontal_bar_denoise": bool(bar_denoise_var.get()),
                         "smoothing": bool(smoothing_var.get()),
                         "baseline_subtraction": bool(subtract_var.get()),
                         "global_normalization": bool(normalize_var.get()),
@@ -504,6 +512,7 @@ class AnalysisLaunchController:
         *,
         event_start: int,
         baseline_pre_frames: int,
+        apply_horizontal_bar_denoise: bool,
         apply_smoothing: bool,
         apply_baseline_subtraction: bool,
         apply_global_normalization: bool,
@@ -516,6 +525,7 @@ class AnalysisLaunchController:
         stats = compute_visualization_stats(
             scoped_source,
             baseline_frames=max(1, int(baseline_pre_frames)),
+            apply_horizontal_bar_denoise=bool(apply_horizontal_bar_denoise),
             apply_smoothing=bool(apply_smoothing),
             apply_baseline_subtraction=bool(apply_baseline_subtraction),
             apply_global_normalization=bool(apply_global_normalization),

@@ -447,6 +447,7 @@ class SegmentationActions:
                     else {}
                 )
                 baseline_frames = int(getattr(self, "baseline_pre_frames", 30) or 30)
+                apply_horizontal_bar_denoise = bool(processing_opts.get("apply_horizontal_bar_denoise", False))
                 apply_smoothing = bool(processing_opts.get("apply_smoothing", True))
                 apply_baseline_subtraction = bool(processing_opts.get("apply_baseline_subtraction", True))
                 apply_global_normalization = bool(processing_opts.get("apply_global_normalization", True))
@@ -461,6 +462,7 @@ class SegmentationActions:
                     frame_count=frame_count,
                     frame_shape=frame_shape,
                     baseline_frames=baseline_frames,
+                    apply_horizontal_bar_denoise=apply_horizontal_bar_denoise,
                     apply_smoothing=apply_smoothing,
                     apply_baseline_subtraction=apply_baseline_subtraction,
                     apply_global_normalization=apply_global_normalization,
