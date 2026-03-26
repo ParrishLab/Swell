@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -142,13 +143,21 @@ def test_sign_macos_update_script_parses_sign_update_output(tmp_path: Path) -> N
     script = ROOT / "scripts" / "release" / "sign_macos_update.py"
     archive = tmp_path / "sdapp-macos-arm64.zip"
     archive.write_bytes(b"payload")
-    sign_update = tmp_path / "sign_update"
-    sign_update.write_text(
-        "#!/bin/bash\n"
-        "echo 'sparkle:edSignature=\"signed123=\" length=\"7\"'\n",
-        encoding="utf-8",
-    )
-    sign_update.chmod(0o755)
+    if os.name == "nt":
+        sign_update = tmp_path / "sign_update.cmd"
+        sign_update.write_text(
+            "@echo off\n"
+            "echo sparkle:edSignature=\"signed123=\" length=\"7\"\n",
+            encoding="utf-8",
+        )
+    else:
+        sign_update = tmp_path / "sign_update"
+        sign_update.write_text(
+            "#!/bin/bash\n"
+            "echo 'sparkle:edSignature=\"signed123=\" length=\"7\"'\n",
+            encoding="utf-8",
+        )
+        sign_update.chmod(0o755)
     output = tmp_path / "signature.json"
 
     subprocess.run(

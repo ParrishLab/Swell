@@ -11,6 +11,7 @@ WORK_PATH="$REPO_ROOT/build/pyinstaller-arm64"
 ZIP_OUT="$DIST_ROOT/sdapp-macos-arm64.zip"
 SIGNATURE_OUT="$DIST_ROOT/sdapp-macos-arm64-signature.json"
 SIGN_UPDATES_FLAG="${SDAPP_SIGN_UPDATES:-true}"
+SIGN_UPDATES_FLAG_NORMALIZED="$(printf '%s' "$SIGN_UPDATES_FLAG" | tr '[:upper:]' '[:lower:]')"
 
 cd "$REPO_ROOT"
 
@@ -42,7 +43,7 @@ else
   (cd "$ARCH_DIST" && zip -r "$ZIP_OUT" "SDApp.app")
 fi
 
-if [[ "${SIGN_UPDATES_FLAG,,}" == "1" || "${SIGN_UPDATES_FLAG,,}" == "true" || "${SIGN_UPDATES_FLAG,,}" == "yes" ]]; then
+if [[ "$SIGN_UPDATES_FLAG_NORMALIZED" == "1" || "$SIGN_UPDATES_FLAG_NORMALIZED" == "true" || "$SIGN_UPDATES_FLAG_NORMALIZED" == "yes" ]]; then
   "$PYTHON_BIN" "$REPO_ROOT/scripts/release/sign_macos_update.py" \
     --repo-root "$REPO_ROOT" \
     --archive "$ZIP_OUT" \
