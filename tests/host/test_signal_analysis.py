@@ -72,3 +72,23 @@ def test_event_to_dict_matches_event_candidate_fields() -> None:
         "duration_frames": 6,
         "duration_sec": None,
     }
+
+
+def test_event_to_dict_includes_flags_only_when_present() -> None:
+    event = EventCandidate(
+        event_id="event_0008",
+        start_idx=20,
+        end_idx=25,
+        duration_frames=6,
+        duration_sec=3.0,
+        flags={"baseline_pre_frames": 30},
+    )
+
+    assert event_to_dict(event) == {
+        "event_id": "event_0008",
+        "start_idx": 20,
+        "end_idx": 25,
+        "duration_frames": 6,
+        "duration_sec": 3.0,
+        "flags": {"baseline_pre_frames": 30},
+    }

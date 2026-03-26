@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from dataclasses import asdict
 from typing import Callable, Optional
 
 import numpy as np
@@ -41,5 +40,15 @@ def compute_trace(
         std=stds.tolist(),
     )
 
+
 def event_to_dict(event: EventCandidate) -> dict:
-    return asdict(event)
+    payload = {
+        "event_id": str(event.event_id),
+        "start_idx": int(event.start_idx),
+        "end_idx": int(event.end_idx),
+        "duration_frames": int(event.duration_frames),
+        "duration_sec": event.duration_sec,
+    }
+    if event.flags:
+        payload["flags"] = dict(event.flags)
+    return payload
