@@ -47,3 +47,19 @@ def test_event_catalog_create_event_preserves_flags() -> None:
     )
 
     assert bool(event.flags.get("host_full_stack_event")) is True
+
+
+def test_event_catalog_update_event_can_replace_flags() -> None:
+    svc = EventCatalogService()
+    created = svc.create_event(start_idx=1, end_idx=4, frame_count=10, flags={"old": True})
+
+    updated = svc.update_event(
+        created.event_id,
+        start_idx=None,
+        end_idx=None,
+        label=None,
+        frame_count=10,
+        flags={"analysis_processing": {"smoothing": False}},
+    )
+
+    assert updated.flags == {"analysis_processing": {"smoothing": False}}

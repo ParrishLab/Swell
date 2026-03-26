@@ -26,7 +26,7 @@ def _safe_spinbox_value(widget) -> str:
 def recompute_slider_jump_markers(app) -> None:
     """Recompute marker metadata and keep range spinboxes synchronized."""
     t0 = time.perf_counter()
-    frame_count = app._get_frame_count() if hasattr(app, "_get_frame_count") else len(app.frames_raw or [])
+    frame_count = app._get_frame_count() if hasattr(app, "_get_frame_count") else 0
     if frame_count <= 0:
         _debug_log(app, "Marker recompute aborted: frame_count<=0")
         app.slider_jump_markers = {}
@@ -180,7 +180,7 @@ def redraw_slider_overlay(app) -> None:
 
     canvas.create_rectangle(0, 0, w, h, fill="#2a2b2f", outline="")
 
-    total = app._get_frame_count() if hasattr(app, "_get_frame_count") else len(app.frames_raw or [])
+    total = app._get_frame_count() if hasattr(app, "_get_frame_count") else 0
     if total <= 0:
         _debug_log(app, "Slider overlay redraw aborted: total<=0")
         return

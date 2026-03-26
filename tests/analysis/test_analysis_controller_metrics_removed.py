@@ -8,7 +8,8 @@ class AnalysisControllerMetricsRemovedTests(unittest.TestCase):
         controller = AnalysisController(
             root=None,
             app_root=".",
-            get_frames_raw=lambda: None,
+            get_frame_count=lambda: 0,
+            get_raw_frame=lambda _idx: None,
             get_masks_cache=lambda: {},
             get_paint_layers=lambda: {},
             get_points=lambda: {},

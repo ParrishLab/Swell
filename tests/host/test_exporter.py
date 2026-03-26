@@ -9,7 +9,8 @@ import pytest
 import tifffile
 
 from sdapp.host.config import EventCandidate, FrameRef, TraceResult
-from sdapp.host.exporter import export_analysis
+from sdapp.host.exporter import analysis_image_cache_key, export_analysis
+from sdapp.shared.frame_source import EventScopedFrameSource, SDStackFrameSource, build_visualization_stack
 from sdapp.shared.persistence.event_path import allocate_event_path_segment
 
 
@@ -31,6 +32,18 @@ class FakeReader:
     def read_frame(self, frame_idx: int, use_cache: bool = True) -> np.ndarray:  # noqa: ARG002
         return self._frames[frame_idx]
 
+    def get_frame_count(self) -> int:
+        return len(self._frames)
+
+    def get_stack_info(self):
+        frame = np.asarray(self._frames[0]) if self._frames else np.zeros((0, 0), dtype=np.uint8)
+
+        class _Info:
+            frame_height = int(frame.shape[0]) if frame.ndim >= 2 else 0
+            frame_width = int(frame.shape[1]) if frame.ndim >= 2 else 0
+
+        return _Info()
+
     def get_frame_ref(self, frame_idx: int) -> FrameRef:
         return self._refs[frame_idx]
 
@@ -40,13 +53,14 @@ def _load_manifest_rows(csv_path: Path) -> list[dict]:
         return list(csv.DictReader(f))
 
 
-def _event(event_id: str, start: int, end: int) -> EventCandidate:
+def _event(event_id: str, start: int, end: int, *, flags: dict | None = None) -> EventCandidate:
     return EventCandidate(
         event_id=event_id,
         start_idx=start,
         end_idx=end,
         duration_frames=end - start + 1,
         duration_sec=None,
+        flags=dict(flags or {}),
     )
 
 
@@ -427,3 +441,126 @@ def test_export_mask_overlay_images_match_analysis_overlay_tint(tmp_path: Path) 
     assert tuple(int(v) for v in baseline_overlay[0, 0]) == (100, 100, 100)
     assert tuple(int(v) for v in baseline_overlay[2, 2]) == (70, 146, 146)
     assert result["mask_overlay_images_exported"] == 2
+
+
+def test_export_analysis_images_match_visualization_stack(tmp_path: Path) -> None:
+    frames = [np.full((5, 5), i * 10, dtype=np.uint8) for i in range(7)]
+    reader = FakeReader(frames)
+    event = _event(
+        "event_0001",
+        3,
+        4,
+        flags={
+            "baseline_pre_frames": 2,
+            "analysis_processing": {
+                "smoothing": False,
+                "baseline_subtraction": True,
+                "global_normalization": False,
+            },
+            "analysis_scope_start_idx": 1,
+            "analysis_scope_end_idx": 4,
+        },
+    )
+
+    result = export_analysis(
+        reader=reader,
+        events=[event],
+        output_dir=tmp_path,
+        baseline_pre_frames=30,
+        include_event_images=False,
+        include_baseline_images=False,
+        include_analysis_images=True,
+    )
+
+    analysis_dir = tmp_path / "event_0001" / "analysis_images"
+    exported = sorted(p.name for p in analysis_dir.glob("*.tif"))
+    assert exported == [
+        "000001_baseline_frame_0001.tif",
+        "000002_baseline_frame_0002.tif",
+        "000003_event_frame_0003.tif",
+        "000004_event_frame_0004.tif",
+    ]
+    scoped_source = EventScopedFrameSource(SDStackFrameSource(reader=reader), 1, 4)
+    _raw, _sub, expected_viz = build_visualization_stack(
+        scoped_source,
+        baseline_frames=2,
+        apply_smoothing=False,
+        apply_baseline_subtraction=True,
+        apply_global_normalization=False,
+    )
+    for local_idx, name in enumerate(exported):
+        arr = tifffile.imread(str(analysis_dir / name))
+        assert np.array_equal(arr, np.asarray(expected_viz[local_idx], dtype=np.uint8))
+    assert result["analysis_images_exported"] == 4
+
+
+def test_export_analysis_images_reuse_cache_when_available(tmp_path: Path) -> None:
+    frames = [np.zeros((4, 4), dtype=np.uint8) for _ in range(6)]
+    reader = FakeReader(frames)
+    event = _event(
+        "event_0001",
+        2,
+        3,
+        flags={
+            "baseline_pre_frames": 2,
+            "analysis_scope_start_idx": 0,
+            "analysis_scope_end_idx": 3,
+        },
+    )
+    cached_stack = np.asarray(
+        [
+            np.full((4, 4), 11, dtype=np.uint8),
+            np.full((4, 4), 22, dtype=np.uint8),
+            np.full((4, 4), 33, dtype=np.uint8),
+            np.full((4, 4), 44, dtype=np.uint8),
+        ],
+        dtype=np.uint8,
+    )
+    cache = {analysis_image_cache_key(event, default_baseline_pre_frames=30): cached_stack}
+
+    export_analysis(
+        reader=reader,
+        events=[event],
+        output_dir=tmp_path,
+        baseline_pre_frames=30,
+        include_event_images=False,
+        include_baseline_images=False,
+        include_analysis_images=True,
+        analysis_image_cache=cache,
+    )
+
+    analysis_dir = tmp_path / "event_0001" / "analysis_images"
+    arr = tifffile.imread(str(analysis_dir / "000002_event_frame_0002.tif"))
+    assert np.array_equal(arr, cached_stack[2])
+
+
+def test_export_analysis_images_emits_prepare_progress(tmp_path: Path) -> None:
+    frames = [np.full((5, 5), i, dtype=np.uint8) for i in range(6)]
+    reader = FakeReader(frames)
+    event = _event(
+        "event_0001",
+        2,
+        4,
+        flags={
+            "baseline_pre_frames": 2,
+            "analysis_scope_start_idx": 0,
+            "analysis_scope_end_idx": 4,
+        },
+    )
+    progress: list[dict] = []
+
+    export_analysis(
+        reader=reader,
+        events=[event],
+        output_dir=tmp_path,
+        baseline_pre_frames=30,
+        include_event_images=False,
+        include_baseline_images=False,
+        include_analysis_images=True,
+        progress_callback=lambda payload: progress.append(dict(payload)),
+    )
+
+    prepare_updates = [p for p in progress if p.get("phase") == "analysis_prepare"]
+    assert prepare_updates
+    assert prepare_updates[0]["event_id"] == "event_0001"
+    assert prepare_updates[-1]["current"] == prepare_updates[-1]["total"]

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections import OrderedDict
 import threading
+import time
 import tkinter as tk
 from tkinter import messagebox, ttk
 
@@ -70,6 +71,7 @@ class AnalysisLaunchController:
         apply_global_normalization: bool,
         should_cancel=None,
     ) -> dict[str, object]:
+        started = time.perf_counter()
         frame_source = self.app.browser_controller.get_frame_source()
         if frame_source is None:
             raise RuntimeError("No host frame source is available for analysis.")
@@ -90,6 +92,15 @@ class AnalysisLaunchController:
             local_frame_idx,
             stats=stats,
         )
+        log_debug = getattr(self.app, "_log_debug", None)
+        message = (
+            f"Analysis launch preview elapsed={(time.perf_counter() - started) * 1000.0:.1f}ms "
+            f"scope={scope_start + 1}-{scope_end + 1}"
+        )
+        if callable(log_debug):
+            log_debug(message)
+        else:
+            self.app._log_info(message)
         return {
             "frame_u8": frame_u8,
             "launch_preparation": {
@@ -404,6 +415,17 @@ class AnalysisLaunchController:
         flags["analysis_local_event_end_idx"] = event_end - scope_start
         event_payload["flags"] = flags
         context["event"] = event_payload
+        try:
+            self.app.browser_controller.update_event(
+                str(active_event_id),
+                start_idx=None,
+                end_idx=None,
+                label=None,
+                frame_count=int(self.app.stack_info.frame_count),
+                flags=flags,
+            )
+        except Exception as exc:
+            self.app._log_warn(f"Unable to persist analysis preprocessing settings for {active_event_id}: {exc}")
         launch_preparation = options.get("launch_preparation")
         try:
             app_cls = self.load_analysis_app_class()

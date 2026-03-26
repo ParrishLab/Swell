@@ -31,6 +31,8 @@ def test_init_runtime_background_uses_preflight_without_dialog_prompts() -> None
 
         app = SDSegmentationApp.__new__(SDSegmentationApp)
         app.frames_sub_viz = np.zeros((2, 4, 4), dtype=np.uint8)
+        app._get_frame_count = lambda: 2
+        app._get_visual_frame = lambda idx: app.frames_sub_viz[int(idx)]
         app.resource_root = "/tmp"
         app.app_root = "/tmp"
         app.sam2_runtime = _RuntimeStub()

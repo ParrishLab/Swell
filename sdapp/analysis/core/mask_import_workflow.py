@@ -10,12 +10,12 @@ from sdapp.analysis.core.mask_import import guess_mask_mapping
 
 def import_external_masks(app) -> None:
     """Import masks from files/folder, align them, and apply to active event."""
-    frames_raw = app._get_frames_raw() if hasattr(app, "_get_frames_raw") else app.frames_raw
-    frames_sub_viz = app._get_frames_sub_viz() if hasattr(app, "_get_frames_sub_viz") else app.frames_sub_viz
-    frame_count = app._get_frame_count() if hasattr(app, "_get_frame_count") else (len(frames_raw) if frames_raw is not None else 0)
-    frame_shape = app._get_frame_shape() if hasattr(app, "_get_frame_shape") else tuple(frames_raw[0].shape[:2])
+    frame_count = int(app._get_frame_count())
+    frame_shape = tuple(app._get_frame_shape())
+    get_raw_frame = app._get_raw_frame
+    get_visual_frame = app._get_visual_frame
 
-    if frames_raw is None or frame_count <= 0:
+    if frame_count <= 0:
         messagebox.showwarning("No Images", "Import images first.", parent=app.root)
         return
 
@@ -54,8 +54,9 @@ def import_external_masks(app) -> None:
         guessed_offset = 0
     offset = app.mask_import_dialog.ask_alignment(
         root=app.root,
-        frames_raw=frames_raw,
-        frames_sub_viz=frames_sub_viz,
+        frame_count=frame_count,
+        get_raw_frame=get_raw_frame,
+        get_visual_frame=get_visual_frame,
         masks=masks,
         guessed_offset=int(guessed_offset),
     )

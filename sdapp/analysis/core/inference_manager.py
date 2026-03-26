@@ -25,7 +25,8 @@ class InferenceManager:
         predictor_lock,
         get_sensitivity: Callable[[], float],
         get_current_frame_idx: Callable[[], int],
-        get_frames_raw: Callable[[], Optional[np.ndarray]],
+        get_frame_count: Callable[[], int],
+        get_frame_shape: Callable[[], tuple[int, int]],
         set_slider_frame: Callable[[int], None],
         update_display: Callable[[], None],
         recompute_markers: Callable[[], None],
@@ -44,7 +45,8 @@ class InferenceManager:
 
         self.get_sensitivity = get_sensitivity
         self.get_current_frame_idx = get_current_frame_idx
-        self.get_frames_raw = get_frames_raw
+        self.get_frame_count = get_frame_count
+        self.get_frame_shape = get_frame_shape
         self.set_slider_frame = set_slider_frame
         self.update_display = update_display
         self.recompute_markers = recompute_markers
@@ -403,10 +405,9 @@ class InferenceManager:
             if self.is_ui_alive():
                 self.root.after(0, lambda: self.set_status("Propagating...", "purple"))
 
-            frames_raw = self.get_frames_raw()
-            if frames_raw is None or len(frames_raw) == 0:
+            total_frames = int(self.get_frame_count())
+            if total_frames <= 0:
                 return
-            total_frames = len(frames_raw)
             prop_start = max(0, min(int(prop_start), total_frames - 1))
             prop_end = max(0, min(int(prop_end), total_frames - 1))
             anchor_frame = max(prop_start, min(int(anchor_frame), prop_end))
@@ -470,7 +471,11 @@ class InferenceManager:
                             has_paint = f_idx in paint_frames
 
                             if has_paint:
-                                base_mask = np.zeros_like(frames_raw[0], dtype=bool)
+                                frame_shape = tuple(int(v) for v in self.get_frame_shape()[:2])
+                                if len(frame_shape) != 2 or frame_shape[0] <= 0 or frame_shape[1] <= 0:
+                                    self._log_warn("Propagation", "Skipping paint prompt injection: invalid frame shape.")
+                                    continue
+                                base_mask = np.zeros(frame_shape, dtype=bool)
                                 if f_idx in self.state.masks_cache and self.state.masks_cache[f_idx] is not None:
                                     base_mask = self.state.masks_cache[f_idx].astype(bool)
 

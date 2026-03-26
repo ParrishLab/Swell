@@ -16,7 +16,8 @@ class AnalysisController:
         self,
         root,
         app_root,
-        get_frames_raw,
+        get_frame_count,
+        get_raw_frame,
         get_masks_cache,
         get_paint_layers,
         get_points,
@@ -48,7 +49,8 @@ class AnalysisController:
     ):
         self.root = root
         self.app_root = app_root
-        self.get_frames_raw = get_frames_raw
+        self.get_frame_count = get_frame_count
+        self.get_raw_frame = get_raw_frame
         self.get_masks_cache = get_masks_cache
         self.get_paint_layers = get_paint_layers
         self.get_points = get_points
@@ -90,6 +92,12 @@ class AnalysisController:
             set_roi_is_local_override if callable(set_roi_is_local_override) else (lambda _v: None)
         )
 
+    def _has_loaded_frames(self) -> bool:
+        try:
+            return int(self.get_frame_count()) > 0
+        except Exception:
+            return False
+
     def _same_path(self, p1, p2):
         try:
             return os.path.normcase(os.path.abspath(str(p1))) == os.path.normcase(os.path.abspath(str(p2)))
@@ -116,10 +124,9 @@ class AnalysisController:
         return None
 
     def _get_first_frame_original_u8(self):
-        frames_raw = self.get_frames_raw()
-        if frames_raw is None or len(frames_raw) == 0:
+        if not self._has_loaded_frames():
             return None
-        frame = frames_raw[0]
+        frame = self.get_raw_frame(0)
         if frame.ndim == 3:
             frame = frame[:, :, 0]
         frame = frame.astype(np.float32)
@@ -328,8 +335,7 @@ class AnalysisController:
         }
 
     def _capture_scale_selection(self):
-        frames_raw = self.get_frames_raw()
-        if frames_raw is None:
+        if not self._has_loaded_frames():
             messagebox.showwarning("No Images", "Import images first.", parent=self.root)
             return None
 
@@ -403,8 +409,7 @@ class AnalysisController:
         messagebox.showinfo("Scale Set", msg, parent=self.root)
 
     def _capture_roi_selection(self):
-        frames_raw = self.get_frames_raw()
-        if frames_raw is None:
+        if not self._has_loaded_frames():
             messagebox.showwarning("No Images", "Import images first.", parent=self.root)
             return None
         img_u8 = self._get_first_frame_original_u8()

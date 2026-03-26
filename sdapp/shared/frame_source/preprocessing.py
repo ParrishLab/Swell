@@ -179,6 +179,7 @@ def build_visualization_stack(
     apply_baseline_subtraction: bool = True,
     apply_global_normalization: bool = True,
     stats: VisualizationStats | None = None,
+    progress_callback=None,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Create raw/subtracted/visual stacks from a frame source using shared normalization."""
     frame_count = int(getattr(frame_source, "frame_count", 0) or 0)
@@ -190,13 +191,33 @@ def build_visualization_stack(
         )
 
     raw_frames = []
+    total_progress_steps = max(1, frame_count * 3)
     for i in range(frame_count):
         raw_frames.append(_read_frame_float32(frame_source, i))
+        if callable(progress_callback):
+            progress_callback(
+                {
+                    "stage": "read",
+                    "current": int(i + 1),
+                    "total": int(total_progress_steps),
+                }
+            )
 
-    if bool(apply_smoothing):
-        source_for_sub = np.asarray([gaussian_filter(frame, sigma=0.5) for frame in raw_frames], dtype=np.float32)
-    else:
-        source_for_sub = np.asarray(raw_frames, dtype=np.float32)
+    source_frames: list[np.ndarray] = []
+    for i, frame in enumerate(raw_frames):
+        if bool(apply_smoothing):
+            source_frames.append(gaussian_filter(frame, sigma=0.5))
+        else:
+            source_frames.append(np.asarray(frame, dtype=np.float32))
+        if callable(progress_callback):
+            progress_callback(
+                {
+                    "stage": "preprocess",
+                    "current": int(frame_count + i + 1),
+                    "total": int(total_progress_steps),
+                }
+            )
+    source_for_sub = np.asarray(source_frames, dtype=np.float32)
 
     baseline = None
     if bool(apply_baseline_subtraction):
@@ -230,8 +251,24 @@ def build_visualization_stack(
             clipped = np.clip(frame, p1, p99)
             norm = (clipped - p1) / denom
             frames_viz.append((norm * 255).astype(np.uint8))
+            if callable(progress_callback):
+                progress_callback(
+                    {
+                        "stage": "visualize",
+                        "current": int((2 * frame_count) + len(frames_viz)),
+                        "total": int(total_progress_steps),
+                    }
+                )
     else:
         for frame in frames_sub:
             frames_viz.append(_frame_to_uint8(frame))
+            if callable(progress_callback):
+                progress_callback(
+                    {
+                        "stage": "visualize",
+                        "current": int((2 * frame_count) + len(frames_viz)),
+                        "total": int(total_progress_steps),
+                    }
+                )
 
     return np.asarray(raw_frames, dtype=np.float32), np.asarray(frames_sub, dtype=np.float32), np.asarray(frames_viz, dtype=np.uint8)

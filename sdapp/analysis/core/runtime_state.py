@@ -39,3 +39,15 @@ class HostModeState:
 @dataclass
 class AnalysisRuntimeState:
     loading_task_count: int = 0
+
+
+@dataclass
+class AnalysisFrameState:
+    raw_frames: Any = None
+    subtracted_frames: Any = None
+    visual_frames: Any = None
+    frame_names: list[str] = field(default_factory=list)
+    selected_import_files: list[Any] | None = None
+    current_image_source_paths: list[str] = field(default_factory=list)
+    image_manifest_entries: list[dict[str, Any]] = field(default_factory=list)
+    frame_source: Any = None

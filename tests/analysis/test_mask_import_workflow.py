@@ -74,6 +74,18 @@ class _AppStub:
         self.mark_dirty_calls = []
         self.logged_warnings = []
 
+    def _get_frame_count(self):
+        return len(self.frames_raw)
+
+    def _get_frame_shape(self):
+        return tuple(np.asarray(self.frames_raw[0]).shape[:2]) if self.frames_raw else (0, 0)
+
+    def _get_raw_frame(self, idx):
+        return self.frames_raw[int(idx)]
+
+    def _get_visual_frame(self, idx):
+        return self.frames_sub_viz[int(idx)]
+
     def _collect_nonempty_final_mask_frames(self):
         return {1, 2}
 

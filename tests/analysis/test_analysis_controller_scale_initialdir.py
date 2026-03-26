@@ -10,7 +10,8 @@ def _make_controller(*, app_root: str, source_paths: list[str], last_scale_path:
     return AnalysisController(
         root=None,
         app_root=app_root,
-        get_frames_raw=lambda: [np.zeros((8, 8), dtype=np.uint8)],
+        get_frame_count=lambda: 1,
+        get_raw_frame=lambda _idx: np.zeros((8, 8), dtype=np.uint8),
         get_masks_cache=lambda: {},
         get_paint_layers=lambda: {},
         get_points=lambda: {},

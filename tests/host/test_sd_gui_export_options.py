@@ -130,3 +130,28 @@ def test_resolve_export_metric_prerequisites_enables_when_all_have_scale_and_roi
     assert ready["propagation_speed"]["enabled"] is True
     assert ready["area_recruited"]["enabled"] is True
     assert ready["relative_area_recruited"]["enabled"] is True
+
+
+def test_on_export_progress_updates_status_for_analysis_prepare() -> None:
+    app = SDAnalyzerApp.__new__(SDAnalyzerApp)
+    status: list[str] = []
+    logs: list[str] = []
+    app._set_status = lambda text: status.append(str(text))
+    app._log_info = lambda text, *_args, **_kwargs: logs.append(str(text))
+    app._export_progress_bucket = -1
+    app._last_export_analysis_prepare_key = None
+
+    app._on_export_progress(
+        {
+            "phase": "analysis_prepare",
+            "event_id": "event_0001",
+            "current": 6,
+            "total": 15,
+            "stage": "preprocess",
+        }
+    )
+
+    assert status
+    assert "Preparing analysis images for event_0001" in status[-1]
+    assert "(40%)" in status[-1]
+    assert logs

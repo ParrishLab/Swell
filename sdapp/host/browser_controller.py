@@ -139,6 +139,7 @@ class BrowserController:
         end_idx: int | None,
         label: str | None,
         frame_count: int,
+        flags: dict | None = None,
     ) -> EventMeta:
         event = self.events.update_event(
             event_id,
@@ -146,6 +147,7 @@ class BrowserController:
             end_idx=end_idx,
             label=label,
             frame_count=frame_count,
+            flags=flags,
         )
         self._sync_session()
         return event
@@ -169,6 +171,7 @@ class BrowserController:
                     end_idx=int(ev.end_idx),
                     duration_frames=(int(ev.end_idx) - int(ev.start_idx) + 1),
                     duration_sec=None,
+                    flags=dict(ev.flags),
                 )
             )
         return out

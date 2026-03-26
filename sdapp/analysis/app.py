@@ -30,7 +30,7 @@ from sdapp.analysis.core.mask_import_dialog import MaskImportDialogService
 from sdapp.analysis.core.project_session import ProjectSessionService, SessionSnapshot
 from sdapp.analysis.core.analysis_workspace import AnalysisWorkspaceController, WorkspaceUiState
 from sdapp.analysis.core.overlay_state import frame_spans, span_length, largest_contiguous_span, compute_propagated_state
-from sdapp.analysis.core.runtime_state import AnalysisModelState, AnalysisRuntimeState, HostModeState
+from sdapp.analysis.core.runtime_state import AnalysisFrameState, AnalysisModelState, AnalysisRuntimeState, HostModeState
 from sdapp.analysis.core import overlay_renderer
 from sdapp.analysis.core.preview_resize import start_resize_preview as do_start_resize_preview
 from sdapp.analysis.core.preview_resize import do_resize_preview as do_preview_resize
@@ -42,7 +42,7 @@ from sdapp.shared.app_metadata import format_window_title
 from sdapp.analysis.controllers import AnalysisHostModeController, AnalysisModelController, AnalysisWindowController
 from sdapp.analysis.ui.layout import LayoutBuilder
 from sdapp.analysis.utils.paths import get_app_root, get_resources_root
-from sdapp.analysis.model import SAM2RuntimeService
+from sdapp.analysis.model import SAM2FrameCache, SAM2RuntimeService
 from sdapp.shared.services import CheckpointRuntimeService, MODEL_CHECKPOINT_METADATA_KEY
 
 
@@ -104,14 +104,7 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
 
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
 
-        self.frames_raw = None
-        self.frames_sub = None
-        self.frames_sub_viz = None
-        self.frame_names = []
-        self._selected_import_files = None
-        self._current_image_source_paths = []
-        self._image_manifest_entries = []
-        self.frame_source = None
+        self.frame_state = AnalysisFrameState()
         self.current_project_path = None
         self.project_dirty = False
         self.session_state = SessionState()
@@ -151,6 +144,7 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         self.analysis_mode = None
 
         self.sam2_runtime = SAM2RuntimeService()
+        self.sam2_frame_cache = SAM2FrameCache()
         self.checkpoint_runtime = CheckpointRuntimeService()
         self.masks_cache = self.seg_state.masks_cache
 
@@ -172,6 +166,13 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         self._last_scale_image_path = ""
         self.analysis_panel_open = tk.BooleanVar(value=False)
         self._controls_hint_logged = False
+        self._analysis_prewarm_generation = 0
+        self._analysis_prewarm_thread = None
+        self._analysis_prewarm_window = 4
+        self._last_prewarm_frame_idx = None
+        self._pending_display_update = False
+        self._pending_display_preview = True
+        self._initial_frame_nav_ts = None
 
         self.config = AppConfig.load()
         self.set_input_source_hint("Host-provided SD event scope")
@@ -214,9 +215,10 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
             predictor_lock=self.predictor_lock,
             get_sensitivity=lambda: float(self.sensitivity.get()),
             get_current_frame_idx=lambda: int(self.current_frame_idx),
-            get_frames_raw=self._get_frames_raw,
+            get_frame_count=self._get_frame_count,
+            get_frame_shape=self._get_frame_shape,
             set_slider_frame=lambda idx: self.slider.set(idx),
-            update_display=self.update_display,
+            update_display=lambda: self._queue_display_update(True),
             recompute_markers=self._recompute_slider_jump_markers,
             set_propagated_frames=self._set_propagated_frames,
             set_status=self._set_runtime_status,
@@ -230,7 +232,8 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         self.analysis_controller = AnalysisController(
             root=self.root,
             app_root=self.app_root,
-            get_frames_raw=self._get_frames_raw,
+            get_frame_count=self._get_frame_count,
+            get_raw_frame=self._get_raw_frame,
             get_masks_cache=lambda: self.masks_cache,
             get_paint_layers=lambda: self.paint_layers,
             get_points=lambda: self.points,
@@ -290,9 +293,8 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
             canvas_left=self.canvas_left,
             slider=self.slider,
             lbl_brush_val=self.lbl_brush_val,
-            get_frames_sub_viz=self._get_frames_sub_viz,
-            get_frames_raw=self._get_frames_raw,
-            get_display_ratio=lambda: self.display_ratio,
+            get_frame_count=self._get_frame_count,
+            get_frame_shape_for_idx=self._get_frame_shape_for_idx,
             get_display_transform=self._get_display_transform,
             update_display=self.update_display,
             draw_brush_cursor=self._draw_brush_cursor_on_canvas,
@@ -353,8 +355,7 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         if not value:
             self.session_state.event_records = {}
             return
-        frames_raw = getattr(self, "frames_raw", None)
-        frame_count = len(frames_raw) if frames_raw is not None else 0
+        frame_count = int(self._get_frame_count()) if hasattr(self, "_get_frame_count") else 0
         service = getattr(self, "project_session_service", None) or ProjectSessionService()
         self.session_state.event_records = service.coerce_event_records(value, frame_count)
 
@@ -369,8 +370,7 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         if not value:
             self.session_state.event_records = {}
             return
-        frames_raw = getattr(self, "frames_raw", None)
-        frame_count = len(frames_raw) if frames_raw is not None else 0
+        frame_count = int(self._get_frame_count()) if hasattr(self, "_get_frame_count") else 0
         service = getattr(self, "project_session_service", None) or ProjectSessionService()
         self.session_state.event_records = service.coerce_event_records(value, frame_count)
 
@@ -425,6 +425,90 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         except Exception:
             parsed = 30
         self.session_state.baseline_frame_count = max(1, parsed)
+
+    def _ensure_frame_state(self) -> None:
+        if not hasattr(self, "frame_state") or self.frame_state is None:
+            self.frame_state = AnalysisFrameState()
+
+    @property
+    def frames_raw(self):
+        self._ensure_frame_state()
+        return self.frame_state.raw_frames
+
+    @frames_raw.setter
+    def frames_raw(self, value) -> None:
+        self._ensure_frame_state()
+        self.frame_state.raw_frames = value
+
+    @property
+    def frames_sub(self):
+        self._ensure_frame_state()
+        return self.frame_state.subtracted_frames
+
+    @frames_sub.setter
+    def frames_sub(self, value) -> None:
+        self._ensure_frame_state()
+        self.frame_state.subtracted_frames = value
+
+    @property
+    def frames_sub_viz(self):
+        self._ensure_frame_state()
+        return self.frame_state.visual_frames
+
+    @frames_sub_viz.setter
+    def frames_sub_viz(self, value) -> None:
+        self._ensure_frame_state()
+        self.frame_state.visual_frames = value
+
+    @property
+    def frame_names(self):
+        self._ensure_frame_state()
+        return self.frame_state.frame_names
+
+    @frame_names.setter
+    def frame_names(self, value) -> None:
+        self._ensure_frame_state()
+        self.frame_state.frame_names = list(value or [])
+
+    @property
+    def _selected_import_files(self):
+        self._ensure_frame_state()
+        return self.frame_state.selected_import_files
+
+    @_selected_import_files.setter
+    def _selected_import_files(self, value) -> None:
+        self._ensure_frame_state()
+        self.frame_state.selected_import_files = None if value is None else list(value)
+
+    @property
+    def _current_image_source_paths(self):
+        self._ensure_frame_state()
+        return self.frame_state.current_image_source_paths
+
+    @_current_image_source_paths.setter
+    def _current_image_source_paths(self, value) -> None:
+        self._ensure_frame_state()
+        self.frame_state.current_image_source_paths = list(value or [])
+
+    @property
+    def _image_manifest_entries(self):
+        self._ensure_frame_state()
+        return self.frame_state.image_manifest_entries
+
+    @_image_manifest_entries.setter
+    def _image_manifest_entries(self, value) -> None:
+        self._ensure_frame_state()
+        self.frame_state.image_manifest_entries = list(value or [])
+
+    @property
+    def frame_source(self):
+        self._ensure_frame_state()
+        return self.frame_state.frame_source
+
+    @frame_source.setter
+    def frame_source(self, value) -> None:
+        self._ensure_frame_state()
+        self.frame_state.frame_source = value
 
     def _ensure_runtime_state(self) -> None:
         if not hasattr(self, "runtime_state") or self.runtime_state is None:
@@ -793,6 +877,67 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
 
         threading.Thread(target=_wrapped, daemon=True).start()
 
+    def _queue_display_update(self, update_preview: bool = True) -> None:
+        self._pending_display_preview = bool(self._pending_display_preview or update_preview)
+        if self._pending_display_update:
+            return
+        self._pending_display_update = True
+
+        def _flush() -> None:
+            preview = bool(self._pending_display_preview)
+            self._pending_display_update = False
+            self._pending_display_preview = True
+            self.update_display(update_preview=preview)
+
+        if self._ui_alive():
+            self.root.after(0, _flush)
+
+    def _schedule_analysis_prewarm(self, current_idx: int | None = None) -> None:
+        frame_source = getattr(self, "frame_source", None)
+        if frame_source is None or not callable(getattr(frame_source, "prewarm", None)):
+            return
+        frame_count = int(self._get_frame_count())
+        if frame_count <= 0:
+            return
+        idx = int(self.current_frame_idx if current_idx is None else current_idx)
+        idx = max(0, min(idx, frame_count - 1))
+        radius = max(1, int(getattr(self, "_analysis_prewarm_window", 4) or 4))
+        prev_idx = getattr(self, "_last_prewarm_frame_idx", None)
+        self._last_prewarm_frame_idx = idx
+        if prev_idx is None:
+            lo = max(0, idx - radius)
+            hi = min(frame_count - 1, idx + radius)
+        elif idx >= int(prev_idx):
+            lo = max(0, idx - radius // 2)
+            hi = min(frame_count - 1, idx + radius)
+        else:
+            lo = max(0, idx - radius)
+            hi = min(frame_count - 1, idx + radius // 2)
+        indices = list(range(lo, hi + 1))
+        generation = int(getattr(self, "_analysis_prewarm_generation", 0) or 0) + 1
+        self._analysis_prewarm_generation = generation
+
+        def _worker() -> None:
+            started = time.perf_counter()
+            if int(getattr(self, "_analysis_prewarm_generation", 0) or 0) != generation:
+                return
+            try:
+                frame_source.prewarm(indices, generation=generation)
+            except Exception as exc:
+                self.log_debug("Perf", f"Analysis prewarm skipped: {exc}")
+                return
+            if int(getattr(self, "_analysis_prewarm_generation", 0) or 0) != generation:
+                return
+            self.log_debug(
+                "Perf",
+                f"Analysis prewarm elapsed={(time.perf_counter() - started) * 1000.0:.1f}ms "
+                f"center={idx + 1} frames={len(indices)} generation={generation}",
+            )
+
+        thread = threading.Thread(target=_worker, daemon=True)
+        self._analysis_prewarm_thread = thread
+        thread.start()
+
     def _apply_runtime_icon(self):
         try:
             resource_root = Path(getattr(self, "resource_root", self.app_root))
@@ -852,11 +997,51 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         except Exception:
             return
 
+    def _frame_source_capabilities(self):
+        frame_source = getattr(self, "frame_source", None)
+        return dict(getattr(frame_source, "capabilities", {}) or {}) if frame_source is not None else {}
+
+    def _get_raw_frame(self, idx):
+        frame_source = getattr(self, "frame_source", None)
+        if frame_source is not None:
+            return frame_source.get_raw_frame(int(idx))
+        frames_raw = getattr(self, "frames_raw", None)
+        if frames_raw is None:
+            return None
+        return frames_raw[int(idx)]
+
+    def _get_subtracted_frame(self, idx):
+        frame_source = getattr(self, "frame_source", None)
+        if frame_source is not None:
+            capabilities = self._frame_source_capabilities()
+            if bool(capabilities.get("subtracted")):
+                return frame_source.get_subtracted_frame(int(idx))
+        frames_sub = getattr(self, "frames_sub", None)
+        if frames_sub is None:
+            return None
+        return frames_sub[int(idx)]
+
+    def _get_visual_frame(self, idx):
+        frame_source = getattr(self, "frame_source", None)
+        if frame_source is not None:
+            capabilities = self._frame_source_capabilities()
+            if bool(capabilities.get("visual")):
+                return frame_source.get_visual_frame(int(idx))
+        frames_sub_viz = getattr(self, "frames_sub_viz", None)
+        if frames_sub_viz is None:
+            return None
+        return frames_sub_viz[int(idx)]
+
     def _get_frames_raw(self):
         frame_source = getattr(self, "frame_source", None)
         frames_raw = getattr(self, "frames_raw", None)
         if frame_source is not None:
-            return FrameSequenceView(frame_source, "get_raw_frame")
+            try:
+                count = int(getattr(frame_source, "frame_count", 0) or 0)
+            except Exception:
+                count = 0
+            if count > 0 and callable(getattr(frame_source, "get_raw_frame", None)):
+                return FrameSequenceView(frame_source, "get_raw_frame")
         return frames_raw
 
     def _get_frame_count(self):
@@ -906,6 +1091,15 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         self.log_debug("FrameState", f"_get_frame_shape fallback result={fallback_shape}")
         return fallback_shape
 
+    def _get_frame_shape_for_idx(self, idx):
+        frame = self._get_raw_frame(idx)
+        if frame is None:
+            return self._get_frame_shape()
+        arr = np.asarray(frame)
+        if arr.ndim >= 2:
+            return tuple(int(v) for v in arr.shape[:2])
+        return self._get_frame_shape()
+
     def _has_loaded_stack(self):
         return self._get_frame_count() > 0
 
@@ -913,7 +1107,7 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         frame_source = getattr(self, "frame_source", None)
         frames_sub_viz = getattr(self, "frames_sub_viz", None)
         if frame_source is not None:
-            capabilities = dict(getattr(frame_source, "capabilities", {}) or {})
+            capabilities = self._frame_source_capabilities()
             if bool(capabilities.get("visual")):
                 return FrameSequenceView(frame_source, "get_visual_frame")
         return frames_sub_viz
@@ -1316,6 +1510,9 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         self._selected_import_files = None
         self._current_image_source_paths = []
         self.frame_source = None
+        self._analysis_prewarm_generation = 0
+        self._last_prewarm_frame_idx = None
+        self._initial_frame_nav_ts = None
         if hasattr(self, "analysis_workspace"):
             self.analysis_workspace.bind_frame_source(None)
         if hasattr(self, "app_context") and self.app_context is not None:
@@ -1352,7 +1549,7 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         self.cleanup_temp_files()
 
     def _default_event_state(self):
-        frame_count = len(self.frames_raw) if self.frames_raw is not None else 0
+        frame_count = int(self._get_frame_count()) if hasattr(self, "_get_frame_count") else 0
         return self.project_session_service.event_record_to_legacy_dict(
             self.project_session_service.ensure_event_record("sd_event_001", frame_count, {})
         )
@@ -1381,6 +1578,8 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         self.analysis_workspace.open_event("sd_event_001")
 
         self._finalize_load_ui()
+        self._schedule_analysis_prewarm(0)
+        self._initial_frame_nav_ts = time.perf_counter()
         self.start_model_initialization(reason="stack_loaded")
         self._mark_project_dirty("import_stack")
 

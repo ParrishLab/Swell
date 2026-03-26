@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 APP_TITLE = "IOS SD Event Marker"
 SUPPORTED_EXTENSIONS = (".tif", ".tiff", ".png", ".jpg", ".jpeg", ".bmp")
@@ -35,6 +35,7 @@ class EventCandidate:
     end_idx: int
     duration_frames: int
     duration_sec: Optional[float] = None
+    flags: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass

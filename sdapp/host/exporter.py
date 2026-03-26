@@ -17,6 +17,7 @@ from sdapp.analysis.core.metrics import (
     roi_mask_from_points,
     smooth_boundary_fft,
 )
+from sdapp.shared.frame_source import EventScopedFrameSource, SDStackFrameSource, build_visualization_stack
 from sdapp.shared.image_overlay import apply_mask_overlay
 from sdapp.shared.persistence.event_path import allocate_event_path_segment
 from sdapp.shared.services import MetricsSettingsResolver
@@ -46,9 +47,11 @@ def export_analysis(
     *,
     include_event_images: bool = True,
     include_baseline_images: bool = True,
+    include_analysis_images: bool = False,
     include_binary_masks: bool = False,
     include_mask_overlay_images: bool = False,
     analysis_sidecar: Optional[dict[str, dict]] = None,
+    analysis_image_cache: Optional[dict[tuple, np.ndarray]] = None,
     include_metric_propagation_speed: bool = False,
     include_metric_area_recruited: bool = False,
     include_metric_relative_area_recruited: bool = False,
@@ -60,7 +63,8 @@ def export_analysis(
         or bool(include_metric_relative_area_recruited)
     )
     include_any_mask_exports = bool(include_binary_masks) or bool(include_mask_overlay_images)
-    if not bool(include_event_images) and not bool(include_baseline_images) and not include_any_mask_exports and not include_any_metrics:
+    include_any_image_exports = bool(include_event_images) or bool(include_baseline_images) or bool(include_analysis_images)
+    if not include_any_image_exports and not include_any_mask_exports and not include_any_metrics:
         raise ValueError("Select at least one export target (images, masks, overlays, or metrics).")
 
     out_dir = Path(output_dir).expanduser().resolve()
@@ -84,6 +88,7 @@ def export_analysis(
 
     manifest_records: list[ExportRecord] = []
     event_summaries: list[dict] = []
+    analysis_images_exported = 0
     masks_exported = 0
     mask_overlay_images_exported = 0
     metrics_files_exported = 0
@@ -102,6 +107,7 @@ def export_analysis(
     frame_progress = 0
     progress_lock = Lock()
     max_workers = 4
+    stack_frame_source = SDStackFrameSource(reader=reader) if bool(include_analysis_images) else None
 
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
         for event_idx, event in enumerate(selected_events, start=1):
@@ -117,10 +123,14 @@ def export_analysis(
             event_dir = out_dir / event_output_segment_by_id[str(event.event_id)]
             baseline_dir = event_dir / "baseline"
             extent_dir = event_dir / "event_extent"
+            analysis_dir: Path | None = None
             if bool(include_baseline_images):
                 baseline_dir.mkdir(parents=True, exist_ok=True)
             if bool(include_event_images):
                 extent_dir.mkdir(parents=True, exist_ok=True)
+            if bool(include_analysis_images):
+                analysis_dir = event_dir / "analysis_images"
+                analysis_dir.mkdir(parents=True, exist_ok=True)
             masks_dir: Path | None = None
             if bool(include_binary_masks):
                 masks_dir = event_dir / "binary_masks"
@@ -172,6 +182,41 @@ def export_analysis(
             manifest_records.extend([rec for _idx, _role, rec in event_records])
 
             event_sidecar = dict((analysis_sidecar or {}).get(str(event.event_id), {}) or {})
+            if analysis_dir is not None and stack_frame_source is not None:
+                analysis_scope_start, analysis_scope_end, analysis_baseline_pre, processing = analysis_image_export_plan(
+                    event,
+                    default_baseline_pre_frames=int(baseline_pre_frames),
+                )
+
+                def _notify_analysis_prepare(progress: dict, *, event_id=str(event.event_id)) -> None:
+                    if not callable(progress_callback):
+                        return
+                    payload = {
+                        "phase": "analysis_prepare",
+                        "event_id": str(event_id),
+                        "current": int(progress.get("current", 0) or 0),
+                        "total": int(progress.get("total", 0) or 0),
+                        "stage": str(progress.get("stage", "prepare") or "prepare"),
+                    }
+                    progress_callback(payload)
+
+                analysis_viz_frames = resolve_analysis_image_stack(
+                    stack_frame_source,
+                    event,
+                    default_baseline_pre_frames=int(baseline_pre_frames),
+                    cache=analysis_image_cache,
+                    progress_callback=_notify_analysis_prepare,
+                )
+                for local_idx, global_idx in enumerate(range(analysis_scope_start, analysis_scope_end + 1)):
+                    role = "baseline" if int(global_idx) < int(event.start_idx) else "event"
+                    _export_analysis_frame(
+                        reader=reader,
+                        frame_idx=int(global_idx),
+                        out_dir=analysis_dir,
+                        role=str(role),
+                        analysis_frame=np.asarray(analysis_viz_frames[local_idx], dtype=np.uint8),
+                    )
+                    analysis_images_exported += 1
             mask_map = _build_event_global_mask_map(
                 event=event,
                 masks_payload=event_sidecar.get("masks_committed"),
@@ -236,6 +281,7 @@ def export_analysis(
         "output_dir": str(out_dir),
         "events_exported": len(selected_events),
         "frames_exported": len(manifest_records),
+        "analysis_images_exported": int(analysis_images_exported),
         "masks_exported": int(masks_exported),
         "mask_overlay_images_exported": int(mask_overlay_images_exported),
         "metrics_files_exported": int(metrics_files_exported),
@@ -522,6 +568,86 @@ def _export_frame(
         output_path=str(output_path),
         timestamp_sec=timestamp_sec,
     )
+
+
+def analysis_image_export_plan(event: EventCandidate, *, default_baseline_pre_frames: int) -> tuple[int, int, int, dict[str, bool]]:
+    flags = dict(getattr(event, "flags", {}) or {})
+    baseline_pre = max(1, int(flags.get("baseline_pre_frames", default_baseline_pre_frames)))
+    processing_raw = dict(flags.get("analysis_processing", {})) if isinstance(flags.get("analysis_processing"), dict) else {}
+    processing = {
+        "smoothing": bool(processing_raw.get("smoothing", True)),
+        "baseline_subtraction": bool(processing_raw.get("baseline_subtraction", True)),
+        "global_normalization": bool(processing_raw.get("global_normalization", True)),
+    }
+    scope_start = int(flags.get("analysis_scope_start_idx", max(0, int(event.start_idx) - baseline_pre)))
+    scope_end = int(flags.get("analysis_scope_end_idx", int(event.end_idx)))
+    scope_start = max(0, min(scope_start, int(event.end_idx)))
+    scope_end = max(scope_start, int(scope_end))
+    return scope_start, scope_end, baseline_pre, processing
+
+
+def analysis_image_cache_key(event: EventCandidate, *, default_baseline_pre_frames: int) -> tuple:
+    scope_start, scope_end, baseline_pre, processing = analysis_image_export_plan(
+        event,
+        default_baseline_pre_frames=int(default_baseline_pre_frames),
+    )
+    return (
+        str(event.event_id),
+        int(scope_start),
+        int(scope_end),
+        int(baseline_pre),
+        bool(processing["smoothing"]),
+        bool(processing["baseline_subtraction"]),
+        bool(processing["global_normalization"]),
+    )
+
+
+def resolve_analysis_image_stack(
+    frame_source,
+    event: EventCandidate,
+    *,
+    default_baseline_pre_frames: int,
+    cache: dict[tuple, np.ndarray] | None = None,
+    progress_callback: Callable[[dict], None] | None = None,
+) -> np.ndarray:
+    cache_key = analysis_image_cache_key(event, default_baseline_pre_frames=int(default_baseline_pre_frames))
+    if isinstance(cache, dict):
+        cached = cache.get(cache_key)
+        if cached is not None:
+            return np.asarray(cached, dtype=np.uint8)
+    scope_start, scope_end, baseline_pre, processing = analysis_image_export_plan(
+        event,
+        default_baseline_pre_frames=int(default_baseline_pre_frames),
+    )
+    scoped_source = EventScopedFrameSource(frame_source, int(scope_start), int(scope_end))
+    _raw, _sub, frames_viz = build_visualization_stack(
+        scoped_source,
+        baseline_frames=int(baseline_pre),
+        apply_smoothing=bool(processing["smoothing"]),
+        apply_baseline_subtraction=bool(processing["baseline_subtraction"]),
+        apply_global_normalization=bool(processing["global_normalization"]),
+        progress_callback=progress_callback,
+    )
+    frames_viz = np.asarray(frames_viz, dtype=np.uint8)
+    if isinstance(cache, dict):
+        cache[cache_key] = frames_viz
+    return frames_viz
+
+
+def _export_analysis_frame(
+    reader: StackReader,
+    frame_idx: int,
+    out_dir: Path,
+    role: str,
+    analysis_frame: np.ndarray,
+) -> None:
+    ref = reader.get_frame_ref(frame_idx)
+    frame_name = ref.frame_name
+    stem = Path(frame_name).stem
+    source_ext = ref.source_ext
+    output_ext = source_ext if source_ext in {".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff"} else ".tiff"
+    output_name = f"{int(frame_idx):06d}_{role}_{stem}{output_ext}"
+    _write_frame(out_dir / output_name, np.asarray(analysis_frame, dtype=np.uint8), output_ext)
 
 
 def _export_mask_overlay_frame(

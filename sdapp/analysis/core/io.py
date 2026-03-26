@@ -138,7 +138,7 @@ class IOActions:
         return self.browse_input_files()
 
     def _start_import_with_files(self, image_files, source_label):
-        if self.frames_raw is not None:
+        if hasattr(self, "_has_loaded_stack") and self._has_loaded_stack():
             proceed = messagebox.askyesno(
                 "Replace Current Stack?",
                 "Importing a new stack will clear the current masks, points, and edits. Continue?",
@@ -270,7 +270,7 @@ class IOActions:
         )
 
     def _finalize_load_ui(self):
-        count = int(self._get_frame_count()) if hasattr(self, "_get_frame_count") else (len(self.frames_raw) if self.frames_raw is not None else 0)
+        count = int(self._get_frame_count()) if hasattr(self, "_get_frame_count") else 0
         if count == 0:
             self._set_data_controls_enabled(False)
             self._set_busy(False, "Status: Idle", "gray")
@@ -286,7 +286,7 @@ class IOActions:
         self._set_spinbox_value(self.spin_prop_start, 1)
         self._set_spinbox_value(self.spin_prop_end, count)
 
-        if self.frames_raw is None or self.frames_sub_viz is None:
+        if self._get_frames_raw() is None or self._get_frames_sub_viz() is None:
             self.update_display()
             self._set_data_controls_enabled(False)
             self._set_busy(True, "Status: Preparing frames...", "orange")

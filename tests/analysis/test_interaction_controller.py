@@ -83,6 +83,7 @@ class InteractionControllerTests(unittest.TestCase):
         canvas_left = _CanvasStub()
         slider = _SliderStub(holder)
         lbl = _LabelStub()
+        frame_shape = (20, 20)
 
         c = InteractionController(
             seg_state=seg_state,
@@ -110,9 +111,8 @@ class InteractionControllerTests(unittest.TestCase):
             canvas_left=canvas_left,
             slider=slider,
             lbl_brush_val=lbl,
-            get_frames_sub_viz=lambda: frames_sub_viz,
-            get_frames_raw=lambda: frames_raw,
-            get_display_ratio=lambda: 1.0,
+            get_frame_count=lambda: len(frames_sub_viz),
+            get_frame_shape_for_idx=lambda _idx: frame_shape,
             get_display_transform=lambda _canvas, _w, _h: (1.0, 0, 0),
             update_display=lambda **kwargs: holder.__setitem__("updates", holder["updates"] + 1),
             draw_brush_cursor=lambda: None,

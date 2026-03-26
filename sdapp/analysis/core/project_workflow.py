@@ -270,7 +270,7 @@ def apply_loaded_project_plan(app, plan: ProjectLoadPlan) -> None:
     app.tool_mode.set(str(plan.ui_state.get("active_tool", "select")))
     try:
         idx = int(plan.ui_state.get("last_frame", 0))
-        frame_count = app._get_frame_count() if hasattr(app, "_get_frame_count") else len(app.frames_raw)
+        frame_count = int(app._get_frame_count()) if hasattr(app, "_get_frame_count") else 0
         app.slider.set(max(0, min(frame_count - 1, idx)))
     except Exception:
         pass

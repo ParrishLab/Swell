@@ -746,9 +746,32 @@ class SDAnalyzerApp:
     def _on_export_progress(self, payload: dict) -> None:
         phase = payload.get("phase")
         if phase == "event":
-            self._log_info(
-                f"Export event {payload.get('current', 0)}/{payload.get('total', 0)}: {payload.get('event_id', '?')}."
+            event_text = f"Export event {payload.get('current', 0)}/{payload.get('total', 0)}: {payload.get('event_id', '?')}."
+            self._set_status(event_text)
+            self._log_info(event_text)
+            return
+        if phase == "analysis_prepare":
+            total = int(payload.get("total", 0) or 0)
+            current = int(payload.get("current", 0) or 0)
+            if total <= 0:
+                return
+            stage = str(payload.get("stage", "prepare") or "prepare").replace("_", " ")
+            percent = max(0, min(100, int((current * 100) / total)))
+            self._set_status(
+                f"Preparing analysis images for {payload.get('event_id', '?')}: {current}/{total} ({percent}%) [{stage}]"
             )
+            bucket = percent // 10
+            key = (
+                "analysis_prepare",
+                str(payload.get("event_id", "?")),
+                str(payload.get("stage", "prepare")),
+                int(bucket),
+            )
+            if key != getattr(self, "_last_export_analysis_prepare_key", None):
+                self._last_export_analysis_prepare_key = key
+                self._log_info(
+                    f"Preparing analysis images for {payload.get('event_id', '?')}: {current}/{total} ({percent}%) [{stage}]."
+                )
             return
         if phase == "frame":
             total = int(payload.get("total", 0) or 0)
@@ -758,6 +781,7 @@ class SDAnalyzerApp:
             bucket = int((current * 100) / total) // 5
             if bucket > self._export_progress_bucket:
                 self._export_progress_bucket = bucket
+                self._set_status(f"Exporting frames: {current}/{total} ({min(100, bucket * 5)}%)")
                 self._log_info(f"Export progress: wrote {current}/{total} frames ({min(100, bucket * 5)}%).")
 
     def _on_event_select(self, _event=None) -> None:
@@ -1695,6 +1719,7 @@ class SDAnalyzerApp:
         self._set_status(f"Export complete: {result['events_exported']} event(s), {result['frames_exported']} frame(s).")
         self._log_info(
             f"Export complete: {result['events_exported']} event(s), {result['frames_exported']} frame(s), "
+            f"analysis_images={int(result.get('analysis_images_exported', 0))}, "
             f"mask_overlays={int(result.get('mask_overlay_images_exported', 0))}, "
             f"metrics_files={int(result.get('metrics_files_exported', 0))}, output={result['output_dir']}."
         )

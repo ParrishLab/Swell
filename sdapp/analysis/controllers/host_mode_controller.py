@@ -1,8 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-
-import numpy as np
+import time
 
 from sdapp.analysis.core.frame_source import FrameSequenceView
 from sdapp.shared.frame_source import EventScopedFrameSource, PreparedFrameSource
@@ -13,17 +12,24 @@ class AnalysisHostModeController:
     def __init__(self, app) -> None:
         self.app = app
 
-    def _maybe_start_host_model_initialization(self, reason: str) -> None:
-        frames_viz = getattr(self.app, "frames_sub_viz", None)
-        if frames_viz is None:
-            self.app._host_pending_model_init_reason = str(reason)
-            self.app.log_info("HostMode", "Deferring model initialization until visualization frames are ready...")
-            return
+    def _visual_frames_ready(self) -> bool:
+        get_frames_sub_viz = getattr(self.app, "_get_frames_sub_viz", None)
+        if not callable(get_frames_sub_viz):
+            return False
         try:
-            frame_count = int(np.asarray(frames_viz).shape[0])
+            frames_viz = get_frames_sub_viz()
+            frame_count = len(frames_viz) if frames_viz is not None else 0
         except Exception:
             frame_count = 0
         if frame_count <= 0:
+            return False
+        try:
+            return frames_viz[0] is not None
+        except Exception:
+            return False
+
+    def _maybe_start_host_model_initialization(self, reason: str) -> None:
+        if not self._visual_frames_ready():
             self.app._host_pending_model_init_reason = str(reason)
             self.app.log_info("HostMode", "Deferring model initialization until visualization frames are ready...")
             return
@@ -389,30 +395,85 @@ class AnalysisHostModeController:
             bool(apply_baseline_subtraction),
             bool(apply_global_normalization),
         )
-        if self.app._host_buffer_cache_key == cache_key and self.app.frames_sub_viz is not None:
+        if self.app._host_buffer_cache_key == cache_key and self._visual_frames_ready():
             return True
 
-        prepared_source = PreparedFrameSource(
-            frame_source,
-            baseline_frames=max(1, int(baseline_count)),
-            apply_smoothing=apply_smoothing,
-            apply_baseline_subtraction=apply_baseline_subtraction,
-            apply_global_normalization=apply_global_normalization,
-            stats=prepared_stats if prepared_stats is not None else None,
+        def _build_prepared_source() -> PreparedFrameSource:
+            started = time.perf_counter()
+            prepared_source = PreparedFrameSource(
+                frame_source,
+                baseline_frames=max(1, int(baseline_count)),
+                apply_smoothing=apply_smoothing,
+                apply_baseline_subtraction=apply_baseline_subtraction,
+                apply_global_normalization=apply_global_normalization,
+                stats=prepared_stats if prepared_stats is not None else None,
+            )
+            prepared_source.prepare()
+            self.app.log_debug(
+                "Perf",
+                f"Host buffer preparation elapsed={(time.perf_counter() - started) * 1000.0:.1f}ms frames={frame_count}",
+            )
+            return prepared_source
+
+        def _apply_prepared_source(prepared_source: PreparedFrameSource) -> None:
+            self.app.frame_source = prepared_source
+            workspace = getattr(self.app, "analysis_workspace", None)
+            if workspace is not None:
+                workspace.bind_frame_source(prepared_source)
+            if hasattr(self.app, "app_context") and self.app.app_context is not None:
+                self.app.app_context.frame_source = prepared_source
+            self.app.frames_raw = FrameSequenceView(prepared_source, "get_raw_frame")
+            self.app.frames_sub = FrameSequenceView(prepared_source, "get_subtracted_frame")
+            self.app.frames_sub_viz = FrameSequenceView(prepared_source, "get_visual_frame")
+            self.app._host_buffer_cache_key = cache_key
+            self.app._host_launch_preparation = None
+            if callable(getattr(self.app, "_schedule_analysis_prewarm", None)):
+                self.app._schedule_analysis_prewarm(0)
+            self.app._initial_frame_nav_ts = time.perf_counter()
+            self.app.log_info("HostMode", f"Prepared lazy visualization source ({frame_count} frames).")
+            if on_ready_message:
+                self.app.log_info("HostMode", str(on_ready_message))
+
+        sync_limit = max(1, int(getattr(self.app, "_host_buffer_sync_limit", 240) or 240))
+        has_preview_seed = bool(launch_preparation.get("viz_frame") is not None or launch_preparation.get("raw_frame") is not None)
+        should_queue_async = bool(prefer_async) and callable(getattr(self.app, "_run_thread", None)) and (
+            int(frame_count) > sync_limit or has_preview_seed
         )
-        prepared_source.prepare()
-        self.app.frame_source = prepared_source
-        workspace = getattr(self.app, "analysis_workspace", None)
-        if workspace is not None:
-            workspace.bind_frame_source(prepared_source)
-        if hasattr(self.app, "app_context") and self.app.app_context is not None:
-            self.app.app_context.frame_source = prepared_source
-        self.app.frames_raw = FrameSequenceView(prepared_source, "get_raw_frame")
-        self.app.frames_sub = FrameSequenceView(prepared_source, "get_subtracted_frame")
-        self.app.frames_sub_viz = FrameSequenceView(prepared_source, "get_visual_frame")
-        self.app._host_buffer_cache_key = cache_key
-        self.app._host_launch_preparation = None
-        self.app.log_info("HostMode", f"Prepared lazy visualization source ({frame_count} frames).")
-        if on_ready_message:
-            self.app.log_info("HostMode", str(on_ready_message))
+        if should_queue_async:
+            generation = int(getattr(self.app, "_host_buffer_generation", 0) or 0) + 1
+            self.app._host_buffer_generation = generation
+            self.app.frames_raw = None
+            self.app.frames_sub = None
+            self.app.frames_sub_viz = None
+
+            def _prepare_in_background() -> None:
+                prepared_source = _build_prepared_source()
+
+                def _apply_when_ready() -> None:
+                    if int(getattr(self.app, "_host_buffer_generation", 0) or 0) != generation:
+                        return
+                    _apply_prepared_source(prepared_source)
+                    if not bool(getattr(self.app, "_host_post_open_ui_initialized", False)) and callable(
+                        getattr(self.app, "_post_host_mode_open_ui", None)
+                    ):
+                        self.app._post_host_mode_open_ui(str(on_ready_message or "Host workspace initialized."))
+                    else:
+                        if callable(getattr(self.app, "_finalize_load_ui", None)):
+                            self.app._finalize_load_ui()
+                        if callable(getattr(self.app, "update_display", None)):
+                            self.app.update_display(update_preview=True)
+                    pending_reason = str(getattr(self.app, "_host_pending_model_init_reason", "") or "").strip()
+                    if pending_reason:
+                        self._maybe_start_host_model_initialization(pending_reason)
+
+                if callable(getattr(self.app, "_ui_alive", None)) and self.app._ui_alive():
+                    self.app.root.after(0, _apply_when_ready)
+                else:
+                    _apply_when_ready()
+
+            self.app._run_thread(_prepare_in_background, loading_text="Preparing host workspace...")
+            return False
+
+        prepared_source = _build_prepared_source()
+        _apply_prepared_source(prepared_source)
         return True

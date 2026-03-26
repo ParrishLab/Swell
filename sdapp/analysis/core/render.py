@@ -61,24 +61,34 @@ class RenderActions:
     def on_slider_move(self, val):
         self.current_frame_idx = int(float(val))
         self.update_display()
+        if hasattr(self, "_schedule_analysis_prewarm"):
+            self._schedule_analysis_prewarm(self.current_frame_idx)
+        if getattr(self, "_initial_frame_nav_ts", None) is not None:
+            elapsed_ms = (time.perf_counter() - float(self._initial_frame_nav_ts)) * 1000.0
+            self.log_debug("Perf", f"First-frame navigation elapsed={elapsed_ms:.1f}ms")
+            self._initial_frame_nav_ts = None
         if hasattr(self, "_mark_project_dirty"):
             self._mark_project_dirty("frame_change")
 
     def update_display(self, update_preview=True):
         t0 = time.perf_counter()
-        if self.frames_sub_viz is None:
+        frame_count = int(self._get_frame_count()) if hasattr(self, "_get_frame_count") else 0
+        if frame_count <= 0:
             self._draw_pending_frames_placeholder()
             return
 
-        idx = self.current_frame_idx
+        idx = max(0, min(int(self.current_frame_idx), max(0, frame_count - 1)))
         fname = self.frame_names[idx] if hasattr(self, "frame_names") and idx < len(self.frame_names) else ""
         display_idx = idx + 1
-        display_total = len(self.frames_sub_viz)
+        display_total = frame_count
         self.lbl_frame.configure(text=f"Frame: {display_idx} / {display_total}  [{fname}]")
         if hasattr(self, "slider_value"):
             self.slider_value.set(str(display_idx))
 
-        img_arr_gray = self.frames_sub_viz[idx]
+        img_arr_gray = self._get_visual_frame(idx) if hasattr(self, "_get_visual_frame") else None
+        if img_arr_gray is None:
+            self._draw_pending_frames_placeholder()
+            return
         img_arr = frame_to_rgb_u8(img_arr_gray)
 
         final_mask = None
@@ -126,9 +136,14 @@ class RenderActions:
 
         self._draw_brush_cursor_on_canvas()
 
-        orig_h, orig_w = self.frames_raw[idx].shape[:2]
+        raw_frame = self._get_raw_frame(idx) if hasattr(self, "_get_raw_frame") else None
+        if raw_frame is None:
+            raw_shape = tuple(int(v) for v in img_arr_gray.shape[:2])
+        else:
+            raw_shape = tuple(int(v) for v in np.asarray(raw_frame).shape[:2])
+        orig_h, orig_w = raw_shape
         ratio, offset_x, offset_y = self._get_display_transform(self.canvas_left, orig_w, orig_h)
-        self._draw_overlay_elements(w, h, self.frames_raw[idx].shape, ratio, offset_x, offset_y)
+        self._draw_overlay_elements(w, h, raw_shape, ratio, offset_x, offset_y)
 
         if update_preview:
             if np.any(final_mask):
@@ -153,7 +168,7 @@ class RenderActions:
                 self.canvas_preview.create_text(70, 70, text="No Mask", fill="gray")
 
         if not self.is_dragging:
-            img_arr_right = frame_to_rgb_u8(self.frames_sub_viz[idx])
+            img_arr_right = frame_to_rgb_u8(img_arr_gray)
             img_pil_right = Image.fromarray(img_arr_right)
             if w > 1 and h > 1:
                 img_pil_right = self._resize_maintain_aspect(
@@ -208,9 +223,10 @@ class RenderActions:
                     self.canvas_left.create_oval(cx - 3, cy - 3, cx + 3, cy + 3, fill=color, outline="white")
 
     def _draw_analysis_overlay_on_right(self, idx):
-        if self.frames_raw is None:
+        raw_frame = self._get_raw_frame(idx) if hasattr(self, "_get_raw_frame") else None
+        if raw_frame is None:
             return
-        h, w = self.frames_raw[idx].shape[:2]
+        h, w = np.asarray(raw_frame).shape[:2]
         ratio, offset_x, offset_y = self._get_display_transform(self.canvas_right, w, h)
 
         if hasattr(self, "roi_points") and self.roi_points:

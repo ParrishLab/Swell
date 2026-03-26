@@ -69,6 +69,7 @@ class EventCatalogService:
         end_idx: int | None = None,
         label: str | None = None,
         frame_count: int,
+        flags: dict | None = None,
     ) -> EventMeta:
         key = str(event_id)
         event = self._events.get(key)
@@ -78,7 +79,8 @@ class EventCatalogService:
         next_end = int(event.end_idx if end_idx is None else end_idx)
         next_start, next_end = self.normalize_bounds(next_start, next_end, frame_count)
         next_label = str(event.label if label is None else label)
-        updated = replace(event, start_idx=next_start, end_idx=next_end, label=next_label)
+        next_flags = dict(event.flags if flags is None else flags)
+        updated = replace(event, start_idx=next_start, end_idx=next_end, label=next_label, flags=next_flags)
         self._events[key] = updated
         return replace(updated)
 

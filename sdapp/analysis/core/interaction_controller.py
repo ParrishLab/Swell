@@ -32,9 +32,8 @@ class InteractionController:
         canvas_left,
         slider,
         lbl_brush_val,
-        get_frames_sub_viz,
-        get_frames_raw,
-        get_display_ratio,
+        get_frame_count,
+        get_frame_shape_for_idx,
         get_display_transform,
         update_display,
         draw_brush_cursor,
@@ -71,9 +70,8 @@ class InteractionController:
         self.canvas_left = canvas_left
         self.slider = slider
         self.lbl_brush_val = lbl_brush_val
-        self.get_frames_sub_viz = get_frames_sub_viz
-        self.get_frames_raw = get_frames_raw
-        self.get_display_ratio = get_display_ratio
+        self.get_frame_count = get_frame_count
+        self.get_frame_shape_for_idx = get_frame_shape_for_idx
         self.get_display_transform = get_display_transform
         self.update_display = update_display
         self.draw_brush_cursor = draw_brush_cursor
@@ -97,8 +95,8 @@ class InteractionController:
         self.lbl_brush_val.configure(text=f"{int(float(val))} px")
 
     def on_nav_left(self, _event=None):
-        frames_sub_viz = self.get_frames_sub_viz()
-        if frames_sub_viz is None:
+        frame_count = int(self.get_frame_count())
+        if frame_count <= 0:
             return
         current_idx = self.get_current_frame_idx()
         new_idx = max(0, current_idx - 1)
@@ -106,11 +104,11 @@ class InteractionController:
             self.slider.set(new_idx)
 
     def on_nav_right(self, _event=None):
-        frames_sub_viz = self.get_frames_sub_viz()
-        if frames_sub_viz is None:
+        frame_count = int(self.get_frame_count())
+        if frame_count <= 0:
             return
         current_idx = self.get_current_frame_idx()
-        new_idx = min(len(frames_sub_viz) - 1, current_idx + 1)
+        new_idx = min(frame_count - 1, current_idx + 1)
         if new_idx != current_idx:
             self.slider.set(new_idx)
 
@@ -189,13 +187,13 @@ class InteractionController:
         self.update_display()
 
     def _handle_selection(self, event):
-        frames_raw = self.get_frames_raw()
-        if frames_raw is None:
+        frame_count = int(self.get_frame_count())
+        if frame_count <= 0:
             return
         idx = self.get_current_frame_idx()
         new_selection = None
         if idx in self.points:
-            orig_h, orig_w = frames_raw[idx].shape[:2]
+            orig_h, orig_w = self.get_frame_shape_for_idx(idx)
             ratio, offset_x, offset_y = self.get_display_transform(self.canvas_left, orig_w, orig_h)
 
             click_x = event.x
@@ -246,14 +244,14 @@ class InteractionController:
                 self.recompute_slider_jump_markers()
 
     def _handle_tool(self, event, is_click=False):
-        frames_raw = self.get_frames_raw()
-        if frames_raw is None:
+        frame_count = int(self.get_frame_count())
+        if frame_count <= 0:
             return
 
         idx = self.get_current_frame_idx()
         mode = self.tool_mode.get()
 
-        orig_h, orig_w = frames_raw[idx].shape[:2]
+        orig_h, orig_w = self.get_frame_shape_for_idx(idx)
         ratio, offset_x, offset_y = self.get_display_transform(self.canvas_left, orig_w, orig_h)
 
         img_x = int((event.x - offset_x) / ratio)

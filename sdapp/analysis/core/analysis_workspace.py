@@ -59,20 +59,7 @@ class AnalysisWorkspaceController:
             return 0, (0, 0)
         frame_count = int(getattr(self.frame_source, "frame_count", 0) or 0)
         frame_shape = tuple(int(v) for v in tuple(getattr(self.frame_source, "frame_shape", (0, 0)))[:2])
-        raw_frames = getattr(self.frame_source, "raw_frames", None)
-        if raw_frames is not None:
-            try:
-                raw_count = len(raw_frames)
-            except Exception:
-                raw_count = 0
-            if raw_count > 0:
-                first_frame = raw_frames[0]
-                raw_shape = tuple(int(v) for v in tuple(np.asarray(first_frame).shape[:2]))
-                if len(raw_shape) == 2 and raw_shape[0] > 0 and raw_shape[1] > 0:
-                    frame_shape = raw_shape
-                if raw_count > 0:
-                    frame_count = raw_count
-        elif frame_count > 0:
+        if frame_count > 0:
             get_raw_frame = getattr(self.frame_source, "get_raw_frame", None)
             if callable(get_raw_frame):
                 try:
@@ -82,7 +69,8 @@ class AnalysisWorkspaceController:
                 if sampled is not None:
                     sampled_shape = tuple(int(v) for v in tuple(sampled.shape[:2]))
                     if len(sampled_shape) == 2 and sampled_shape[0] > 0 and sampled_shape[1] > 0:
-                        frame_shape = sampled_shape
+                        if tuple(frame_shape) != tuple(sampled_shape):
+                            frame_shape = sampled_shape
         resolved = int(frame_count), (int(frame_shape[0]), int(frame_shape[1]))
         self._resolved_frame_dims_cache = resolved
         return resolved

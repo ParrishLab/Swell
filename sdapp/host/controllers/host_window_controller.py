@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import OrderedDict
 from pathlib import Path
 import threading
 import tkinter as tk
@@ -10,7 +11,7 @@ import numpy as np
 from sdapp.analysis.core.metrics import compute_scale
 from sdapp.analysis.ui.roi_dialog import open_roi_dialog
 from sdapp.analysis.ui.scale_dialog import open_scale_dialog
-from sdapp.host.exporter import export_analysis
+from sdapp.host.exporter import analysis_image_cache_key, export_analysis
 from sdapp.shared.services import MetricsSettingsResolver
 
 
@@ -96,6 +97,44 @@ class HostWindowController:
             metrics_loader=lambda event_id: self.app.browser_controller.resolve_event_metrics_settings(event_id),
         )
 
+    def _analysis_image_export_cache(self) -> OrderedDict:
+        cache = getattr(self.app, "_analysis_image_export_cache", None)
+        if isinstance(cache, OrderedDict):
+            return cache
+        cache = OrderedDict()
+        self.app._analysis_image_export_cache = cache
+        return cache
+
+    def _cache_analysis_image_stack(self, key: tuple, frames_viz: np.ndarray) -> None:
+        cache = self._analysis_image_export_cache()
+        cache[key] = np.asarray(frames_viz, dtype=np.uint8)
+        cache.move_to_end(key)
+        while len(cache) > 4:
+            cache.popitem(last=False)
+
+    def _seed_analysis_image_export_cache(self, export_events: list[object], baseline_pre_frames: int) -> OrderedDict:
+        cache = self._analysis_image_export_cache()
+        by_event_id = {str(getattr(event, "event_id", "")): event for event in list(export_events or [])}
+        for event_id, event in by_event_id.items():
+            ref = self.app.analysis_window_manager.get("__project__", event_id)
+            if ref is None:
+                continue
+            analysis_app = getattr(ref, "app", None)
+            frames_viz = getattr(analysis_app, "frames_sub_viz", None)
+            try:
+                frame_count = len(frames_viz) if frames_viz is not None else 0
+            except Exception:
+                frame_count = 0
+            if frame_count <= 0:
+                continue
+            try:
+                stack = np.asarray([np.asarray(frames_viz[idx], dtype=np.uint8).copy() for idx in range(frame_count)], dtype=np.uint8)
+            except Exception:
+                continue
+            cache_key = analysis_image_cache_key(event, default_baseline_pre_frames=int(baseline_pre_frames))
+            self._cache_analysis_image_stack(cache_key, stack)
+        return cache
+
     @staticmethod
     def attach_disabled_tooltip(parent, widget, message: str) -> None:
         tip = tk.Toplevel(parent)
@@ -128,6 +167,7 @@ class HostWindowController:
 
         include_event_var = tk.BooleanVar(value=True)
         include_baseline_var = tk.BooleanVar(value=True)
+        include_analysis_var = tk.BooleanVar(value=False)
         include_masks_var = tk.BooleanVar(value=True)
         include_mask_overlay_var = tk.BooleanVar(value=True)
         include_metric_speed_var = tk.BooleanVar(value=True)
@@ -160,6 +200,7 @@ class HostWindowController:
         checks.pack(fill="x", pady=(0, 10))
         ttk.Checkbutton(checks, text="Event Images", variable=include_event_var).pack(anchor="w")
         ttk.Checkbutton(checks, text="Baseline Images", variable=include_baseline_var).pack(anchor="w")
+        ttk.Checkbutton(checks, text="Analysis Images", variable=include_analysis_var).pack(anchor="w")
         masks_check = ttk.Checkbutton(checks, text="Binary Masks", variable=include_masks_var)
         masks_check.pack(anchor="w")
         overlay_check = ttk.Checkbutton(checks, text="Mask Overlay Images", variable=include_mask_overlay_var)
@@ -211,6 +252,7 @@ class HostWindowController:
             include_any = (
                 bool(include_event_var.get())
                 or bool(include_baseline_var.get())
+                or bool(include_analysis_var.get())
                 or bool(include_masks_var.get())
                 or bool(include_mask_overlay_var.get())
                 or bool(include_metric_speed_var.get())
@@ -228,6 +270,7 @@ class HostWindowController:
                 "output_dir": out,
                 "include_event_images": bool(include_event_var.get()),
                 "include_baseline_images": bool(include_baseline_var.get()),
+                "include_analysis_images": bool(include_analysis_var.get()),
                 "include_binary_masks": bool(include_masks_var.get()),
                 "include_mask_overlay_images": bool(include_mask_overlay_var.get()),
                 "include_metric_propagation_speed": bool(include_metric_speed_var.get()),
@@ -435,11 +478,13 @@ class HostWindowController:
         baseline_pre = int(self.app.baseline_pre_frames)
         self.app._set_status("Exporting...")
         self.app._export_progress_bucket = -1
+        self.app._last_export_analysis_prepare_key = None
         self.app._log_info(
             "Started export to "
             f"{output_dir} for {len(event_ids)} event(s), baseline_pre_frames={baseline_pre}, "
             f"event_images={bool(options.get('include_event_images'))}, "
             f"baseline_images={bool(options.get('include_baseline_images'))}, "
+            f"analysis_images={bool(options.get('include_analysis_images'))}, "
             f"binary_masks={bool(options.get('include_binary_masks'))}, "
             f"mask_overlay_images={bool(options.get('include_mask_overlay_images'))}, "
             f"metric_propagation_speed={bool(options.get('include_metric_propagation_speed'))}, "
@@ -451,8 +496,19 @@ class HostWindowController:
             try:
                 assert self.app.reader is not None
                 export_events = self.app.browser_controller.export_candidates(event_ids)
+                analysis_image_cache = None
+                if bool(options.get("include_analysis_images")):
+                    analysis_image_cache = self._seed_analysis_image_export_cache(export_events, baseline_pre)
                 sidecar = self.app.browser_controller.session.state().analysis_sidecar
                 metadata = self.app.browser_controller.session.state().metadata
+
+                def _notify_progress(payload: dict) -> None:
+                    if not hasattr(self.app, "root") or self.app.root is None:
+                        self.app._on_export_progress(dict(payload or {}))
+                        return
+                    progress_payload = dict(payload or {})
+                    self.app.root.after(0, lambda p=progress_payload: self.app._on_export_progress(p))
+
                 result = export_analysis(
                     reader=self.app.reader,
                     events=export_events,
@@ -460,12 +516,14 @@ class HostWindowController:
                     baseline_pre_frames=baseline_pre,
                     trace=self.app.trace,
                     selected_event_ids=event_ids,
-                    progress_callback=self.app._on_export_progress,
+                    progress_callback=_notify_progress,
                     include_event_images=bool(options.get("include_event_images")),
                     include_baseline_images=bool(options.get("include_baseline_images")),
+                    include_analysis_images=bool(options.get("include_analysis_images")),
                     include_binary_masks=bool(options.get("include_binary_masks")),
                     include_mask_overlay_images=bool(options.get("include_mask_overlay_images")),
                     analysis_sidecar=sidecar,
+                    analysis_image_cache=analysis_image_cache,
                     include_metric_propagation_speed=bool(options.get("include_metric_propagation_speed")),
                     include_metric_area_recruited=bool(options.get("include_metric_area_recruited")),
                     include_metric_relative_area_recruited=bool(options.get("include_metric_relative_area_recruited")),

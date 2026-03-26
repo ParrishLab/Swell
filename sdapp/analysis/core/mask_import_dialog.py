@@ -76,19 +76,25 @@ class MaskImportDialogService:
             masks.append((img > 0))
         return masks
 
-    def build_mask_preview_image(self, frame_idx: int, mask: np.ndarray, frames_raw, frames_sub_viz):
-        if frames_sub_viz and 0 <= frame_idx < len(frames_sub_viz):
-            base_frame = np.asarray(frames_sub_viz[frame_idx])
-        else:
-            base_frame = np.asarray(frames_raw[frame_idx])
+    def build_mask_preview_image(self, frame_idx: int, mask: np.ndarray, *, get_raw_frame, get_visual_frame=None):
+        base_frame = None
+        if callable(get_visual_frame):
+            try:
+                base_frame = get_visual_frame(int(frame_idx))
+            except Exception:
+                base_frame = None
+        if base_frame is None:
+            base_frame = get_raw_frame(int(frame_idx))
+        base_frame = np.asarray(base_frame)
         mixed = apply_mask_overlay(base_frame, mask)
         return Image.fromarray(mixed)
 
     def ask_alignment(
         self,
         root,
-        frames_raw,
-        frames_sub_viz,
+        frame_count: int,
+        get_raw_frame,
+        get_visual_frame,
         masks: list[np.ndarray],
         guessed_offset: int,
     ) -> Optional[int]:
@@ -125,7 +131,7 @@ class MaskImportDialogService:
         align = tk.Scale(
             row_b,
             from_=1,
-            to=max(1, len(frames_raw)),
+            to=max(1, int(frame_count)),
             orient="horizontal",
             showvalue=True,
             length=320,
@@ -150,11 +156,16 @@ class MaskImportDialogService:
                 info_var.set("Invalid mask index")
                 return
             frame_idx = start_idx + mask_idx
-            if start_idx < 0 or frame_idx < 0 or frame_idx >= len(frames_raw):
+            if start_idx < 0 or frame_idx < 0 or frame_idx >= int(frame_count):
                 info_var.set("Out of range")
                 return
             info_var.set(f"Mask {mask_idx + 1}/{len(masks)} -> frame {frame_idx + 1}")
-            pil = self.build_mask_preview_image(frame_idx, masks[mask_idx], frames_raw, frames_sub_viz)
+            pil = self.build_mask_preview_image(
+                frame_idx,
+                masks[mask_idx],
+                get_raw_frame=get_raw_frame,
+                get_visual_frame=get_visual_frame,
+            )
             cw = max(1, canvas.winfo_width())
             ch = max(1, canvas.winfo_height())
             if cw < 20 or ch < 20:
@@ -172,7 +183,7 @@ class MaskImportDialogService:
                 frame_idx = int(offset_var.get()) - 1
             except Exception:
                 frame_idx = -1
-            if frame_idx < 0 or frame_idx >= len(frames_raw):
+            if frame_idx < 0 or frame_idx >= int(frame_count):
                 messagebox.showwarning("Alignment", "Choose a valid start frame.", parent=top)
                 return
             result["offset"] = frame_idx

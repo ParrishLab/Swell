@@ -1,16 +1,15 @@
 import os
 import importlib.util
 import sys
-import tempfile
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from types import MethodType
 
-import cv2
 import numpy as np
 from tkinter import filedialog, messagebox
 
-from sdapp.analysis.model import DeterministicCpuFallbackPredictor
+from sdapp.analysis.model import DeterministicCpuFallbackPredictor, build_sam2_frame_cache_key
 from sdapp.shared.model_copy import (
     STATUS_MODEL_DISABLED,
     STATUS_MODEL_ERROR,
@@ -415,9 +414,10 @@ class SegmentationActions:
 
     def init_runtime_background(self, preflight: CheckpointOnboardingResult):
         try:
-            if self.frames_sub_viz is None:
+            frame_count = int(self._get_frame_count()) if hasattr(self, "_get_frame_count") else 0
+            if frame_count <= 0:
                 raise RuntimeError("No frames loaded. Import images first.")
-            frames_viz = np.asarray(self.frames_sub_viz)
+            frames_viz = np.asarray([np.asarray(self._get_visual_frame(idx), dtype=np.uint8) for idx in range(frame_count)])
             if frames_viz.ndim != 3 or int(frames_viz.shape[0]) <= 0:
                 raise RuntimeError("No valid visualization frames are available. Import images first.")
 
@@ -438,12 +438,48 @@ class SegmentationActions:
 
             def _build_predictor(normalized_model_path: str, temp_dir: str):
                 _ensure_runtime_stdio()
-                self.log_info("Model", "Preparing temporary frames for SAM2...")
-                for i, f_8bit in enumerate(frames_viz):
-                    cv2.imwrite(
-                        os.path.join(temp_dir, f"{i:05d}.jpg"),
-                        cv2.cvtColor(np.asarray(f_8bit, dtype=np.uint8), cv2.COLOR_GRAY2BGR),
+                frame_source = getattr(self, "frame_source", None)
+                frame_count = int(np.asarray(frames_viz).shape[0]) if np.asarray(frames_viz).ndim >= 3 else 0
+                frame_shape = tuple(int(v) for v in np.asarray(frames_viz).shape[1:3]) if frame_count > 0 else (0, 0)
+                processing_opts = (
+                    dict(getattr(self, "_host_processing_options", {}) or {})
+                    if isinstance(getattr(self, "_host_processing_options", None), dict)
+                    else {}
+                )
+                baseline_frames = int(getattr(self, "baseline_pre_frames", 30) or 30)
+                apply_smoothing = bool(processing_opts.get("apply_smoothing", True))
+                apply_baseline_subtraction = bool(processing_opts.get("apply_baseline_subtraction", True))
+                apply_global_normalization = bool(processing_opts.get("apply_global_normalization", True))
+                stats = None
+                if frame_source is not None and callable(getattr(frame_source, "stats", None)):
+                    try:
+                        stats = frame_source.stats()
+                    except Exception as exc:
+                        self.log_debug("Perf", f"Visualization stats unavailable for SAM export cache: {exc}")
+                cache_key = build_sam2_frame_cache_key(
+                    frame_source=frame_source,
+                    frame_count=frame_count,
+                    frame_shape=frame_shape,
+                    baseline_frames=baseline_frames,
+                    apply_smoothing=apply_smoothing,
+                    apply_baseline_subtraction=apply_baseline_subtraction,
+                    apply_global_normalization=apply_global_normalization,
+                    stats=stats,
+                )
+                frame_cache = getattr(self, "sam2_frame_cache", None)
+                cache_dir = None
+                if frame_cache is not None:
+                    frame_cache.prune_expired()
+                    self.log_info("Model", "Preparing cached frames for SAM2...")
+                    cache_result = frame_cache.export_frames(
+                        frame_source=frame_source,
+                        frames_viz=frames_viz,
+                        cache_key=cache_key,
+                        logger=self.log_debug,
                     )
+                    cache_dir = cache_result.cache_dir
+                else:
+                    raise RuntimeError("SAM2 frame cache service is unavailable.")
 
                 device = "mps" if torch.backends.mps.is_available() else "cpu"
                 if device == "cpu" and torch.cuda.is_available():
@@ -477,12 +513,18 @@ class SegmentationActions:
                         continue
                     self.log_info("Model", f"Trying config: {cname}")
                     try:
+                        init_t0 = time.perf_counter()
                         predictor = build_sam2_video_predictor(cname, normalized_model_path, device=device)
                         self.predictor = predictor
                         if device == "mps":
                             self._apply_mps_sam2_dtype_guard()
                             predictor = self.predictor
-                        inference_state = predictor.init_state(video_path=temp_dir)
+                        inference_state = predictor.init_state(video_path=cache_dir or temp_dir)
+                        self.log_debug(
+                            "Perf",
+                            f"SAM predictor init elapsed={(time.perf_counter() - init_t0) * 1000.0:.1f}ms "
+                            f"config={cname}",
+                        )
                         return predictor, inference_state
                     except Exception as e:  # noqa: BLE001
                         errors.append(f"{cname}: {e}")
@@ -596,7 +638,7 @@ class SegmentationActions:
 
         self._prune_empty_point_frames()
 
-        total_frames = len(self.frames_raw) if self.frames_raw is not None else 0
+        total_frames = int(self._get_frame_count()) if hasattr(self, "_get_frame_count") else 0
         prop_start, prop_end = self._parse_clamped_frame_range(
             self.spin_prop_start,
             self.spin_prop_end,
