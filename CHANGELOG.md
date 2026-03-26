@@ -16,6 +16,20 @@ All notable changes to this project are documented in this file.
 ### Known segmentation caveats/regressions
 - TBD
 
+## [0.1.4] - 2026-03-26
+
+### Model/checkpoint compatibility
+- TBD
+
+### Platform/backend limitations
+- TBD
+
+### .sdproj/migration notes
+- TBD
+
+### Known segmentation caveats/regressions
+- TBD
+
 ## [0.1.3] - 2026-03-17
 
 ### Model/checkpoint compatibility
