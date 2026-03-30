@@ -285,6 +285,54 @@ class HostWindowController:
         dialog.wait_window()
         return result
 
+    def prompt_propagation_gap_action(self, payload: dict[str, object]) -> str:
+        result = {"action": "ignore"}
+        dialog = tk.Toplevel(self.app.root)
+        dialog.title("Propagation Speed Warning")
+        dialog.transient(self.app.root)
+        dialog.grab_set()
+        dialog.resizable(False, False)
+        dialog.geometry("+%d+%d" % (self.app.root.winfo_rootx() + 140, self.app.root.winfo_rooty() + 140))
+
+        shell = ttk.Frame(dialog, padding=12)
+        shell.pack(fill="both", expand=True)
+        event_id = str(payload.get("event_id", "") or "")
+        runs = list(payload.get("gap_frame_runs", []) or [])
+        run_labels = ", ".join(
+            f"{int(run[0])}" if int(run[0]) == int(run[1]) else f"{int(run[0])}-{int(run[1])}"
+            for run in runs
+            if isinstance(run, (list, tuple)) and len(run) >= 2
+        )
+        ttk.Label(
+            shell,
+            text=(
+                f"Propagation speed gaps were detected for {event_id or 'the current event'}.\n"
+                f"Frames: {run_labels or 'unknown'}"
+            ),
+            justify="left",
+        ).pack(anchor="w")
+        ttk.Label(
+            shell,
+            text="Choose how export should handle those propagation-speed gaps for this export run.",
+            justify="left",
+        ).pack(anchor="w", pady=(8, 10))
+
+        def _finish(action: str) -> None:
+            result["action"] = str(action)
+            dialog.destroy()
+
+        buttons = ttk.Frame(shell)
+        buttons.pack(fill="x")
+        ttk.Button(buttons, text="Ignore", command=lambda: _finish("ignore")).pack(side="left")
+        ttk.Button(buttons, text="Stop There", command=lambda: _finish("stop")).pack(side="left", padx=(8, 0))
+        ttk.Button(buttons, text="Average Between Frames", command=lambda: _finish("interpolate")).pack(
+            side="left", padx=(8, 0)
+        )
+        dialog.protocol("WM_DELETE_WINDOW", lambda: _finish("ignore"))
+        self.center_window_on_screen(dialog)
+        dialog.wait_window()
+        return str(result["action"])
+
     @staticmethod
     def center_window_on_screen(window) -> None:
         try:
@@ -491,6 +539,7 @@ class HostWindowController:
             f"metric_area_recruited={bool(options.get('include_metric_area_recruited'))}, "
             f"metric_relative_area_recruited={bool(options.get('include_metric_relative_area_recruited'))}."
         )
+        gap_policy_cache: dict[str, str] = {}
 
         def worker() -> None:
             try:
@@ -508,6 +557,28 @@ class HostWindowController:
                         return
                     progress_payload = dict(payload or {})
                     self.app.root.after(0, lambda p=progress_payload: self.app._on_export_progress(p))
+
+                def _resolve_gap_decision(payload: dict[str, object]) -> str:
+                    cached = gap_policy_cache.get("action")
+                    if cached:
+                        return str(cached)
+                    response: dict[str, str] = {"action": "ignore"}
+                    wait_event = threading.Event()
+
+                    def _ask() -> None:
+                        try:
+                            response["action"] = str(self.prompt_propagation_gap_action(dict(payload or {})) or "ignore")
+                        finally:
+                            wait_event.set()
+
+                    self.app.root.after(0, _ask)
+                    wait_event.wait()
+                    action = str(response.get("action", "ignore") or "ignore")
+                    gap_policy_cache["action"] = action
+                    self.app._log_warn(
+                        f"Propagation speed gap detected during export; applying action='{action}' for remaining exports."
+                    )
+                    return action
 
                 result = export_analysis(
                     reader=self.app.reader,
@@ -528,6 +599,7 @@ class HostWindowController:
                     include_metric_area_recruited=bool(options.get("include_metric_area_recruited")),
                     include_metric_relative_area_recruited=bool(options.get("include_metric_relative_area_recruited")),
                     project_metadata=metadata,
+                    propagation_gap_decision=_resolve_gap_decision,
                 )
                 self.app.root.after(0, lambda: self.app._on_export_done(result))
             except Exception as exc:

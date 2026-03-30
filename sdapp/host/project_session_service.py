@@ -83,6 +83,7 @@ class ProjectSessionService:
     def set_stack_ref(self, stack_ref: StackRef) -> None:
         state = self._service.state()
         state.stack_ref = stack_ref
+        state.metadata.pop("stack_id", None)
         self._service.replace_state(state, mark_dirty=True)
 
     def set_metadata(self, **kwargs: Any) -> None:

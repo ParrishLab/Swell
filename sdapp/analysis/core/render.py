@@ -7,6 +7,9 @@ from sdapp.shared.image_overlay import apply_mask_overlay, frame_to_rgb_u8
 
 
 class RenderActions:
+    def _compute_display_ratio(self, max_w, max_h, orig_w, orig_h):
+        return min(max_w / orig_w, max_h / orig_h, 1.0)
+
     def _draw_pending_frames_placeholder(self) -> None:
         total = int(self._get_frame_count()) if hasattr(self, "_get_frame_count") else 0
         idx = max(0, min(int(getattr(self, "current_frame_idx", 0)), max(0, total - 1)))
@@ -186,7 +189,7 @@ class RenderActions:
     def _get_display_transform(self, canvas, img_w, img_h):
         canvas_w = canvas.winfo_width()
         canvas_h = canvas.winfo_height()
-        ratio = min(canvas_w / img_w, canvas_h / img_h)
+        ratio = self._compute_display_ratio(canvas_w, canvas_h, img_w, img_h)
         offset_x = (canvas_w - int(img_w * ratio)) // 2
         offset_y = (canvas_h - int(img_h * ratio)) // 2
         return ratio, offset_x, offset_y
@@ -194,7 +197,7 @@ class RenderActions:
     def _resize_maintain_aspect(self, pil_img, max_w, max_h):
         orig_w, orig_h = pil_img.size
         # Keep fit-to-canvas behavior but avoid aggressive upscaling on small images.
-        self.display_ratio = min(max_w / orig_w, max_h / orig_h, 1.0)
+        self.display_ratio = self._compute_display_ratio(max_w, max_h, orig_w, orig_h)
 
         mode = self.tool_mode.get()
         use_nearest = self.is_dragging and mode in ["brush", "eraser"]

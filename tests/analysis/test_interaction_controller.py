@@ -72,6 +72,8 @@ class InteractionControllerTests(unittest.TestCase):
             "model_ready": True,
             "records": [],
             "updates": 0,
+            "preview_segments": [],
+            "preview_clears": 0,
             "recompute": 0,
             "mask_updates": 0,
             "prunes": 0,
@@ -115,6 +117,8 @@ class InteractionControllerTests(unittest.TestCase):
             get_frame_shape_for_idx=lambda _idx: frame_shape,
             get_display_transform=lambda _canvas, _w, _h: (1.0, 0, 0),
             update_display=lambda **kwargs: holder.__setitem__("updates", holder["updates"] + 1),
+            draw_paint_preview_segment=lambda *args: holder["preview_segments"].append(args),
+            clear_paint_preview=lambda: holder.__setitem__("preview_clears", holder["preview_clears"] + 1),
             draw_brush_cursor=lambda: None,
             recompute_slider_jump_markers=lambda: holder.__setitem__("recompute", holder["recompute"] + 1),
             update_mask_prediction=lambda _idx: holder.__setitem__("mask_updates", holder["mask_updates"] + 1),
@@ -151,6 +155,23 @@ class InteractionControllerTests(unittest.TestCase):
         self.assertNotIn(0, controller.points)
         self.assertIsNone(holder["selected_point"])
         self.assertEqual(holder["recompute"], 1)
+
+    def test_brush_drag_uses_preview_and_defers_full_redraw_until_mouse_up(self):
+        controller, holder, mode, _lbl = self._make_controller()
+        mode.set("brush")
+
+        controller.on_mouse_down(_Event(5, 6))
+        controller.on_mouse_drag(_Event(8, 9))
+
+        self.assertIn(0, controller.paint_layers)
+        self.assertEqual(holder["updates"], 0)
+        self.assertEqual(len(holder["preview_segments"]), 2)
+
+        controller.on_mouse_up(_Event(8, 9))
+
+        self.assertEqual(holder["preview_clears"], 2)
+        self.assertEqual(holder["updates"], 2)
+        self.assertEqual(len(holder["records"]), 1)
 
 
 if __name__ == "__main__":

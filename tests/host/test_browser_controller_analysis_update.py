@@ -102,6 +102,95 @@ def test_host_context_preserves_dict_mask_payloads() -> None:
     assert bool(np.any(np.asarray(masks["3"])))
 
 
+def test_update_event_remaps_saved_analysis_sidecar_to_new_bounds() -> None:
+    host = BrowserController()
+    host.on_stack_loaded(_FakeReader(), _FakeStackInfo())
+    event = host.create_event(
+        start_idx=2,
+        end_idx=4,
+        frame_count=6,
+        flags={
+            "baseline_pre_frames": 1,
+            "analysis_scope_start_idx": 1,
+            "analysis_scope_end_idx": 4,
+            "analysis_local_event_start_idx": 1,
+            "analysis_local_event_end_idx": 3,
+        },
+    )
+    masks = np.zeros((4, 8, 9), dtype=np.uint8)
+    masks[1] = 1
+    host.session.upsert_analysis_sidecar(
+        event.event_id,
+        {
+            "prompts": {"event_id": event.event_id, "frames": {"1": {"points": [{"x": 2, "y": 3, "label": 1}]}}},
+            "masks_committed": masks,
+        },
+    )
+
+    updated = host.update_event(
+        event.event_id,
+        start_idx=3,
+        end_idx=5,
+        label=event.label,
+        frame_count=6,
+    )
+    context = host.host_context_for_event(updated.event_id)
+    sidecar = dict(context["analysis_state"] or {})
+    remapped_masks = np.asarray(sidecar["masks_committed"])
+
+    assert int(updated.flags["analysis_scope_start_idx"]) == 2
+    assert int(updated.flags["analysis_local_event_start_idx"]) == 1
+    assert remapped_masks.shape == (4, 8, 9)
+    assert bool(np.any(remapped_masks[0]))
+    assert not bool(np.any(remapped_masks[1]))
+    assert "0" in dict(sidecar["prompts"]["frames"])
+    assert "1" not in dict(sidecar["prompts"]["frames"])
+
+
+def test_update_event_remaps_legacy_event_local_sidecar_to_new_scope() -> None:
+    host = BrowserController()
+    host.on_stack_loaded(_FakeReader(), _FakeStackInfo())
+    event = host.create_event(
+        start_idx=12,
+        end_idx=15,
+        frame_count=20,
+        flags={
+            "baseline_pre_frames": 2,
+            "analysis_scope_start_idx": 10,
+            "analysis_scope_end_idx": 15,
+            "analysis_local_event_start_idx": 2,
+            "analysis_local_event_end_idx": 5,
+        },
+    )
+    legacy_masks = np.zeros((4, 8, 9), dtype=np.uint8)
+    legacy_masks[0] = 1
+    host.session.upsert_analysis_sidecar(
+        event.event_id,
+        {
+            "prompts": {"event_id": event.event_id, "frames": {"0": {"points": [{"x": 2, "y": 3, "label": 1}]}}},
+            "masks_committed": legacy_masks,
+        },
+    )
+
+    updated = host.update_event(
+        event.event_id,
+        start_idx=13,
+        end_idx=16,
+        label=event.label,
+        frame_count=20,
+    )
+    context = host.host_context_for_event(updated.event_id)
+    sidecar = dict(context["analysis_state"] or {})
+    remapped_masks = np.asarray(sidecar["masks_committed"])
+
+    assert int(updated.flags["analysis_scope_start_idx"]) == 11
+    assert sidecar["prompts_frame_origin"] == "analysis_scope_local"
+    assert sidecar["masks_committed_frame_origin"] == "analysis_scope_local"
+    assert remapped_masks.shape == (6, 8, 9)
+    assert bool(np.any(remapped_masks[1]))
+    assert "1" in dict(sidecar["prompts"]["frames"])
+
+
 def test_create_event_materializes_global_metrics_defaults() -> None:
     host = BrowserController()
     host.on_stack_loaded(_FakeReader(), _FakeStackInfo())

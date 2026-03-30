@@ -8,7 +8,7 @@ from datetime import datetime
 from pathlib import Path
 from time import perf_counter
 import tkinter as tk
-from tkinter import filedialog, messagebox, ttk
+from tkinter import filedialog, messagebox, simpledialog, ttk
 
 import numpy as np
 from PIL import Image, ImageTk
@@ -249,6 +249,8 @@ class SDAnalyzerApp:
             self.tree.column(col, width=width, anchor="center")
         self.tree.pack(fill="both", expand=True)
         self.tree.bind("<<TreeviewSelect>>", self._on_event_select)
+        self.tree.bind("<Button-2>", self._on_event_tree_context_menu)
+        self.tree.bind("<Button-3>", self._on_event_tree_context_menu)
 
         action_frame = ttk.LabelFrame(right_top, text="Event Actions", padding=6)
         action_frame.pack(fill="x", pady=(6, 0))
@@ -837,8 +839,71 @@ class SDAnalyzerApp:
     def _edit_selected(self) -> None:
         self.popup_controller.open_edit_selected()
 
+    def _rename_selected_event(self) -> None:
+        selected = list(self.tree.selection())
+        if not selected:
+            self._log_warn("Rename Selected blocked: no event selected.")
+            self._show_warning("SD Event", "Select one event first.")
+            return
+        if len(selected) != 1:
+            self._log_warn("Rename Selected blocked: multiple events selected.")
+            self._show_warning("SD Event", "Select exactly one event to rename.")
+            return
+        event = self._get_event_by_id(selected[0])
+        if event is None:
+            self._log_warn("Rename Selected blocked: selected event not found.")
+            self._show_warning("SD Event", "Selected event was not found.")
+            return
+        new_label = simpledialog.askstring(
+            "Rename SD Event",
+            "Event name:",
+            initialvalue=str(event.label),
+            parent=self.root,
+        )
+        if new_label is None:
+            return
+        cleaned = str(new_label).strip()
+        if not cleaned:
+            self._show_warning("Rename SD Event", "Event name cannot be empty.")
+            return
+        updated = self.browser_controller.update_event(
+            event.event_id,
+            start_idx=None,
+            end_idx=None,
+            label=cleaned,
+            frame_count=int(self.stack_info.frame_count) if self.stack_info is not None else int(event.end_idx + 1),
+            flags=dict(event.flags),
+        )
+        self._sync_event_projections()
+        if self.tree.exists(updated.event_id):
+            self.tree.selection_set(updated.event_id)
+            self.tree.see(updated.event_id)
+        self._set_active_event_id(updated.event_id)
+        self._set_status(f"Renamed {updated.event_id}.")
+        self._log_info(f"Renamed {updated.event_id} to '{cleaned}'.")
+
     def _open_mark_popup(self, mode: str, event_id: str | None) -> None:
         self.popup_controller.open_popup(mode=mode, event_id=event_id)
+
+    def _on_event_tree_context_menu(self, event) -> str | None:
+        if not hasattr(self, "tree") or self.tree is None:
+            return None
+        row_id = self.tree.identify_row(event.y)
+        if not row_id:
+            return None
+        self.tree.selection_set(row_id)
+        self.tree.focus(row_id)
+        self._on_event_select()
+        menu = tk.Menu(self.root, tearoff=0)
+        menu.add_command(label="Rename Event", command=self._rename_selected_event)
+        menu.add_command(label="Edit Bounds", command=self._edit_selected)
+        menu.add_separator()
+        menu.add_command(label="Delete Event", command=self._delete_selected_events)
+        try:
+            menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            menu.grab_release()
+        return "break"
 
     def _on_mark_popup_destroy(self, _event=None) -> None:
         self.popup_controller.on_destroy(_event)

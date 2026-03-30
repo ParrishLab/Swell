@@ -9,7 +9,7 @@ import pytest
 import tifffile
 
 from sdapp.host.config import EventCandidate, FrameRef, TraceResult
-from sdapp.host.exporter import analysis_image_cache_key, export_analysis
+from sdapp.host.exporter import _build_event_global_mask_map, analysis_image_cache_key, export_analysis
 from sdapp.shared.frame_source import EventScopedFrameSource, SDStackFrameSource, build_visualization_stack
 from sdapp.shared.persistence.event_path import allocate_event_path_segment
 
@@ -350,6 +350,9 @@ def test_export_metrics_only_writes_per_event_metrics_outputs(tmp_path: Path) ->
     assert (metrics_dir / "relative_area_recruited.csv").exists()
     assert (metrics_dir / "relative_area_recruited.png").exists()
     assert (metrics_dir / "metrics_summary.json").exists()
+    summary = json.loads((metrics_dir / "metrics_summary.json").read_text(encoding="utf-8"))
+    assert float(summary["event_start_time_sec"]) == 1.0
+    assert float(summary["event_end_time_sec"]) == 2.5
 
 
 def test_export_metrics_respects_selection_flags(tmp_path: Path) -> None:
@@ -387,6 +390,303 @@ def test_export_metrics_respects_selection_flags(tmp_path: Path) -> None:
     assert (metrics_dir / "propagation_speed.csv").exists()
     assert not (metrics_dir / "area_recruited.csv").exists()
     assert not (metrics_dir / "relative_area_recruited.csv").exists()
+
+
+def test_build_event_global_mask_map_uses_analysis_scope_for_local_arrays() -> None:
+    event = _event(
+        "event_0001",
+        12,
+        15,
+        flags={
+            "baseline_pre_frames": 2,
+            "analysis_scope_start_idx": 10,
+            "analysis_scope_end_idx": 15,
+            "analysis_local_event_start_idx": 2,
+            "analysis_local_event_end_idx": 5,
+        },
+    )
+    masks = np.zeros((6, 5, 5), dtype=np.uint8)
+    masks[2, 1:3, 1:3] = 1
+    masks[3, 1:4, 1:4] = 1
+    masks[4, 0:4, 0:4] = 1
+    masks[5, 0:5, 0:5] = 1
+
+    mask_map = _build_event_global_mask_map(
+        event=event,
+        masks_payload=masks,
+        baseline_pre_frames=0,
+    )
+
+    assert sorted(mask_map) == [10, 11, 12, 13, 14, 15]
+    assert int(np.count_nonzero(mask_map[12])) == 4
+    assert int(np.count_nonzero(mask_map[13])) == 9
+    assert int(np.count_nonzero(mask_map[14])) == 16
+    assert int(np.count_nonzero(mask_map[15])) == 25
+
+
+def test_build_event_global_mask_map_uses_event_local_dict_indices_for_legacy_sidecars() -> None:
+    event = _event(
+        "event_0001",
+        12,
+        15,
+        flags={
+            "baseline_pre_frames": 2,
+            "analysis_scope_start_idx": 10,
+            "analysis_scope_end_idx": 15,
+            "analysis_local_event_start_idx": 2,
+            "analysis_local_event_end_idx": 5,
+        },
+    )
+    mask_map = _build_event_global_mask_map(
+        event=event,
+        masks_payload={"0": np.ones((5, 5), dtype=np.uint8)},
+        baseline_pre_frames=0,
+    )
+
+    assert sorted(mask_map) == [12]
+    assert int(np.count_nonzero(mask_map[12])) == 25
+
+
+def test_export_metrics_uses_analysis_scope_local_mask_arrays(tmp_path: Path) -> None:
+    frames = [np.full((8, 8), i, dtype=np.uint8) for i in range(20)]
+    reader = FakeReader(frames)
+    event = _event(
+        "event_0001",
+        12,
+        15,
+        flags={
+            "baseline_pre_frames": 2,
+            "analysis_scope_start_idx": 10,
+            "analysis_scope_end_idx": 15,
+            "analysis_local_event_start_idx": 2,
+            "analysis_local_event_end_idx": 5,
+        },
+    )
+    masks = np.zeros((6, 8, 8), dtype=np.uint8)
+    masks[2, 3:5, 3:5] = 1
+    masks[3, 2:5, 2:5] = 1
+    masks[4, 2:6, 2:6] = 1
+    masks[5, 1:6, 1:6] = 1
+
+    export_analysis(
+        reader=reader,
+        events=[event],
+        output_dir=tmp_path,
+        baseline_pre_frames=0,
+        include_event_images=False,
+        include_baseline_images=False,
+        include_metric_area_recruited=True,
+        include_metric_relative_area_recruited=True,
+        analysis_sidecar={
+            "event_0001": {
+                "masks_committed": masks,
+                "metrics_settings": {
+                    "frames_per_sec": 1.0,
+                    "scale_px_per_mm": 2.0,
+                    "roi_mask": np.ones((8, 8), dtype=bool),
+                },
+            }
+        },
+    )
+
+    metrics_dir = tmp_path / "event_0001" / "metrics"
+    with (metrics_dir / "area_recruited.csv").open("r", newline="", encoding="utf-8") as f:
+        area_rows = list(csv.DictReader(f))
+    with (metrics_dir / "relative_area_recruited.csv").open("r", newline="", encoding="utf-8") as f:
+        relative_rows = list(csv.DictReader(f))
+
+    assert [int(row["frame_index"]) for row in area_rows] == [12, 13, 14, 15]
+    assert [float(row["area_mm2"]) for row in area_rows] == [0.25, 1.0, 2.25, 4.0]
+    assert [int(row["frame_index"]) for row in relative_rows] == [12, 13, 14, 15]
+    assert [float(row["relative_area_pct"]) for row in relative_rows] == [1.5625, 6.25, 14.0625, 25.0]
+
+
+def test_export_metrics_uses_legacy_event_local_mask_arrays(tmp_path: Path) -> None:
+    frames = [np.full((8, 8), i, dtype=np.uint8) for i in range(20)]
+    reader = FakeReader(frames)
+    event = _event(
+        "event_0001",
+        12,
+        15,
+        flags={
+            "baseline_pre_frames": 2,
+            "analysis_scope_start_idx": 10,
+            "analysis_scope_end_idx": 15,
+            "analysis_local_event_start_idx": 2,
+            "analysis_local_event_end_idx": 5,
+        },
+    )
+    masks = np.zeros((4, 8, 8), dtype=np.uint8)
+    masks[0, 3:5, 3:5] = 1
+    masks[1, 2:5, 2:5] = 1
+    masks[2, 2:6, 2:6] = 1
+    masks[3, 1:6, 1:6] = 1
+
+    export_analysis(
+        reader=reader,
+        events=[event],
+        output_dir=tmp_path,
+        baseline_pre_frames=0,
+        include_event_images=False,
+        include_baseline_images=False,
+        include_metric_area_recruited=True,
+        include_metric_relative_area_recruited=True,
+        analysis_sidecar={
+            "event_0001": {
+                "masks_committed": masks,
+                "masks_committed_frame_origin": "event_local",
+                "metrics_settings": {
+                    "frames_per_sec": 1.0,
+                    "scale_px_per_mm": 2.0,
+                    "roi_mask": np.ones((8, 8), dtype=bool),
+                },
+            }
+        },
+    )
+
+    metrics_dir = tmp_path / "event_0001" / "metrics"
+    with (metrics_dir / "area_recruited.csv").open("r", newline="", encoding="utf-8") as f:
+        area_rows = list(csv.DictReader(f))
+
+    assert [int(row["frame_index"]) for row in area_rows] == [12, 13, 14, 15]
+    assert [float(row["area_mm2"]) for row in area_rows] == [0.25, 1.0, 2.25, 4.0]
+
+
+def test_export_metrics_gap_warning_can_ignore(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    frames = [np.full((8, 8), i, dtype=np.uint8) for i in range(20)]
+    reader = FakeReader(frames)
+    event = _event("event_0001", 12, 15)
+    masks = np.zeros((20, 8, 8), dtype=np.uint8)
+    masks[12:16, 1:7, 1:7] = 1
+    decisions: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        "sdapp.host.exporter.compute_frame_metrics",
+        lambda _boundaries, min_dist_px=2.0: {  # noqa: ARG005
+            "avg_dist_px": np.asarray([np.nan, 6.0, np.nan, 10.0], dtype=np.float64),
+            "areas_px": np.asarray([1.0, 1.0, 1.0, 1.0], dtype=np.float64),
+        },
+    )
+
+    export_analysis(
+        reader=reader,
+        events=[event],
+        output_dir=tmp_path,
+        baseline_pre_frames=0,
+        include_event_images=False,
+        include_baseline_images=False,
+        include_metric_propagation_speed=True,
+        analysis_sidecar={
+            "event_0001": {
+                "masks_committed": masks,
+                "metrics_settings": {
+                    "frames_per_sec": 1.0,
+                    "scale_px_per_mm": 2.0,
+                    "roi_mask": np.ones((8, 8), dtype=bool),
+                },
+            }
+        },
+        propagation_gap_decision=lambda payload: decisions.append(dict(payload)) or "ignore",
+    )
+
+    metrics_dir = tmp_path / "event_0001" / "metrics"
+    rows = list(csv.DictReader((metrics_dir / "propagation_speed.csv").open("r", newline="", encoding="utf-8")))
+    warning = json.loads((metrics_dir / "propagation_speed_warning.json").read_text(encoding="utf-8"))
+
+    assert decisions == [{"event_id": "event_0001", "gap_frame_runs": [[14, 14]], "metric": "propagation_speed"}]
+    assert rows[2]["frame_index"] == "14"
+    assert rows[2]["speed_um_per_sec"] == ""
+    assert warning["action"] == "ignore"
+    assert warning["frame_runs"] == [[14, 14]]
+
+
+def test_export_metrics_gap_warning_can_stop_at_gap(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    frames = [np.full((8, 8), i, dtype=np.uint8) for i in range(20)]
+    reader = FakeReader(frames)
+    event = _event("event_0001", 12, 15)
+    masks = np.zeros((20, 8, 8), dtype=np.uint8)
+    masks[12:16, 1:7, 1:7] = 1
+    monkeypatch.setattr(
+        "sdapp.host.exporter.compute_frame_metrics",
+        lambda _boundaries, min_dist_px=2.0: {  # noqa: ARG005
+            "avg_dist_px": np.asarray([np.nan, 6.0, np.nan, 10.0], dtype=np.float64),
+            "areas_px": np.asarray([1.0, 1.0, 1.0, 1.0], dtype=np.float64),
+        },
+    )
+
+    export_analysis(
+        reader=reader,
+        events=[event],
+        output_dir=tmp_path,
+        baseline_pre_frames=0,
+        include_event_images=False,
+        include_baseline_images=False,
+        include_metric_propagation_speed=True,
+        analysis_sidecar={
+            "event_0001": {
+                "masks_committed": masks,
+                "metrics_settings": {
+                    "frames_per_sec": 1.0,
+                    "scale_px_per_mm": 2.0,
+                    "roi_mask": np.ones((8, 8), dtype=bool),
+                },
+            }
+        },
+        propagation_gap_decision=lambda _payload: "stop",
+    )
+
+    metrics_dir = tmp_path / "event_0001" / "metrics"
+    rows = list(csv.DictReader((metrics_dir / "propagation_speed.csv").open("r", newline="", encoding="utf-8")))
+
+    assert rows[1]["speed_um_per_sec"] != ""
+    assert rows[2]["speed_um_per_sec"] == ""
+    assert rows[3]["speed_um_per_sec"] == ""
+
+
+def test_export_metrics_gap_warning_can_interpolate(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    frames = [np.full((8, 8), i, dtype=np.uint8) for i in range(20)]
+    reader = FakeReader(frames)
+    event = _event("event_0001", 12, 15)
+    masks = np.zeros((20, 8, 8), dtype=np.uint8)
+    masks[12:16, 1:7, 1:7] = 1
+    monkeypatch.setattr(
+        "sdapp.host.exporter.compute_frame_metrics",
+        lambda _boundaries, min_dist_px=2.0: {  # noqa: ARG005
+            "avg_dist_px": np.asarray([np.nan, 6.0, np.nan, 10.0], dtype=np.float64),
+            "areas_px": np.asarray([1.0, 1.0, 1.0, 1.0], dtype=np.float64),
+        },
+    )
+
+    export_analysis(
+        reader=reader,
+        events=[event],
+        output_dir=tmp_path,
+        baseline_pre_frames=0,
+        include_event_images=False,
+        include_baseline_images=False,
+        include_metric_propagation_speed=True,
+        analysis_sidecar={
+            "event_0001": {
+                "masks_committed": masks,
+                "metrics_settings": {
+                    "frames_per_sec": 1.0,
+                    "scale_px_per_mm": 2.0,
+                    "roi_mask": np.ones((8, 8), dtype=bool),
+                },
+            }
+        },
+        propagation_gap_decision=lambda _payload: "interpolate",
+    )
+
+    metrics_dir = tmp_path / "event_0001" / "metrics"
+    rows = list(csv.DictReader((metrics_dir / "propagation_speed.csv").open("r", newline="", encoding="utf-8")))
+    warning = json.loads((metrics_dir / "propagation_speed_warning.json").read_text(encoding="utf-8"))
+    values = [row["speed_um_per_sec"] for row in rows]
+
+    assert values[1] != ""
+    assert values[2] != ""
+    assert values[3] != ""
+    assert float(values[2]) > 0.0
+    assert warning["action"] == "interpolate"
 
 
 def test_export_binary_masks_writes_mask_images_when_available(tmp_path: Path) -> None:

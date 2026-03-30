@@ -36,6 +36,8 @@ class InteractionController:
         get_frame_shape_for_idx,
         get_display_transform,
         update_display,
+        draw_paint_preview_segment,
+        clear_paint_preview,
         draw_brush_cursor,
         recompute_slider_jump_markers,
         update_mask_prediction,
@@ -74,6 +76,8 @@ class InteractionController:
         self.get_frame_shape_for_idx = get_frame_shape_for_idx
         self.get_display_transform = get_display_transform
         self.update_display = update_display
+        self.draw_paint_preview_segment = draw_paint_preview_segment
+        self.clear_paint_preview = clear_paint_preview
         self.draw_brush_cursor = draw_brush_cursor
         self.recompute_slider_jump_markers = recompute_slider_jump_markers
         self.update_mask_prediction = update_mask_prediction
@@ -117,6 +121,9 @@ class InteractionController:
         idx = self.get_current_frame_idx()
         if mode in ["brush", "eraser"]:
             self.set_is_dragging(True)
+            self.clear_paint_preview()
+            self.set_last_mouse_x(event.x)
+            self.set_last_mouse_y(event.y)
             if idx in self.paint_layers:
                 self.set_paint_snapshot_before(
                     {
@@ -154,6 +161,7 @@ class InteractionController:
         mode = self.tool_mode.get()
         idx = self.get_current_frame_idx()
         if mode in ["brush", "eraser"]:
+            self.clear_paint_preview()
             data_after = None
             if idx in self.paint_layers:
                 data_after = {
@@ -293,6 +301,7 @@ class InteractionController:
         elif mode in ["brush", "eraser"]:
             if is_click:
                 self._apply_paint(idx, img_x, img_y, mode, orig_w, orig_h)
+                self._preview_paint_segment(img_x, img_y, img_x, img_y, ratio, offset_x, offset_y, mode)
                 self.set_last_img_x(img_x)
                 self.set_last_img_y(img_y)
             else:
@@ -300,13 +309,15 @@ class InteractionController:
                 last_img_y = self.get_last_img_y()
                 if last_img_x is not None and last_img_y is not None:
                     self._apply_paint_line(idx, last_img_x, last_img_y, img_x, img_y, mode, orig_w, orig_h)
+                    self._preview_paint_segment(last_img_x, last_img_y, img_x, img_y, ratio, offset_x, offset_y, mode)
                 else:
                     self._apply_paint(idx, img_x, img_y, mode, orig_w, orig_h)
+                    self._preview_paint_segment(img_x, img_y, img_x, img_y, ratio, offset_x, offset_y, mode)
 
                 self.set_last_img_x(img_x)
                 self.set_last_img_y(img_y)
 
-            self.update_display(update_preview=False)
+            self.draw_brush_cursor()
 
     def _apply_paint_line(self, frame_idx, x0, y0, x1, y1, mode, w, h):
         if frame_idx not in self.paint_layers:
@@ -362,3 +373,11 @@ class InteractionController:
         self.seg_state.clear_paint_layer(idx)
         self.recompute_slider_jump_markers()
         self.update_display()
+
+    def _preview_paint_segment(self, x0, y0, x1, y1, ratio, offset_x, offset_y, mode):
+        radius = max(1.0, float(self.brush_size.get()) * float(ratio))
+        start_x = x0 * ratio + offset_x
+        start_y = y0 * ratio + offset_y
+        end_x = x1 * ratio + offset_x
+        end_y = y1 * ratio + offset_y
+        self.draw_paint_preview_segment(start_x, start_y, end_x, end_y, radius, mode)

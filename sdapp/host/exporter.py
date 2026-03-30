@@ -56,6 +56,7 @@ def export_analysis(
     include_metric_area_recruited: bool = False,
     include_metric_relative_area_recruited: bool = False,
     project_metadata: Optional[dict[str, object]] = None,
+    propagation_gap_decision: Optional[Callable[[dict[str, object]], str]] = None,
 ) -> dict:
     include_any_metrics = (
         bool(include_metric_propagation_speed)
@@ -221,6 +222,7 @@ def export_analysis(
                 event=event,
                 masks_payload=event_sidecar.get("masks_committed"),
                 baseline_pre_frames=int(baseline_pre_frames),
+                analysis_sidecar_payload=event_sidecar,
             )
             if masks_dir is not None:
                 for frame_idx in sorted(set(baseline_scope_indices + event_scope_indices)):
@@ -264,6 +266,8 @@ def export_analysis(
                     include_metric_propagation_speed=bool(include_metric_propagation_speed),
                     include_metric_area_recruited=bool(include_metric_area_recruited),
                     include_metric_relative_area_recruited=bool(include_metric_relative_area_recruited),
+                    propagation_gap_decision=propagation_gap_decision,
+                    analysis_sidecar_payload=event_sidecar,
                 )
                 metrics_files_exported += int(metric_result.get("files_written", 0))
 
@@ -339,6 +343,48 @@ def _write_metric_plot(path: Path, time_sec: list[float], values: np.ndarray, ti
     plt.close()
 
 
+def _find_interior_nan_runs(values: np.ndarray) -> list[tuple[int, int]]:
+    arr = np.asarray(values, dtype=np.float64)
+    finite = np.isfinite(arr)
+    runs: list[tuple[int, int]] = []
+    idx = 0
+    n = int(arr.size)
+    while idx < n:
+        if finite[idx]:
+            idx += 1
+            continue
+        start = idx
+        while idx < n and not finite[idx]:
+            idx += 1
+        end = idx - 1
+        if start > 0 and idx < n and finite[start - 1] and finite[idx]:
+            runs.append((start, end))
+    return runs
+
+
+def _apply_propagation_gap_policy(values: np.ndarray, action: str) -> np.ndarray:
+    arr = np.asarray(values, dtype=np.float64).copy()
+    runs = _find_interior_nan_runs(arr)
+    if not runs:
+        return arr
+    normalized = str(action or "ignore").strip().lower()
+    if normalized == "stop":
+        first_gap = runs[0][0]
+        arr[first_gap:] = np.nan
+        return arr
+    if normalized == "interpolate":
+        for start, end in runs:
+            left_idx = start - 1
+            right_idx = end + 1
+            left_val = float(arr[left_idx])
+            right_val = float(arr[right_idx])
+            span = right_idx - left_idx
+            for idx in range(start, end + 1):
+                arr[idx] = left_val + ((right_val - left_val) * ((idx - left_idx) / float(span)))
+        return arr
+    return arr
+
+
 def _export_event_metrics(
     *,
     reader: StackReader,
@@ -349,6 +395,8 @@ def _export_event_metrics(
     include_metric_propagation_speed: bool,
     include_metric_area_recruited: bool,
     include_metric_relative_area_recruited: bool,
+    propagation_gap_decision: Optional[Callable[[dict[str, object]], str]] = None,
+    analysis_sidecar_payload: Optional[dict[str, object]] = None,
 ) -> dict[str, object]:
     frame0 = np.asarray(reader.read_frame(0, use_cache=True))
     if frame0.ndim == 3:
@@ -369,7 +417,12 @@ def _export_event_metrics(
     roi_mask = _resolve_roi_mask(metrics_settings, frame_shape)
     has_roi = roi_mask is not None and np.any(roi_mask)
 
-    mask_map = _build_event_global_mask_map(event=event, masks_payload=masks_payload, baseline_pre_frames=0)
+    mask_map = _build_event_global_mask_map(
+        event=event,
+        masks_payload=masks_payload,
+        baseline_pre_frames=0,
+        analysis_sidecar_payload=analysis_sidecar_payload,
+    )
     full_masks: list[np.ndarray] = []
     for idx in frame_indices:
         raw_mask = mask_map.get(int(idx))
@@ -426,6 +479,38 @@ def _export_event_metrics(
     metrics_dir.mkdir(parents=True, exist_ok=True)
     files_written = 0
     written: list[str] = []
+    propagation_gap_warning: dict[str, object] | None = None
+
+    gap_runs = _find_interior_nan_runs(speed_um_per_sec) if bool(include_metric_propagation_speed and has_scale) else []
+    if gap_runs:
+        gap_frame_runs = [[int(frame_indices[start]), int(frame_indices[end])] for start, end in gap_runs]
+        requested_action = "ignore"
+        if callable(propagation_gap_decision):
+            try:
+                decision_payload = {
+                    "event_id": str(event.event_id),
+                    "gap_frame_runs": gap_frame_runs,
+                    "metric": "propagation_speed",
+                }
+                requested_action = str(propagation_gap_decision(decision_payload) or "ignore")
+            except Exception:
+                requested_action = "ignore"
+        normalized_action = requested_action.strip().lower()
+        if normalized_action not in {"ignore", "stop", "interpolate"}:
+            normalized_action = "ignore"
+        speed_um_per_sec = _apply_propagation_gap_policy(speed_um_per_sec, normalized_action)
+        propagation_gap_warning = {
+            "metric": "propagation_speed",
+            "event_id": str(event.event_id),
+            "frame_runs": gap_frame_runs,
+            "action": normalized_action,
+        }
+        (metrics_dir / "propagation_speed_warning.json").write_text(
+            json.dumps(propagation_gap_warning, indent=2),
+            encoding="utf-8",
+        )
+        files_written += 1
+        written.append("propagation_speed_warning.json")
 
     if include_metric_propagation_speed and has_scale:
         _write_metric_csv(metrics_dir / "propagation_speed.csv", frame_indices, time_sec, speed_um_per_sec, "speed_um_per_sec")
@@ -464,6 +549,8 @@ def _export_event_metrics(
     summary = {
         "event_id": str(event.event_id),
         "frames_per_sec": float(fps),
+        "event_start_time_sec": float(int(event.start_idx) / float(fps)),
+        "event_end_time_sec": float(int(event.end_idx) / float(fps)),
         "has_scale": bool(has_scale),
         "has_roi": bool(has_roi),
         "roi_pixels": int(roi_pixels),
@@ -472,6 +559,7 @@ def _export_event_metrics(
             "area_recruited": bool(include_metric_area_recruited),
             "relative_area_recruited": bool(include_metric_relative_area_recruited),
         },
+        "propagation_gap_warning": dict(propagation_gap_warning) if propagation_gap_warning is not None else None,
         "written_files": list(written),
         "overall_avg_speed_um_per_sec": float(np.nanmean(speed_um_per_sec)) if np.isfinite(speed_um_per_sec).any() else None,
         "max_area_mm2": float(np.nanmax(area_mm2)) if np.isfinite(area_mm2).any() else None,
@@ -487,20 +575,53 @@ def _build_event_global_mask_map(
     event: EventCandidate,
     masks_payload,
     baseline_pre_frames: int,
+    analysis_sidecar_payload: dict[str, object] | None = None,
 ) -> dict[int, np.ndarray]:
     out: dict[int, np.ndarray] = {}
     if masks_payload is None:
         return out
+    sidecar = dict(analysis_sidecar_payload or {})
     if isinstance(masks_payload, dict):
+        flags = dict(getattr(event, "flags", {}) or {})
+        try:
+            scope_start = int(flags.get("analysis_scope_start_idx", int(event.start_idx)))
+            scope_end = int(flags.get("analysis_scope_end_idx", int(event.end_idx)))
+            local_event_start = int(flags.get("analysis_local_event_start_idx", int(event.start_idx) - scope_start))
+        except (TypeError, ValueError):
+            scope_start = int(event.start_idx)
+            scope_end = int(event.end_idx)
+            local_event_start = 0
+        scope_len = max(0, int(scope_end) - int(scope_start) + 1)
+        event_len = max(0, int(event.end_idx) - int(event.start_idx) + 1)
+        origin_hint = str(sidecar.get("masks_committed_frame_origin", "") or "").strip().lower()
         for raw_idx, mask in masks_payload.items():
             try:
                 idx = int(raw_idx)
             except Exception:
                 continue
+            global_idx = None
+            if origin_hint == "global":
+                global_idx = idx
+            elif origin_hint == "event_local":
+                if 0 <= idx < event_len:
+                    global_idx = int(event.start_idx) + idx
+            elif origin_hint == "analysis_scope_local":
+                if 0 <= idx < scope_len:
+                    global_idx = scope_start + idx
+            else:
+                if 0 <= idx < scope_len:
+                    if local_event_start > 0 and 0 <= idx < event_len and idx < local_event_start:
+                        global_idx = int(event.start_idx) + idx
+                    else:
+                        global_idx = scope_start + idx
+                elif 0 <= idx < event_len:
+                    global_idx = int(event.start_idx) + idx
+                else:
+                    global_idx = idx
             arr = np.asarray(mask, dtype=bool)
-            if arr.ndim != 2:
+            if arr.ndim != 2 or global_idx is None:
                 continue
-            out[idx] = arr.copy()
+            out[int(global_idx)] = arr.copy()
         return out
 
     arr = np.asarray(masks_payload)
@@ -510,17 +631,56 @@ def _build_event_global_mask_map(
     if frame_count <= 0:
         return out
 
+    flags = dict(getattr(event, "flags", {}) or {})
+    scope_start = None
+    scope_end = None
+    try:
+        raw_scope_start = flags.get("analysis_scope_start_idx")
+        raw_scope_end = flags.get("analysis_scope_end_idx")
+        if raw_scope_start is not None and raw_scope_end is not None:
+            scope_start = int(raw_scope_start)
+            scope_end = int(raw_scope_end)
+    except (TypeError, ValueError):
+        scope_start = None
+        scope_end = None
+
+    if scope_start is None or scope_end is None or int(scope_end) < int(scope_start):
+        baseline_pre = max(0, int(flags.get("baseline_pre_frames", baseline_pre_frames) or 0))
+        scope_start = max(0, int(event.start_idx) - baseline_pre)
+        scope_end = int(event.end_idx)
+
+    scope_len = max(0, int(scope_end) - int(scope_start) + 1)
+    event_len = max(0, int(event.end_idx) - int(event.start_idx) + 1)
+    origin_hint = str(sidecar.get("masks_committed_frame_origin", "") or "").strip().lower()
+
+    # Project sidecars may persist analysis-scope-local arrays where index 0 is
+    # analysis_scope_start_idx rather than event.start_idx.
+    if origin_hint == "analysis_scope_local" or (scope_len > 0 and frame_count == scope_len):
+        for local_idx in range(frame_count):
+            global_idx = int(scope_start) + int(local_idx)
+            mask = np.asarray(arr[local_idx], dtype=bool)
+            if mask.ndim == 2:
+                out[int(global_idx)] = mask
+        return out
+
+    if origin_hint == "event_local" or (event_len > 0 and frame_count == event_len):
+        for local_idx in range(frame_count):
+            global_idx = int(event.start_idx) + int(local_idx)
+            mask = np.asarray(arr[local_idx], dtype=bool)
+            if mask.ndim == 2:
+                out[int(global_idx)] = mask
+        return out
+
     # If payload looks global, keep indices as-is; otherwise treat it as event-scope local.
-    if frame_count > int(event.end_idx):
+    if origin_hint == "global" or frame_count > int(event.end_idx):
         for idx in range(frame_count):
             mask = np.asarray(arr[idx], dtype=bool)
             if mask.ndim == 2:
                 out[int(idx)] = mask
         return out
 
-    scope_start = max(0, int(event.start_idx) - int(max(0, baseline_pre_frames)))
     for local_idx in range(frame_count):
-        global_idx = scope_start + int(local_idx)
+        global_idx = int(event.start_idx) + int(local_idx)
         mask = np.asarray(arr[local_idx], dtype=bool)
         if mask.ndim == 2:
             out[int(global_idx)] = mask

@@ -4,6 +4,7 @@ from pathlib import Path
 import threading
 from tkinter import filedialog, messagebox
 
+from sdapp.host.host_models import stack_ref_from_stack_info
 from sdapp.host.stack_reader import StackReader
 
 
@@ -163,7 +164,12 @@ class HostProjectLifecycleController:
                         reader = StackReader()
                         stack_info = reader.open_stack(input_dir)
                     else:
-                        warning = f"Stack folder is missing and was not rebound:\n\n{input_dir}"
+                        replacement = self._run_on_ui_thread(lambda: self._prompt_rebind_missing_stack_folder(input_dir))
+                        if replacement:
+                            reader = StackReader()
+                            stack_info = reader.open_stack(replacement)
+                        else:
+                            warning = f"Stack folder is missing and was not rebound:\n\n{input_dir}"
 
                 def on_done() -> None:
                     self.app.current_project_path = state.project_path
@@ -172,6 +178,7 @@ class HostProjectLifecycleController:
                         self.app.reader = reader
                         self.app.stack_info = stack_info
                         self.app.browser_controller.bind_frame_source(reader)
+                        self.app.browser_controller.session.set_stack_ref(stack_ref_from_stack_info(stack_info))
                         self.app._popup_engine.set_reader(reader)
                         self.app.preview_scale.configure(from_=0, to=max(0, int(stack_info.frame_count) - 1))
                         frame_idx = 0
@@ -195,6 +202,50 @@ class HostProjectLifecycleController:
                 self.app.root.after(0, lambda: self.app._show_warning("Open SD Project", str(exc)))
 
         threading.Thread(target=worker, daemon=True).start()
+
+    def _run_on_ui_thread(self, callback):
+        root = self._dialog_parent()
+        if root is None or threading.current_thread() is threading.main_thread():
+            return callback()
+        result: dict[str, object] = {}
+        finished = threading.Event()
+
+        def _invoke() -> None:
+            try:
+                result["value"] = callback()
+            except Exception as exc:  # noqa: BLE001
+                result["error"] = exc
+            finally:
+                finished.set()
+
+        root.after(0, _invoke)
+        finished.wait()
+        if "error" in result:
+            raise result["error"]
+        return result.get("value")
+
+    def _prompt_rebind_missing_stack_folder(self, input_dir: str) -> str | None:
+        parent = self._dialog_parent()
+        should_rebind = messagebox.askyesno(
+            "Open SD Project",
+            (
+                "The recorded stack folder is missing.\n\n"
+                f"Missing folder:\n{input_dir}\n\n"
+                "Do you want to select a replacement folder now?"
+            ),
+            parent=parent,
+        )
+        if not should_rebind:
+            return None
+        initial_dir = str(Path(input_dir).expanduser().parent)
+        selected = filedialog.askdirectory(
+            parent=parent,
+            title="Select Replacement Stack Folder",
+            mustexist=True,
+            initialdir=initial_dir,
+        )
+        raw = str(selected or "").strip()
+        return raw or None
 
     def on_analysis_sync(self, payload: dict) -> None:
         result = self.app.browser_controller.apply_analysis_sync(payload)

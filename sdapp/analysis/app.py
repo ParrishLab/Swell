@@ -297,6 +297,8 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
             get_frame_shape_for_idx=self._get_frame_shape_for_idx,
             get_display_transform=self._get_display_transform,
             update_display=self.update_display,
+            draw_paint_preview_segment=self._draw_paint_preview_segment_on_canvas,
+            clear_paint_preview=self._clear_paint_preview_on_canvas,
             draw_brush_cursor=self._draw_brush_cursor_on_canvas,
             recompute_slider_jump_markers=self._recompute_slider_jump_markers,
             update_mask_prediction=self._update_mask_prediction,
@@ -1818,6 +1820,36 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         color = "white" if mode == "brush" else "red"
 
         self.canvas_left.create_oval(x - r, y - r, x + r, y + r, outline=color, width=2, fill="", tag="cursor_brush")
+
+    def _draw_paint_preview_segment_on_canvas(self, x0, y0, x1, y1, radius, mode):
+        color = "#00ffff" if mode == "brush" else "#ff4d4d"
+        width = max(1.0, float(radius) * 2.0)
+        if abs(x1 - x0) < 0.001 and abs(y1 - y0) < 0.001:
+            self.canvas_left.create_oval(
+                x0 - radius,
+                y0 - radius,
+                x0 + radius,
+                y0 + radius,
+                outline="",
+                fill=color,
+                tags="paint_preview",
+            )
+            return
+        self.canvas_left.create_line(
+            x0,
+            y0,
+            x1,
+            y1,
+            fill=color,
+            width=width,
+            capstyle=tk.ROUND,
+            joinstyle=tk.ROUND,
+            smooth=False,
+            tags="paint_preview",
+        )
+
+    def _clear_paint_preview_on_canvas(self):
+        self.canvas_left.delete("paint_preview")
 
     def on_mouse_leave(self, event):
         self.interaction_controller.on_mouse_leave(event)
