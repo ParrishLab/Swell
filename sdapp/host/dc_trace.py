@@ -148,33 +148,80 @@ def _sorted_sweep_names(handle: Any) -> list[str]:
     return sweeps
 
 
-def _evaluate_cubic_counts_to_volts(raw_counts: np.ndarray, coefficients: np.ndarray | None) -> np.ndarray:
-    if coefficients is None:
-        return np.asarray(raw_counts, dtype=np.float64)
-    coeffs = np.asarray(coefficients, dtype=np.float64).reshape(-1)
-    if coeffs.size == 0:
-        return np.asarray(raw_counts, dtype=np.float64)
+def _evaluate_wavesurfer_scaling(
+    raw_counts: np.ndarray,
+    coefficients: np.ndarray | None,
+    channel_scale: float | None,
+) -> np.ndarray:
     x = np.asarray(raw_counts, dtype=np.float64)
-    out = np.zeros_like(x, dtype=np.float64)
-    for power, coeff in enumerate(coeffs[:4]):
-        out += coeff * np.power(x, power, dtype=np.float64)
-    return out
+    if coefficients is None:
+        scaled = x
+    else:
+        coeffs = np.asarray(coefficients, dtype=np.float64).reshape(-1)
+        if coeffs.size == 0:
+            scaled = x
+        else:
+            # Match ws.scaledDoubleAnalogDataFromRaw(): coefficients are ordered
+            # from low to high power and evaluated with Horner's method.
+            scaled = np.full_like(x, coeffs[-1], dtype=np.float64)
+            for coeff in coeffs[-2::-1]:
+                scaled = coeff + x * scaled
+    if channel_scale is None:
+        return scaled
+    scale = float(channel_scale)
+    if abs(scale) <= 1e-12:
+        return scaled
+    return scaled / scale
+
+
+def _coefficients_by_channel(
+    value: Any,
+    *,
+    data_channel_count: int,
+    configured_channel_count: int,
+) -> list[np.ndarray]:
+    if value is None:
+        return []
+    arr = np.asarray(value, dtype=np.float64)
+    if arr.ndim == 0:
+        return [arr.reshape(1)]
+    if arr.ndim == 1:
+        return [arr.reshape(-1)]
+    if arr.ndim > 2:
+        arr = arr.reshape(arr.shape[0], -1)
+    rows, cols = int(arr.shape[0]), int(arr.shape[1])
+    matrix = arr
+    resolved_orientation = False
+    if data_channel_count > 0:
+        if rows == data_channel_count and cols != data_channel_count:
+            matrix = arr
+            resolved_orientation = True
+        elif cols == data_channel_count and rows != data_channel_count:
+            matrix = arr.transpose()
+            resolved_orientation = True
+    if not resolved_orientation and configured_channel_count > 0:
+        if rows == configured_channel_count and cols != configured_channel_count:
+            matrix = arr
+        elif cols == configured_channel_count and rows != configured_channel_count:
+            matrix = arr.transpose()
+        elif rows != configured_channel_count and cols != configured_channel_count:
+            if cols >= configured_channel_count and rows < configured_channel_count:
+                matrix = arr.transpose()
+    return [np.asarray(matrix[idx, :], dtype=np.float64).reshape(-1) for idx in range(int(matrix.shape[0]))]
 
 
 def _filtered_scaling_coefficients(
     value: Any,
     *,
     active_mask: list[bool] | None,
+    configured_channel_count: int,
     n_channels: int,
 ) -> list[np.ndarray]:
-    if value is None:
-        return [np.array([], dtype=np.float64) for _ in range(n_channels)]
-    arr = np.asarray(value, dtype=np.float64)
-    if arr.ndim == 1:
-        arr = arr.reshape(1, -1)
-    elif arr.ndim > 2:
-        arr = arr.reshape(arr.shape[0], -1)
-    rows = [np.asarray(row, dtype=np.float64).reshape(-1) for row in arr]
+    rows = _coefficients_by_channel(
+        value,
+        data_channel_count=n_channels,
+        configured_channel_count=configured_channel_count,
+    )
     if active_mask and len(rows) >= len(active_mask):
         filtered = [row for row, is_active in zip(rows, active_mask) if bool(is_active)]
         if filtered:
@@ -303,6 +350,12 @@ class WaveSurferH5Adapter(TraceAdapter):
                     ],
                 ),
                 active_mask=active_mask,
+                configured_channel_count=max(
+                    len(active_mask or []),
+                    len(raw_channel_names),
+                    len(raw_units),
+                    len(raw_scales),
+                ),
                 n_channels=n_channels,
             )
             offset = 0
@@ -376,11 +429,8 @@ class WaveSurferH5Adapter(TraceAdapter):
                     coeff_row = None
                     if channel_index < len(raw_coefficients):
                         coeff_row = np.asarray(raw_coefficients[channel_index], dtype=np.float64)
-                    values = _evaluate_cubic_counts_to_volts(selected, coeff_row)
-                    if channel_index < len(scales):
-                        scale = float(scales[channel_index])
-                        if abs(scale) > 1e-12:
-                            values = values / scale
+                    scale = float(scales[channel_index]) if channel_index < len(scales) else None
+                    values = _evaluate_wavesurfer_scaling(selected, coeff_row, scale)
                 else:
                     values = np.asarray(selected, dtype=np.float64)
                 selected_chunks.append(np.asarray(values, dtype=np.float64))

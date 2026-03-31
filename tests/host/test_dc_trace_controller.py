@@ -145,3 +145,36 @@ def test_remove_dc_trace_clears_runtime_and_project_metadata() -> None:
     assert controller._attachment is None
     assert controller._trace_record is None
     assert app.browser_controller.attachment_updates[-1] is None
+
+
+def test_display_trace_window_filters_spikes_and_downsamples() -> None:
+    app = _build_app(with_stack=True, defaults={"frames_per_sec": 10.0})
+    controller = HostDCTraceController(app)
+    controller._attachment = TraceAttachment(
+        source_type="wavesurfer_h5",
+        source_path="/tmp/dc.h5",
+        channel_index=0,
+        channel_name="DC",
+        sample_rate_hz=1000.0,
+        unit="mV",
+        alignment=TimeAlignment(mode="manual_offset", offset_s=0.0),
+    )
+    signal = np.zeros(2000, dtype=np.float64)
+    signal[1000] = 1000.0
+    controller._trace_record = TraceRecord(
+        source_type="wavesurfer_h5",
+        channel_names=["DC"],
+        units=["mV"],
+        sample_rate_hz=1000.0,
+        timestamps_s=None,
+        signals=signal.reshape(-1, 1),
+        segments=[(0, 2000)],
+        start_time_s=0.0,
+        metadata={},
+    )
+
+    times, display = controller._display_trace_window((0.0, 2.0))
+
+    assert len(times) == len(display)
+    assert len(display) < len(signal)
+    assert float(np.nanmax(display)) < 1000.0

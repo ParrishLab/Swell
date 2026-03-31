@@ -21,6 +21,9 @@ from sdapp.shared.model_copy import (
     onboarding_body,
 )
 
+torch = None
+
+
 class _NullTextStream:
     def write(self, text):  # type: ignore[no-untyped-def]
         return len(str(text or ""))
@@ -39,10 +42,14 @@ def _ensure_runtime_stdio() -> None:
 
 
 def _torch_module():
+    global torch
+    if torch is not None:
+        return torch
     try:
-        return importlib.import_module("torch")
+        torch = importlib.import_module("torch")
     except Exception:
-        return None
+        torch = None
+    return torch
 
 
 def _cpu_fallback_predictor_cls():

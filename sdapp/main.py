@@ -5,6 +5,9 @@ import multiprocessing
 import sys
 from typing import Sequence
 
+SingleInstanceBridge = None
+run_host_app = None
+
 
 def _parse_launch_project_path(argv: Sequence[str]) -> str | None:
     for token in list(argv)[1:]:
@@ -56,6 +59,8 @@ def _run_smoke_test(importer=importlib.import_module, *, include_model_runtime: 
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    global SingleInstanceBridge
+    global run_host_app
     multiprocessing.freeze_support()
     args = list(argv) if argv is not None else list(sys.argv)
     smoke_test, smoke_model_runtime, launch_project_path = _parse_main_args(args)
@@ -68,8 +73,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"SMOKE_TEST:FAIL:{detail}")
         return 1
 
-    from sdapp.host.ui.root_window import run_host_app
-    from sdapp.shared.services import SingleInstanceBridge
+    if run_host_app is None:
+        from sdapp.host.ui.root_window import run_host_app as _run_host_app
+
+        run_host_app = _run_host_app
+    if SingleInstanceBridge is None:
+        from sdapp.shared.services import SingleInstanceBridge as _SingleInstanceBridge
+
+        SingleInstanceBridge = _SingleInstanceBridge
 
     bridge = SingleInstanceBridge()
     if launch_project_path and bridge.send_open_request(launch_project_path):

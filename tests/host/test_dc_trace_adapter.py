@@ -57,10 +57,16 @@ def _valid_tree() -> _FakeFile:
                     "AcquisitionSampleRate": _FakeDataset(200.0),
                     "Acquisition": _FakeGroup(
                         {
-                            "AnalogScalingCoefficients": _FakeDataset([0.0, 2.0, 0.0, 0.0]),
+                            "AnalogScalingCoefficients": _FakeDataset(
+                                [
+                                    [1.0, 0.5, 0.0, 0.0],
+                                    [7.0, 2.0, 0.0, 0.0],
+                                    [3.0, 0.25, 0.0, 0.0],
+                                ]
+                            ),
                             "AnalogChannelNames": _FakeDataset([b"LFP 1", b"Ignored", b"LFP 2"]),
                             "AnalogChannelUnits": _FakeDataset([b"mV", b"mV", b"mV"]),
-                            "AnalogChannelScales": _FakeDataset([0.5, 1.0, 0.5]),
+                            "AnalogChannelScales": _FakeDataset([0.5, 1.0, 0.25]),
                             "IsAnalogChannelActive": _FakeDataset([True, False, True]),
                         }
                     ),
@@ -68,6 +74,34 @@ def _valid_tree() -> _FakeFile:
             ),
             "sweep_0001": _FakeGroup({"analogScans": _FakeDataset(np.asarray([[1, 2], [3, 4], [5, 6]], dtype=np.int16))}),
             "sweep_0002": _FakeGroup({"analogScans": _FakeDataset(np.asarray([[7, 8], [9, 10]], dtype=np.int16))}),
+        }
+    )
+
+
+def _column_oriented_coeff_tree() -> _FakeFile:
+    return _FakeFile(
+        {
+            "header": _FakeGroup(
+                {
+                    "AcquisitionSampleRate": _FakeDataset(1000.0),
+                    "Acquisition": _FakeGroup(
+                        {
+                            "AnalogScalingCoefficients": _FakeDataset(
+                                [
+                                    [1.0, 3.0],
+                                    [0.5, 0.25],
+                                    [0.0, 0.0],
+                                    [0.0, 0.0],
+                                ]
+                            ),
+                            "AnalogChannelNames": _FakeDataset([b"A", b"B"]),
+                            "AnalogChannelUnits": _FakeDataset([b"mV", b"mV"]),
+                            "AnalogChannelScales": _FakeDataset([0.5, 0.25]),
+                        }
+                    ),
+                }
+            ),
+            "sweep_0001": _FakeGroup({"analogScans": _FakeDataset(np.asarray([[1, 2], [3, 4]], dtype=np.int16))}),
         }
     )
 
@@ -132,6 +166,41 @@ def _legacy_channel_first_tree() -> _FakeFile:
     )
 
 
+def _active_subset_coeff_tree() -> _FakeFile:
+    return _FakeFile(
+        {
+            "header": _FakeGroup(
+                {
+                    "AcquisitionSampleRate": _FakeDataset([[10000.0]]),
+                    "AIChannelNames": _FakeDataset([b"DC", b"Pico", b"AC"]),
+                    "AIChannelUnits": _FakeDataset([b"mV", b"V", b"mV"]),
+                    "AIChannelScales": _FakeDataset([[0.01], [1.0], [0.01]]),
+                    "IsAIChannelActive": _FakeDataset([[1.0], [0.0], [1.0]]),
+                    "AIScalingCoefficients": _FakeDataset(
+                        [
+                            [0.15071481, 0.000329047919, 0.0, 0.0],
+                            [0.15071481, 0.000329047919, 0.0, 0.0],
+                        ]
+                    ),
+                }
+            ),
+            "sweep_0002": _FakeGroup(
+                {
+                    "analogScans": _FakeDataset(
+                        np.asarray(
+                            [
+                                [-228, -233, -232, -235],
+                                [0, 1, -1, 0],
+                            ],
+                            dtype=np.int16,
+                        )
+                    )
+                }
+            ),
+        }
+    )
+
+
 def test_wavesurfer_metadata_reads_active_channels(monkeypatch) -> None:
     adapter = WaveSurferH5Adapter()
     monkeypatch.setattr("sdapp.host.dc_trace._load_h5py", lambda: _fake_h5_module(_valid_tree()))
@@ -156,7 +225,7 @@ def test_wavesurfer_load_trace_scales_and_concatenates_sweeps(monkeypatch) -> No
     assert record.units == ["mV"]
     assert record.segments == [(0, 3), (3, 5)]
     assert record.signals.shape == (5, 1)
-    assert np.array_equal(np.asarray(record.signals[:, 0]), np.asarray([4.0, 8.0, 12.0, 16.0, 20.0]))
+    assert np.array_equal(np.asarray(record.signals[:, 0]), np.asarray([14.0, 16.0, 18.0, 20.0, 22.0]))
 
 
 def test_wavesurfer_load_trace_returns_expected_scaled_values(monkeypatch) -> None:
@@ -165,7 +234,7 @@ def test_wavesurfer_load_trace_returns_expected_scaled_values(monkeypatch) -> No
 
     record = adapter.load_trace(Path("/tmp/example.h5"), channel_selection=0)
 
-    assert np.array_equal(np.asarray(record.signals[:, 0]), np.asarray([4.0, 12.0, 20.0, 28.0, 36.0]))
+    assert np.array_equal(np.asarray(record.signals[:, 0]), np.asarray([3.0, 5.0, 7.0, 9.0, 11.0]))
 
 
 def test_wavesurfer_metadata_rejects_missing_sweeps(monkeypatch) -> None:
@@ -200,3 +269,30 @@ def test_wavesurfer_legacy_header_and_channel_first_layout(monkeypatch) -> None:
     assert int(metadata["total_samples"]) == 4
     assert float(metadata["duration_s"]) == 4 / 10000.0
     assert np.array_equal(np.asarray(record.signals[:, 0]), np.asarray([0.0, 100.0, 200.0, 300.0]))
+
+
+def test_wavesurfer_accepts_coefficients_stored_as_coefficients_by_channel(monkeypatch) -> None:
+    adapter = WaveSurferH5Adapter()
+    monkeypatch.setattr("sdapp.host.dc_trace._load_h5py", lambda: _fake_h5_module(_column_oriented_coeff_tree()))
+
+    record_a = adapter.load_trace(Path("/tmp/column-oriented.h5"), channel_selection=0)
+    record_b = adapter.load_trace(Path("/tmp/column-oriented.h5"), channel_selection=1)
+
+    assert np.array_equal(np.asarray(record_a.signals[:, 0]), np.asarray([3.0, 5.0]))
+    assert np.array_equal(np.asarray(record_b.signals[:, 0]), np.asarray([14.0, 16.0]))
+
+
+def test_wavesurfer_handles_coefficients_for_active_channels_only(monkeypatch) -> None:
+    adapter = WaveSurferH5Adapter()
+    monkeypatch.setattr("sdapp.host.dc_trace._load_h5py", lambda: _fake_h5_module(_active_subset_coeff_tree()))
+
+    metadata = adapter.load_metadata(Path("/tmp/active-subset.h5"))
+    record = adapter.load_trace(Path("/tmp/active-subset.h5"), channel_selection=0)
+
+    assert metadata["channel_names"] == ["DC", "AC"]
+    assert metadata["units"] == ["mV", "mV"]
+    assert metadata["channel_scales"] == [0.01, 0.01]
+    assert np.allclose(
+        np.asarray(record.signals[:, 0]),
+        np.asarray([7.56918844532, 7.40466448582, 7.43756927772, 7.33885490192]),
+    )

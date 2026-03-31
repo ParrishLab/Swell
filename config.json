@@ -4,7 +4,7 @@
   "default_model": "managed://sam2.1_hiera_base_plus",
   "default_output": "output",
   "ignored_version": null,
-  "last_update_check_at": "2026-03-30T17:10:50+00:00",
+  "last_update_check_at": "2026-03-31T20:49:18+00:00",
   "release_channel": "stable",
   "update_channels": {
     "stable": {

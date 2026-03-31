@@ -13,6 +13,9 @@ from sdapp.shared.trace import TimeAlignment, TraceAttachment, TraceRecord
 from sdapp.shared.ui import BackgroundTaskRunner
 
 TRACE_EVENT_SPAN_COLOR = "#c9b4f2"
+TRACE_DISPLAY_LOWPASS_HZ = 10.0
+TRACE_DISPLAY_TARGET_FS = 50.0
+TRACE_DISPLAY_FILTER_ORDER = 4
 
 
 class HostDCTraceController:
@@ -423,7 +426,7 @@ class HostDCTraceController:
         if times is None or times.size <= 0:
             return
         view_bounds = self._ios_time_bounds()
-        visible_times, visible_signal = self._visible_trace_window(view_bounds)
+        visible_times, visible_signal = self._display_trace_window(view_bounds)
         if visible_times.size <= 0 or visible_signal.size <= 0:
             return
         width = max(200, int(shell.winfo_width() or 0))
@@ -554,6 +557,36 @@ class HostDCTraceController:
         if hi <= lo:
             return np.array([], dtype=np.float64), np.array([], dtype=np.float64)
         return times[lo:hi], signal[lo:hi]
+
+    def _display_trace_window(self, bounds: tuple[float, float] | None) -> tuple[np.ndarray, np.ndarray]:
+        times, signal = self._visible_trace_window(bounds)
+        record = self._trace_record
+        if record is None or times.size <= 0 or signal.size <= 0:
+            return times, signal
+        sample_rate = float(record.sample_rate_hz or 0.0)
+        if sample_rate <= 0:
+            return times, signal
+        ds_factor = max(1, int(round(sample_rate / TRACE_DISPLAY_TARGET_FS)))
+        display_sample_rate = sample_rate / float(ds_factor)
+        cutoff_hz = min(TRACE_DISPLAY_LOWPASS_HZ, 0.45 * display_sample_rate)
+        filtered = np.asarray(signal, dtype=np.float64)
+        if cutoff_hz > 0 and sample_rate > (2.0 * cutoff_hz) and filtered.size > 32:
+            try:
+                from scipy import signal as scipy_signal
+
+                sos = scipy_signal.butter(
+                    TRACE_DISPLAY_FILTER_ORDER,
+                    cutoff_hz,
+                    btype="low",
+                    fs=sample_rate,
+                    output="sos",
+                )
+                filtered = scipy_signal.sosfiltfilt(sos, filtered).astype(np.float64, copy=False)
+            except Exception:
+                filtered = np.asarray(signal, dtype=np.float64)
+        if ds_factor > 1:
+            return times[::ds_factor], filtered[::ds_factor]
+        return times, filtered
 
     def _trace_times(self) -> np.ndarray | None:
         if self._trace_record is None:
