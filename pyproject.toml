@@ -12,6 +12,7 @@ dependencies = [
   "numpy",
   "scipy",
   "matplotlib",
+  "h5py",
   "Pillow",
   "tifffile",
   "imagecodecs",

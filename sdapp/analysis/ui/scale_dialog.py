@@ -6,15 +6,15 @@ import numpy as np
 from PIL import Image, ImageTk
 
 
-def open_scale_dialog(root, img_u8, snap_scale_points_axis, refine_scale_bar_points, compute_scale):
+def open_scale_dialog(root, img_u8, snap_scale_points_axis, refine_scale_bar_points, compute_scale, initial_scale_points=None):
     popup = tk.Toplevel(root)
     popup.title("Set Scale - First Original Frame")
-    popup.transient(root)
     popup.grab_set()
+    popup.resizable(True, True)
 
     img_h, img_w = img_u8.shape[:2]
     max_w, max_h = 900, 700
-    base_ratio = min(max_w / img_w, max_h / img_h, 1.0)
+    initial_fit_ratio = min(max_w / img_w, max_h / img_h, 1.0)
 
     canvas_shell = ttk.Frame(popup)
     canvas_shell.pack(padx=8, pady=8, fill="both", expand=True)
@@ -44,28 +44,45 @@ def open_scale_dialog(root, img_u8, snap_scale_points_axis, refine_scale_bar_poi
 
     tool_mode_var = tk.StringVar(value="edit")
     axis_lock_var = tk.BooleanVar(value=True)
+    points_seed = []
+    if isinstance(initial_scale_points, list) and len(initial_scale_points) >= 2:
+        for pt in list(initial_scale_points)[:2]:
+            if not isinstance(pt, (list, tuple)) or len(pt) < 2:
+                points_seed = []
+                break
+            try:
+                px = int(np.clip(round(float(pt[0])), 0, img_w - 1))
+                py = int(np.clip(round(float(pt[1])), 0, img_h - 1))
+            except Exception:
+                points_seed = []
+                break
+            points_seed.append((px, py))
+
     state = {
-        "points": [],
+        "points": points_seed,
         "preview": None,
         "dragging_idx": None,
         "is_panning": False,
         "hit_radius_canvas_px": 14.0,
         "zoom_factor": 1.0,
+        "fit_ratio": initial_fit_ratio,
+        "offset_x": 0.0,
+        "offset_y": 0.0,
     }
     result = {"value": None}
 
     def get_scale():
-        return max(1e-6, base_ratio * float(state["zoom_factor"]))
+        return max(1e-6, float(state["fit_ratio"]) * float(state["zoom_factor"]))
 
     def event_to_image_xy(event):
         s = get_scale()
-        px = int(canvas.canvasx(event.x) / s)
-        py = int(canvas.canvasy(event.y) / s)
+        px = int((canvas.canvasx(event.x) - float(state["offset_x"])) / s)
+        py = int((canvas.canvasy(event.y) - float(state["offset_y"])) / s)
         return px, py
 
     def image_to_canvas_xy(px, py):
         s = get_scale()
-        return float(px) * s, float(py) * s
+        return float(state["offset_x"]) + float(px) * s, float(state["offset_y"]) + float(py) * s
 
     def current_hit_radius_img():
         zoom_mult = max(1.0, float(state["zoom_factor"]))
@@ -107,17 +124,27 @@ def open_scale_dialog(root, img_u8, snap_scale_points_axis, refine_scale_bar_poi
         return nearest_scale_point_idx(px, py, max_dist_px_img=max_dist_px_img)
 
     def render_background():
+        view_w = max(1, int(canvas.winfo_width()))
+        view_h = max(1, int(canvas.winfo_height()))
+        fit_ratio = max(1e-6, min(float(view_w) / float(img_w), float(view_h) / float(img_h)))
+        state["fit_ratio"] = fit_ratio
         s = get_scale()
         disp_w = max(1, int(round(img_w * s)))
         disp_h = max(1, int(round(img_h * s)))
+        region_w = max(view_w, disp_w)
+        region_h = max(view_h, disp_h)
+        offset_x = max(0.0, (float(region_w) - float(disp_w)) * 0.5)
+        offset_y = max(0.0, (float(region_h) - float(disp_h)) * 0.5)
         img_rgb = cv2.cvtColor(img_u8, cv2.COLOR_GRAY2RGB)
         img_resized = cv2.resize(img_rgb, (disp_w, disp_h), interpolation=cv2.INTER_LINEAR)
         tk_img = ImageTk.PhotoImage(Image.fromarray(img_resized))
         popup._tk_img = tk_img
+        state["offset_x"] = offset_x
+        state["offset_y"] = offset_y
         canvas.delete("bg")
-        canvas.create_image(0, 0, image=tk_img, anchor="nw", tags="bg")
+        canvas.create_image(offset_x, offset_y, image=tk_img, anchor="nw", tags="bg")
         canvas.tag_lower("bg")
-        canvas.configure(scrollregion=(0, 0, disp_w, disp_h))
+        canvas.configure(scrollregion=(0, 0, region_w, region_h))
 
     def apply_zoom(new_factor, center_canvas_x=None, center_canvas_y=None):
         old_scale = get_scale()
@@ -129,8 +156,8 @@ def open_scale_dialog(root, img_u8, snap_scale_points_axis, refine_scale_bar_poi
             view_h = max(1, canvas.winfo_height())
             center_canvas_x = canvas.canvasx(view_w / 2.0)
             center_canvas_y = canvas.canvasy(view_h / 2.0)
-        center_img_x = float(center_canvas_x) / old_scale
-        center_img_y = float(center_canvas_y) / old_scale
+        center_img_x = (float(center_canvas_x) - float(state["offset_x"])) / old_scale
+        center_img_y = (float(center_canvas_y) - float(state["offset_y"])) / old_scale
         state["zoom_factor"] = new_factor
         render_background()
         redraw()
@@ -139,14 +166,16 @@ def open_scale_dialog(root, img_u8, snap_scale_points_axis, refine_scale_bar_poi
         disp_h = max(1, int(round(img_h * new_scale)))
         view_w = max(1, canvas.winfo_width())
         view_h = max(1, canvas.winfo_height())
-        target_x = center_img_x * new_scale - (view_w / 2.0)
-        target_y = center_img_y * new_scale - (view_h / 2.0)
-        max_x = max(0.0, float(disp_w - view_w))
-        max_y = max(0.0, float(disp_h - view_h))
+        region_w = max(view_w, disp_w)
+        region_h = max(view_h, disp_h)
+        target_x = float(state["offset_x"]) + center_img_x * new_scale - (view_w / 2.0)
+        target_y = float(state["offset_y"]) + center_img_y * new_scale - (view_h / 2.0)
+        max_x = max(0.0, float(region_w - view_w))
+        max_y = max(0.0, float(region_h - view_h))
         target_x = float(np.clip(target_x, 0.0, max_x))
         target_y = float(np.clip(target_y, 0.0, max_y))
-        canvas.xview_moveto(target_x / float(max(1, disp_w)))
-        canvas.yview_moveto(target_y / float(max(1, disp_h)))
+        canvas.xview_moveto(target_x / float(max(1, region_w)))
+        canvas.yview_moveto(target_y / float(max(1, region_h)))
 
     def compute_preview():
         if len(state["points"]) != 2:
@@ -217,7 +246,7 @@ def open_scale_dialog(root, img_u8, snap_scale_points_axis, refine_scale_bar_poi
                     cc1y - point_radius,
                     cc1x + point_radius,
                     cc1y + point_radius,
-                    outline="#ff66ff",
+                    outline="yellow" if state["dragging_idx"] == 0 else "#ff66ff",
                     width=max(2, int(round(line_width))),
                     tags="overlay",
                 )
@@ -226,7 +255,7 @@ def open_scale_dialog(root, img_u8, snap_scale_points_axis, refine_scale_bar_poi
                     cc2y - point_radius,
                     cc2x + point_radius,
                     cc2y + point_radius,
-                    outline="#ff66ff",
+                    outline="yellow" if state["dragging_idx"] == 1 else "#ff66ff",
                     width=max(2, int(round(line_width))),
                     tags="overlay",
                 )
@@ -334,6 +363,7 @@ def open_scale_dialog(root, img_u8, snap_scale_points_axis, refine_scale_bar_poi
     canvas.bind("<Button-1>", on_click)
     canvas.bind("<B1-Motion>", on_drag)
     canvas.bind("<ButtonRelease-1>", on_release)
+    canvas.bind("<Configure>", lambda _event: (render_background(), redraw()))
     popup.focus_set()
     render_background()
     redraw()

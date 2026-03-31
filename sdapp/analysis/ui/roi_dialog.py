@@ -9,23 +9,20 @@ from PIL import Image, ImageTk
 def open_roi_dialog(root, img_u8, initial_roi_points=None):
     popup = tk.Toplevel(root)
     popup.title("Draw ROI - First Original Frame")
-    popup.transient(root)
     popup.grab_set()
+    popup.resizable(True, True)
 
     img_h, img_w = img_u8.shape[:2]
     max_w, max_h = 900, 700
-    ratio = min(max_w / img_w, max_h / img_h, 1.0)
-    disp_w, disp_h = int(img_w * ratio), int(img_h * ratio)
-
     img_rgb = cv2.cvtColor(img_u8, cv2.COLOR_GRAY2RGB)
-    img_resized = cv2.resize(img_rgb, (disp_w, disp_h), interpolation=cv2.INTER_LINEAR)
-    pil_img = Image.fromarray(img_resized)
-    tk_img = ImageTk.PhotoImage(pil_img)
+    base_ratio = min(max_w / img_w, max_h / img_h, 1.0)
+    initial_w = max(1, int(round(img_w * base_ratio)))
+    initial_h = max(1, int(round(img_h * base_ratio)))
 
-    canvas = tk.Canvas(popup, width=disp_w, height=disp_h, bg="black")
-    canvas.pack(padx=8, pady=8)
-    canvas.create_image(0, 0, image=tk_img, anchor="nw")
-    popup._tk_img = tk_img
+    canvas_shell = ttk.Frame(popup)
+    canvas_shell.pack(padx=8, pady=8, fill="both", expand=True)
+    canvas = tk.Canvas(canvas_shell, width=initial_w, height=initial_h, bg="black", highlightthickness=0)
+    canvas.pack(fill="both", expand=True)
 
     points_seed = list(initial_roi_points) if initial_roi_points else []
     state = {
@@ -33,16 +30,56 @@ def open_roi_dialog(root, img_u8, initial_roi_points=None):
         "selected_idx": None,
         "closed": bool(points_seed),
         "dragging": False,
+        "ratio": base_ratio,
+        "disp_w": initial_w,
+        "disp_h": initial_h,
+        "offset_x": 0.0,
+        "offset_y": 0.0,
     }
     result = {"value": None}
+
+    def get_ratio():
+        return max(1e-6, float(state["ratio"]))
+
+    def image_to_canvas_xy(px, py):
+        ratio = get_ratio()
+        return (
+            float(state["offset_x"]) + float(px) * ratio,
+            float(state["offset_y"]) + float(py) * ratio,
+        )
+
+    def event_to_image_xy(event):
+        ratio = get_ratio()
+        px = int((float(event.x) - float(state["offset_x"])) / ratio)
+        py = int((float(event.y) - float(state["offset_y"])) / ratio)
+        return px, py
+
+    def render_background():
+        avail_w = max(1, int(canvas.winfo_width()))
+        avail_h = max(1, int(canvas.winfo_height()))
+        ratio = max(1e-6, min(float(avail_w) / float(img_w), float(avail_h) / float(img_h)))
+        disp_w = max(1, int(round(img_w * ratio)))
+        disp_h = max(1, int(round(img_h * ratio)))
+        offset_x = max(0.0, (float(avail_w) - float(disp_w)) * 0.5)
+        offset_y = max(0.0, (float(avail_h) - float(disp_h)) * 0.5)
+        img_resized = cv2.resize(img_rgb, (disp_w, disp_h), interpolation=cv2.INTER_LINEAR)
+        tk_img = ImageTk.PhotoImage(Image.fromarray(img_resized))
+        popup._tk_img = tk_img
+        state["ratio"] = ratio
+        state["disp_w"] = disp_w
+        state["disp_h"] = disp_h
+        state["offset_x"] = offset_x
+        state["offset_y"] = offset_y
+        canvas.delete("bg")
+        canvas.create_image(offset_x, offset_y, image=tk_img, anchor="nw", tags="bg")
+        canvas.tag_lower("bg")
 
     def redraw():
         canvas.delete("overlay")
         if not state["points"]:
             return
         for i, (px, py) in enumerate(state["points"]):
-            x = px * ratio
-            y = py * ratio
+            x, y = image_to_canvas_xy(px, py)
             if state["selected_idx"] == i:
                 canvas.create_oval(x - 7, y - 7, x + 7, y + 7, fill="#00ff66", outline="yellow", width=2, tags="overlay")
             else:
@@ -50,16 +87,19 @@ def open_roi_dialog(root, img_u8, initial_roi_points=None):
         if len(state["points"]) >= 2:
             pts = []
             for px, py in state["points"]:
-                pts.extend([px * ratio, py * ratio])
+                x, y = image_to_canvas_xy(px, py)
+                pts.extend([x, y])
             canvas.create_line(*pts, fill="#00ff66", width=2, tags="overlay")
             if len(state["points"]) >= 3 and state["closed"]:
                 x0, y0 = state["points"][0]
                 x1, y1 = state["points"][-1]
+                cx0, cy0 = image_to_canvas_xy(x0, y0)
+                cx1, cy1 = image_to_canvas_xy(x1, y1)
                 canvas.create_line(
-                    x0 * ratio,
-                    y0 * ratio,
-                    x1 * ratio,
-                    y1 * ratio,
+                    cx0,
+                    cy0,
+                    cx1,
+                    cy1,
                     fill="#00ff66",
                     width=2,
                     tags="overlay",
@@ -67,11 +107,13 @@ def open_roi_dialog(root, img_u8, initial_roi_points=None):
             elif len(state["points"]) >= 3:
                 x0, y0 = state["points"][0]
                 x1, y1 = state["points"][-1]
+                cx0, cy0 = image_to_canvas_xy(x0, y0)
+                cx1, cy1 = image_to_canvas_xy(x1, y1)
                 canvas.create_line(
-                    x0 * ratio,
-                    y0 * ratio,
-                    x1 * ratio,
-                    y1 * ratio,
+                    cx0,
+                    cy0,
+                    cx1,
+                    cy1,
                     fill="#00ff66",
                     width=1,
                     dash=(3, 2),
@@ -82,7 +124,7 @@ def open_roi_dialog(root, img_u8, initial_roi_points=None):
         if not state["points"]:
             return None
         if max_dist_px is None:
-            max_dist_px = max(8.0, 12.0 / max(ratio, 1e-6))
+            max_dist_px = max(8.0, 12.0 / get_ratio())
         best_idx = None
         best_d2 = (max_dist_px**2) + 1
         for i, (x, y) in enumerate(state["points"]):
@@ -109,7 +151,7 @@ def open_roi_dialog(root, img_u8, initial_roi_points=None):
         if not state["closed"] or len(state["points"]) < 3:
             return None
         if max_dist_px is None:
-            max_dist_px = max(6.0, 10.0 / max(ratio, 1e-6))
+            max_dist_px = max(6.0, 10.0 / get_ratio())
         best = None
         best_dist = max_dist_px + 1
         n = len(state["points"])
@@ -123,8 +165,7 @@ def open_roi_dialog(root, img_u8, initial_roi_points=None):
         return best if best_dist <= max_dist_px else None
 
     def on_click(event):
-        px = int(event.x / ratio)
-        py = int(event.y / ratio)
+        px, py = event_to_image_xy(event)
         if not (0 <= px < img_w and 0 <= py < img_h):
             return
         idx = nearest_point_idx(px, py)
@@ -150,8 +191,7 @@ def open_roi_dialog(root, img_u8, initial_roi_points=None):
     def on_drag(event):
         if state["selected_idx"] is None:
             return
-        px = int(event.x / ratio)
-        py = int(event.y / ratio)
+        px, py = event_to_image_xy(event)
         px = max(0, min(px, img_w - 1))
         py = max(0, min(py, img_h - 1))
         state["points"][state["selected_idx"]] = (px, py)
@@ -166,13 +206,16 @@ def open_roi_dialog(root, img_u8, initial_roi_points=None):
             return
         if len(state["points"]) < 3:
             return
-        px = int(event.x / ratio)
-        py = int(event.y / ratio)
+        px, py = event_to_image_xy(event)
         first_idx = nearest_point_idx(px, py, max_dist_px=10)
         if first_idx == 0:
             state["closed"] = True
             state["selected_idx"] = 0
             redraw()
+
+    def on_canvas_configure(_event=None):
+        render_background()
+        redraw()
 
     def on_undo():
         if state["points"]:
@@ -220,6 +263,7 @@ def open_roi_dialog(root, img_u8, initial_roi_points=None):
     canvas.bind("<B1-Motion>", on_drag)
     canvas.bind("<ButtonRelease-1>", on_release)
     canvas.bind("<Double-Button-1>", on_double_click)
+    canvas.bind("<Configure>", on_canvas_configure)
     controls = ttk.Frame(popup)
     controls.pack(fill="x", padx=8, pady=(0, 8))
     ttk.Label(
@@ -233,6 +277,7 @@ def open_roi_dialog(root, img_u8, initial_roi_points=None):
     ttk.Button(controls, text="Save Local ROI", command=lambda: on_finish("local")).pack(side="right", padx=3)
     ttk.Button(controls, text="Cancel", command=popup.destroy).pack(side="right", padx=3)
 
+    render_background()
     redraw()
     popup.wait_window()
     return result["value"]

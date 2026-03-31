@@ -9,6 +9,7 @@ EVENTS_FILENAME = "events.json"
 ANALYSIS_SIDECAR_FILENAME = "analysis_sidecar.json"
 
 METADATA_GLOBAL_METRICS_DEFAULTS_KEY = "global_metrics_defaults"
+METADATA_DC_TRACE_ATTACHMENT_KEY = "dc_trace_attachment"
 METRICS_SETTINGS_KEY = "metrics_settings"
 
 PERSISTENCE_OWNER_FIELD = "owner"

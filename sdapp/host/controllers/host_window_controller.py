@@ -19,7 +19,7 @@ class HostWindowController:
     def __init__(self, app) -> None:
         self.app = app
 
-    def _global_metrics_defaults_state(self) -> tuple[float, float | None, list[list[float]], np.ndarray | None]:
+    def _global_metrics_defaults_state(self) -> tuple[float, float | None, list[list[float]], list[list[float]], np.ndarray | None]:
         defaults = dict(self.app.browser_controller.get_global_metrics_defaults() or {})
         fps_initial = defaults.get("frames_per_sec", 1.0)
         try:
@@ -36,6 +36,7 @@ class HostWindowController:
                 scale_value = None
         except (TypeError, ValueError):
             scale_value = None
+        scale_points = list(defaults.get("scale_points", [])) if isinstance(defaults.get("scale_points"), list) else []
         roi_points = list(defaults.get("roi_points", [])) if isinstance(defaults.get("roi_points"), list) else []
         roi_mask = defaults.get("roi_mask")
         if roi_mask is not None:
@@ -45,7 +46,7 @@ class HostWindowController:
                     roi_mask = None
             except Exception:
                 roi_mask = None
-        return float(fps_initial), scale_value, roi_points, roi_mask
+        return float(fps_initial), scale_value, scale_points, roi_points, roi_mask
 
     def refresh_open_metrics_popup(self) -> None:
         dialog = getattr(self.app, "_open_metrics_dialog", None)
@@ -365,7 +366,7 @@ class HostWindowController:
         except Exception:
             pass
 
-        fps_initial, scale_value, roi_points, roi_mask = self._global_metrics_defaults_state()
+        fps_initial, scale_value, scale_points, roi_points, roi_mask = self._global_metrics_defaults_state()
 
         dialog = tk.Toplevel(self.app.root)
         dialog.title("Open Metrics")
@@ -403,8 +404,8 @@ class HostWindowController:
                 roi_status_var.set("ROI: Not set")
 
         def _refresh_from_host() -> None:
-            nonlocal scale_value, roi_points, roi_mask
-            _fps_value, scale_value, roi_points, roi_mask = self._global_metrics_defaults_state()
+            nonlocal scale_value, scale_points, roi_points, roi_mask
+            _fps_value, scale_value, scale_points, roi_points, roi_mask = self._global_metrics_defaults_state()
             _refresh_labels()
 
         self.app._refresh_open_metrics_dialog = _refresh_from_host
@@ -413,7 +414,7 @@ class HostWindowController:
         controls.pack(fill="x", pady=(6, 6))
 
         def _set_scale() -> None:
-            nonlocal scale_value
+            nonlocal scale_value, scale_points
             img_u8 = self.app._pick_metrics_reference_image_u8(parent=dialog, purpose="Scale")
             if img_u8 is None:
                 return
@@ -423,6 +424,7 @@ class HostWindowController:
                 snap_scale_points_axis=self.app._snap_scale_points_axis,
                 refine_scale_bar_points=self.app._refine_scale_bar_points,
                 compute_scale=compute_scale,
+                initial_scale_points=scale_points,
             )
             if not isinstance(result, dict):
                 return
@@ -432,6 +434,11 @@ class HostWindowController:
                     scale_value = None
             except (TypeError, ValueError):
                 scale_value = None
+            scale_points = [
+                [float(pt[0]), float(pt[1])]
+                for pt in list(result.get("scale_points", []))[:2]
+                if isinstance(pt, (list, tuple)) and len(pt) >= 2
+            ]
             _refresh_labels()
 
         def _set_roi() -> None:
@@ -484,6 +491,8 @@ class HostWindowController:
             payload: dict[str, object] = {"frames_per_sec": float(frames_per_sec)}
             if scale_value is not None:
                 payload["scale_px_per_mm"] = float(scale_value)
+            if len(scale_points) == 2:
+                payload["scale_points"] = [[float(pt[0]), float(pt[1])] for pt in scale_points]
             if roi_points:
                 payload["roi_points"] = [[float(pt[0]), float(pt[1])] for pt in roi_points]
             if roi_mask is not None:

@@ -6,10 +6,17 @@ from PyInstaller.utils.hooks import collect_data_files, collect_dynamic_libs, co
 
 _spec_path = Path(globals().get("__file__", "packaging/windows/sdapp_windows.spec")).resolve()
 ROOT = _spec_path.parents[2]
+doc_icon_ico = ROOT / "sdapp" / "resources" / "assets" / "sdproj_doc_icon.ico"
 
 datas = collect_data_files("sdapp")
 binaries = []
 hiddenimports = []
+
+if not doc_icon_ico.exists():
+    raise FileNotFoundError(f"Missing Windows document icon asset: {doc_icon_ico}")
+
+# The installer registers the document icon from the install root.
+datas.append((str(doc_icon_ico), "."))
 
 # TIFF decoding in frozen Windows builds may require optional image codec
 # extension modules that PyInstaller does not always infer transitively.

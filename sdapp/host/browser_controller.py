@@ -297,6 +297,12 @@ class BrowserController:
     def get_model_checkpoint_metadata(self) -> dict | None:
         return self.session.get_model_checkpoint_metadata()
 
+    def set_dc_trace_attachment(self, payload: dict | None) -> None:
+        self.session.set_dc_trace_attachment(dict(payload or {}) if isinstance(payload, dict) else None)
+
+    def get_dc_trace_attachment(self) -> dict | None:
+        return self.session.get_dc_trace_attachment()
+
     def get_global_metrics_defaults(self) -> dict:
         return self.session.get_global_metrics_defaults()
 

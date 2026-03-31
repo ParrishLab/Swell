@@ -6,10 +6,17 @@ from PyInstaller.utils.hooks import collect_data_files, collect_dynamic_libs, co
 
 _spec_path = Path(globals().get("__file__", "packaging/sdapp.spec")).resolve()
 ROOT = _spec_path.parents[1]
+doc_icon_icns = ROOT / "sdapp" / "resources" / "assets" / "sdproj_doc_icon.icns"
 
 datas = collect_data_files("sdapp")
 binaries = []
 hiddenimports = []
+
+if not doc_icon_icns.exists():
+    raise FileNotFoundError(f"Missing macOS document icon asset: {doc_icon_icns}")
+
+# Finder resolves document icons from the bundle resources root.
+datas.append((str(doc_icon_icns), "."))
 
 for pkg in ("sam2", "hydra", "hydra_plugins", "omegaconf"):
     hiddenimports += collect_submodules(pkg)

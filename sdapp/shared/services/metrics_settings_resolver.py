@@ -6,7 +6,7 @@ import numpy as np
 
 
 class MetricsSettingsResolver:
-    METRIC_KEYS = ("frames_per_sec", "scale_px_per_mm", "roi_points", "roi_mask")
+    METRIC_KEYS = ("frames_per_sec", "scale_px_per_mm", "scale_points", "roi_points", "roi_mask")
 
     @staticmethod
     def normalize(settings: dict | None) -> dict[str, object]:
@@ -27,6 +27,18 @@ class MetricsSettingsResolver:
                     out["scale_px_per_mm"] = float(scale)
             except Exception:
                 pass
+        scale_points = settings.get("scale_points")
+        if isinstance(scale_points, list) and len(scale_points) >= 2:
+            clean_scale_points: list[list[float]] = []
+            for pt in list(scale_points)[:2]:
+                if not isinstance(pt, (list, tuple)) or len(pt) < 2:
+                    continue
+                try:
+                    clean_scale_points.append([float(pt[0]), float(pt[1])])
+                except Exception:
+                    continue
+            if len(clean_scale_points) == 2:
+                out["scale_points"] = clean_scale_points
         points = settings.get("roi_points")
         if isinstance(points, list) and points:
             clean_points: list[list[float]] = []
@@ -58,6 +70,8 @@ class MetricsSettingsResolver:
                 return float(value) > 0
             except (TypeError, ValueError):
                 return False
+        if key == "scale_points":
+            return isinstance(value, list) and len(value) >= 2
         if key == "roi_points":
             return isinstance(value, list) and len(value) > 0
         if key == "roi_mask":
@@ -96,6 +110,8 @@ class MetricsSettingsResolver:
                 continue
             if key == "roi_mask":
                 merged[key] = np.asarray(value, dtype=bool).copy()
+            elif key == "scale_points":
+                merged[key] = [[float(pt[0]), float(pt[1])] for pt in list(value)[:2]]
             elif key == "roi_points":
                 merged[key] = [[float(pt[0]), float(pt[1])] for pt in list(value)]
             else:

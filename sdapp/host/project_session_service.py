@@ -9,6 +9,8 @@ import numpy as np
 
 from sdapp.shared.services import MetricsSettingsResolver, UnifiedProjectService
 from sdapp.shared.services import MODEL_CHECKPOINT_METADATA_KEY
+from sdapp.shared.trace import TraceAttachment
+from sdapp.shared.persistence.schema import METADATA_DC_TRACE_ATTACHMENT_KEY
 
 from .host_models import EventMeta, HostSessionState, StackRef
 
@@ -105,6 +107,25 @@ class ProjectSessionService:
         if isinstance(value, dict):
             return dict(value)
         return None
+
+    def set_dc_trace_attachment(self, payload: dict[str, Any] | None) -> None:
+        state = self._service.state()
+        metadata = dict(state.metadata or {})
+        normalized = TraceAttachment.from_metadata_dict(dict(payload or {}) if isinstance(payload, dict) else None)
+        if normalized is None:
+            metadata.pop(METADATA_DC_TRACE_ATTACHMENT_KEY, None)
+        else:
+            metadata[METADATA_DC_TRACE_ATTACHMENT_KEY] = normalized.to_metadata_dict()
+        state.metadata = metadata
+        self._service.replace_state(state, mark_dirty=True)
+
+    def get_dc_trace_attachment(self) -> dict[str, Any] | None:
+        metadata = dict(self.state().metadata or {})
+        value = metadata.get(METADATA_DC_TRACE_ATTACHMENT_KEY)
+        normalized = TraceAttachment.from_metadata_dict(dict(value or {}) if isinstance(value, dict) else None)
+        if normalized is None:
+            return None
+        return normalized.to_metadata_dict()
 
     def set_project_path(self, project_path: str | Path | None) -> HostSessionState:
         state = self._service.state()

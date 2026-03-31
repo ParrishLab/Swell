@@ -190,6 +190,10 @@ class HostProjectLifecycleController:
                         self.warmup_main_preview_async()
                         self.app.analysis_launch_controller.prewarm_analysis_app_class_async()
                     self.app._sync_event_projections()
+                    if reader is not None and stack_info is not None:
+                        self.app._restore_dc_trace_from_project()
+                    else:
+                        self.app.dc_trace_controller.clear_runtime()
                     if warning:
                         self.app._show_warning("Open SD Project", warning)
                     self.app._set_status(f"Opened project: {Path(path).name}")
@@ -307,7 +311,7 @@ class HostProjectLifecycleController:
                 "message": "Missing metrics_settings in global metrics update payload.",
             }
         existing = dict(self.app.browser_controller.get_global_metrics_defaults() or {})
-        for key in ("scale_px_per_mm", "roi_points", "roi_mask"):
+        for key in ("scale_px_per_mm", "scale_points", "roi_points", "roi_mask"):
             if key in metrics_settings:
                 existing[key] = metrics_settings[key]
         updated = self.app.browser_controller.set_global_metrics_defaults(existing)
@@ -459,6 +463,7 @@ class HostProjectLifecycleController:
         self.app._popup_engine.set_reader(reader)
         self.app.stack_info = info
         self.app.trace = None
+        self.app.dc_trace_controller.clear_runtime()
         self.app.browser_controller.on_stack_loaded(reader, info)
         self.app.current_project_path = None
         self.app.browser_controller.session.set_project_path(None)

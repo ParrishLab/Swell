@@ -38,6 +38,9 @@ def build_shared_menu(root, app, *, mode: str, host_mode: bool = False) -> tk.Me
             ("Save SD Project", ("save_project", "_save_project", "save_session")),
             ("Save SD Project As...", ("save_project_as", "_save_project_as")),
             (None, None),
+            ("Import DC Trace...", ("import_dc_trace", "_import_dc_trace")),
+            ("Remove DC Trace", ("remove_dc_trace", "_remove_dc_trace")),
+            (None, None),
             ("Exit", ("_on_root_close", "on_close")),
         ]
     config_items = [

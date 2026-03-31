@@ -19,6 +19,7 @@ from .browser_controller import BrowserController
 from .config import APP_TITLE, DEFAULT_BASELINE_PRE_FRAMES, TraceResult
 from .controllers import (
     AnalysisLaunchController,
+    HostDCTraceController,
     HostModelSetupController,
     HostProjectLifecycleController,
     HostUpdateController,
@@ -66,6 +67,7 @@ class SDAnalyzerApp:
         self.update_controller = HostUpdateController(self)
         self.checkpoint_runtime = CheckpointRuntimeService()
         self.model_setup_controller = HostModelSetupController(self)
+        self.dc_trace_controller = HostDCTraceController(self)
         self.config = AppConfig.load()
         self.current_event_id: str | None = None
         self.current_frame_idx = 0
@@ -155,6 +157,7 @@ class SDAnalyzerApp:
         self._analysis_preview_cache: OrderedDict[tuple, dict[str, object]] = OrderedDict()
         self._analysis_app_class_cache = None
         self._analysis_app_import_started = False
+        self._last_scale_image_path = ""
 
         self._build_ui()
         self._refresh_model_gate_ui()
@@ -436,6 +439,7 @@ class SDAnalyzerApp:
 
     def refresh_timeline_overlays(self, _events, _active_event_id: str | None) -> None:
         self._redraw_main_overlay()
+        self.dc_trace_controller.on_events_changed()
 
     def _show_warning(self, title: str, text: str) -> None:
         messagebox.showwarning(title, text, parent=self.root)
@@ -460,6 +464,33 @@ class SDAnalyzerApp:
 
     def open_project_request(self, path: str) -> bool:
         return self._get_project_controller().open_project_request(path)
+
+    def _import_dc_trace(self) -> None:
+        self.dc_trace_controller.import_dc_trace()
+
+    def import_dc_trace(self) -> None:
+        self._import_dc_trace()
+
+    def _remove_dc_trace(self) -> None:
+        self.dc_trace_controller.remove_dc_trace()
+
+    def remove_dc_trace(self) -> None:
+        self._remove_dc_trace()
+
+    def _restore_dc_trace_from_project(self) -> None:
+        self.dc_trace_controller.restore_from_project_metadata()
+
+    def get_trace_time_for_frame(self, frame_idx: int) -> float | None:
+        return self.dc_trace_controller.get_trace_time_for_frame(frame_idx)
+
+    def get_frame_for_trace_time(self, t_s: float) -> int | None:
+        return self.dc_trace_controller.get_frame_for_trace_time(t_s)
+
+    def get_trace_value_at_frame(self, frame_idx: int) -> float | None:
+        return self.dc_trace_controller.get_trace_value_at_frame(frame_idx)
+
+    def get_trace_window(self, t0_s: float, t1_s: float) -> np.ndarray:
+        return self.dc_trace_controller.get_trace_window(t0_s, t1_s)
 
     def get_analysis_handoff_payload(self) -> dict | None:
         return self.browser_controller.handoff.selected_event_payload()
@@ -612,18 +643,26 @@ class SDAnalyzerApp:
         parent,
         purpose: str,
     ) -> np.ndarray | None:
-        selected = filedialog.askopenfilename(
-            parent=parent,
-            title=f"Select Image for {purpose}",
-            initialdir=self._metrics_picker_initial_dir(),
-            filetypes=[
-                ("Image files", "*.tif *.tiff *.png *.jpg *.jpeg *.bmp"),
-                ("TIFF files", "*.tif *.tiff"),
-                ("All files", "*.*"),
-            ],
-        )
+        selected = ""
+        if str(purpose or "").lower() == "scale":
+            last_scale_image_path = str(getattr(self, "_last_scale_image_path", "") or "").strip()
+            if last_scale_image_path and Path(last_scale_image_path).is_file():
+                selected = last_scale_image_path
         if not selected:
-            return None
+            selected = filedialog.askopenfilename(
+                parent=parent,
+                title=f"Select Image for {purpose}",
+                initialdir=self._metrics_picker_initial_dir(),
+                filetypes=[
+                    ("Image files", "*.tif *.tiff *.png *.jpg *.jpeg *.bmp"),
+                    ("TIFF files", "*.tif *.tiff"),
+                    ("All files", "*.*"),
+                ],
+            )
+            if not selected:
+                return None
+            if str(purpose or "").lower() == "scale":
+                self._last_scale_image_path = str(selected)
         img_u8 = self._load_metrics_reference_image_u8(selected)
         if img_u8 is None:
             self._show_warning(
@@ -1499,6 +1538,7 @@ class SDAnalyzerApp:
         frame_name = self.reader.get_frame_name(frame_idx)
         self.preview_label_info.set(f"Frame: {frame_idx}  [{frame_name}]")
         self._redraw_main_overlay()
+        self.dc_trace_controller.update_for_frame(frame_idx)
 
     def _scale_value_to_x(
         self,

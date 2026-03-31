@@ -345,43 +345,56 @@ class AnalysisController:
             messagebox.showwarning("No Images", "Import images first.", parent=self.root)
             return None
 
-        scale_initialdir = resolve_existing_directory(
-            self.get_last_scale_image_path(),
-            app_root=self.app_root,
-            fallback_dir=self.app_root,
-            prefer_parent_for_existing_dir=False,
-        )
-        app_root_abs = os.path.abspath(self.app_root)
-        if self._same_path(scale_initialdir, app_root_abs):
-            project_initialdir = self._project_source_initialdir()
-            if project_initialdir:
-                scale_initialdir = project_initialdir
-        if self._same_path(scale_initialdir, app_root_abs):
-            input_initialdir = resolve_existing_directory(
-                self.get_import_source_hint(),
+        image_path = ""
+        last_scale_image_path = str(self.get_last_scale_image_path() or "").strip()
+        if last_scale_image_path and os.path.isfile(last_scale_image_path):
+            image_path = last_scale_image_path
+        else:
+            scale_initialdir = resolve_existing_directory(
+                self.get_last_scale_image_path(),
                 app_root=self.app_root,
                 fallback_dir=self.app_root,
                 prefer_parent_for_existing_dir=False,
             )
-            scale_initialdir = input_initialdir
+            app_root_abs = os.path.abspath(self.app_root)
+            if self._same_path(scale_initialdir, app_root_abs):
+                project_initialdir = self._project_source_initialdir()
+                if project_initialdir:
+                    scale_initialdir = project_initialdir
+            if self._same_path(scale_initialdir, app_root_abs):
+                input_initialdir = resolve_existing_directory(
+                    self.get_import_source_hint(),
+                    app_root=self.app_root,
+                    fallback_dir=self.app_root,
+                    prefer_parent_for_existing_dir=False,
+                )
+                scale_initialdir = input_initialdir
 
-        image_path = filedialog.askopenfilename(
-            parent=self.root,
-            title="Select Image for Scale Calibration",
-            initialdir=scale_initialdir,
-            filetypes=[
-                ("Image files", "*.png *.jpg *.jpeg *.tif *.tiff *.bmp"),
-                ("All files", "*.*"),
-            ],
-        )
-        if not image_path:
-            return None
-        self.set_last_scale_image_path(image_path)
+            image_path = filedialog.askopenfilename(
+                parent=self.root,
+                title="Select Image for Scale Calibration",
+                initialdir=scale_initialdir,
+                filetypes=[
+                    ("Image files", "*.png *.jpg *.jpeg *.tif *.tiff *.bmp"),
+                    ("All files", "*.*"),
+                ],
+            )
+            if not image_path:
+                return None
+            self.set_last_scale_image_path(image_path)
 
         img_u8 = self._load_image_u8_from_path(image_path)
         if img_u8 is None:
             messagebox.showwarning("Image Error", "Unable to read selected image for scale calibration.", parent=self.root)
             return None
+
+        initial_scale_points = []
+        try:
+            raw_scale_points = list(self.get_scale_points() or [])
+        except Exception:
+            raw_scale_points = []
+        if len(raw_scale_points) >= 2:
+            initial_scale_points = list(raw_scale_points[:2])
 
         result = open_scale_dialog(
             root=self.root,
@@ -389,6 +402,7 @@ class AnalysisController:
             snap_scale_points_axis=self._snap_scale_points_axis,
             refine_scale_bar_points=self._refine_scale_bar_points,
             compute_scale=compute_scale,
+            initial_scale_points=initial_scale_points,
         )
         if result is None:
             return None
@@ -423,9 +437,31 @@ class AnalysisController:
         if not self._has_loaded_frames():
             messagebox.showwarning("No Images", "Import images first.", parent=self.root)
             return None
-        img_u8 = self._get_first_frame_original_u8()
+
+        roi_initialdir = self._project_source_initialdir()
+        if not roi_initialdir:
+            roi_initialdir = resolve_existing_directory(
+                self.get_import_source_hint(),
+                app_root=self.app_root,
+                fallback_dir=self.app_root,
+                prefer_parent_for_existing_dir=False,
+            )
+
+        image_path = filedialog.askopenfilename(
+            parent=self.root,
+            title="Select Image for ROI",
+            initialdir=roi_initialdir,
+            filetypes=[
+                ("Image files", "*.png *.jpg *.jpeg *.tif *.tiff *.bmp"),
+                ("All files", "*.*"),
+            ],
+        )
+        if not image_path:
+            return None
+
+        img_u8 = self._load_image_u8_from_path(image_path)
         if img_u8 is None:
-            messagebox.showwarning("No Images", "Unable to read first frame.", parent=self.root)
+            messagebox.showwarning("Image Error", "Unable to read selected image for ROI.", parent=self.root)
             return None
 
         result = open_roi_dialog(

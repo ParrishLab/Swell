@@ -28,6 +28,16 @@ class AnalysisWindowController:
                 metrics["scale_px_per_mm"] = float(self.app.scale_px_per_mm)
         except Exception:
             pass
+        if bool(getattr(self.app, "_scale_is_local_override", False)) and isinstance(getattr(self.app, "scale_points", None), list):
+            clean_scale_points: list[list[float]] = []
+            for pt in list(self.app.scale_points)[:2]:
+                if isinstance(pt, (list, tuple)) and len(pt) >= 2:
+                    try:
+                        clean_scale_points.append([float(pt[0]), float(pt[1])])
+                    except (TypeError, ValueError):
+                        continue
+            if len(clean_scale_points) == 2:
+                metrics["scale_points"] = clean_scale_points
         if bool(getattr(self.app, "_roi_is_local_override", False)) and isinstance(self.app.roi_points, list) and self.app.roi_points:
             clean_points: list[list[float]] = []
             for pt in self.app.roi_points:
@@ -80,6 +90,17 @@ class AnalysisWindowController:
                         self.app.scale_px_per_mm = None
                 except (TypeError, ValueError):
                     self.app.scale_px_per_mm = None
+            if "scale_points" in normalized and isinstance(normalized.get("scale_points"), list):
+                cleaned_scale_points: list[list[float]] = []
+                for pt in list(normalized.get("scale_points", []))[:2]:
+                    if isinstance(pt, (list, tuple)) and len(pt) >= 2:
+                        try:
+                            cleaned_scale_points.append([float(pt[0]), float(pt[1])])
+                        except (TypeError, ValueError):
+                            continue
+                self.app.scale_points = cleaned_scale_points if len(cleaned_scale_points) == 2 else []
+            elif not self.app._scale_is_local_override:
+                self.app.scale_points = []
             if "roi_points" in normalized and isinstance(normalized.get("roi_points"), list):
                 cleaned_points: list[list[float]] = []
                 for pt in list(normalized.get("roi_points", [])):

@@ -182,3 +182,39 @@ def test_materialization_does_not_overwrite_existing_local_metrics() -> None:
     assert float(event_1_metrics["scale_px_per_mm"]) == 12.0
     assert float(event_1_metrics["frames_per_sec"]) == 3.0
     assert np.array_equal(np.asarray(event_1_metrics["roi_mask"], dtype=bool), local_roi)
+
+
+def test_dc_trace_attachment_roundtrip(tmp_path: Path) -> None:
+    svc = ProjectSessionService()
+    svc.new_project(_stack_ref("/tmp/in_a", frame_count=10))
+    attachment = {
+        "source_type": "wavesurfer_h5",
+        "source_path": "/tmp/dc_trace.h5",
+        "channel_index": 1,
+        "channel_name": "LFP 2",
+        "sample_rate_hz": 200.0,
+        "unit": "mV",
+        "alignment": {
+            "mode": "manual_offset",
+            "video_t0_s": 0.0,
+            "trace_t0_s": 0.0,
+            "offset_s": 1.75,
+            "drift_ppm": None,
+            "notes": "",
+        },
+        "metadata": {"sweep_count": 2, "duration_s": 18.0},
+    }
+    svc.set_dc_trace_attachment(attachment)
+
+    out = tmp_path / "dc_trace_roundtrip.sdproj"
+    svc.save_project(out)
+
+    reopened = ProjectSessionService()
+    reopened.open_project(out)
+    loaded = reopened.get_dc_trace_attachment()
+
+    assert loaded is not None
+    assert loaded["source_type"] == "wavesurfer_h5"
+    assert loaded["channel_index"] == 1
+    assert float(loaded["sample_rate_hz"]) == 200.0
+    assert float(dict(loaded["alignment"])["offset_s"]) == 1.75

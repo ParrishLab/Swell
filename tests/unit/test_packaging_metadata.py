@@ -14,6 +14,7 @@ def test_macos_spec_registers_sdproj_document_type() -> None:
     assert "UTExportedTypeDeclarations" in spec
     assert "com.sdapp.project" in spec
     assert "sdproj_doc_icon.icns" in spec
+    assert 'datas.append((str(doc_icon_icns), "."))' in spec
     assert "public.filename-extension" in spec
     assert "sdproj" in spec
     assert "SUFeedURL" in spec
@@ -52,6 +53,17 @@ def test_windows_spec_bundles_winsparkle_runtime() -> None:
     spec = (ROOT / "packaging" / "windows" / "sdapp_windows.spec").read_text(encoding="utf-8")
     assert 'WinSparkle.dll' in spec
     assert 'binaries.append((str(winsparkle_dll), "."))' in spec
+    assert 'datas.append((str(doc_icon_ico), "."))' in spec
+
+
+def test_dev_registration_script_builds_source_backed_macos_bundle() -> None:
+    script = (ROOT / "scripts" / "dev" / "register_sdproj_dev_app.sh").read_text(encoding="utf-8")
+    assert 'APP_BUNDLE="${APP_BUNDLE:-$REPO_ROOT/build/dev-macos/$APP_NAME.app}"' in script
+    assert 'cp "$DOC_ICON_SRC" "$RESOURCES_DIR/sdproj_doc_icon.icns"' in script
+    assert '<key>CFBundleDocumentTypes</key>' in script
+    assert '<string>com.sdapp.project.dev</string>' in script
+    assert 'exec "$LAUNCH_SCRIPT" "\\$@"' in script
+    assert '"$LSREGISTER" -f "$APP_BUNDLE"' in script
 
 
 def test_release_workflow_disables_updater_artifacts_by_default() -> None:

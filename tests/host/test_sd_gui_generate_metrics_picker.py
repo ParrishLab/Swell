@@ -80,3 +80,23 @@ def test_pick_metrics_reference_image_validates_shape(monkeypatch, tmp_path: Pat
     assert result is None
     assert captured.get("initialdir") == str(input_dir.resolve())
     assert warnings
+
+
+def test_pick_metrics_reference_image_reuses_last_scale_image_path(monkeypatch, tmp_path: Path) -> None:
+    selected = tmp_path / "scale_ref.tif"
+    Image.fromarray(np.zeros((8, 9), dtype=np.uint8)).save(selected)
+
+    app = SDAnalyzerApp.__new__(SDAnalyzerApp)
+    app._last_scale_image_path = str(selected)
+    app.stack_info = SimpleNamespace(frame_height=8, frame_width=9)
+    app._show_warning = lambda *_args, **_kwargs: None
+    app._load_metrics_reference_image_u8 = lambda path: np.zeros((8, 9), dtype=np.uint8) if str(path) == str(selected) else None
+
+    def _unexpected_picker(**_kwargs):
+        raise AssertionError("file picker should not be opened when last scale image exists")
+
+    monkeypatch.setattr("sdapp.host.sd_gui.filedialog.askopenfilename", _unexpected_picker)
+
+    result = app._pick_metrics_reference_image_u8(parent=None, purpose="Scale")
+
+    assert result is not None
