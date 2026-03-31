@@ -3,6 +3,8 @@ from sdapp.shared.models.state import (
     EventMeta,
     StackRef,
     UnifiedProjectState,
+    clone_analysis_payload,
+    clone_event_meta,
     clone_project_state,
 )
 
@@ -11,5 +13,7 @@ __all__ = [
     "EventMeta",
     "StackRef",
     "UnifiedProjectState",
+    "clone_analysis_payload",
+    "clone_event_meta",
     "clone_project_state",
 ]

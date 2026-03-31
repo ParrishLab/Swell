@@ -12,7 +12,6 @@ from tkinter import filedialog, messagebox, simpledialog, ttk
 
 import numpy as np
 from PIL import Image, ImageTk
-import tifffile
 
 from sdapp.analysis.core.state import AppConfig
 from .browser_controller import BrowserController
@@ -27,13 +26,11 @@ from .controllers import (
 )
 from .mark_popup_controller import MarkPopupController
 from .processing_engine import PopupProcessRequest, PopupProcessResult, PopupProcessingEngine
+from .preview_controller import HostPreviewController
 from .stack_reader import StackReader
 from .ui_geometry import (
     adjust_baseline_end_for_start,
     clamp_popup_range,
-    linear_value_to_x,
-    linear_x_to_value,
-    normalize_overlay_bounds,
 )
 
 from sdapp.shared.services import AnalysisWindowManager, CheckpointRuntimeService, SingleInstanceBridge
@@ -61,6 +58,7 @@ class SDAnalyzerApp:
         self.stack_info = None
         self.trace: TraceResult | None = None
         self.browser_controller = BrowserController()
+        self.preview_controller = HostPreviewController(self)
         self.window_controller = HostWindowController(self)
         self.project_controller = HostProjectLifecycleController(self)
         self.analysis_launch_controller = AnalysisLaunchController(self)
@@ -140,8 +138,8 @@ class SDAnalyzerApp:
         self.preview_overlay: tk.Canvas | None = None
         self._main_render_cache: OrderedDict[tuple[int, int, int], ImageTk.PhotoImage] = OrderedDict()
         self._main_render_cache_max = 24
-        self._mini_raw_u8_cache: OrderedDict[int, np.ndarray] = OrderedDict()
-        self._mini_raw_u8_cache_max = 48
+        self._normalized_frame_u8_cache: OrderedDict[tuple[int, str], np.ndarray] = OrderedDict()
+        self._normalized_frame_u8_cache_max = 64
         self._pending_main_frame_idx: int | None = None
         self._pending_main_after_id: str | None = None
         self._pending_popup_frame_idx: int | None = None
@@ -150,7 +148,7 @@ class SDAnalyzerApp:
         self._last_log_time: float = 0.0
         self._cache_gc_after_id: str | None = None
         self._mark_processed_cache_max_bytes = 220 * 1024 * 1024
-        self._mini_raw_u8_cache_max_bytes = 120 * 1024 * 1024
+        self._normalized_frame_u8_cache_max_bytes = 160 * 1024 * 1024
         self._analysis_windows: list[tuple[tk.Toplevel, object]] = []
         self.analysis_window_manager = AnalysisWindowManager()
         self._analysis_options_preview_image: ImageTk.PhotoImage | None = None
@@ -617,6 +615,8 @@ class SDAnalyzerApp:
         # Fallback loader for paths outside the active stack.
         try:
             if path.suffix.lower() in {".tif", ".tiff"}:
+                import tifffile
+
                 raw = np.asarray(tifffile.imread(str(path)))
                 if raw.ndim == 3 and raw.shape[2] not in (3, 4):
                     raw = raw[0]
@@ -1359,62 +1359,13 @@ class SDAnalyzerApp:
         self._update_popup_mini_raw(self._mark_popup_current_idx)
 
     def _update_popup_mini_raw(self, frame_idx: int) -> None:
-        if self.reader is None or self._mark_mini_canvas is None or self._mark_mini_frame is None:
-            return
-        raw_u8 = self._mini_raw_u8_cache.get(int(frame_idx))
-        if raw_u8 is None:
-            raw = self.reader.read_frame(frame_idx, use_cache=True)
-            raw_u8 = self._normalize_frame_percentile(raw)
-            self._mini_raw_u8_cache[int(frame_idx)] = raw_u8
-            while len(self._mini_raw_u8_cache) > self._mini_raw_u8_cache_max:
-                self._mini_raw_u8_cache.popitem(last=False)
-            self._trim_numpy_cache_by_bytes(self._mini_raw_u8_cache, self._mini_raw_u8_cache_max_bytes)
-        pil = Image.fromarray(raw_u8)
-        canvas_w = max(40, self._mark_mini_canvas.winfo_width())
-        canvas_h = max(40, self._mark_mini_canvas.winfo_height())
-        max_w = max(40, canvas_w - 8)
-        max_h = max(40, canvas_h - 8)
-        pil.thumbnail((max_w, max_h), Image.Resampling.BILINEAR)
-        self._mark_popup_mini_image = ImageTk.PhotoImage(pil)
-        self._mark_mini_canvas.delete("all")
-        self._mark_mini_canvas.create_image(canvas_w // 2, canvas_h // 2, image=self._mark_popup_mini_image, anchor="center")
+        return self._get_preview_controller().update_popup_mini_raw(frame_idx)
 
     def _popup_update_window_info(self) -> None:
-        if self._mark_window_info_var is None:
-            return
-        baseline_count = self._mark_baseline_count_var.get().strip() if self._mark_baseline_count_var is not None else "30"
-        baseline_end = self._mark_baseline_end_var.get().strip() if self._mark_baseline_end_var is not None else "0"
-        self._mark_window_info_var.set(
-            f"Range: [{self._mark_popup_local_start}, {self._mark_popup_local_end}] | "
-            f"Baseline: count={baseline_count}, end={baseline_end}{self._mark_last_full_refresh_note}"
-        )
+        return self._get_preview_controller().popup_update_window_info()
 
     def _popup_update_preview(self, frame_idx: int) -> None:
-        if self.reader is None or self.stack_info is None or self._mark_preview_label is None:
-            return
-        low, high = self._popup_overlay_bounds()
-        frame_idx = max(low, min(frame_idx, high))
-        self._mark_popup_current_idx = frame_idx
-
-        frame = self._get_popup_processed_frame(frame_idx)
-        contrast_factor = float(self._mark_contrast_var.get()) if self._mark_contrast_var is not None else 1.0
-        image = self._render_preview_image(
-            frame,
-            self._mark_preview_label,
-            fallback_size=(1000, 700),
-            pre_normalized=True,
-            contrast_factor=contrast_factor,
-        )
-        self._mark_popup_image = image
-        self._mark_preview_label.configure(image=image)
-
-        self._update_popup_mini_raw(frame_idx)
-
-        if self._mark_frame_info_var is not None:
-            frame_name = self.reader.get_frame_name(frame_idx)
-            self._mark_frame_info_var.set(f"Frame: {frame_idx}  [{frame_name}]")
-        self._popup_update_window_info()
-        self._redraw_popup_overlay()
+        return self._get_preview_controller().popup_update_preview(frame_idx)
 
     def _popup_confirm(self) -> None:
         self.popup_controller.confirm()
@@ -1437,34 +1388,16 @@ class SDAnalyzerApp:
         self._schedule_main_preview_update(idx)
 
     def _schedule_main_preview_update(self, idx: int) -> None:
-        self._pending_main_frame_idx = int(idx)
-        if self._pending_main_after_id is not None:
-            try:
-                self.root.after_cancel(self._pending_main_after_id)
-            except Exception:
-                pass
-        self._pending_main_after_id = self.root.after(16, self._flush_main_preview_update)
+        return self._get_preview_controller().schedule_main_preview_update(idx)
 
     def _flush_main_preview_update(self) -> None:
-        self._pending_main_after_id = None
-        if self._pending_main_frame_idx is None:
-            return
-        idx = int(self._pending_main_frame_idx)
-        self._pending_main_frame_idx = None
-        self._update_preview(idx)
+        return self._get_preview_controller().flush_main_preview_update()
 
     def _normalize_frame_percentile(self, frame: np.ndarray) -> np.ndarray:
-        p1 = float(np.percentile(frame, 1))
-        p99 = float(np.percentile(frame, 99))
-        if p99 <= p1:
-            p99 = p1 + 1.0
-        return normalize_visual_frame(frame, p1=p1, p99=p99)
+        return self._get_preview_controller().normalize_frame_percentile(frame)
 
     def _apply_display_contrast(self, frame_u8: np.ndarray, factor: float) -> np.ndarray:
-        if factor <= 0:
-            return frame_u8
-        adjusted = (frame_u8.astype(np.float32) - 127.5) * factor + 127.5
-        return np.clip(adjusted, 0.0, 255.0).astype(np.uint8)
+        return self._get_preview_controller().apply_display_contrast(frame_u8, factor)
 
     def _render_preview_image(
         self,
@@ -1474,71 +1407,19 @@ class SDAnalyzerApp:
         pre_normalized: bool = False,
         contrast_factor: float = 1.0,
     ) -> ImageTk.PhotoImage:
-        if pre_normalized and frame.dtype == np.uint8:
-            frame_u8 = frame
-        else:
-            frame_u8 = self._normalize_frame_percentile(frame)
-        if abs(contrast_factor - 1.0) > 1e-6:
-            frame_u8 = self._apply_display_contrast(frame_u8, contrast_factor)
-
-        img = Image.fromarray(frame_u8)
-        max_w = label.winfo_width() - 12
-        max_h = label.winfo_height() - 12
-        if max_w < 120 or max_h < 120:
-            max_w, max_h = fallback_size
-        img.thumbnail((max_w, max_h), Image.Resampling.BILINEAR)
-        return ImageTk.PhotoImage(img)
+        return self._get_preview_controller().render_preview_image(
+            frame,
+            label,
+            fallback_size,
+            pre_normalized=pre_normalized,
+            contrast_factor=contrast_factor,
+        )
 
     def _cache_main_render(self, key: tuple[int, int, int], image: ImageTk.PhotoImage) -> None:
-        self._main_render_cache[key] = image
-        self._main_render_cache.move_to_end(key)
-        while len(self._main_render_cache) > self._main_render_cache_max:
-            self._main_render_cache.popitem(last=False)
+        return self._get_preview_controller().cache_main_render(key, image)
 
     def _update_preview(self, frame_idx: int) -> None:
-        if self.reader is None or self.stack_info is None:
-            return
-        frame_idx = max(0, min(frame_idx, self.stack_info.frame_count - 1))
-        self.current_frame_idx = frame_idx
-        max_w = self.preview_label.winfo_width() - 12
-        max_h = self.preview_label.winfo_height() - 12
-        if max_w < 120 or max_h < 120:
-            max_w, max_h = (1100, 800)
-        cache_key = (int(frame_idx), int(max_w), int(max_h))
-        image = self._main_render_cache.get(cache_key)
-        if image is None:
-            try:
-                frame = self.reader.read_frame(frame_idx, use_cache=True)
-                image = self._render_preview_image(
-                    frame,
-                    self.preview_label,
-                    fallback_size=(1100, 800),
-                    pre_normalized=False,
-                    contrast_factor=1.0,
-                )
-                self._cache_main_render(cache_key, image)
-                setattr(self, "_preview_decode_error_shown", False)
-            except Exception as exc:
-                self._set_status("Preview load failed.")
-                self._log_error(f"Preview decode failed for frame {frame_idx}: {exc}")
-                if not bool(getattr(self, "_preview_decode_error_shown", False)):
-                    self._preview_decode_error_shown = True
-                    self._show_warning(
-                        "Preview Decode Error",
-                        (
-                            "Unable to decode one or more stack frames. "
-                            "If this is a compressed TIFF stack, required codecs may be missing in this build."
-                            f"\n\nDetails: {exc}"
-                        ),
-                    )
-                return
-        self.tk_preview_image = image
-        self.preview_label.configure(image=image)
-
-        frame_name = self.reader.get_frame_name(frame_idx)
-        self.preview_label_info.set(f"Frame: {frame_idx}  [{frame_name}]")
-        self._redraw_main_overlay()
-        self.dc_trace_controller.update_for_frame(frame_idx)
+        return self._get_preview_controller().update_preview(frame_idx)
 
     def _scale_value_to_x(
         self,
@@ -1549,17 +1430,7 @@ class SDAnalyzerApp:
         end_idx: int,
         width: float,
     ) -> float:
-        if scale is not None and canvas is not None:
-            try:
-                sx, _sy = scale.coords(value)
-                x_abs = scale.winfo_rootx() + float(sx)
-                cx_abs = canvas.winfo_rootx()
-                x_canvas = x_abs - cx_abs
-                if 0.0 <= x_canvas <= float(width):
-                    return x_canvas
-            except Exception:
-                pass
-        return linear_value_to_x(value, start_idx, end_idx, width)
+        return self._get_preview_controller().scale_value_to_x(scale, canvas, value, start_idx, end_idx, width)
 
     def _scale_x_to_value(
         self,
@@ -1570,21 +1441,7 @@ class SDAnalyzerApp:
         end_idx: int,
         width: float,
     ) -> int:
-        if scale is not None and canvas is not None:
-            try:
-                x_abs = canvas.winfo_rootx() + float(x_px)
-                sx = x_abs - scale.winfo_rootx()
-                low_x, _ = scale.coords(start_idx)
-                high_x, _ = scale.coords(end_idx)
-                left = float(min(low_x, high_x))
-                right = float(max(low_x, high_x))
-                if right > left:
-                    frac = max(0.0, min(1.0, (float(sx) - left) / (right - left)))
-                    idx = int(round(start_idx + frac * float(end_idx - start_idx)))
-                    return max(start_idx, min(end_idx, idx))
-            except Exception:
-                pass
-        return linear_x_to_value(x_px, width, start_idx, end_idx)
+        return self._get_preview_controller().scale_x_to_value(scale, canvas, x_px, start_idx, end_idx, width)
 
     def _draw_overlay_bar(
         self,
@@ -1595,147 +1452,22 @@ class SDAnalyzerApp:
         spans: list[tuple[int, int, str]],
         markers: list[tuple[int, str]],
     ) -> None:
-        if canvas is None:
-            return
-        canvas.delete("all")
-        w = canvas.winfo_width()
-        h = canvas.winfo_height()
-        if w <= 2 or h <= 2:
-            return
-
-        canvas.create_rectangle(0, 0, w, h, fill="#2a2b2f", outline="")
-        if end_idx < start_idx:
-            return
-
-        for span_start, span_end, color in spans:
-            left_x = self._scale_value_to_x(scale, canvas, span_start, start_idx, end_idx, w)
-            right_x = self._scale_value_to_x(scale, canvas, span_end, start_idx, end_idx, w)
-            left = max(0.0, min(left_x, right_x))
-            right = min(float(w), max(left_x, right_x))
-            if right - left < 2.0:
-                right = min(float(w), left + 2.0)
-            canvas.create_rectangle(left, 0, right, h, fill=color, outline="")
-
-        for marker_idx, color in markers:
-            x = self._scale_value_to_x(scale, canvas, marker_idx, start_idx, end_idx, w)
-            left = max(0.0, x - 1.5)
-            right = min(float(w), x + 1.5)
-            canvas.create_rectangle(left, 0, right, h, fill=color, outline="")
+        return self._get_preview_controller().draw_overlay_bar(canvas, scale, start_idx, end_idx, spans, markers)
 
     def _redraw_main_overlay(self) -> None:
-        if self.preview_overlay is None or self.stack_info is None:
-            return
-        frame_count = int(self.stack_info.frame_count)
-        if frame_count <= 0:
-            self._draw_overlay_bar(self.preview_overlay, self.preview_scale, 0, 0, [], [])
-            return
-
-        spans = [(event.start_idx, event.end_idx, "#7a57c7") for event in self.events]
-        markers = [(self.current_frame_idx, "#e6e6e6")]
-        self._draw_overlay_bar(self.preview_overlay, self.preview_scale, 0, frame_count - 1, spans, markers)
+        return self._get_preview_controller().redraw_main_overlay()
 
     def _on_main_overlay_click(self, event) -> None:
-        if self.preview_overlay is None or self.stack_info is None:
-            return
-        frame_count = int(self.stack_info.frame_count)
-        if frame_count <= 0:
-            return
-
-        clicked_idx = self._scale_x_to_value(
-            self.preview_scale,
-            self.preview_overlay,
-            event.x,
-            0,
-            frame_count - 1,
-            self.preview_overlay.winfo_width(),
-        )
-
-        clicked_event = None
-        for ev in self.events:
-            if ev.start_idx <= clicked_idx <= ev.end_idx:
-                clicked_event = ev
-                break
-
-        if clicked_event is not None:
-            self._set_active_event_id(clicked_event.event_id)
-            if self.tree.exists(clicked_event.event_id):
-                self.tree.selection_set(clicked_event.event_id)
-                self.tree.see(clicked_event.event_id)
-            target_idx = clicked_event.start_idx
-            self._log_info(
-                f"Overlay click: selected {clicked_event.event_id} and jumped to frame {target_idx}."
-            )
-        else:
-            target_idx = clicked_idx
-            self._log_info(f"Overlay click: jumped to frame {target_idx}.")
-
-        self.preview_scale.set(target_idx)
-        self._update_preview(target_idx)
+        return self._get_preview_controller().on_main_overlay_click(event)
 
     def _popup_overlay_bounds(self) -> tuple[int, int]:
-        if self._mark_scale is None:
-            return self._mark_popup_local_start, self._mark_popup_local_end
-        start_idx = int(float(self._mark_scale.cget("from")))
-        end_idx = int(float(self._mark_scale.cget("to")))
-        if end_idx < start_idx:
-            start_idx, end_idx = end_idx, start_idx
-        return start_idx, end_idx
+        return self._get_preview_controller().popup_overlay_bounds()
 
     def _popup_get_normalized_mark_bounds_for_overlay(self) -> tuple[int | None, int | None]:
-        start_idx: int | None = None
-        end_idx: int | None = None
-        if self._mark_start_var is not None:
-            raw = self._mark_start_var.get().strip()
-            if raw:
-                try:
-                    start_idx = int(float(raw))
-                except ValueError:
-                    start_idx = None
-        if self._mark_end_var is not None:
-            raw = self._mark_end_var.get().strip()
-            if raw:
-                try:
-                    end_idx = int(float(raw))
-                except ValueError:
-                    end_idx = None
-        frame_count = int(self.stack_info.frame_count) if self.stack_info is not None else 0
-        return normalize_overlay_bounds(start_idx, end_idx, frame_count)
+        return self._get_preview_controller().popup_get_normalized_mark_bounds_for_overlay()
 
     def _redraw_popup_overlay(self) -> None:
-        if self._mark_overlay is None:
-            return
-        start_idx, end_idx = self._popup_overlay_bounds()
-        mark_start, mark_end = self._popup_get_normalized_mark_bounds_for_overlay()
-
-        spans: list[tuple[int, int, str]] = []
-        if mark_start is not None and mark_end is not None:
-            left = min(mark_start, mark_end)
-            right = max(mark_start, mark_end)
-            spans.append((left, right, "#00aebf"))
-
-        if self.stack_info is not None:
-            frame_count = int(self.stack_info.frame_count)
-            try:
-                baseline_count, baseline_end = self._popup_parse_baseline_controls()
-                baseline_start = max(0, baseline_end - baseline_count + 1)
-                if baseline_end >= 0:
-                    spans.append((baseline_start, baseline_end, "#2f6fa5"))
-            except Exception:
-                pass
-
-        markers = [(self._mark_popup_current_idx, "#e6e6e6")]
-        if mark_start is not None:
-            markers.append((mark_start, "#00d26a"))
-        if mark_end is not None:
-            markers.append((mark_end, "#ff5c5c"))
-        if self.stack_info is not None:
-            try:
-                _baseline_count, baseline_end = self._popup_parse_baseline_controls()
-                markers.append((baseline_end, "#79ccff"))
-            except Exception:
-                pass
-
-        self._draw_overlay_bar(self._mark_overlay, self._mark_scale, start_idx, end_idx, spans, markers)
+        return self._get_preview_controller().redraw_popup_overlay()
 
     def _selected_event_ids(self) -> list[str]:
         return list(self.tree.selection())
@@ -1795,6 +1527,14 @@ class SDAnalyzerApp:
         self.window_controller = controller
         return controller
 
+    def _get_preview_controller(self) -> HostPreviewController:
+        controller = getattr(self, "preview_controller", None)
+        if isinstance(controller, HostPreviewController):
+            return controller
+        controller = HostPreviewController(self)
+        self.preview_controller = controller
+        return controller
+
     def _get_project_controller(self) -> HostProjectLifecycleController:
         controller = getattr(self, "project_controller", None)
         if isinstance(controller, HostProjectLifecycleController):
@@ -1845,16 +1585,19 @@ class SDAnalyzerApp:
         if aggressive:
             self._main_render_cache.clear()
             self._mark_processed_cache.clear()
-            self._mini_raw_u8_cache.clear()
+            self._normalized_frame_u8_cache.clear()
         else:
             while len(self._main_render_cache) > max(8, self._main_render_cache_max // 2):
                 self._main_render_cache.popitem(last=False)
             while len(self._mark_processed_cache) > max(8, self._mark_processed_cache_max // 2):
                 self._mark_processed_cache.popitem(last=False)
-            while len(self._mini_raw_u8_cache) > max(12, self._mini_raw_u8_cache_max // 2):
-                self._mini_raw_u8_cache.popitem(last=False)
+            while len(self._normalized_frame_u8_cache) > max(16, self._normalized_frame_u8_cache_max // 2):
+                self._normalized_frame_u8_cache.popitem(last=False)
             self._trim_numpy_cache_by_bytes(self._mark_processed_cache, self._mark_processed_cache_max_bytes)
-            self._trim_numpy_cache_by_bytes(self._mini_raw_u8_cache, self._mini_raw_u8_cache_max_bytes)
+            self._trim_numpy_cache_by_bytes(
+                self._normalized_frame_u8_cache,
+                self._normalized_frame_u8_cache_max_bytes,
+            )
 
         self._popup_engine.collect_garbage(aggressive=aggressive)
         if self.reader is not None:

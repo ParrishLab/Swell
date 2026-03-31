@@ -55,3 +55,50 @@ def test_unified_service_analysis_updates_and_subscribe() -> None:
     assert analysis.masks_committed is not None
     assert analysis.masks_committed.shape == (4, 32, 32)
     assert any(name == "event_analysis_updated" for name, _ in updates)
+
+
+def test_unified_service_analysis_update_copies_mutable_inputs() -> None:
+    service = UnifiedProjectService()
+    service.new_project(_stack_ref("set"))
+    service.upsert_event(EventMeta(event_id="event_0001", label="E", start_idx=0, end_idx=3, flags={}))
+
+    prompts = {"points": [{"frame": 0, "x": 1, "y": 2}]}
+    masks = np.zeros((4, 32, 32), dtype=np.uint8)
+    service.update_event_analysis(
+        "event_0001",
+        {
+            "prompts": prompts,
+            "masks_committed": masks,
+        },
+    )
+
+    prompts["points"][0]["frame"] = 99
+    masks[0, 0, 0] = 1
+
+    analysis = service.get_event_analysis("event_0001")
+    assert analysis is not None
+    assert analysis.prompts["points"][0]["frame"] == 0
+    assert int(analysis.masks_committed[0, 0, 0]) == 0
+
+
+def test_unified_service_analysis_reads_return_defensive_copies() -> None:
+    service = UnifiedProjectService()
+    service.new_project(_stack_ref("set"))
+    service.upsert_event(EventMeta(event_id="event_0001", label="E", start_idx=0, end_idx=3, flags={}))
+    service.update_event_analysis(
+        "event_0001",
+        {
+            "prompts": {"points": [{"frame": 1, "x": 2, "y": 3}]},
+            "masks_committed": np.zeros((4, 32, 32), dtype=np.uint8),
+        },
+    )
+
+    analysis = service.get_event_analysis("event_0001")
+    assert analysis is not None
+    analysis.prompts["points"][0]["frame"] = 12
+    analysis.masks_committed[0, 0, 0] = 1
+
+    reread = service.get_event_analysis("event_0001")
+    assert reread is not None
+    assert reread.prompts["points"][0]["frame"] == 1
+    assert int(reread.masks_committed[0, 0, 0]) == 0

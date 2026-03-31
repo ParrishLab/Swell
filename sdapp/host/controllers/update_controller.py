@@ -5,6 +5,7 @@ from tkinter import messagebox
 
 from sdapp.analysis.core.state import AppConfig
 from sdapp.shared.services.update_service import UpdateCheckResult, UpdateService
+from sdapp.shared.ui import BackgroundTaskRunner
 
 
 class HostUpdateController:
@@ -23,12 +24,13 @@ class HostUpdateController:
         self._start_check(automatic=False)
 
     def _start_check(self, *, automatic: bool) -> None:
-        thread = self._active_check
-        if thread is not None and thread.is_alive():
-            return
-        thread = threading.Thread(target=self._run_check, kwargs={"automatic": automatic}, daemon=True)
-        self._active_check = thread
-        thread.start()
+        thread = self._task_runner().start(
+            lambda: self._run_check(automatic=automatic),
+            key="host_update_check",
+            drop_if_running=True,
+        )
+        if thread is not None:
+            self._active_check = thread
 
     def _run_check(self, *, automatic: bool) -> None:
         config = self._config()
@@ -102,3 +104,11 @@ class HostUpdateController:
     def _persist_config(self, config: AppConfig) -> None:
         self.app.config = config
         config.save()
+
+    def _task_runner(self) -> BackgroundTaskRunner:
+        runner = getattr(self.app, "_background_task_runner", None)
+        if isinstance(runner, BackgroundTaskRunner):
+            return runner
+        runner = BackgroundTaskRunner(self.app.root)
+        self.app._background_task_runner = runner
+        return runner

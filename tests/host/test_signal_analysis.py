@@ -9,11 +9,13 @@ from sdapp.host.signal_analysis import compute_trace, event_to_dict
 class DummyReader:
     def __init__(self, frames: list[np.ndarray]):
         self._frames = frames
+        self.use_cache_calls: list[bool] = []
 
     def get_frame_count(self) -> int:
         return len(self._frames)
 
-    def read_frame(self, frame_idx: int, use_cache: bool = True) -> np.ndarray:  # noqa: ARG002
+    def read_frame(self, frame_idx: int, use_cache: bool = True) -> np.ndarray:
+        self.use_cache_calls.append(bool(use_cache))
         return self._frames[frame_idx]
 
 
@@ -53,6 +55,18 @@ def test_compute_trace_progress_callback_frequency() -> None:
     compute_trace(DummyReader(frames), progress_callback=lambda cur, total: calls.append((cur, total)))
 
     assert calls == [(1, 120), (51, 120), (101, 120), (120, 120)]
+
+
+def test_compute_trace_uses_cache_aware_reads_and_preserves_values() -> None:
+    frames = [np.arange(16, dtype=np.uint8).reshape(4, 4) + idx for idx in range(20)]
+    reader = DummyReader(frames)
+
+    trace = compute_trace(reader)
+
+    assert all(reader.use_cache_calls)
+    assert trace.mean[0] == float(np.mean(frames[0]))
+    assert trace.median[10] == float(np.median(frames[10]))
+    assert trace.std[-1] == float(np.std(frames[-1]))
 
 
 def test_event_to_dict_matches_event_candidate_fields() -> None:

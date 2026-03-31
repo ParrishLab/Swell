@@ -106,9 +106,9 @@ class HostWindowController:
         self.app._analysis_image_export_cache = cache
         return cache
 
-    def _cache_analysis_image_stack(self, key: tuple, frames_viz: np.ndarray) -> None:
+    def _cache_analysis_image_entry(self, key: tuple, entry: object) -> None:
         cache = self._analysis_image_export_cache()
-        cache[key] = np.asarray(frames_viz, dtype=np.uint8)
+        cache[key] = entry
         cache.move_to_end(key)
         while len(cache) > 4:
             cache.popitem(last=False)
@@ -128,12 +128,14 @@ class HostWindowController:
                 frame_count = 0
             if frame_count <= 0:
                 continue
-            try:
-                stack = np.asarray([np.asarray(frames_viz[idx], dtype=np.uint8).copy() for idx in range(frame_count)], dtype=np.uint8)
-            except Exception:
-                continue
             cache_key = analysis_image_cache_key(event, default_baseline_pre_frames=int(baseline_pre_frames))
-            self._cache_analysis_image_stack(cache_key, stack)
+            self._cache_analysis_image_entry(
+                cache_key,
+                {
+                    "frames_viz": frames_viz,
+                    "frame_count": int(frame_count),
+                },
+            )
         return cache
 
     @staticmethod

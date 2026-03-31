@@ -106,31 +106,48 @@ def _clone_np_array(value: Any) -> Any:
     return np.array(arr, copy=True)
 
 
+def clone_event_meta(event: EventMeta) -> EventMeta:
+    return EventMeta(
+        event_id=str(event.event_id),
+        label=str(event.label),
+        start_idx=int(event.start_idx),
+        end_idx=int(event.end_idx),
+        flags=dict(event.flags),
+    )
+
+
+def clone_analysis_payload(
+    payload: dict[str, Any] | None,
+    *,
+    coerce_metrics_roi_mask_to_bool: bool = False,
+) -> dict[str, Any]:
+    if not isinstance(payload, dict):
+        return {}
+
+    cloned: dict[str, Any] = {}
+    for key, value in payload.items():
+        if key in {"masks_committed", "masks_draft"}:
+            cloned[key] = _clone_np_array(value)
+            continue
+        if key == "metrics_settings" and isinstance(value, dict):
+            metrics_settings = copy.deepcopy(value)
+            if "roi_mask" in metrics_settings and metrics_settings.get("roi_mask") is not None:
+                roi_mask = metrics_settings.get("roi_mask")
+                if coerce_metrics_roi_mask_to_bool:
+                    metrics_settings["roi_mask"] = np.asarray(roi_mask, dtype=bool).copy()
+                else:
+                    metrics_settings["roi_mask"] = _clone_np_array(roi_mask)
+            cloned[key] = metrics_settings
+            continue
+        cloned[key] = copy.deepcopy(value)
+    return cloned
+
+
 def clone_project_state(state: UnifiedProjectState) -> UnifiedProjectState:
-    copied_events = [
-        EventMeta(
-            event_id=str(ev.event_id),
-            label=str(ev.label),
-            start_idx=int(ev.start_idx),
-            end_idx=int(ev.end_idx),
-            flags=dict(ev.flags),
-        )
-        for ev in state.events
-    ]
+    copied_events = [clone_event_meta(ev) for ev in state.events]
     copied_sidecar: dict[str, dict[str, Any]] = {}
     for event_id, payload in dict(state.analysis_sidecar or {}).items():
-        entry = dict(payload or {})
-        if "masks_committed" in entry:
-            entry["masks_committed"] = _clone_np_array(entry.get("masks_committed"))
-        if "masks_draft" in entry:
-            entry["masks_draft"] = _clone_np_array(entry.get("masks_draft"))
-        metrics_settings = entry.get("metrics_settings")
-        if isinstance(metrics_settings, dict):
-            copied_metrics = dict(metrics_settings)
-            if "roi_mask" in copied_metrics:
-                copied_metrics["roi_mask"] = _clone_np_array(copied_metrics.get("roi_mask"))
-            entry["metrics_settings"] = copied_metrics
-        copied_sidecar[str(event_id)] = entry
+        copied_sidecar[str(event_id)] = clone_analysis_payload(payload)
     return UnifiedProjectState(
         stack_ref=state.stack_ref,
         events=copied_events,

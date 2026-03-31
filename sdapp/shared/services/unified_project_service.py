@@ -3,7 +3,15 @@ from __future__ import annotations
 import uuid
 from typing import Any, Callable
 
-from sdapp.shared.models import EventAnalysisState, EventMeta, StackRef, UnifiedProjectState, clone_project_state
+from sdapp.shared.models import (
+    EventAnalysisState,
+    EventMeta,
+    StackRef,
+    UnifiedProjectState,
+    clone_analysis_payload,
+    clone_event_meta,
+    clone_project_state,
+)
 from sdapp.shared.persistence import UnifiedProjectStore
 
 SESSION_SCHEMA_VERSION = 1
@@ -18,15 +26,7 @@ class UnifiedProjectService:
 
     def __init__(self, *, store: UnifiedProjectStore | None = None) -> None:
         self.store = store or UnifiedProjectStore()
-        self._state = UnifiedProjectState(
-            stack_ref=None,
-            events=[],
-            active_event_id=None,
-            analysis_sidecar={},
-            project_path=None,
-            dirty=False,
-            metadata=self._default_metadata(),
-        )
+        self._state = self._build_state()
         self._listeners: list[Listener] = []
 
     def subscribe(self, listener: Listener) -> Callable[[], None]:
@@ -59,45 +59,24 @@ class UnifiedProjectService:
         return self.state()
 
     def new_project(self, stack_ref: StackRef) -> UnifiedProjectState:
-        self._state = UnifiedProjectState(
-            stack_ref=stack_ref,
-            events=[],
-            active_event_id=None,
-            analysis_sidecar={},
-            project_path=None,
-            dirty=False,
-            metadata=self._default_metadata(),
-        )
+        self._state = self._build_state(stack_ref=stack_ref)
         self._notify("project_new", {})
         return self.state()
 
     def list_events(self) -> list[EventMeta]:
-        return [EventMeta(**vars(ev)) for ev in self._state.events]
+        return [clone_event_meta(ev) for ev in self._state.events]
 
     def upsert_event(self, event_meta: EventMeta) -> None:
         key = str(event_meta.event_id)
+        event_copy = clone_event_meta(event_meta)
         updated = False
         for idx, ev in enumerate(self._state.events):
             if str(ev.event_id) == key:
-                self._state.events[idx] = EventMeta(
-                    event_id=key,
-                    label=str(event_meta.label),
-                    global_start_idx=int(event_meta.global_start_idx),
-                    global_end_idx=int(event_meta.global_end_idx),
-                    flags=dict(event_meta.flags),
-                )
+                self._state.events[idx] = event_copy
                 updated = True
                 break
         if not updated:
-            self._state.events.append(
-                EventMeta(
-                    event_id=key,
-                    label=str(event_meta.label),
-                    global_start_idx=int(event_meta.global_start_idx),
-                    global_end_idx=int(event_meta.global_end_idx),
-                    flags=dict(event_meta.flags),
-                )
-            )
+            self._state.events.append(event_copy)
         self._state.dirty = True
         self._notify("event_upserted", {"event_id": key})
 
@@ -119,12 +98,18 @@ class UnifiedProjectService:
         key = str(event_id)
         for ev in self._state.events:
             if str(ev.event_id) == key:
-                return EventMeta(**vars(ev))
+                return clone_event_meta(ev)
         return None
 
-    def get_event_analysis(self, event_id: str) -> EventAnalysisState | None:
+    def get_event_analysis_payload(self, event_id: str) -> dict[str, Any] | None:
         payload = self._state.analysis_sidecar.get(str(event_id))
         if not isinstance(payload, dict):
+            return None
+        return clone_analysis_payload(payload)
+
+    def get_event_analysis(self, event_id: str) -> EventAnalysisState | None:
+        payload = self.get_event_analysis_payload(event_id)
+        if payload is None:
             return None
         return EventAnalysisState(
             prompts=dict(payload.get("prompts", {})) if isinstance(payload.get("prompts"), dict) else {},
@@ -137,8 +122,8 @@ class UnifiedProjectService:
 
     def update_event_analysis(self, event_id: str, patch: dict[str, Any]) -> None:
         key = str(event_id)
-        current = dict(self._state.analysis_sidecar.get(key, {}))
-        current.update(dict(patch or {}))
+        current = clone_analysis_payload(self._state.analysis_sidecar.get(key, {}))
+        current.update(clone_analysis_payload(dict(patch or {})))
         self._state.analysis_sidecar[key] = current
         self._state.dirty = True
         self._notify("event_analysis_updated", {"event_id": key})
@@ -203,6 +188,17 @@ class UnifiedProjectService:
             "analysis_bridge_mode": ANALYSIS_BRIDGE_MODE,
             "analysis_bridge_version": ANALYSIS_BRIDGE_VERSION,
         }
+
+    def _build_state(self, *, stack_ref: StackRef | None = None) -> UnifiedProjectState:
+        return UnifiedProjectState(
+            stack_ref=stack_ref,
+            events=[],
+            active_event_id=None,
+            analysis_sidecar={},
+            project_path=None,
+            dirty=False,
+            metadata=self._default_metadata(),
+        )
 
     def _normalize_loaded_state(self) -> None:
         self._state.metadata.setdefault("schema_version", SESSION_SCHEMA_VERSION)

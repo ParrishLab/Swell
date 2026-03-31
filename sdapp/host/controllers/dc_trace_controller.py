@@ -4,13 +4,13 @@ from pathlib import Path
 import threading
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
+from typing import Any
 
 import numpy as np
-from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
-from matplotlib.figure import Figure
 
 from sdapp.host.dc_trace import WaveSurferH5Adapter
 from sdapp.shared.trace import TimeAlignment, TraceAttachment, TraceRecord
+from sdapp.shared.ui import BackgroundTaskRunner
 
 TRACE_EVENT_SPAN_COLOR = "#c9b4f2"
 
@@ -25,9 +25,9 @@ class HostDCTraceController:
         self._display_cache: dict[int, tuple[np.ndarray, np.ndarray]] = {}
         self._window = None
         self._panel_shell = None
-        self._figure: Figure | None = None
+        self._figure: Any | None = None
         self._axes = None
-        self._canvas: FigureCanvasTkAgg | None = None
+        self._canvas: Any | None = None
         self._cursor_artist = None
         self._panel_visible = False
         self._load_generation = 0
@@ -35,8 +35,7 @@ class HostDCTraceController:
 
     def bind_panel(self, parent) -> None:
         del parent
-        self._ensure_window()
-        self._set_panel_visible(False)
+        self._panel_visible = False
 
     def import_dc_trace(self) -> None:
         if self.app.reader is None or self.app.stack_info is None:
@@ -76,30 +75,11 @@ class HostDCTraceController:
         self.app._set_status("Reading DC trace metadata...")
         self.app._log_info(f"DC trace metadata read started: {source_path}.")
 
-        def worker() -> None:
-            try:
-                metadata = self._adapter.load_metadata(Path(source_path))
-            except Exception as exc:
-                self.app.root.after(
-                    0,
-                    lambda: self._on_metadata_load_failed(
-                        generation,
-                        loading_dialog,
-                        exc,
-                    ),
-                )
-                return
-            self.app.root.after(
-                0,
-                lambda: self._on_metadata_load_succeeded(
-                    generation,
-                    loading_dialog,
-                    source_path,
-                    metadata,
-                ),
-            )
-
-        threading.Thread(target=worker, daemon=True).start()
+        self._task_runner().start(
+            lambda: self._adapter.load_metadata(Path(source_path)),
+            on_success=lambda metadata: self._on_metadata_load_succeeded(generation, loading_dialog, source_path, metadata),
+            on_error=lambda exc: self._on_metadata_load_failed(generation, loading_dialog, exc),
+        )
 
     def remove_dc_trace(self) -> None:
         self._load_generation += 1
@@ -212,32 +192,22 @@ class HostDCTraceController:
             f"DC trace load started: {attachment.source_path} [channel={attachment.channel_name}, offset={attachment.alignment.offset_s:.6g}s]."
         )
 
-        def worker() -> None:
-            try:
-                record = self._adapter.load_trace(Path(attachment.source_path), attachment.channel_index)
-            except Exception as exc:
-                self.app.root.after(
-                    0,
-                    lambda: self._on_load_failed(
-                        generation,
-                        attachment,
-                        exc,
-                        failure_title=failure_title,
-                        missing_path_warning=missing_path_warning,
-                    ),
-                )
-                return
-            self.app.root.after(
-                0,
-                lambda: self._on_load_succeeded(
-                    generation,
-                    attachment,
-                    record,
-                    persist_on_success=persist_on_success,
-                ),
-            )
-
-        threading.Thread(target=worker, daemon=True).start()
+        self._task_runner().start(
+            lambda: self._adapter.load_trace(Path(attachment.source_path), attachment.channel_index),
+            on_success=lambda record: self._on_load_succeeded(
+                generation,
+                attachment,
+                record,
+                persist_on_success=persist_on_success,
+            ),
+            on_error=lambda exc: self._on_load_failed(
+                generation,
+                attachment,
+                exc,
+                failure_title=failure_title,
+                missing_path_warning=missing_path_warning,
+            ),
+        )
 
     def _on_metadata_load_failed(self, generation: int, loading_dialog, exc: Exception) -> None:
         self._close_loading_dialog(loading_dialog)
@@ -610,6 +580,14 @@ class HostDCTraceController:
             return None
         return value if value > 0 else None
 
+    def _task_runner(self) -> BackgroundTaskRunner:
+        runner = getattr(self.app, "_background_task_runner", None)
+        if isinstance(runner, BackgroundTaskRunner):
+            return runner
+        runner = BackgroundTaskRunner(self.app.root)
+        self.app._background_task_runner = runner
+        return runner
+
     def _set_panel_visible(self, visible: bool) -> None:
         if bool(visible):
             self._ensure_window()
@@ -636,6 +614,9 @@ class HostDCTraceController:
     def _ensure_window(self) -> None:
         if self._window is not None and self._panel_shell is not None and self._canvas is not None:
             return
+        from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+        from matplotlib.figure import Figure
+
         window = tk.Toplevel(self.app.root)
         window.title("DC Trace")
         window.geometry("980x360")

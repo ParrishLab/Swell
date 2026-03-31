@@ -5,9 +5,6 @@ import multiprocessing
 import sys
 from typing import Sequence
 
-from sdapp.host.ui.root_window import run_host_app
-from sdapp.shared.services import SingleInstanceBridge
-
 
 def _parse_launch_project_path(argv: Sequence[str]) -> str | None:
     for token in list(argv)[1:]:
@@ -70,6 +67,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             return 0
         print(f"SMOKE_TEST:FAIL:{detail}")
         return 1
+
+    from sdapp.host.ui.root_window import run_host_app
+    from sdapp.shared.services import SingleInstanceBridge
 
     bridge = SingleInstanceBridge()
     if launch_project_path and bridge.send_open_request(launch_project_path):

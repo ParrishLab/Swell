@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 from typing import Iterable
-import copy
-
-import numpy as np
 
 from sdapp.host.analysis_handoff import AnalysisHandoffAdapter, resolve_host_frame_shape
+from sdapp.host.analysis_payload_mapper import (
+    EventBounds,
+    RemapContext,
+    annotate_payload_origins,
+    recompute_scope_flags,
+    remap_analysis_payload_for_bounds_change,
+)
 from sdapp.host.config import EventCandidate
 from sdapp.host.event_catalog_service import EventCatalogService
 from sdapp.host.host_models import EventMeta, stack_ref_from_stack_info
@@ -20,10 +24,6 @@ HOST_FULL_STACK_EVENT_ID = "event_full_stack"
 
 
 class BrowserController:
-    _FRAME_ORIGIN_SCOPE_LOCAL = "analysis_scope_local"
-    _FRAME_ORIGIN_EVENT_LOCAL = "event_local"
-    _FRAME_ORIGIN_GLOBAL = "global"
-
     def __init__(self) -> None:
         self.events = EventCatalogService()
         self.session = ProjectSessionService()
@@ -158,10 +158,13 @@ class BrowserController:
         next_start, next_end = self.events.normalize_bounds(next_start, next_end, frame_count)
         next_flags = dict(existing.flags if flags is None else flags)
         if int(next_start) != old_start or int(next_end) != old_end:
-            next_flags = self._recompute_analysis_scope_flags(
+            next_flags = recompute_scope_flags(
                 next_flags,
-                old_start=old_start,
-                old_end=old_end,
+                old_bounds=EventBounds(
+                    start_idx=old_start,
+                    end_idx=old_end,
+                    flags=dict(existing.flags),
+                ),
                 new_start=int(next_start),
                 new_end=int(next_end),
             )
@@ -280,9 +283,13 @@ class BrowserController:
                 "code": "EVENT_NOT_FOUND",
                 "message": f"event_id not found in host event catalog: {event_id}",
             }
-        normalized_payload = self._annotate_sidecar_payload_origins(
+        normalized_payload = annotate_payload_origins(
             dict(analysis_payload or {}),
-            event=event,
+            bounds=EventBounds(
+                start_idx=int(event.start_idx),
+                end_idx=int(event.end_idx),
+                flags=dict(getattr(event, "flags", {}) or {}),
+            ),
         )
         self.session.upsert_analysis_sidecar(str(event_id), normalized_payload)
         self.session.set_metadata(last_sync_event_id=str(event_id))
@@ -356,310 +363,6 @@ class BrowserController:
         events = self.events.list_events()
         self.session.set_events(events, self.get_active_event_id(), mark_dirty=mark_dirty)
 
-    @staticmethod
-    def _scope_metadata(flags: dict, event_start: int, event_end: int) -> tuple[int, int, int, int]:
-        scope_start = int(flags.get("analysis_scope_start_idx", event_start))
-        scope_end = int(flags.get("analysis_scope_end_idx", event_end))
-        scope_start = min(scope_start, int(event_start))
-        scope_end = max(scope_end, int(event_end))
-        local_start = int(flags.get("analysis_local_event_start_idx", int(event_start) - scope_start))
-        local_end = int(flags.get("analysis_local_event_end_idx", int(event_end) - scope_start))
-        return scope_start, scope_end, local_start, local_end
-
-    def _recompute_analysis_scope_flags(
-        self,
-        flags: dict,
-        *,
-        old_start: int,
-        old_end: int,
-        new_start: int,
-        new_end: int,
-    ) -> dict:
-        updated = dict(flags or {})
-        old_scope_start, _old_scope_end, _old_local_start, _old_local_end = self._scope_metadata(updated, old_start, old_end)
-        baseline_pre = int(updated.get("baseline_pre_frames", max(0, old_start - old_scope_start)))
-        baseline_pre = max(0, baseline_pre)
-        scope_start = max(0, int(new_start) - baseline_pre)
-        scope_end = max(scope_start, int(new_end))
-        updated["baseline_pre_frames"] = baseline_pre
-        updated["analysis_scope_start_idx"] = scope_start
-        updated["analysis_scope_end_idx"] = scope_end
-        updated["analysis_local_event_start_idx"] = int(new_start) - scope_start
-        updated["analysis_local_event_end_idx"] = int(new_end) - scope_start
-        return updated
-
-    @staticmethod
-    def _normalize_frame_origin(origin: object) -> str | None:
-        normalized = str(origin or "").strip().lower()
-        if normalized in {
-            BrowserController._FRAME_ORIGIN_SCOPE_LOCAL,
-            BrowserController._FRAME_ORIGIN_EVENT_LOCAL,
-            BrowserController._FRAME_ORIGIN_GLOBAL,
-        }:
-            return normalized
-        return None
-
-    @classmethod
-    def _infer_local_index_origin(
-        cls,
-        indices: list[int],
-        *,
-        scope_len: int,
-        event_len: int,
-        local_event_start: int,
-    ) -> str:
-        if not indices:
-            return cls._FRAME_ORIGIN_SCOPE_LOCAL
-        if local_event_start > 0 and all(0 <= idx < event_len for idx in indices) and min(indices) < local_event_start:
-            return cls._FRAME_ORIGIN_EVENT_LOCAL
-        if all(0 <= idx < scope_len for idx in indices):
-            return cls._FRAME_ORIGIN_SCOPE_LOCAL
-        if all(0 <= idx < event_len for idx in indices):
-            return cls._FRAME_ORIGIN_EVENT_LOCAL
-        return cls._FRAME_ORIGIN_GLOBAL
-
-    @classmethod
-    def _normalize_sidecar_index(
-        cls,
-        idx,
-        *,
-        scope_start: int,
-        scope_end: int,
-        event_start: int,
-        event_end: int,
-        local_event_start: int,
-        origin_hint: object = None,
-    ) -> int | None:
-        try:
-            raw = int(idx)
-        except (TypeError, ValueError):
-            return None
-        scope_len = max(0, int(scope_end) - int(scope_start) + 1)
-        event_len = max(0, int(event_end) - int(event_start) + 1)
-        normalized_hint = cls._normalize_frame_origin(origin_hint)
-        if normalized_hint == cls._FRAME_ORIGIN_GLOBAL:
-            return raw
-        if normalized_hint == cls._FRAME_ORIGIN_SCOPE_LOCAL:
-            if 0 <= raw < scope_len:
-                return int(scope_start) + raw
-            if int(scope_start) <= raw <= int(scope_end):
-                return raw
-            return None
-        if normalized_hint == cls._FRAME_ORIGIN_EVENT_LOCAL:
-            if 0 <= raw < event_len:
-                return int(event_start) + raw
-            if int(event_start) <= raw <= int(event_end):
-                return raw
-            return None
-        if 0 <= raw < scope_len:
-            inferred = cls._infer_local_index_origin(
-                [raw],
-                scope_len=scope_len,
-                event_len=event_len,
-                local_event_start=int(local_event_start),
-            )
-            if inferred == cls._FRAME_ORIGIN_EVENT_LOCAL:
-                return int(event_start) + raw
-            return int(scope_start) + raw
-        if 0 <= raw < event_len:
-            return int(event_start) + raw
-        if int(scope_start) <= raw <= int(scope_end):
-            return raw
-        return None
-
-    @classmethod
-    def _infer_payload_origin(
-        cls,
-        payload,
-        *,
-        scope_start: int,
-        scope_end: int,
-        event_start: int,
-        event_end: int,
-        local_event_start: int,
-    ) -> str | None:
-        if payload is None:
-            return None
-        scope_len = max(0, int(scope_end) - int(scope_start) + 1)
-        event_len = max(0, int(event_end) - int(event_start) + 1)
-        if isinstance(payload, dict):
-            raw_indices: list[int] = []
-            for key in payload.keys():
-                try:
-                    raw_indices.append(int(key))
-                except (TypeError, ValueError):
-                    continue
-            if not raw_indices:
-                return cls._FRAME_ORIGIN_SCOPE_LOCAL
-            return cls._infer_local_index_origin(
-                raw_indices,
-                scope_len=scope_len,
-                event_len=event_len,
-                local_event_start=int(local_event_start),
-            )
-        arr = np.asarray(payload)
-        if arr.ndim == 4 and arr.shape[-1] == 1:
-            arr = np.squeeze(arr, axis=-1)
-        elif arr.ndim == 4 and arr.shape[1] == 1:
-            arr = np.squeeze(arr, axis=1)
-        if arr.ndim != 3:
-            return None
-        frame_count = int(arr.shape[0])
-        if scope_len > 0 and frame_count == scope_len:
-            return cls._FRAME_ORIGIN_SCOPE_LOCAL
-        if event_len > 0 and frame_count == event_len:
-            return cls._FRAME_ORIGIN_EVENT_LOCAL
-        if frame_count > int(scope_end):
-            return cls._FRAME_ORIGIN_GLOBAL
-        return cls._FRAME_ORIGIN_EVENT_LOCAL
-
-    def _annotate_sidecar_payload_origins(self, payload: dict, *, event: EventMeta) -> dict:
-        annotated = dict(payload or {})
-        scope_start, scope_end, local_start, _local_end = self._scope_metadata(
-            dict(getattr(event, "flags", {}) or {}),
-            int(event.start_idx),
-            int(event.end_idx),
-        )
-        prompts = annotated.get("prompts")
-        if isinstance(prompts, dict) and "prompts_frame_origin" not in annotated:
-            annotated["prompts_frame_origin"] = self._infer_payload_origin(
-                dict(prompts.get("frames", {})) if isinstance(prompts.get("frames"), dict) else {},
-                scope_start=scope_start,
-                scope_end=scope_end,
-                event_start=int(event.start_idx),
-                event_end=int(event.end_idx),
-                local_event_start=local_start,
-            ) or self._FRAME_ORIGIN_SCOPE_LOCAL
-        for field_name in ("masks_committed", "masks_draft"):
-            origin_key = f"{field_name}_frame_origin"
-            if annotated.get(field_name) is None or origin_key in annotated:
-                continue
-            inferred = self._infer_payload_origin(
-                annotated.get(field_name),
-                scope_start=scope_start,
-                scope_end=scope_end,
-                event_start=int(event.start_idx),
-                event_end=int(event.end_idx),
-                local_event_start=local_start,
-            )
-            if inferred is not None:
-                annotated[origin_key] = inferred
-        return annotated
-
-    def _remap_mask_payload(
-        self,
-        payload,
-        *,
-        old_scope_start: int,
-        old_scope_end: int,
-        old_event_start: int,
-        old_event_end: int,
-        old_local_event_start: int,
-        new_scope_start: int,
-        new_scope_end: int,
-        origin_hint: object = None,
-    ):
-        if payload is None:
-            return None
-        new_scope_len = max(0, int(new_scope_end) - int(new_scope_start) + 1)
-        if new_scope_len <= 0:
-            return None
-        if isinstance(payload, dict):
-            remapped: dict[str, np.ndarray] = {}
-            for frame_idx, mask in payload.items():
-                global_idx = self._normalize_sidecar_index(
-                    frame_idx,
-                    scope_start=old_scope_start,
-                    scope_end=old_scope_end,
-                    event_start=old_event_start,
-                    event_end=old_event_end,
-                    local_event_start=old_local_event_start,
-                    origin_hint=origin_hint,
-                )
-                if global_idx is None:
-                    continue
-                new_local = int(global_idx) - int(new_scope_start)
-                if not (0 <= new_local < new_scope_len):
-                    continue
-                remapped[str(new_local)] = np.asarray(mask).copy()
-            return remapped
-        arr = np.asarray(payload)
-        if arr.ndim == 4 and arr.shape[-1] == 1:
-            arr = np.squeeze(arr, axis=-1)
-        elif arr.ndim == 4 and arr.shape[1] == 1:
-            arr = np.squeeze(arr, axis=1)
-        if arr.ndim != 3:
-            return payload
-        remapped = np.zeros((new_scope_len, *arr.shape[1:]), dtype=arr.dtype)
-        old_scope_len = max(0, int(old_scope_end) - int(old_scope_start) + 1)
-        old_event_len = max(0, int(old_event_end) - int(old_event_start) + 1)
-        normalized_origin = self._normalize_frame_origin(origin_hint)
-        if normalized_origin == self._FRAME_ORIGIN_SCOPE_LOCAL:
-            limit = min(int(arr.shape[0]), old_scope_len)
-            global_index_for_local = lambda local_idx: int(old_scope_start) + int(local_idx)
-        elif normalized_origin == self._FRAME_ORIGIN_EVENT_LOCAL:
-            limit = min(int(arr.shape[0]), old_event_len)
-            global_index_for_local = lambda local_idx: int(old_event_start) + int(local_idx)
-        elif normalized_origin == self._FRAME_ORIGIN_GLOBAL:
-            limit = min(int(arr.shape[0]), max(0, int(old_scope_end) + 1))
-            global_index_for_local = lambda local_idx: int(local_idx)
-        elif old_scope_len > 0 and int(arr.shape[0]) == old_scope_len:
-            limit = min(int(arr.shape[0]), old_scope_len)
-            global_index_for_local = lambda local_idx: int(old_scope_start) + int(local_idx)
-        elif old_event_len > 0 and int(arr.shape[0]) == old_event_len:
-            limit = min(int(arr.shape[0]), old_event_len)
-            global_index_for_local = lambda local_idx: int(old_event_start) + int(local_idx)
-        elif int(arr.shape[0]) > int(old_scope_end):
-            limit = min(int(arr.shape[0]), max(0, int(old_scope_end) + 1))
-            global_index_for_local = lambda local_idx: int(local_idx)
-        else:
-            limit = min(int(arr.shape[0]), old_event_len)
-            global_index_for_local = lambda local_idx: int(old_event_start) + int(local_idx)
-        for old_local in range(limit):
-            global_idx = global_index_for_local(old_local)
-            new_local = int(global_idx) - int(new_scope_start)
-            if 0 <= new_local < new_scope_len:
-                remapped[new_local] = arr[old_local]
-        return remapped
-
-    def _remap_prompts_payload(
-        self,
-        prompts: dict,
-        *,
-        event_id: str,
-        old_scope_start: int,
-        old_scope_end: int,
-        old_event_start: int,
-        old_event_end: int,
-        old_local_event_start: int,
-        new_scope_start: int,
-        new_scope_end: int,
-        origin_hint: object = None,
-    ) -> dict:
-        frames = dict(prompts.get("frames", {})) if isinstance(prompts.get("frames"), dict) else {}
-        new_scope_len = max(0, int(new_scope_end) - int(new_scope_start) + 1)
-        remapped_frames: dict[str, dict] = {}
-        for frame_idx, frame_payload in frames.items():
-            global_idx = self._normalize_sidecar_index(
-                frame_idx,
-                scope_start=old_scope_start,
-                scope_end=old_scope_end,
-                event_start=old_event_start,
-                event_end=old_event_end,
-                local_event_start=old_local_event_start,
-                origin_hint=origin_hint,
-            )
-            if global_idx is None:
-                continue
-            new_local = int(global_idx) - int(new_scope_start)
-            if not (0 <= new_local < new_scope_len):
-                continue
-            remapped_frames[str(new_local)] = copy.deepcopy(frame_payload)
-        updated = dict(prompts)
-        updated["event_id"] = str(event_id)
-        updated["frames"] = remapped_frames
-        return updated
-
     def _remap_analysis_sidecar_for_event_bounds_change(
         self,
         event_id: str,
@@ -672,49 +375,13 @@ class BrowserController:
         new_flags: dict,
     ) -> None:
         sidecar = self.session.load_analysis_sidecar(event_id)
-        if not isinstance(sidecar, dict) or not sidecar:
-            return
-        old_scope_start, old_scope_end, old_local_start, _old_local_end = self._scope_metadata(old_flags, old_start, old_end)
-        new_scope_start, new_scope_end, _new_local_start, _new_local_end = self._scope_metadata(new_flags, new_start, new_end)
-        updated = dict(sidecar)
-        if isinstance(updated.get("prompts"), dict):
-            updated["prompts"] = self._remap_prompts_payload(
-                dict(updated.get("prompts") or {}),
-                event_id=event_id,
-                old_scope_start=old_scope_start,
-                old_scope_end=old_scope_end,
-                old_event_start=old_start,
-                old_event_end=old_end,
-                old_local_event_start=old_local_start,
-                new_scope_start=new_scope_start,
-                new_scope_end=new_scope_end,
-                origin_hint=updated.get("prompts_frame_origin"),
-            )
-            updated["prompts_frame_origin"] = self._FRAME_ORIGIN_SCOPE_LOCAL
-        if "masks_committed" in updated:
-            updated["masks_committed"] = self._remap_mask_payload(
-                updated.get("masks_committed"),
-                old_scope_start=old_scope_start,
-                old_scope_end=old_scope_end,
-                old_event_start=old_start,
-                old_event_end=old_end,
-                old_local_event_start=old_local_start,
-                new_scope_start=new_scope_start,
-                new_scope_end=new_scope_end,
-                origin_hint=updated.get("masks_committed_frame_origin"),
-            )
-            updated["masks_committed_frame_origin"] = self._FRAME_ORIGIN_SCOPE_LOCAL
-        if "masks_draft" in updated:
-            updated["masks_draft"] = self._remap_mask_payload(
-                updated.get("masks_draft"),
-                old_scope_start=old_scope_start,
-                old_scope_end=old_scope_end,
-                old_event_start=old_start,
-                old_event_end=old_end,
-                old_local_event_start=old_local_start,
-                new_scope_start=new_scope_start,
-                new_scope_end=new_scope_end,
-                origin_hint=updated.get("masks_draft_frame_origin"),
-            )
-            updated["masks_draft_frame_origin"] = self._FRAME_ORIGIN_SCOPE_LOCAL
-        self.session.upsert_analysis_sidecar(event_id, updated)
+        updated = remap_analysis_payload_for_bounds_change(
+            sidecar,
+            event_id=event_id,
+            context=RemapContext(
+                old_bounds=EventBounds(start_idx=old_start, end_idx=old_end, flags=dict(old_flags or {})),
+                new_bounds=EventBounds(start_idx=new_start, end_idx=new_end, flags=dict(new_flags or {})),
+            ),
+        )
+        if isinstance(updated, dict):
+            self.session.upsert_analysis_sidecar(event_id, updated)

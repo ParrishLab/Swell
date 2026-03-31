@@ -1,12 +1,10 @@
 from __future__ import annotations
 
-import copy
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
-import numpy as np
-
+from sdapp.shared.models import clone_analysis_payload
 from sdapp.shared.services import MetricsSettingsResolver, UnifiedProjectService
 from sdapp.shared.services import MODEL_CHECKPOINT_METADATA_KEY
 from sdapp.shared.trace import TraceAttachment
@@ -143,55 +141,11 @@ class ProjectSessionService:
         self._service.update_event_analysis(str(event_id), dict(payload or {}))
 
     def load_analysis_sidecar(self, event_id: str) -> dict[str, Any] | None:
-        payload = dict(self.state().analysis_sidecar.get(str(event_id)) or {})
-        if not payload:
+        payload = self._service.get_event_analysis_payload(str(event_id))
+        if payload is None:
             return None
-        loaded = dict(payload)
-        if "prompts" in loaded and isinstance(loaded.get("prompts"), dict):
-            loaded["prompts"] = dict(loaded.get("prompts"))
-        if "ui_hints" in loaded and isinstance(loaded.get("ui_hints"), dict):
-            loaded["ui_hints"] = dict(loaded.get("ui_hints"))
-        if "masks_committed" in loaded and loaded.get("masks_committed") is not None:
-            committed = loaded.get("masks_committed")
-            if isinstance(committed, dict):
-                loaded["masks_committed"] = copy.deepcopy(committed)
-            else:
-                committed_arr = np.asarray(committed)
-                if committed_arr.ndim == 0 and committed_arr.dtype == object:
-                    try:
-                        unwrapped = committed_arr.item()
-                    except Exception:
-                        unwrapped = committed
-                    if isinstance(unwrapped, dict):
-                        loaded["masks_committed"] = copy.deepcopy(unwrapped)
-                    else:
-                        loaded["masks_committed"] = np.asarray(unwrapped).copy()
-                else:
-                    loaded["masks_committed"] = committed_arr.copy()
-        if "masks_draft" in loaded and loaded.get("masks_draft") is not None:
-            draft = loaded.get("masks_draft")
-            if isinstance(draft, dict):
-                loaded["masks_draft"] = copy.deepcopy(draft)
-            else:
-                draft_arr = np.asarray(draft)
-                if draft_arr.ndim == 0 and draft_arr.dtype == object:
-                    try:
-                        unwrapped = draft_arr.item()
-                    except Exception:
-                        unwrapped = draft
-                    if isinstance(unwrapped, dict):
-                        loaded["masks_draft"] = copy.deepcopy(unwrapped)
-                    else:
-                        loaded["masks_draft"] = np.asarray(unwrapped).copy()
-                else:
-                    loaded["masks_draft"] = draft_arr.copy()
-        metrics_settings = loaded.get("metrics_settings")
-        if isinstance(metrics_settings, dict):
-            copied_metrics = dict(metrics_settings)
-            if "roi_mask" in copied_metrics and copied_metrics.get("roi_mask") is not None:
-                copied_metrics["roi_mask"] = np.asarray(copied_metrics.get("roi_mask"), dtype=bool).copy()
-            loaded["metrics_settings"] = copied_metrics
-        return loaded
+        loaded = clone_analysis_payload(payload, coerce_metrics_roi_mask_to_bool=True)
+        return loaded or None
 
     def get_session_id(self) -> str:
         return self._service.get_session_id()

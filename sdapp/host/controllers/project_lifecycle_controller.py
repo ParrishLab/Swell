@@ -6,6 +6,7 @@ from tkinter import filedialog, messagebox
 
 from sdapp.host.host_models import stack_ref_from_stack_info
 from sdapp.host.stack_reader import StackReader
+from sdapp.shared.ui import BackgroundTaskRunner
 
 
 class HostProjectLifecycleController:
@@ -48,23 +49,17 @@ class HostProjectLifecycleController:
             return
         self.app._set_status("Saving project...")
 
-        def worker() -> None:
-            try:
-                state = self.app.save_host_session(target)
-            except Exception as exc:
-                self.app.root.after(0, lambda: self.app._show_warning("Save SD Project", str(exc)))
-                self.app.root.after(0, lambda: self.app._set_status("Save failed."))
-                return
+        def on_done(state) -> None:
+            self.app.current_project_path = state.project_path
+            self.app.browser_controller.session.set_project_path(self.app.current_project_path)
+            self.app._set_status(f"Saved project: {Path(self.app.current_project_path).name}")
+            self.app._log_info(f"Saved project to {self.app.current_project_path}.")
 
-            def on_done() -> None:
-                self.app.current_project_path = state.project_path
-                self.app.browser_controller.session.set_project_path(self.app.current_project_path)
-                self.app._set_status(f"Saved project: {Path(self.app.current_project_path).name}")
-                self.app._log_info(f"Saved project to {self.app.current_project_path}.")
-
-            self.app.root.after(0, on_done)
-
-        threading.Thread(target=worker, daemon=True).start()
+        self._task_runner().start(
+            lambda: self.app.save_host_session(target),
+            on_success=on_done,
+            on_error=lambda exc: (self.app._show_warning("Save SD Project", str(exc)), self.app._set_status("Save failed.")),
+        )
 
     def save_project_as(self) -> None:
         if self.app.stack_info is None:
@@ -89,23 +84,17 @@ class HostProjectLifecycleController:
             return
         self.app._set_status("Saving project...")
 
-        def worker() -> None:
-            try:
-                state = self.app.save_host_session(path)
-            except Exception as exc:
-                self.app.root.after(0, lambda: self.app._show_warning("Save SD Project", str(exc)))
-                self.app.root.after(0, lambda: self.app._set_status("Save failed."))
-                return
+        def on_done(state) -> None:
+            self.app.current_project_path = state.project_path
+            self.app.browser_controller.session.set_project_path(self.app.current_project_path)
+            self.app._set_status(f"Saved project: {Path(self.app.current_project_path).name}")
+            self.app._log_info(f"Saved project as {self.app.current_project_path}.")
 
-            def on_done() -> None:
-                self.app.current_project_path = state.project_path
-                self.app.browser_controller.session.set_project_path(self.app.current_project_path)
-                self.app._set_status(f"Saved project: {Path(self.app.current_project_path).name}")
-                self.app._log_info(f"Saved project as {self.app.current_project_path}.")
-
-            self.app.root.after(0, on_done)
-
-        threading.Thread(target=worker, daemon=True).start()
+        self._task_runner().start(
+            lambda: self.app.save_host_session(path),
+            on_success=on_done,
+            on_error=lambda exc: (self.app._show_warning("Save SD Project", str(exc)), self.app._set_status("Save failed.")),
+        )
 
     def open_project_dialog(self) -> None:
         path = filedialog.askopenfilename(
@@ -151,61 +140,76 @@ class HostProjectLifecycleController:
             return
         self.app._set_status("Opening project...")
 
-        def worker() -> None:
-            try:
-                state = self.app.browser_controller.open_session(path)
-                stack_info = None
-                reader = None
-                warning = None
-                stack_ref = state.stack_ref
-                if stack_ref is not None and str(stack_ref.input_dir or ""):
-                    input_dir = str(stack_ref.input_dir)
-                    if Path(input_dir).exists():
+        def _load_project():
+            state = self.app.browser_controller.open_session(path)
+            stack_info = None
+            reader = None
+            warning = None
+            stack_ref = state.stack_ref
+            if stack_ref is not None and str(stack_ref.input_dir or ""):
+                input_dir = str(stack_ref.input_dir)
+                if Path(input_dir).exists():
+                    reader = StackReader()
+                    stack_info = reader.open_stack(input_dir)
+                else:
+                    replacement = self._run_on_ui_thread(lambda: self._prompt_rebind_missing_stack_folder(input_dir))
+                    if replacement:
                         reader = StackReader()
-                        stack_info = reader.open_stack(input_dir)
+                        stack_info = reader.open_stack(replacement)
                     else:
-                        replacement = self._run_on_ui_thread(lambda: self._prompt_rebind_missing_stack_folder(input_dir))
-                        if replacement:
-                            reader = StackReader()
-                            stack_info = reader.open_stack(replacement)
-                        else:
-                            warning = f"Stack folder is missing and was not rebound:\n\n{input_dir}"
+                        warning = f"Stack folder is missing and was not rebound:\n\n{input_dir}"
+            return {
+                "state": state,
+                "stack_info": stack_info,
+                "reader": reader,
+                "warning": warning,
+                "path": path,
+            }
 
-                def on_done() -> None:
-                    self.app.current_project_path = state.project_path
-                    self.app.browser_controller.session.set_project_path(self.app.current_project_path)
-                    if reader is not None and stack_info is not None:
-                        self.app.reader = reader
-                        self.app.stack_info = stack_info
-                        self.app.browser_controller.bind_frame_source(reader)
-                        self.app.browser_controller.session.set_stack_ref(stack_ref_from_stack_info(stack_info))
-                        self.app._popup_engine.set_reader(reader)
-                        self.app.preview_scale.configure(from_=0, to=max(0, int(stack_info.frame_count) - 1))
-                        frame_idx = 0
-                        active_event = self.app.browser_controller.selected_event()
-                        if active_event is not None:
-                            frame_idx = int(active_event.start_idx)
-                        self.app.preview_scale.set(frame_idx)
-                        self.app._update_preview(frame_idx)
-                        self.warmup_main_preview_async()
-                        self.app.analysis_launch_controller.prewarm_analysis_app_class_async()
-                    self.app._sync_event_projections()
-                    if reader is not None and stack_info is not None:
-                        self.app._restore_dc_trace_from_project()
-                    else:
-                        self.app.dc_trace_controller.clear_runtime()
-                    if warning:
-                        self.app._show_warning("Open SD Project", warning)
-                    self.app._set_status(f"Opened project: {Path(path).name}")
-                    self.app._log_info(f"Opened project from {path}.")
+        def _on_done(payload: dict[str, object]) -> None:
+            state = payload["state"]
+            stack_info = payload["stack_info"]
+            reader = payload["reader"]
+            warning = payload["warning"]
+            self.app.current_project_path = state.project_path
+            self.app.browser_controller.session.set_project_path(self.app.current_project_path)
+            if reader is not None and stack_info is not None:
+                self.app.reader = reader
+                self.app.stack_info = stack_info
+                self.app.browser_controller.bind_frame_source(reader)
+                self.app.browser_controller.session.set_stack_ref(stack_ref_from_stack_info(stack_info))
+                self.app._popup_engine.set_reader(reader)
+                self.app.preview_scale.configure(from_=0, to=max(0, int(stack_info.frame_count) - 1))
+                frame_idx = 0
+                active_event = self.app.browser_controller.selected_event()
+                if active_event is not None:
+                    frame_idx = int(active_event.start_idx)
+                self.app.preview_scale.set(frame_idx)
+                self.app._update_preview(frame_idx)
+                self.warmup_main_preview_async()
+                self.app.analysis_launch_controller.prewarm_analysis_app_class_async()
+            self.app._sync_event_projections()
+            restore_dc_trace = getattr(self.app, "_restore_dc_trace_from_project", None)
+            clear_dc_runtime = getattr(getattr(self.app, "dc_trace_controller", None), "clear_runtime", None)
+            if reader is not None and stack_info is not None:
+                if callable(restore_dc_trace):
+                    restore_dc_trace()
+            elif callable(clear_dc_runtime):
+                clear_dc_runtime()
+            if warning:
+                self.app._show_warning("Open SD Project", warning)
+            self.app._set_status(f"Opened project: {Path(path).name}")
+            self.app._log_info(f"Opened project from {path}.")
 
-                self.app.root.after(0, on_done)
-            except Exception as exc:
-                self.app.root.after(0, lambda: self.app._set_status("Open failed."))
-                self.app.root.after(0, lambda: self.app._log_error(f"Open project failed: {exc}"))
-                self.app.root.after(0, lambda: self.app._show_warning("Open SD Project", str(exc)))
-
-        threading.Thread(target=worker, daemon=True).start()
+        self._task_runner().start(
+            _load_project,
+            on_success=_on_done,
+            on_error=lambda exc: (
+                self.app._set_status("Open failed."),
+                self.app._log_error(f"Open project failed: {exc}"),
+                self.app._show_warning("Open SD Project", str(exc)),
+            ),
+        )
 
     def _run_on_ui_thread(self, callback):
         root = self._dialog_parent()
@@ -447,16 +451,14 @@ class HostProjectLifecycleController:
         self.app._log_info(f"Stack load started: {input_dir}")
         self.app._load_progress_bucket = -1
 
-        def worker() -> None:
-            try:
-                reader = StackReader()
-                info = reader.open_stack(input_dir, progress_callback=self.on_load_progress)
-                self.app.root.after(0, lambda: self.on_stack_loaded(reader, info))
-            except Exception as exc:
-                self.app.root.after(0, lambda: self.app._set_status(f"Load failed: {exc}"))
-                self.app._log_error(f"Stack load failed: {exc}")
-
-        threading.Thread(target=worker, daemon=True).start()
+        self._task_runner().start(
+            lambda: (lambda reader: (reader, reader.open_stack(input_dir, progress_callback=self.on_load_progress)))(StackReader()),
+            on_success=lambda payload: self.on_stack_loaded(payload[0], payload[1]),
+            on_error=lambda exc: (
+                self.app._set_status(f"Load failed: {exc}"),
+                self.app._log_error(f"Stack load failed: {exc}"),
+            ),
+        )
 
     def on_stack_loaded(self, reader: StackReader, info) -> None:
         self.app.reader = reader
@@ -470,7 +472,7 @@ class HostProjectLifecycleController:
         self.app.current_event_id = None
         self.app.current_frame_idx = 0
         self.app._main_render_cache.clear()
-        self.app._mini_raw_u8_cache.clear()
+        self.app._normalized_frame_u8_cache.clear()
         self.app._mark_processed_cache.clear()
         self.app._sync_event_projections()
 
@@ -498,18 +500,18 @@ class HostProjectLifecycleController:
 
         indices = list(range(min(8, frame_count)))
 
-        def worker() -> None:
-            try:
-                for idx in indices:
-                    if self.app.reader is None:
-                        return
-                    self.app.reader.read_frame(idx, use_cache=True)
-                self.app._popup_engine.prewarm_smoothed(indices[:4])
-                self.app._log_info("Load warmup complete: prefetched initial frames.")
-            except Exception as exc:
-                self.app._log_warn(f"Load warmup skipped: {exc}")
+        def _warmup() -> None:
+            for idx in indices:
+                if self.app.reader is None:
+                    return
+                self.app.reader.read_frame(idx, use_cache=True)
+            self.app._popup_engine.prewarm_smoothed(indices[:4])
 
-        threading.Thread(target=worker, daemon=True).start()
+        self._task_runner().start(
+            _warmup,
+            on_success=lambda _result: self.app._log_info("Load warmup complete: prefetched initial frames."),
+            on_error=lambda exc: self.app._log_warn(f"Load warmup skipped: {exc}"),
+        )
 
     def on_load_progress(self, current: int, total: int) -> None:
         if total <= 0:
@@ -518,3 +520,11 @@ class HostProjectLifecycleController:
         if bucket > self.app._load_progress_bucket:
             self.app._load_progress_bucket = bucket
             self.app._log_info(f"Load progress: indexing files {current}/{total} ({min(100, bucket * 5)}%).")
+
+    def _task_runner(self) -> BackgroundTaskRunner:
+        runner = getattr(self.app, "_background_task_runner", None)
+        if isinstance(runner, BackgroundTaskRunner):
+            return runner
+        runner = BackgroundTaskRunner(self.app.root)
+        self.app._background_task_runner = runner
+        return runner

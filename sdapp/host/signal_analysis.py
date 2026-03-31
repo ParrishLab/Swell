@@ -7,6 +7,32 @@ import numpy as np
 from .config import EventCandidate, TraceResult
 from .stack_reader import StackReader
 
+TRACE_BATCH_SIZE = 16
+
+
+def _read_trace_frame(reader: StackReader, frame_idx: int) -> np.ndarray:
+    try:
+        frame = reader.read_frame(int(frame_idx), use_cache=True)
+    except TypeError:
+        frame = reader.read_frame(int(frame_idx))
+    return np.asarray(frame, dtype=np.float64)
+
+
+def _compute_trace_stats_batch(reader: StackReader, start_idx: int, end_idx: int) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    frames = [_read_trace_frame(reader, idx) for idx in range(int(start_idx), int(end_idx))]
+    if not frames:
+        return (
+            np.zeros((0,), dtype=np.float64),
+            np.zeros((0,), dtype=np.float64),
+            np.zeros((0,), dtype=np.float64),
+        )
+    stack = np.asarray(frames, dtype=np.float64)
+    flattened = stack.reshape(stack.shape[0], -1)
+    means = np.mean(flattened, axis=1)
+    medians = np.median(flattened, axis=1)
+    stds = np.std(flattened, axis=1)
+    return means, medians, stds
+
 
 def compute_trace(
     reader: StackReader,
@@ -18,13 +44,17 @@ def compute_trace(
     medians = np.zeros(n_frames, dtype=np.float64)
     stds = np.zeros(n_frames, dtype=np.float64)
 
-    for idx in range(n_frames):
-        frame = reader.read_frame(idx, use_cache=False).astype(np.float64, copy=False)
-        means[idx] = float(np.mean(frame))
-        medians[idx] = float(np.median(frame))
-        stds[idx] = float(np.std(frame))
-        if progress_callback is not None and (idx % 50 == 0 or idx == n_frames - 1):
-            progress_callback(idx + 1, n_frames)
+    batch_size = max(1, min(int(TRACE_BATCH_SIZE), max(1, n_frames)))
+    for start_idx in range(0, n_frames, batch_size):
+        end_idx = min(n_frames, start_idx + batch_size)
+        batch_means, batch_medians, batch_stds = _compute_trace_stats_batch(reader, start_idx, end_idx)
+        means[start_idx:end_idx] = batch_means
+        medians[start_idx:end_idx] = batch_medians
+        stds[start_idx:end_idx] = batch_stds
+        if progress_callback is not None:
+            for idx in range(start_idx, end_idx):
+                if idx % 50 == 0 or idx == n_frames - 1:
+                    progress_callback(idx + 1, n_frames)
 
     frame_indices = list(range(n_frames))
     if seconds_per_frame and seconds_per_frame > 0:

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from collections import OrderedDict
-import threading
 import time
 import tkinter as tk
 from tkinter import messagebox, ttk
@@ -11,11 +10,12 @@ from PIL import Image, ImageTk
 
 from sdapp.shared.frame_source import (
     EventScopedFrameSource,
+    PreparedFrameSource,
     VisualizationCancelled,
-    compute_visualization_stats,
-    render_visualization_frame,
 )
+from sdapp.shared.frame_source.launch_preparation import build_launch_preparation_cache_key
 from sdapp.shared.menu.factory import build_shared_menu
+from sdapp.shared.ui import BackgroundTaskRunner
 
 
 class AnalysisLaunchController:
@@ -43,7 +43,7 @@ class AnalysisLaunchController:
                 self.app._analysis_app_import_started = False
                 self.app._log_warn(f"Analysis prewarm skipped: {exc}")
 
-        threading.Thread(target=_worker, daemon=True).start()
+        self._task_runner().start(_worker)
 
     def _preview_cache(self) -> OrderedDict:
         cache = getattr(self.app, "_analysis_preview_cache", None)
@@ -53,6 +53,14 @@ class AnalysisLaunchController:
         self.app._analysis_preview_cache = cache
         return cache
 
+    def _task_runner(self) -> BackgroundTaskRunner:
+        runner = getattr(self.app, "_background_task_runner", None)
+        if isinstance(runner, BackgroundTaskRunner):
+            return runner
+        runner = BackgroundTaskRunner(self.app.root)
+        self.app._background_task_runner = runner
+        return runner
+
     def _cache_preview_entry(self, key: tuple, entry: dict[str, object]) -> None:
         cache = self._preview_cache()
         cache[key] = dict(entry)
@@ -60,9 +68,56 @@ class AnalysisLaunchController:
         while len(cache) > 16:
             cache.popitem(last=False)
 
+    @staticmethod
+    def _event_scope(event_start: int, event_end: int, baseline_pre_frames: int) -> tuple[int, int, int]:
+        scope_start = max(0, int(event_start) - int(max(1, baseline_pre_frames)))
+        scope_end = max(scope_start, int(event_end))
+        local_frame_idx = max(0, int(event_start) - scope_start)
+        return int(scope_start), int(scope_end), int(local_frame_idx)
+
+    @staticmethod
+    def _launch_processing_options(
+        *,
+        apply_horizontal_bar_denoise: bool,
+        apply_smoothing: bool,
+        apply_baseline_subtraction: bool,
+        apply_global_normalization: bool,
+    ) -> dict[str, bool]:
+        return {
+            "horizontal_bar_denoise": bool(apply_horizontal_bar_denoise),
+            "smoothing": bool(apply_smoothing),
+            "baseline_subtraction": bool(apply_baseline_subtraction),
+            "global_normalization": bool(apply_global_normalization),
+        }
+
+    def _launch_preparation_cache_key(
+        self,
+        *,
+        event_id: str,
+        event_start: int,
+        event_end: int,
+        baseline_pre_frames: int,
+        apply_horizontal_bar_denoise: bool,
+        apply_smoothing: bool,
+        apply_baseline_subtraction: bool,
+        apply_global_normalization: bool,
+    ) -> tuple[str, int, int, int, bool, bool, bool, bool]:
+        scope_start, scope_end, _local_frame_idx = self._event_scope(event_start, event_end, baseline_pre_frames)
+        return build_launch_preparation_cache_key(
+            event_id=str(event_id or ""),
+            scope_start=scope_start,
+            scope_end=scope_end,
+            baseline_pre_frames=baseline_pre_frames,
+            apply_horizontal_bar_denoise=apply_horizontal_bar_denoise,
+            apply_smoothing=apply_smoothing,
+            apply_baseline_subtraction=apply_baseline_subtraction,
+            apply_global_normalization=apply_global_normalization,
+        )
+
     def _prepare_analysis_launch_preview(
         self,
         *,
+        event_id: str = "",
         event_start: int,
         event_end: int,
         baseline_pre_frames: int,
@@ -76,24 +131,36 @@ class AnalysisLaunchController:
         frame_source = self.app.browser_controller.get_frame_source()
         if frame_source is None:
             raise RuntimeError("No host frame source is available for analysis.")
-        scope_start = max(0, int(event_start) - int(baseline_pre_frames))
-        scope_end = max(scope_start, int(event_end))
-        local_frame_idx = max(0, int(event_start) - scope_start)
+        scope_start, scope_end, local_frame_idx = self._event_scope(event_start, event_end, baseline_pre_frames)
         scoped_source = EventScopedFrameSource(frame_source, scope_start, scope_end)
-        stats = compute_visualization_stats(
+        processing = self._launch_processing_options(
+            apply_horizontal_bar_denoise=apply_horizontal_bar_denoise,
+            apply_smoothing=apply_smoothing,
+            apply_baseline_subtraction=apply_baseline_subtraction,
+            apply_global_normalization=apply_global_normalization,
+        )
+        launch_cache_key = self._launch_preparation_cache_key(
+            event_id=str(event_id or ""),
+            event_start=event_start,
+            event_end=event_end,
+            baseline_pre_frames=baseline_pre_frames,
+            apply_horizontal_bar_denoise=apply_horizontal_bar_denoise,
+            apply_smoothing=apply_smoothing,
+            apply_baseline_subtraction=apply_baseline_subtraction,
+            apply_global_normalization=apply_global_normalization,
+        )
+        prepared_source = PreparedFrameSource(
             scoped_source,
             baseline_frames=max(1, int(baseline_pre_frames)),
             apply_horizontal_bar_denoise=bool(apply_horizontal_bar_denoise),
             apply_smoothing=bool(apply_smoothing),
             apply_baseline_subtraction=bool(apply_baseline_subtraction),
             apply_global_normalization=bool(apply_global_normalization),
-            should_cancel=should_cancel,
         )
-        raw_frame, sub_frame, frame_u8 = render_visualization_frame(
-            scoped_source,
-            local_frame_idx,
-            stats=stats,
-        )
+        stats = prepared_source.prepare(should_cancel=should_cancel)
+        raw_frame = prepared_source.get_raw_frame(local_frame_idx)
+        sub_frame = prepared_source.get_subtracted_frame(local_frame_idx)
+        frame_u8 = prepared_source.get_visual_frame(local_frame_idx)
         log_debug = getattr(self.app, "_log_debug", None)
         message = (
             f"Analysis launch preview elapsed={(time.perf_counter() - started) * 1000.0:.1f}ms "
@@ -106,9 +173,14 @@ class AnalysisLaunchController:
         return {
             "frame_u8": frame_u8,
             "launch_preparation": {
+                "cache_key": launch_cache_key,
                 "scope_start": int(scope_start),
                 "scope_end": int(scope_end),
                 "local_frame_idx": int(local_frame_idx),
+                "baseline_pre_frames": max(1, int(baseline_pre_frames)),
+                "processing": dict(processing),
+                "prepared_source": prepared_source,
+                "preview_frame_u8": np.asarray(frame_u8, dtype=np.uint8, copy=False),
                 "raw_frame": np.asarray(raw_frame, dtype=np.float32, copy=False),
                 "sub_frame": np.asarray(sub_frame, dtype=np.float32, copy=False),
                 "viz_frame": np.asarray(frame_u8, dtype=np.uint8, copy=False),
@@ -173,18 +245,15 @@ class AnalysisLaunchController:
                 return max(1, int(self.app.baseline_pre_frames))
 
         def _preview_cache_key() -> tuple:
-            baseline_count = _read_baseline()
-            scope_start = max(0, int(event_start) - int(baseline_count))
-            scope_end = max(scope_start, int(event_end))
-            return (
-                str(event_id),
-                int(scope_start),
-                int(scope_end),
-                int(baseline_count),
-                bool(bar_denoise_var.get()),
-                bool(smoothing_var.get()),
-                bool(subtract_var.get()),
-                bool(normalize_var.get()),
+            return self._launch_preparation_cache_key(
+                event_id=str(event_id),
+                event_start=int(event_start),
+                event_end=int(event_end),
+                baseline_pre_frames=_read_baseline(),
+                apply_horizontal_bar_denoise=bool(bar_denoise_var.get()),
+                apply_smoothing=bool(smoothing_var.get()),
+                apply_baseline_subtraction=bool(subtract_var.get()),
+                apply_global_normalization=bool(normalize_var.get()),
             )
 
         def _apply_preview(payload: dict[str, object], generation: int) -> None:
@@ -231,9 +300,10 @@ class AnalysisLaunchController:
             apply_subtraction = bool(subtract_var.get())
             apply_normalization = bool(normalize_var.get())
 
-            def _worker() -> None:
+            def _worker() -> dict[str, object] | None:
                 try:
-                    payload = self._prepare_analysis_launch_preview(
+                    return self._prepare_analysis_launch_preview(
+                        event_id=str(event_id),
                         event_start=int(event_start),
                         event_end=int(event_end),
                         baseline_pre_frames=int(baseline_count),
@@ -244,23 +314,19 @@ class AnalysisLaunchController:
                         should_cancel=lambda g=generation: bool(state.get("closed")) or int(state.get("generation", 0)) != int(g),
                     )
                 except VisualizationCancelled:
-                    return
-                except Exception as exc:
-                    if hasattr(self.app, "root") and self.app.root is not None:
-                        self.app.root.after(
-                            0,
-                            lambda e=exc, g=generation: (
-                                status_var.set(f"Preview unavailable: {e}")
-                                if int(state.get("generation", 0)) == int(g)
-                                else None
-                            ),
-                        )
+                    return None
+
+            def _on_preview(payload: dict[str, object] | None) -> None:
+                if not isinstance(payload, dict):
                     return
                 self._cache_preview_entry(cache_key, payload)
-                if hasattr(self.app, "root") and self.app.root is not None:
-                    self.app.root.after(0, lambda p=payload, g=generation: _apply_preview(p, g))
+                _apply_preview(payload, generation)
 
-            threading.Thread(target=_worker, daemon=True).start()
+            def _on_preview_error(exc: Exception) -> None:
+                if int(state.get("generation", 0)) == int(generation):
+                    status_var.set(f"Preview unavailable: {exc}")
+
+            self._task_runner().start(_worker, on_success=_on_preview, on_error=_on_preview_error)
 
         def _schedule_preview_refresh() -> None:
             existing = state.get("debounce_after_id")
@@ -520,19 +586,13 @@ class AnalysisLaunchController:
         frame_source = self.app.browser_controller.get_frame_source()
         if frame_source is None:
             return np.zeros((64, 64), dtype=np.uint8)
-        scope_start = max(0, int(event_start) - int(max(1, baseline_pre_frames)))
-        scoped_source = EventScopedFrameSource(frame_source, scope_start, int(event_start))
-        stats = compute_visualization_stats(
-            scoped_source,
-            baseline_frames=max(1, int(baseline_pre_frames)),
+        payload = self._prepare_analysis_launch_preview(
+            event_start=int(event_start),
+            event_end=int(event_start),
+            baseline_pre_frames=max(1, int(baseline_pre_frames)),
             apply_horizontal_bar_denoise=bool(apply_horizontal_bar_denoise),
             apply_smoothing=bool(apply_smoothing),
             apply_baseline_subtraction=bool(apply_baseline_subtraction),
             apply_global_normalization=bool(apply_global_normalization),
         )
-        _raw, _sub, viz = render_visualization_frame(
-            scoped_source,
-            int(event_start) - int(scope_start),
-            stats=stats,
-        )
-        return viz
+        return np.asarray(payload.get("frame_u8"), dtype=np.uint8)

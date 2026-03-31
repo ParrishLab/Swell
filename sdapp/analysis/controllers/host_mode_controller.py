@@ -5,6 +5,7 @@ import time
 
 from sdapp.analysis.core.frame_source import FrameSequenceView
 from sdapp.shared.frame_source import EventScopedFrameSource, PreparedFrameSource
+from sdapp.shared.frame_source.launch_preparation import build_launch_preparation_cache_key
 from sdapp.shared.services import MODEL_CHECKPOINT_METADATA_KEY
 
 
@@ -55,6 +56,76 @@ class AnalysisHostModeController:
         logger(
             "HostMode",
             f"{label}: frame_source_type={type(frame_source).__name__} frame_count={frame_count} frame_shape={frame_shape}",
+        )
+
+    @staticmethod
+    def _scope_metadata_from_host_context(host_ctx: dict | None) -> tuple[str, int | None, int | None, int | None]:
+        if not isinstance(host_ctx, dict):
+            return "", None, None, None
+        event_payload = dict(host_ctx.get("event", {})) if isinstance(host_ctx.get("event"), dict) else {}
+        flags = dict(event_payload.get("flags", {})) if isinstance(event_payload.get("flags"), dict) else {}
+        event_id = str(event_payload.get("event_id", "") or "")
+        scope_start = flags.get("analysis_scope_start_idx", event_payload.get("start_idx"))
+        scope_end = flags.get("analysis_scope_end_idx", event_payload.get("end_idx"))
+        local_frame_idx = flags.get("analysis_local_event_start_idx")
+        try:
+            scope_start_int = None if scope_start is None else int(scope_start)
+        except Exception:
+            scope_start_int = None
+        try:
+            scope_end_int = None if scope_end is None else int(scope_end)
+        except Exception:
+            scope_end_int = None
+        try:
+            local_frame_idx_int = None if local_frame_idx is None else int(local_frame_idx)
+        except Exception:
+            local_frame_idx_int = None
+        if local_frame_idx_int is None and scope_start_int is not None:
+            try:
+                local_frame_idx_int = int(event_payload.get("start_idx", scope_start_int)) - scope_start_int
+            except Exception:
+                local_frame_idx_int = None
+        return event_id, scope_start_int, scope_end_int, local_frame_idx_int
+
+    def _launch_preparation_cache_key(
+        self,
+        *,
+        host_ctx: dict | None,
+        baseline_count: int,
+        apply_horizontal_bar_denoise: bool,
+        apply_smoothing: bool,
+        apply_baseline_subtraction: bool,
+        apply_global_normalization: bool,
+    ) -> tuple[str, int, int, int, bool, bool, bool, bool] | None:
+        event_id, scope_start, scope_end, _local_frame_idx = self._scope_metadata_from_host_context(host_ctx)
+        if scope_start is None or scope_end is None:
+            return None
+        return build_launch_preparation_cache_key(
+            event_id=event_id,
+            scope_start=scope_start,
+            scope_end=scope_end,
+            baseline_pre_frames=baseline_count,
+            apply_horizontal_bar_denoise=apply_horizontal_bar_denoise,
+            apply_smoothing=apply_smoothing,
+            apply_baseline_subtraction=apply_baseline_subtraction,
+            apply_global_normalization=apply_global_normalization,
+        )
+
+    def _prewarm_initial_window(self, prepared_source: PreparedFrameSource, current_idx: int | None) -> None:
+        frame_total = int(getattr(prepared_source, "frame_count", 0) or 0)
+        if frame_total <= 0:
+            return
+        center = int(0 if current_idx is None else current_idx)
+        center = max(0, min(center, frame_total - 1))
+        lo = max(0, center - 2)
+        hi = min(frame_total - 1, center + 2)
+        indices = list(range(lo, hi + 1))
+        started = time.perf_counter()
+        prepared_source.prewarm(indices)
+        self.app.log_debug(
+            "Perf",
+            f"Host open prewarm elapsed={(time.perf_counter() - started) * 1000.0:.1f}ms "
+            f"center={center + 1} frames={len(indices)}",
         )
 
     def emit_host_sync(self, reason: str) -> dict[str, object] | None:
@@ -359,6 +430,7 @@ class AnalysisHostModeController:
                 baseline_count = int(self.app.get_baseline_frame_count())
             except Exception:
                 baseline_count = 30
+        host_ctx = None
         if bool(getattr(self.app, "_host_mode", False)):
             workspace = getattr(self.app, "analysis_workspace", None)
             host_ctx = getattr(workspace, "_host_context", None)
@@ -388,22 +460,58 @@ class AnalysisHostModeController:
             if isinstance(getattr(self.app, "_host_launch_preparation", None), dict)
             else {}
         )
-        prepared_stats = launch_preparation.get("stats")
+        launch_cache_key = self._launch_preparation_cache_key(
+            host_ctx=host_ctx if isinstance(host_ctx, dict) else None,
+            baseline_count=baseline_count,
+            apply_horizontal_bar_denoise=apply_horizontal_bar_denoise,
+            apply_smoothing=apply_smoothing,
+            apply_baseline_subtraction=apply_baseline_subtraction,
+            apply_global_normalization=apply_global_normalization,
+        )
+        _event_id, _scope_start, _scope_end, local_frame_idx = self._scope_metadata_from_host_context(
+            host_ctx if isinstance(host_ctx, dict) else None
+        )
+        prepared_stats = None
         cache_key = (
-            id(frame_source),
-            int(frame_count),
-            tuple(int(v) for v in getattr(frame_source, "frame_shape", (0, 0))),
-            int(max(1, baseline_count)),
-            bool(apply_horizontal_bar_denoise),
-            bool(apply_smoothing),
-            bool(apply_baseline_subtraction),
-            bool(apply_global_normalization),
+            tuple(launch_cache_key)
+            if launch_cache_key is not None
+            else (
+                id(frame_source),
+                int(frame_count),
+                tuple(int(v) for v in getattr(frame_source, "frame_shape", (0, 0))),
+                int(max(1, baseline_count)),
+                bool(apply_horizontal_bar_denoise),
+                bool(apply_smoothing),
+                bool(apply_baseline_subtraction),
+                bool(apply_global_normalization),
+            )
         )
         if self.app._host_buffer_cache_key == cache_key and self._visual_frames_ready():
             return True
 
+        reusable_prepared_source = None
+        candidate = launch_preparation.get("prepared_source")
+        candidate_cache_key = launch_preparation.get("cache_key")
+        if (
+            isinstance(candidate, PreparedFrameSource)
+            and launch_cache_key is not None
+            and candidate_cache_key is not None
+            and tuple(candidate_cache_key) == tuple(launch_cache_key)
+            and int(getattr(candidate, "frame_count", 0) or 0) == int(frame_count)
+            and tuple(int(v) for v in getattr(candidate, "frame_shape", (0, 0)))
+            == tuple(int(v) for v in getattr(frame_source, "frame_shape", (0, 0)))
+        ):
+            reusable_prepared_source = candidate
+            prepared_stats = launch_preparation.get("stats")
+
         def _build_prepared_source() -> PreparedFrameSource:
             started = time.perf_counter()
+            if reusable_prepared_source is not None:
+                self.app.log_debug(
+                    "Perf",
+                    f"Host buffer reuse elapsed={(time.perf_counter() - started) * 1000.0:.1f}ms frames={frame_count}",
+                )
+                return reusable_prepared_source
             prepared_source = PreparedFrameSource(
                 frame_source,
                 baseline_frames=max(1, int(baseline_count)),
@@ -421,6 +529,7 @@ class AnalysisHostModeController:
             return prepared_source
 
         def _apply_prepared_source(prepared_source: PreparedFrameSource) -> None:
+            self._prewarm_initial_window(prepared_source, local_frame_idx)
             self.app.frame_source = prepared_source
             workspace = getattr(self.app, "analysis_workspace", None)
             if workspace is not None:
@@ -433,17 +542,24 @@ class AnalysisHostModeController:
             self.app._host_buffer_cache_key = cache_key
             self.app._host_launch_preparation = None
             if callable(getattr(self.app, "_schedule_analysis_prewarm", None)):
-                self.app._schedule_analysis_prewarm(0)
+                self.app._schedule_analysis_prewarm(0 if local_frame_idx is None else int(local_frame_idx))
             self.app._initial_frame_nav_ts = time.perf_counter()
             self.app.log_info("HostMode", f"Prepared lazy visualization source ({frame_count} frames).")
             if on_ready_message:
                 self.app.log_info("HostMode", str(on_ready_message))
 
         sync_limit = max(1, int(getattr(self.app, "_host_buffer_sync_limit", 240) or 240))
-        has_preview_seed = bool(launch_preparation.get("viz_frame") is not None or launch_preparation.get("raw_frame") is not None)
+        has_preview_seed = bool(
+            launch_preparation.get("prepared_source") is not None
+            or launch_preparation.get("preview_frame_u8") is not None
+            or launch_preparation.get("viz_frame") is not None
+            or launch_preparation.get("raw_frame") is not None
+        )
         should_queue_async = bool(prefer_async) and callable(getattr(self.app, "_run_thread", None)) and (
             int(frame_count) > sync_limit or has_preview_seed
         )
+        if reusable_prepared_source is not None:
+            should_queue_async = False
         if should_queue_async:
             generation = int(getattr(self.app, "_host_buffer_generation", 0) or 0) + 1
             self.app._host_buffer_generation = generation

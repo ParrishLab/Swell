@@ -1,15 +1,36 @@
-from sdapp.shared.services.analysis_window_manager import AnalysisWindowManager, AnalysisWindowRef
-from sdapp.shared.services.checkpoint_runtime_service import (
-    CheckpointDescriptor,
-    CheckpointResolution,
-    CheckpointRuntimeService,
-    MODEL_CHECKPOINT_METADATA_KEY,
-    managed_models_dir,
-)
-from sdapp.shared.services.instance_bridge import SingleInstanceBridge
-from sdapp.shared.services.metrics_settings_resolver import MetricsSettingsResolver
-from sdapp.shared.services.update_service import ReleaseInfo, UpdateCheckResult, UpdateService
-from sdapp.shared.services.unified_project_service import UnifiedProjectService
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from sdapp.shared.services.analysis_window_manager import AnalysisWindowManager, AnalysisWindowRef
+    from sdapp.shared.services.checkpoint_runtime_service import (
+        CheckpointDescriptor,
+        CheckpointResolution,
+        CheckpointRuntimeService,
+        MODEL_CHECKPOINT_METADATA_KEY,
+        managed_models_dir,
+    )
+    from sdapp.shared.services.instance_bridge import SingleInstanceBridge
+    from sdapp.shared.services.metrics_settings_resolver import MetricsSettingsResolver
+    from sdapp.shared.services.unified_project_service import UnifiedProjectService
+    from sdapp.shared.services.update_service import ReleaseInfo, UpdateCheckResult, UpdateService
+
+_EXPORTS = {
+    "AnalysisWindowManager": ("sdapp.shared.services.analysis_window_manager", "AnalysisWindowManager"),
+    "AnalysisWindowRef": ("sdapp.shared.services.analysis_window_manager", "AnalysisWindowRef"),
+    "CheckpointDescriptor": ("sdapp.shared.services.checkpoint_runtime_service", "CheckpointDescriptor"),
+    "CheckpointResolution": ("sdapp.shared.services.checkpoint_runtime_service", "CheckpointResolution"),
+    "CheckpointRuntimeService": ("sdapp.shared.services.checkpoint_runtime_service", "CheckpointRuntimeService"),
+    "MODEL_CHECKPOINT_METADATA_KEY": ("sdapp.shared.services.checkpoint_runtime_service", "MODEL_CHECKPOINT_METADATA_KEY"),
+    "managed_models_dir": ("sdapp.shared.services.checkpoint_runtime_service", "managed_models_dir"),
+    "SingleInstanceBridge": ("sdapp.shared.services.instance_bridge", "SingleInstanceBridge"),
+    "MetricsSettingsResolver": ("sdapp.shared.services.metrics_settings_resolver", "MetricsSettingsResolver"),
+    "UnifiedProjectService": ("sdapp.shared.services.unified_project_service", "UnifiedProjectService"),
+    "ReleaseInfo": ("sdapp.shared.services.update_service", "ReleaseInfo"),
+    "UpdateCheckResult": ("sdapp.shared.services.update_service", "UpdateCheckResult"),
+    "UpdateService": ("sdapp.shared.services.update_service", "UpdateService"),
+}
 
 __all__ = [
     "AnalysisWindowManager",
@@ -26,3 +47,18 @@ __all__ = [
     "UpdateCheckResult",
     "UpdateService",
 ]
+
+
+def __getattr__(name: str):
+    target = _EXPORTS.get(str(name))
+    if target is None:
+        raise AttributeError(name)
+    module_name, attr_name = target
+    module = __import__(module_name, fromlist=[attr_name])
+    value = getattr(module, attr_name)
+    globals()[name] = value
+    return value
+
+
+def __dir__() -> list[str]:
+    return sorted(set(globals()) | set(__all__))

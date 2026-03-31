@@ -17,7 +17,7 @@ from sdapp.analysis.core.metrics import (
     roi_mask_from_points,
     smooth_boundary_fft,
 )
-from sdapp.shared.frame_source import EventScopedFrameSource, SDStackFrameSource, build_visualization_stack
+from sdapp.shared.frame_source import EventScopedFrameSource, PreparedFrameSource, SDStackFrameSource
 from sdapp.shared.image_overlay import apply_mask_overlay
 from sdapp.shared.persistence.event_path import allocate_event_path_segment
 from sdapp.shared.services import MetricsSettingsResolver
@@ -25,6 +25,17 @@ from sdapp.shared.services import MetricsSettingsResolver
 from .config import EventCandidate, ExportRecord, TraceResult
 from .signal_analysis import event_to_dict
 from .stack_reader import StackReader
+
+
+class _PreparedVisualSequence:
+    def __init__(self, prepared_source: PreparedFrameSource) -> None:
+        self._prepared_source = prepared_source
+
+    def __len__(self) -> int:
+        return int(getattr(self._prepared_source, "frame_count", 0) or 0)
+
+    def __getitem__(self, idx: int) -> np.ndarray:
+        return np.asarray(self._prepared_source.get_visual_frame(int(idx)), dtype=np.uint8)
 
 
 def _load_pyplot():
@@ -51,7 +62,7 @@ def export_analysis(
     include_binary_masks: bool = False,
     include_mask_overlay_images: bool = False,
     analysis_sidecar: Optional[dict[str, dict]] = None,
-    analysis_image_cache: Optional[dict[tuple, np.ndarray]] = None,
+    analysis_image_cache: Optional[dict[tuple, object]] = None,
     include_metric_propagation_speed: bool = False,
     include_metric_area_recruited: bool = False,
     include_metric_relative_area_recruited: bool = False,
@@ -777,36 +788,59 @@ def analysis_image_cache_key(event: EventCandidate, *, default_baseline_pre_fram
     )
 
 
+def _cached_analysis_image_sequence(cache_entry: object, *, expected_count: int):
+    if isinstance(cache_entry, np.ndarray):
+        arr = np.asarray(cache_entry, dtype=np.uint8)
+        if arr.ndim == 3 and int(arr.shape[0]) == int(expected_count):
+            return arr
+        return None
+    if isinstance(cache_entry, dict):
+        frames_viz = cache_entry.get("frames_viz")
+        cached_count = cache_entry.get("frame_count")
+        try:
+            resolved_count = int(cached_count if cached_count is not None else len(frames_viz))
+        except Exception:
+            return None
+        if resolved_count != int(expected_count):
+            return None
+        return frames_viz
+    return None
+
+
 def resolve_analysis_image_stack(
     frame_source,
     event: EventCandidate,
     *,
     default_baseline_pre_frames: int,
-    cache: dict[tuple, np.ndarray] | None = None,
+    cache: dict[tuple, object] | None = None,
     progress_callback: Callable[[dict], None] | None = None,
-) -> np.ndarray:
+) -> object:
     cache_key = analysis_image_cache_key(event, default_baseline_pre_frames=int(default_baseline_pre_frames))
-    if isinstance(cache, dict):
-        cached = cache.get(cache_key)
-        if cached is not None:
-            return np.asarray(cached, dtype=np.uint8)
     scope_start, scope_end, baseline_pre, processing = analysis_image_export_plan(
         event,
         default_baseline_pre_frames=int(default_baseline_pre_frames),
     )
+    expected_count = max(0, int(scope_end - scope_start + 1))
+    if isinstance(cache, dict):
+        cached = _cached_analysis_image_sequence(cache.get(cache_key), expected_count=expected_count)
+        if cached is not None:
+            return cached
     scoped_source = EventScopedFrameSource(frame_source, int(scope_start), int(scope_end))
-    _raw, _sub, frames_viz = build_visualization_stack(
+    prepared_source = PreparedFrameSource(
         scoped_source,
         baseline_frames=int(baseline_pre),
         apply_horizontal_bar_denoise=bool(processing["horizontal_bar_denoise"]),
         apply_smoothing=bool(processing["smoothing"]),
         apply_baseline_subtraction=bool(processing["baseline_subtraction"]),
         apply_global_normalization=bool(processing["global_normalization"]),
-        progress_callback=progress_callback,
     )
-    frames_viz = np.asarray(frames_viz, dtype=np.uint8)
+    prepared_source.prepare(progress_callback=progress_callback)
+    frames_viz = _PreparedVisualSequence(prepared_source)
     if isinstance(cache, dict):
-        cache[cache_key] = frames_viz
+        cache[cache_key] = {
+            "frames_viz": frames_viz,
+            "frame_count": int(len(frames_viz)),
+        }
     return frames_viz
 
 

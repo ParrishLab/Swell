@@ -130,3 +130,28 @@ def test_compute_visualization_stats_honors_cancellation() -> None:
         return
 
     raise AssertionError("Expected VisualizationCancelled")
+
+
+def test_compute_visualization_stats_reuses_processed_frames_across_baseline_and_sampling() -> None:
+    class _CountingSource(_Source):
+        def __init__(self, frames: list[np.ndarray]) -> None:
+            super().__init__(frames)
+            self.calls: list[int] = []
+
+        def get_raw_frame(self, idx: int) -> np.ndarray:
+            self.calls.append(int(idx))
+            return super().get_raw_frame(idx)
+
+    frames = [np.full((4, 4), idx, dtype=np.float32) for idx in range(12)]
+    source = _CountingSource(frames)
+
+    stats = compute_visualization_stats(
+        source,
+        baseline_frames=3,
+        apply_smoothing=False,
+        apply_baseline_subtraction=True,
+        apply_global_normalization=True,
+    )
+
+    assert stats.frame_count == 12
+    assert source.calls == [0, 1, 2, 5, 10]

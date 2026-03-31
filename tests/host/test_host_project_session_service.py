@@ -87,6 +87,30 @@ def test_load_analysis_sidecar_preserves_dict_masks() -> None:
     assert bool(np.any(np.asarray(masks["3"])))
 
 
+def test_load_analysis_sidecar_returns_defensive_copy() -> None:
+    svc = ProjectSessionService()
+    svc.new_project(_stack_ref("/tmp/in_a"))
+    svc.set_events([EventMeta(event_id="event_0001", label="E1", start_idx=1, end_idx=2, flags={})], "event_0001")
+    svc.upsert_analysis_sidecar(
+        "event_0001",
+        {
+            "prompts": {"points": [{"frame": 1, "x": 2, "y": 3}]},
+            "masks_committed": np.zeros((2, 4, 5), dtype=np.uint8),
+        },
+    )
+
+    loaded = svc.load_analysis_sidecar("event_0001")
+
+    assert loaded is not None
+    loaded["prompts"]["points"][0]["frame"] = 9
+    loaded["masks_committed"][0, 0, 0] = 1
+
+    reread = svc.load_analysis_sidecar("event_0001")
+    assert reread is not None
+    assert reread["prompts"]["points"][0]["frame"] == 1
+    assert int(reread["masks_committed"][0, 0, 0]) == 0
+
+
 def test_open_project_rejects_unknown_persistence_owner(tmp_path: Path) -> None:
     out = tmp_path / "bad_owner.sdproj"
     with zipfile.ZipFile(out, "w", compression=zipfile.ZIP_DEFLATED) as zf:

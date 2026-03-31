@@ -1,4 +1,5 @@
 import os
+import importlib
 import importlib.util
 import sys
 import time
@@ -9,7 +10,6 @@ from types import MethodType
 import numpy as np
 from tkinter import filedialog, messagebox
 
-from sdapp.analysis.model import DeterministicCpuFallbackPredictor, build_sam2_frame_cache_key
 from sdapp.shared.model_copy import (
     STATUS_MODEL_DISABLED,
     STATUS_MODEL_ERROR,
@@ -20,12 +20,6 @@ from sdapp.shared.model_copy import (
     mismatch_body,
     onboarding_body,
 )
-
-try:
-    import torch
-except Exception:
-    torch = None
-
 
 class _NullTextStream:
     def write(self, text):  # type: ignore[no-untyped-def]
@@ -42,6 +36,25 @@ def _ensure_runtime_stdio() -> None:
         sys.stdout = _NullTextStream()
     if getattr(sys, "stderr", None) is None:
         sys.stderr = _NullTextStream()
+
+
+def _torch_module():
+    try:
+        return importlib.import_module("torch")
+    except Exception:
+        return None
+
+
+def _cpu_fallback_predictor_cls():
+    from sdapp.analysis.model.cpu_fallback_predictor import DeterministicCpuFallbackPredictor
+
+    return DeterministicCpuFallbackPredictor
+
+
+def _build_sam2_frame_cache_key_fn():
+    from sdapp.analysis.model.sam2_frame_cache import build_sam2_frame_cache_key
+
+    return build_sam2_frame_cache_key
 
 
 @dataclass(frozen=True)
@@ -103,6 +116,7 @@ def _candidate_model_config_names(model_path: str, checkpoint_id: str | None) ->
 
 class SegmentationActions:
     def _apply_mps_sam2_dtype_guard(self):
+        torch = _torch_module()
         if torch is None:
             return
         if not torch.backends.mps.is_available() or self.predictor is None:
@@ -174,6 +188,7 @@ class SegmentationActions:
             self.root.after(0, lambda m=str(activity_message): self._set_activity_message(m))
 
     def resolve_checkpoint_preflight(self) -> CheckpointOnboardingResult:
+        torch = _torch_module()
         if getattr(self, "checkpoint_runtime", None) is None:
             return CheckpointOnboardingResult(
                 ok=False,
@@ -325,6 +340,10 @@ class SegmentationActions:
     def _initialize_cpu_fallback(self, frames_viz: np.ndarray, reason: str):
         runtime = getattr(self, "sam2_runtime", None)
         if runtime is None:
+            ensure_runtime = getattr(self, "_ensure_sam2_runtime", None)
+            if callable(ensure_runtime):
+                runtime = ensure_runtime()
+        if runtime is None:
             raise RuntimeError("SAM2 runtime service is unavailable.")
         model_hint = None
         try:
@@ -337,7 +356,7 @@ class SegmentationActions:
             model_hint.write_bytes(b"sdapp-cpu-fallback")
 
         def _build_predictor(_normalized_model_path: str, _temp_dir: str):
-            predictor = DeterministicCpuFallbackPredictor(
+            predictor = _cpu_fallback_predictor_cls()(
                 frame_count=int(frames_viz.shape[0]),
                 frame_shape=(int(frames_viz.shape[1]), int(frames_viz.shape[2])),
             )
@@ -414,6 +433,7 @@ class SegmentationActions:
 
     def init_runtime_background(self, preflight: CheckpointOnboardingResult):
         try:
+            torch = _torch_module()
             frame_count = int(self._get_frame_count()) if hasattr(self, "_get_frame_count") else 0
             if frame_count <= 0:
                 raise RuntimeError("No frames loaded. Import images first.")
@@ -433,6 +453,10 @@ class SegmentationActions:
                 raise RuntimeError(f"Model file not found: {model_path}")
 
             runtime = getattr(self, "sam2_runtime", None)
+            if runtime is None:
+                ensure_runtime = getattr(self, "_ensure_sam2_runtime", None)
+                if callable(ensure_runtime):
+                    runtime = ensure_runtime()
             if runtime is None:
                 raise RuntimeError("SAM2 runtime service is unavailable.")
 
@@ -457,7 +481,7 @@ class SegmentationActions:
                         stats = frame_source.stats()
                     except Exception as exc:
                         self.log_debug("Perf", f"Visualization stats unavailable for SAM export cache: {exc}")
-                cache_key = build_sam2_frame_cache_key(
+                cache_key = _build_sam2_frame_cache_key_fn()(
                     frame_source=frame_source,
                     frame_count=frame_count,
                     frame_shape=frame_shape,
@@ -470,6 +494,10 @@ class SegmentationActions:
                 )
                 frame_cache = getattr(self, "sam2_frame_cache", None)
                 cache_dir = None
+                if frame_cache is None:
+                    ensure_frame_cache = getattr(self, "_ensure_sam2_frame_cache", None)
+                    if callable(ensure_frame_cache):
+                        frame_cache = ensure_frame_cache()
                 if frame_cache is not None:
                     frame_cache.prune_expired()
                     self.log_info("Model", "Preparing cached frames for SAM2...")

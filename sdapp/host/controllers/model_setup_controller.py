@@ -19,6 +19,7 @@ from sdapp.shared.model_copy import (
     onboarding_body,
 )
 from sdapp.shared.services import CheckpointResolution, MODEL_CHECKPOINT_METADATA_KEY
+from sdapp.shared.ui import BackgroundTaskRunner, ManagedModelWorkflow, ManagedModelWorkflowOptions
 
 
 class HostModelSetupController:
@@ -43,182 +44,34 @@ class HostModelSetupController:
             self._set_gate_state(ready=False, disabled=True, reason=STATUS_MODEL_ERROR)
             return {"ok": False, "ready": False, "disabled": True}
 
-        descriptors = list(service.load_catalog())
-        if not descriptors:
-            messagebox.showwarning(
-                "Models",
-                "No model catalog entries are available in checkpoints_catalog.json.",
-                parent=self.app.root,
-            )
-            if required:
-                self._set_review_only("Model catalog is unavailable; model tools are disabled.")
-            return {"ok": False, "ready": bool(self.app._model_setup_ready), "disabled": bool(self.app._model_setup_disabled)}
-
-        dialog = tk.Toplevel(self.app.root)
-        dialog.title(TITLE_MANAGE_MODELS)
-        dialog.transient(self.app.root)
-        dialog.resizable(True, False)
-        dialog.grab_set()
-
-        shell = ttk.Frame(dialog, padding=10)
-        shell.pack(fill="both", expand=True)
-        managed_dir = service.managed_models_dir()
-        ttk.Label(shell, text=f"Managed folder: {managed_dir}").pack(anchor="w", pady=(0, 6))
-
-        tree = ttk.Treeview(
-            shell,
-            columns=("filename", "status"),
-            show="headings",
-            height=min(6, max(3, len(descriptors))),
+        workflow = ManagedModelWorkflow(
+            root=self.app.root,
+            service=service,
+            runner=self._task_runner(),
+            options=ManagedModelWorkflowOptions(
+                title=TITLE_MANAGE_MODELS,
+                select_local_title="Select SAM2 Model File",
+                unavailable_message="Model runtime service is unavailable.",
+                empty_catalog_message="No model catalog entries are available in checkpoints_catalog.json.",
+                review_only_label="Review-only" if required else None,
+                on_review_only=(lambda: self._set_review_only("User selected review-only mode from model manager."))
+                if required
+                else None,
+                on_center_window=self._center,
+            ),
+            get_current_managed_id=self._current_managed_id,
+            on_log_info=self.app._log_info,
+            on_log_error=self.app._log_error,
+            activate_managed=self._activate_managed_descriptor,
+            activate_local=self._activate_local_path,
+            prompt_select_local=lambda parent, title: self._prompt_select_local_file(parent=parent, title=title),
         )
-        tree.heading("filename", text="Filename")
-        tree.heading("status", text="Status")
-        tree.column("filename", width=320, anchor="w")
-        tree.column("status", width=140, anchor="center")
-        tree.pack(fill="x")
-
-        status_var = tk.StringVar(value="Select a model entry and choose an action.")
-        ttk.Label(shell, textvariable=status_var).pack(anchor="w", pady=(6, 0))
-
-        btn_row = ttk.Frame(shell)
-        btn_row.pack(fill="x", pady=(8, 0))
-        download_btn = ttk.Button(btn_row, text="Download Selected")
-        use_btn = ttk.Button(btn_row, text="Use Selected")
-        local_btn = ttk.Button(btn_row, text="Select Local...")
-        review_btn = ttk.Button(btn_row, text="Review-only")
-        close_btn = ttk.Button(btn_row, text="Close", command=dialog.destroy)
-        download_btn.pack(side="left")
-        use_btn.pack(side="left", padx=(6, 0))
-        local_btn.pack(side="left", padx=(6, 0))
-        if required:
-            review_btn.pack(side="left", padx=(6, 0))
-        close_btn.pack(side="right")
-
-        descriptor_by_id = {d.checkpoint_id: d for d in descriptors}
-        result: dict[str, object] = {"ok": False, "ready": bool(self.app._model_setup_ready), "disabled": bool(self.app._model_setup_disabled)}
-
-        def _set_busy(is_busy: bool) -> None:
-            state = "disabled" if is_busy else "normal"
-            for button in (download_btn, use_btn, local_btn, review_btn, close_btn):
-                try:
-                    button.configure(state=state)
-                except Exception:
-                    pass
-
-        def _refresh_rows() -> None:
-            selected_id = None
-            current_token = str(getattr(self.app, "_active_model_token", "") or "").strip()
-            if current_token.startswith("managed://"):
-                selected_id = str(current_token).split("managed://", 1)[-1].strip() or None
-            for item in tree.get_children():
-                tree.delete(item)
-            for descriptor in descriptors:
-                installed = service.descriptor_path(descriptor).exists()
-                status = "Installed" if installed else "Missing"
-                tree.insert("", "end", iid=descriptor.checkpoint_id, values=(descriptor.filename, status))
-            if selected_id and selected_id in descriptor_by_id:
-                tree.selection_set(selected_id)
-                tree.focus(selected_id)
-            elif descriptors:
-                tree.selection_set(descriptors[0].checkpoint_id)
-                tree.focus(descriptors[0].checkpoint_id)
-
-        def _selected_descriptor():
-            selected = tree.selection()
-            if not selected:
-                return None
-            return descriptor_by_id.get(str(selected[0]))
-
-        def _complete(success: bool) -> None:
-            result["ok"] = bool(success)
-            result["ready"] = bool(self.app._model_setup_ready)
-            result["disabled"] = bool(self.app._model_setup_disabled)
-            if success or required:
-                dialog.destroy()
-
-        def _download_selected() -> None:
-            descriptor = _selected_descriptor()
-            if descriptor is None:
-                status_var.set("Select a model entry first.")
-                return
-            status_var.set(f"Downloading model file {descriptor.filename} ...")
-            self.app._log_info(f"Downloading model file {descriptor.checkpoint_id}...")
-            _set_busy(True)
-
-            def _worker() -> None:
-                try:
-                    service.download_descriptor(descriptor)
-                except Exception as exc:
-                    self.app.root.after(
-                        0,
-                        lambda e=exc: (
-                            status_var.set(f"Download failed: {e}"),
-                            self.app._log_error(f"Model download failed: {e}"),
-                            _set_busy(False),
-                            messagebox.showerror(TITLE_MODEL_DOWNLOAD_FAILED, str(e), parent=dialog),
-                        ),
-                    )
-                    return
-
-                def _on_done() -> None:
-                    _set_busy(False)
-                    _refresh_rows()
-                    status_var.set(f"Downloaded model file {descriptor.filename}.")
-                    if self._activate_managed_descriptor(descriptor, source="managed_download"):
-                        self.app._log_info(f"Downloaded and activated model file {descriptor.filename}.")
-                        _complete(True)
-                    else:
-                        _complete(False)
-
-                self.app.root.after(0, _on_done)
-
-            threading.Thread(target=_worker, daemon=True).start()
-
-        def _use_selected() -> None:
-            descriptor = _selected_descriptor()
-            if descriptor is None:
-                status_var.set("Select a model entry first.")
-                return
-            managed_path = service.descriptor_path(descriptor)
-            if not managed_path.exists():
-                status_var.set("Selected model file is not downloaded yet.")
-                messagebox.showwarning(
-                    TITLE_MODEL_FILE_MISSING,
-                    "Download the selected model file first.",
-                    parent=dialog,
-                )
-                return
-            if self._activate_managed_descriptor(descriptor, source="managed_select"):
-                status_var.set(f"Using model file {descriptor.filename}.")
-                _complete(True)
-            else:
-                status_var.set("Unable to activate selected model file.")
-                _complete(False)
-
-        def _select_local() -> None:
-            selected = self._prompt_select_local_file(parent=dialog, title="Select SAM2 Model File")
-            if not selected:
-                return
-            if self._activate_local_path(selected, source="manual_override"):
-                status_var.set(f"Using local model file: {Path(selected).name}")
-                _complete(True)
-            else:
-                status_var.set("Unable to activate selected local model file.")
-                _complete(False)
-
-        def _review_only() -> None:
-            self._set_review_only("User selected review-only mode from model manager.")
-            _complete(False)
-
-        download_btn.configure(command=_download_selected)
-        use_btn.configure(command=_use_selected)
-        local_btn.configure(command=_select_local)
-        review_btn.configure(command=_review_only)
-        _refresh_rows()
-        dialog.update_idletasks()
-        dialog.minsize(dialog.winfo_width(), dialog.winfo_height())
-        self._center(dialog)
-        self.app.root.wait_window(dialog)
+        result = workflow.open_dialog(required=required)
+        if required and not bool(result.get("ok")) and not bool(self.app._model_setup_disabled):
+            if not list(service.load_catalog()):
+                self._set_review_only("Model catalog is unavailable; model tools are disabled.")
+        result["ready"] = bool(self.app._model_setup_ready)
+        result["disabled"] = bool(self.app._model_setup_disabled)
         return result
 
     def resolve_project_model_mismatch(self, project_metadata: dict | None) -> dict[str, object]:
@@ -413,6 +266,20 @@ class HostModelSetupController:
         self.app._log_info(f"Active model ready: {Path(self.app._active_model_path).name}.")
         return True
 
+    def _current_managed_id(self) -> str | None:
+        current_token = str(getattr(self.app, "_active_model_token", "") or "").strip()
+        if not current_token.startswith("managed://"):
+            return None
+        return str(current_token).split("managed://", 1)[-1].strip() or None
+
+    def _task_runner(self) -> BackgroundTaskRunner:
+        runner = getattr(self.app, "_background_task_runner", None)
+        if isinstance(runner, BackgroundTaskRunner):
+            return runner
+        runner = BackgroundTaskRunner(self.app.root)
+        self.app._background_task_runner = runner
+        return runner
+
     def _set_review_only(self, reason: str) -> None:
         self._set_gate_state(ready=False, disabled=True, reason=reason or STATUS_MODEL_DISABLED)
         self.app._set_status(STATUS_MODEL_DISABLED)
@@ -446,4 +313,3 @@ class HostModelSetupController:
         center = getattr(self.app, "_center_window_on_screen", None)
         if callable(center):
             center(window)
-

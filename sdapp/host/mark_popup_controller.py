@@ -274,7 +274,7 @@ class MarkPopupController:
         self.app._mark_norm_p1 = 0.0
         self.app._mark_norm_p99 = 1.0
         self.app._mark_processed_cache.clear()
-        self.app._mini_raw_u8_cache.clear()
+        self.app._normalized_frame_u8_cache.clear()
         self.app._gc_runtime_caches(aggressive=False, run_python_gc=True)
 
     def confirm(self) -> None:

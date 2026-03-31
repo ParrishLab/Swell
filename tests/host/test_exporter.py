@@ -847,6 +847,64 @@ def test_export_analysis_images_reuse_cache_when_available(tmp_path: Path) -> No
     assert np.array_equal(arr, cached_stack[2])
 
 
+def test_export_analysis_images_reuse_cached_sequence_when_available(tmp_path: Path) -> None:
+    class _Sequence:
+        def __init__(self, frames: list[np.ndarray]) -> None:
+            self._frames = [np.asarray(frame, dtype=np.uint8) for frame in frames]
+            self.index_calls: list[int] = []
+
+        def __len__(self) -> int:
+            return len(self._frames)
+
+        def __getitem__(self, idx: int) -> np.ndarray:
+            self.index_calls.append(int(idx))
+            return self._frames[int(idx)]
+
+    frames = [np.zeros((4, 4), dtype=np.uint8) for _ in range(6)]
+    reader = FakeReader(frames)
+    event = _event(
+        "event_0001",
+        2,
+        3,
+        flags={
+            "baseline_pre_frames": 2,
+            "analysis_processing": {"horizontal_bar_denoise": False},
+            "analysis_scope_start_idx": 0,
+            "analysis_scope_end_idx": 3,
+        },
+    )
+    cached_sequence = _Sequence(
+        [
+            np.full((4, 4), 11, dtype=np.uint8),
+            np.full((4, 4), 22, dtype=np.uint8),
+            np.full((4, 4), 33, dtype=np.uint8),
+            np.full((4, 4), 44, dtype=np.uint8),
+        ]
+    )
+    cache = {
+        analysis_image_cache_key(event, default_baseline_pre_frames=30): {
+            "frames_viz": cached_sequence,
+            "frame_count": 4,
+        }
+    }
+
+    export_analysis(
+        reader=reader,
+        events=[event],
+        output_dir=tmp_path,
+        baseline_pre_frames=30,
+        include_event_images=False,
+        include_baseline_images=False,
+        include_analysis_images=True,
+        analysis_image_cache=cache,
+    )
+
+    analysis_dir = tmp_path / "event_0001" / "analysis_images"
+    arr = tifffile.imread(str(analysis_dir / "000002_event_frame_0002.tif"))
+    assert np.array_equal(arr, np.full((4, 4), 33, dtype=np.uint8))
+    assert cached_sequence.index_calls == [0, 1, 2, 3]
+
+
 def test_export_analysis_images_emits_prepare_progress(tmp_path: Path) -> None:
     frames = [np.full((5, 5), i, dtype=np.uint8) for i in range(6)]
     reader = FakeReader(frames)

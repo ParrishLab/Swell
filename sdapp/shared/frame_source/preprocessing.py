@@ -99,6 +99,71 @@ def _raise_if_cancelled(should_cancel: Callable[[], bool] | None) -> None:
         raise VisualizationCancelled("Visualization preparation canceled.")
 
 
+def _emit_stats_progress(
+    progress_callback,
+    *,
+    stage: str,
+    current: int,
+    total: int,
+) -> None:
+    if not callable(progress_callback):
+        return
+    progress_callback(
+        {
+            "stage": str(stage),
+            "current": int(current),
+            "total": int(total),
+        }
+    )
+
+
+def _stats_sample_indices(frame_count: int) -> list[int]:
+    return list(range(0, max(0, int(frame_count)), 5))
+
+
+def _prepare_stats_frame_cache(
+    frame_source,
+    *,
+    frame_count: int,
+    baseline_count: int,
+    apply_horizontal_bar_denoise: bool,
+    apply_smoothing: bool,
+    first_frame: np.ndarray,
+    apply_baseline_subtraction: bool,
+    apply_global_normalization: bool,
+    should_cancel: Callable[[], bool] | None = None,
+    progress_callback=None,
+) -> tuple[dict[int, np.ndarray], list[int]]:
+    raw_cache: dict[int, np.ndarray] = {0: np.asarray(first_frame, dtype=np.float32, copy=False)}
+    processed_cache: dict[int, np.ndarray] = {}
+    sample_indices = _stats_sample_indices(frame_count) if bool(apply_global_normalization) else []
+    work_indices: list[int] = []
+    seen: set[int] = set()
+    if bool(apply_baseline_subtraction):
+        for idx in range(int(baseline_count)):
+            if idx not in seen:
+                work_indices.append(int(idx))
+                seen.add(int(idx))
+    for idx in sample_indices:
+        if idx not in seen:
+            work_indices.append(int(idx))
+            seen.add(int(idx))
+    total = max(0, len(work_indices))
+    for current, idx in enumerate(work_indices, start=1):
+        _raise_if_cancelled(should_cancel)
+        raw = raw_cache.get(int(idx))
+        if raw is None:
+            raw = _read_frame_float32(frame_source, idx)
+            raw_cache[int(idx)] = raw
+        processed_cache[int(idx)] = _processed_frame(
+            raw,
+            apply_horizontal_bar_denoise=bool(apply_horizontal_bar_denoise),
+            apply_smoothing=bool(apply_smoothing),
+        )
+        _emit_stats_progress(progress_callback, stage="prepare", current=current, total=total)
+    return processed_cache, sample_indices
+
+
 def compute_visualization_stats(
     frame_source,
     *,
@@ -108,6 +173,7 @@ def compute_visualization_stats(
     apply_baseline_subtraction: bool = True,
     apply_global_normalization: bool = True,
     should_cancel: Callable[[], bool] | None = None,
+    progress_callback=None,
 ) -> VisualizationStats:
     frame_count = int(getattr(frame_source, "frame_count", 0) or 0)
     if frame_count <= 0:
@@ -124,39 +190,35 @@ def compute_visualization_stats(
     first_frame = _read_frame_float32(frame_source, 0)
     frame_shape = tuple(int(v) for v in first_frame.shape[:2])
     baseline_count = max(1, min(int(baseline_frames), frame_count))
+    processed_cache, sample_indices = _prepare_stats_frame_cache(
+        frame_source,
+        frame_count=frame_count,
+        baseline_count=baseline_count,
+        apply_horizontal_bar_denoise=bool(apply_horizontal_bar_denoise),
+        apply_smoothing=bool(apply_smoothing),
+        first_frame=first_frame,
+        apply_baseline_subtraction=bool(apply_baseline_subtraction),
+        apply_global_normalization=bool(apply_global_normalization),
+        should_cancel=should_cancel,
+        progress_callback=progress_callback,
+    )
     baseline = None
     if bool(apply_baseline_subtraction):
-        baseline_parts = [
-            (
-                _raise_if_cancelled(should_cancel),
-                _processed_source_frame(
-                    frame_source,
-                    idx,
-                    apply_horizontal_bar_denoise=bool(apply_horizontal_bar_denoise),
-                    apply_smoothing=bool(apply_smoothing),
-                ),
-            )[1]
-            for idx in range(baseline_count)
-        ]
+        baseline_parts = [np.asarray(processed_cache[int(idx)], dtype=np.float32, copy=False) for idx in range(baseline_count)]
         baseline = np.median(np.stack(baseline_parts, axis=0), axis=0).astype(np.float32, copy=False)
 
     p1 = None
     p99 = None
     if bool(apply_global_normalization):
-        sampled_frames: list[np.ndarray] = []
-        for idx in range(0, frame_count, 5):
+        sampled_parts: list[np.ndarray] = []
+        for idx in sample_indices:
             _raise_if_cancelled(should_cancel)
-            source = _processed_source_frame(
-                frame_source,
-                idx,
-                apply_horizontal_bar_denoise=bool(apply_horizontal_bar_denoise),
-                apply_smoothing=bool(apply_smoothing),
-            )
+            source = np.asarray(processed_cache[int(idx)], dtype=np.float32, copy=False)
             if baseline is not None:
                 source = source - baseline
-            sampled_frames.append(source.astype(np.float32, copy=False))
+            sampled_parts.append(np.asarray(source, dtype=np.float32, copy=False).reshape(-1))
         _raise_if_cancelled(should_cancel)
-        sampled = np.stack(sampled_frames, axis=0) if sampled_frames else np.zeros((0,) + frame_shape, dtype=np.float32)
+        sampled = np.concatenate(sampled_parts, axis=0) if sampled_parts else np.zeros((0,), dtype=np.float32)
         p1 = float(np.percentile(sampled, 1)) if sampled.size > 0 else 0.0
         p99 = float(np.percentile(sampled, 99)) if sampled.size > 0 else 1.0
 

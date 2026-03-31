@@ -65,7 +65,7 @@ class PreparedFrameSource:
             raise IndexError(f"Frame index out of range: {idx}")
         return idx
 
-    def stats(self) -> VisualizationStats:
+    def stats(self, *, should_cancel=None, progress_callback=None) -> VisualizationStats:
         with self._lock:
             if self._stats is not None:
                 return self._stats
@@ -76,14 +76,16 @@ class PreparedFrameSource:
             apply_smoothing=self._apply_smoothing,
             apply_baseline_subtraction=self._apply_baseline_subtraction,
             apply_global_normalization=self._apply_global_normalization,
+            should_cancel=should_cancel,
+            progress_callback=progress_callback,
         )
         with self._lock:
             if self._stats is None:
                 self._stats = stats
             return self._stats
 
-    def prepare(self) -> VisualizationStats:
-        return self.stats()
+    def prepare(self, *, should_cancel=None, progress_callback=None) -> VisualizationStats:
+        return self.stats(should_cancel=should_cancel, progress_callback=progress_callback)
 
     def _cache_put(self, idx: int, value: tuple[np.ndarray, np.ndarray, np.ndarray]) -> None:
         self._frame_cache[idx] = value

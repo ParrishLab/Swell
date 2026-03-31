@@ -3,17 +3,14 @@ from __future__ import annotations
 import os
 from pathlib import Path
 import shutil
-import threading
-import tkinter as tk
-from tkinter import filedialog, messagebox, ttk
+from tkinter import filedialog, messagebox
 
 from sdapp.shared.model_copy import (
     TITLE_MANAGE_MODELS,
     TITLE_MODEL_DOWNLOADED,
-    TITLE_MODEL_DOWNLOAD_FAILED,
-    TITLE_MODEL_FILE_MISSING,
 )
 from sdapp.shared.services.checkpoint_runtime_service import is_managed_uri
+from sdapp.shared.ui import BackgroundTaskRunner, ManagedModelWorkflow, ManagedModelWorkflowOptions
 
 
 class AnalysisModelController:
@@ -90,172 +87,26 @@ class AnalysisModelController:
         if service is None:
             messagebox.showwarning("Models", "Model runtime service is unavailable.", parent=self.app.root)
             return
-        descriptors = list(service.load_catalog())
-        if not descriptors:
-            messagebox.showwarning(
-                "Models",
-                "No model catalog entries are available in checkpoints_catalog.json.",
-                parent=self.app.root,
-            )
-            return
-
-        dialog = tk.Toplevel(self.app.root)
-        dialog.title(TITLE_MANAGE_MODELS)
-        dialog.transient(self.app.root)
-        dialog.resizable(True, False)
-        dialog.grab_set()
-
-        shell = ttk.Frame(dialog, padding=10)
-        shell.pack(fill="both", expand=True)
-        managed_dir = service.managed_models_dir()
-        ttk.Label(shell, text=f"Managed folder: {managed_dir}").pack(anchor="w", pady=(0, 6))
-
-        tree = ttk.Treeview(shell, columns=("filename", "status"), show="headings", height=min(6, max(3, len(descriptors))))
-        tree.heading("filename", text="Filename")
-        tree.heading("status", text="Status")
-        tree.column("filename", width=280, anchor="w")
-        tree.column("status", width=120, anchor="center")
-        tree.pack(fill="x")
-
-        status_var = tk.StringVar(value="Select a model entry and choose an action.")
-        ttk.Label(shell, textvariable=status_var).pack(anchor="w", pady=(6, 0))
-
-        btn_row = ttk.Frame(shell)
-        btn_row.pack(fill="x", pady=(8, 0))
-        download_btn = ttk.Button(btn_row, text="Download Selected")
-        use_btn = ttk.Button(btn_row, text="Use Selected")
-        local_btn = ttk.Button(btn_row, text="Select Local...")
-        close_btn = ttk.Button(btn_row, text="Close", command=dialog.destroy)
-        download_btn.pack(side="left")
-        use_btn.pack(side="left", padx=(6, 0))
-        local_btn.pack(side="left", padx=(6, 0))
-        close_btn.pack(side="right")
-
-        descriptor_by_id = {d.checkpoint_id: d for d in descriptors}
-
-        def _set_busy(is_busy: bool) -> None:
-            state = "disabled" if is_busy else "normal"
-            for button in (download_btn, use_btn, local_btn, close_btn):
-                button.configure(state=state)
-
-        def _apply_model_token(token: str, *, manual_override: str | None, reason: str) -> None:
-            self.app.set_model_token(str(token))
-            self.app._manual_model_override = manual_override
-            self.app.log_info("Model", reason)
-            self.app.start_model_initialization(reason="model_manager")
-
-        def _refresh_rows() -> None:
-            selected_id = None
-            current_token = str(self.app.get_model_token() or "").strip()
-            if is_managed_uri(current_token):
-                selected_id = str(current_token).split("managed://", 1)[-1].strip() or None
-            for item in tree.get_children():
-                tree.delete(item)
-            for descriptor in descriptors:
-                installed = service.descriptor_path(descriptor).exists()
-                status = "Installed" if installed else "Missing"
-                tree.insert("", "end", iid=descriptor.checkpoint_id, values=(descriptor.filename, status))
-            if selected_id and selected_id in descriptor_by_id:
-                tree.selection_set(selected_id)
-                tree.focus(selected_id)
-            elif descriptors:
-                tree.selection_set(descriptors[0].checkpoint_id)
-                tree.focus(descriptors[0].checkpoint_id)
-
-        def _selected_descriptor():
-            selected = tree.selection()
-            if not selected:
-                return None
-            return descriptor_by_id.get(str(selected[0]))
-
-        def _download_selected():
-            descriptor = _selected_descriptor()
-            if descriptor is None:
-                status_var.set("Select a model entry first.")
-                return
-            status_var.set(f"Downloading model file {descriptor.filename} ...")
-            self.app.log_info("Model", f"Downloading model file {descriptor.checkpoint_id}...")
-            _set_busy(True)
-
-            def _worker():
-                try:
-                    path = service.download_descriptor(descriptor)
-                except Exception as exc:
-                    self.app.root.after(
-                        0,
-                        lambda e=exc: (
-                            status_var.set(f"Download failed: {e}"),
-                            self.app.log_error("Model", f"Model download failed: {e}"),
-                            _set_busy(False),
-                            messagebox.showerror(TITLE_MODEL_DOWNLOAD_FAILED, str(e), parent=dialog),
-                        ),
-                    )
-                    return
-                self.app.root.after(
-                    0,
-                    lambda p=path, d=descriptor: (
-                        _refresh_rows(),
-                        _set_busy(False),
-                        status_var.set(f"Downloaded model file {d.filename}."),
-                        self.app.log_success("Model", f"Downloaded model file {d.checkpoint_id}."),
-                        messagebox.showinfo(TITLE_MODEL_DOWNLOADED, f"Downloaded to:\n{p}", parent=dialog),
-                        _apply_model_token(
-                            f"managed://{d.checkpoint_id}",
-                            manual_override=None,
-                            reason=f"Using managed model file {d.checkpoint_id}.",
-                        ),
-                    ),
-                )
-
-            threading.Thread(target=_worker, daemon=True).start()
-
-        def _use_selected():
-            descriptor = _selected_descriptor()
-            if descriptor is None:
-                status_var.set("Select a model entry first.")
-                return
-            managed_path = service.descriptor_path(descriptor)
-            if not managed_path.exists():
-                status_var.set("Selected model file is not downloaded yet.")
-                messagebox.showwarning(
-                    TITLE_MODEL_FILE_MISSING,
-                    "Download the selected model file first.",
-                    parent=dialog,
-                )
-                return
-            status_var.set(f"Using model file {descriptor.filename}.")
-            _apply_model_token(
-                f"managed://{descriptor.checkpoint_id}",
-                manual_override=None,
-                reason=f"Using managed model file {descriptor.checkpoint_id}.",
-            )
-
-        def _select_local():
-            center_window = getattr(self.app, "_center_window", None)
-            if callable(center_window):
-                center_window(dialog)
-            selected = filedialog.askopenfilename(
-                parent=dialog,
-                title="Select SAM2 Model File",
-                initialdir=str(managed_dir),
-                filetypes=[("PyTorch model", "*.pt *.pth"), ("All files", "*.*")],
-            )
-            if not selected:
-                return
-            selected_abs = str(Path(selected).expanduser().resolve())
-            status_var.set(f"Using local model file: {Path(selected_abs).name}")
-            _apply_model_token(
-                selected_abs,
-                manual_override=selected_abs,
-                reason=f"Using local model file {Path(selected_abs).name}.",
-            )
-
-        download_btn.configure(command=_download_selected)
-        use_btn.configure(command=_use_selected)
-        local_btn.configure(command=_select_local)
-        _refresh_rows()
-        dialog.update_idletasks()
-        dialog.minsize(dialog.winfo_width(), dialog.winfo_height())
+        workflow = ManagedModelWorkflow(
+            root=self.app.root,
+            service=service,
+            runner=self._task_runner(),
+            options=ManagedModelWorkflowOptions(
+                title=TITLE_MANAGE_MODELS,
+                select_local_title="Select SAM2 Model File",
+                unavailable_message="Model runtime service is unavailable.",
+                empty_catalog_message="No model catalog entries are available in checkpoints_catalog.json.",
+                show_download_success=self._show_download_success,
+                on_center_window=getattr(self.app, "_center_window", None),
+            ),
+            get_current_managed_id=self._current_managed_id,
+            on_log_info=lambda message: self.app.log_info("Model", message),
+            on_log_error=lambda message: self.app.log_error("Model", message),
+            activate_managed=self._activate_managed_descriptor,
+            activate_local=self._activate_local_path,
+            prompt_select_local=self._prompt_select_local,
+        )
+        workflow.open_dialog(required=False)
 
     def open_checkpoint_manager(self):
         # Backward-compatible alias for existing callbacks.
@@ -275,6 +126,61 @@ class AnalysisModelController:
                 shutil.rmtree(self.app.temp_dir, ignore_errors=True)
         except Exception:
             pass
+
+    def _activate_managed_descriptor(self, descriptor, source: str) -> bool:
+        self._apply_model_token(
+            f"managed://{descriptor.checkpoint_id}",
+            manual_override=None,
+            reason=f"Using managed model file {descriptor.checkpoint_id}.",
+        )
+        return True
+
+    def _activate_local_path(self, path: str, source: str) -> bool:  # noqa: ARG002
+        selected_abs = str(Path(path).expanduser().resolve())
+        self._apply_model_token(
+            selected_abs,
+            manual_override=selected_abs,
+            reason=f"Using local model file {Path(selected_abs).name}.",
+        )
+        return True
+
+    def _apply_model_token(self, token: str, *, manual_override: str | None, reason: str) -> None:
+        self.app.set_model_token(str(token))
+        self.app._manual_model_override = manual_override
+        self.app.log_info("Model", reason)
+        self.app.start_model_initialization(reason="model_manager")
+
+    def _current_managed_id(self) -> str | None:
+        current_token = str(self.app.get_model_token() or "").strip()
+        if not is_managed_uri(current_token):
+            return None
+        return str(current_token).split("managed://", 1)[-1].strip() or None
+
+    def _prompt_select_local(self, parent, title: str) -> str | None:
+        center_window = getattr(self.app, "_center_window", None)
+        if callable(center_window):
+            center_window(parent)
+        selected = filedialog.askopenfilename(
+            parent=parent,
+            title=title,
+            initialdir=str(self.app.checkpoint_runtime.managed_models_dir()),
+            filetypes=[("PyTorch model", "*.pt *.pth"), ("All files", "*.*")],
+        )
+        if not selected:
+            return None
+        return str(Path(selected).expanduser().resolve())
+
+    def _show_download_success(self, path: str, descriptor, dialog) -> None:
+        self.app.log_success("Model", f"Downloaded model file {descriptor.checkpoint_id}.")
+        messagebox.showinfo(TITLE_MODEL_DOWNLOADED, f"Downloaded to:\n{path}", parent=dialog)
+
+    def _task_runner(self) -> BackgroundTaskRunner:
+        runner = getattr(self.app, "_background_task_runner", None)
+        if isinstance(runner, BackgroundTaskRunner):
+            return runner
+        runner = BackgroundTaskRunner(self.app.root)
+        self.app._background_task_runner = runner
+        return runner
         try:
             import torch
 

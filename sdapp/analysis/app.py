@@ -1,3 +1,4 @@
+import importlib.util
 import os
 import sys
 import threading
@@ -9,7 +10,6 @@ from pathlib import Path
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
-import cv2
 import numpy as np
 
 from sdapp.analysis.core.state import AppConfig
@@ -39,29 +39,22 @@ from sdapp.analysis.core.propagation_progress import PropagationProgressLogger
 from sdapp.analysis.core.app_context import AppContext
 from sdapp.analysis.core import project_workflow
 from sdapp.shared.app_metadata import format_window_title
-from sdapp.analysis.controllers import AnalysisHostModeController, AnalysisModelController, AnalysisWindowController
+from sdapp.analysis.controllers import (
+    AnalysisHostModeController,
+    AnalysisModelController,
+    AnalysisRuntimeController,
+    AnalysisWindowController,
+)
 from sdapp.analysis.ui.layout import LayoutBuilder
 from sdapp.analysis.utils.paths import get_app_root, get_resources_root
-from sdapp.analysis.model import SAM2FrameCache, SAM2RuntimeService
 from sdapp.shared.services import CheckpointRuntimeService, MODEL_CHECKPOINT_METADATA_KEY
 
 
-# Optional dependency checks for runtime capabilities.
-try:
-    import imagecodecs  # noqa: F401
-except ImportError:
-    print("WARNING: imagecodecs not installed. LZW-compressed TIFFs may fail to load.")
-    print("Install with: pip install imagecodecs")
-
-try:
-    import sam2  # noqa: F401
-except ImportError:
-    print("WARNING: 'sam2' package not found. Model-based tools will be disabled (review-only mode).")
-    print(
-        "Install SAM2 for model-based segmentation: "
-        'pip install "sam-2 @ git+https://github.com/facebookresearch/sam2.git"'
-    )
-    print(f"Python interpreter: {sys.executable}")
+def _module_available(name: str) -> bool:
+    try:
+        return importlib.util.find_spec(str(name)) is not None
+    except Exception:
+        return False
 
 
 class PrintLogger:
@@ -143,8 +136,8 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         self._roi_is_local_override = False
         self.analysis_mode = None
 
-        self.sam2_runtime = SAM2RuntimeService()
-        self.sam2_frame_cache = SAM2FrameCache()
+        self.sam2_runtime = None
+        self.sam2_frame_cache = None
         self.checkpoint_runtime = CheckpointRuntimeService()
         self.masks_cache = self.seg_state.masks_cache
 
@@ -193,6 +186,7 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         self.window_controller = AnalysisWindowController(self)
         self.host_mode_controller = AnalysisHostModeController(self)
         self.model_controller = AnalysisModelController(self)
+        self.runtime_controller = AnalysisRuntimeController(self)
         if menu_builder is not None:
             self._menu_bar = menu_builder(self.root, self, mode=menu_mode, host_mode=self._host_mode)
         else:
@@ -209,6 +203,10 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
             log_warn=self.log_warn,
             log_error=self.log_error,
         )
+        if hasattr(self.root, "after"):
+            self.root.after(0, self._emit_optional_runtime_dependency_warnings)
+        else:
+            self._emit_optional_runtime_dependency_warnings()
         self.inference_manager = InferenceManager(
             state=self.seg_state,
             root=self.root,
@@ -847,99 +845,50 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
                 self._set_loading_indicator(True, body or "Propagating...")
 
     def _set_runtime_status(self, text: str, color: str) -> None:
-        status = str(text or "")
-        self._set_activity_message(status)
-        if "Propagating" in status:
-            self._set_loading_indicator(True, status)
-            return
-        if status in {"Propagation Complete", "Propagation Stopped", "Propagation Error"}:
-            if self._loading_task_count <= 0:
-                if hasattr(self, "loading_bar"):
-                    self.loading_bar.stop()
-                    if self.loading_bar.winfo_ismapped():
-                        self.loading_bar.pack_forget()
+        return self._get_runtime_controller().set_runtime_status(text, color)
 
     def _set_busy(self, is_busy, status_text, color):
-        self.lbl_status.configure(text=status_text, foreground=color)
-        self._set_loading_indicator(bool(is_busy), str(status_text).replace("Status:", "").strip() or "Working...")
-        if hasattr(self, "btn_save_masks"):
-            if is_busy:
-                self.btn_save_masks.configure(state="disabled")
-            else:
-                self.btn_save_masks.configure(state="normal" if self._has_loaded_stack() else "disabled")
+        return self._get_runtime_controller().set_busy(is_busy, status_text, color)
 
     def _run_thread(self, target, *, loading_text: str = "Working..."):
-        self._begin_loading_task(loading_text)
-
-        def _wrapped() -> None:
-            try:
-                target()
-            finally:
-                if self._ui_alive():
-                    self.root.after(0, self._end_loading_task)
-
-        threading.Thread(target=_wrapped, daemon=True).start()
+        return self._get_runtime_controller().run_thread(target, loading_text=loading_text)
 
     def _queue_display_update(self, update_preview: bool = True) -> None:
-        self._pending_display_preview = bool(self._pending_display_preview or update_preview)
-        if self._pending_display_update:
-            return
-        self._pending_display_update = True
-
-        def _flush() -> None:
-            preview = bool(self._pending_display_preview)
-            self._pending_display_update = False
-            self._pending_display_preview = True
-            self.update_display(update_preview=preview)
-
-        if self._ui_alive():
-            self.root.after(0, _flush)
+        return self._get_runtime_controller().queue_display_update(update_preview=update_preview)
 
     def _schedule_analysis_prewarm(self, current_idx: int | None = None) -> None:
-        frame_source = getattr(self, "frame_source", None)
-        if frame_source is None or not callable(getattr(frame_source, "prewarm", None)):
-            return
-        frame_count = int(self._get_frame_count())
-        if frame_count <= 0:
-            return
-        idx = int(self.current_frame_idx if current_idx is None else current_idx)
-        idx = max(0, min(idx, frame_count - 1))
-        radius = max(1, int(getattr(self, "_analysis_prewarm_window", 4) or 4))
-        prev_idx = getattr(self, "_last_prewarm_frame_idx", None)
-        self._last_prewarm_frame_idx = idx
-        if prev_idx is None:
-            lo = max(0, idx - radius)
-            hi = min(frame_count - 1, idx + radius)
-        elif idx >= int(prev_idx):
-            lo = max(0, idx - radius // 2)
-            hi = min(frame_count - 1, idx + radius)
-        else:
-            lo = max(0, idx - radius)
-            hi = min(frame_count - 1, idx + radius // 2)
-        indices = list(range(lo, hi + 1))
-        generation = int(getattr(self, "_analysis_prewarm_generation", 0) or 0) + 1
-        self._analysis_prewarm_generation = generation
+        return self._get_runtime_controller().schedule_analysis_prewarm(current_idx=current_idx)
 
-        def _worker() -> None:
-            started = time.perf_counter()
-            if int(getattr(self, "_analysis_prewarm_generation", 0) or 0) != generation:
-                return
-            try:
-                frame_source.prewarm(indices, generation=generation)
-            except Exception as exc:
-                self.log_debug("Perf", f"Analysis prewarm skipped: {exc}")
-                return
-            if int(getattr(self, "_analysis_prewarm_generation", 0) or 0) != generation:
-                return
-            self.log_debug(
-                "Perf",
-                f"Analysis prewarm elapsed={(time.perf_counter() - started) * 1000.0:.1f}ms "
-                f"center={idx + 1} frames={len(indices)} generation={generation}",
+    def _ensure_sam2_runtime(self):
+        runtime = getattr(self, "sam2_runtime", None)
+        if runtime is not None:
+            return runtime
+        from sdapp.analysis.model.sam2_runtime import SAM2RuntimeService
+
+        runtime = SAM2RuntimeService()
+        self.sam2_runtime = runtime
+        return runtime
+
+    def _ensure_sam2_frame_cache(self):
+        frame_cache = getattr(self, "sam2_frame_cache", None)
+        if frame_cache is not None:
+            return frame_cache
+        from sdapp.analysis.model.sam2_frame_cache import SAM2FrameCache
+
+        frame_cache = SAM2FrameCache()
+        self.sam2_frame_cache = frame_cache
+        return frame_cache
+
+    def _emit_optional_runtime_dependency_warnings(self) -> None:
+        if not _module_available("imagecodecs"):
+            self.log_warn("Runtime", "imagecodecs not installed. LZW-compressed TIFFs may fail to load.")
+        if not _module_available("sam2"):
+            self.log_warn("Runtime", "'sam2' package not found. Model-based tools will be disabled (review-only mode).")
+            self.log_warn(
+                "Runtime",
+                "Install SAM2 with: pip install \"sam-2 @ git+https://github.com/facebookresearch/sam2.git\"",
             )
-
-        thread = threading.Thread(target=_worker, daemon=True)
-        self._analysis_prewarm_thread = thread
-        thread.start()
+            self.log_warn("Runtime", f"Python interpreter: {sys.executable}")
 
     def _apply_runtime_icon(self):
         try:
@@ -2040,6 +1989,14 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
             return controller
         controller = AnalysisModelController(self)
         self.model_controller = controller
+        return controller
+
+    def _get_runtime_controller(self) -> AnalysisRuntimeController:
+        controller = getattr(self, "runtime_controller", None)
+        if isinstance(controller, AnalysisRuntimeController):
+            return controller
+        controller = AnalysisRuntimeController(self)
+        self.runtime_controller = controller
         return controller
 
     def _mark_active_event_saved_masks_present(self) -> None:
