@@ -17,6 +17,7 @@ def _make_controller():
         "roi_local": False,
         "metrics_changed": [],
         "global_updates": [],
+        "autosaves": [],
         "updated": 0,
     }
 
@@ -49,6 +50,7 @@ def _make_controller():
         log_success=lambda *_args: None,
         on_metrics_settings_changed=lambda reason: state["metrics_changed"].append(str(reason)),
         emit_host_global_metrics_update=lambda reason, payload: state["global_updates"].append((str(reason), dict(payload))) or {"ok": True},
+        autosave_project_after_metrics_commit=lambda reason: state["autosaves"].append(str(reason)) or {"ok": True},
         get_scale_is_local_override=lambda: bool(state["scale_local"]),
         set_scale_is_local_override=lambda v: state.__setitem__("scale_local", bool(v)),
         get_roi_is_local_override=lambda: bool(state["roi_local"]),
@@ -72,6 +74,7 @@ def test_local_scale_selection_updates_local_state() -> None:
     assert float(state["scale"]) == 5.0
     assert state["scale_local"] is True
     assert state["metrics_changed"] == ["scale"]
+    assert state["autosaves"] == ["local_scale"]
 
 
 def test_global_scale_selection_emits_global_update_and_preserves_existing_local_override() -> None:
@@ -93,6 +96,7 @@ def test_global_scale_selection_emits_global_update_and_preserves_existing_local
     assert state["scale_local"] is True
     assert state["global_updates"][0][0] == "global_scale"
     assert float(state["global_updates"][0][1]["scale_px_per_mm"]) == 5.0
+    assert state["autosaves"] == ["global_scale"]
 
 
 def test_global_roi_selection_updates_visible_state_when_no_local_override() -> None:
@@ -109,3 +113,4 @@ def test_global_roi_selection_updates_visible_state_when_no_local_override() -> 
     assert len(state["roi_points"]) == 3
     assert np.array_equal(np.asarray(state["roi_mask"], dtype=bool), roi_mask)
     assert state["updated"] == 1
+    assert state["autosaves"] == ["global_roi"]

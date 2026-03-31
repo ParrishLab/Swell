@@ -276,10 +276,17 @@ def export_analysis(
             summary["baseline_end_idx"] = baseline_end if baseline_end >= 0 else None
             summary_path = event_dir / "event_summary.json"
             summary_path.write_text(json.dumps(summary, indent=2), encoding="utf-8")
+            _write_event_summary_markdown(event_dir / "event_summary.md", summary)
             event_summaries.append(summary)
 
     _write_manifest_csv(out_dir / "events_manifest.csv", manifest_records)
     _write_manifest_json(out_dir / "events_manifest.json", manifest_records, event_summaries)
+    _write_manifest_markdown(
+        out_dir / "events_manifest.md",
+        records=manifest_records,
+        events=event_summaries,
+        event_output_segment_by_id=event_output_segment_by_id,
+    )
 
     return {
         "output_dir": str(out_dir),
@@ -291,6 +298,7 @@ def export_analysis(
         "metrics_files_exported": int(metrics_files_exported),
         "manifest_csv": str(out_dir / "events_manifest.csv"),
         "manifest_json": str(out_dir / "events_manifest.json"),
+        "manifest_markdown": str(out_dir / "events_manifest.md"),
     }
 
 
@@ -505,12 +513,15 @@ def _export_event_metrics(
             "frame_runs": gap_frame_runs,
             "action": normalized_action,
         }
-        (metrics_dir / "propagation_speed_warning.json").write_text(
+        warning_json_path = metrics_dir / "propagation_speed_warning.json"
+        warning_json_path.write_text(
             json.dumps(propagation_gap_warning, indent=2),
             encoding="utf-8",
         )
-        files_written += 1
+        _write_metrics_warning_markdown(metrics_dir / "propagation_speed_warning.md", propagation_gap_warning)
+        files_written += 2
         written.append("propagation_speed_warning.json")
+        written.append("propagation_speed_warning.md")
 
     if include_metric_propagation_speed and has_scale:
         _write_metric_csv(metrics_dir / "propagation_speed.csv", frame_indices, time_sec, speed_um_per_sec, "speed_um_per_sec")
@@ -546,6 +557,7 @@ def _export_event_metrics(
         files_written += 2
         written.extend(["relative_area_recruited.csv", "relative_area_recruited.png"])
 
+    written.extend(["metrics_summary.json", "metrics_summary.md"])
     summary = {
         "event_id": str(event.event_id),
         "frames_per_sec": float(fps),
@@ -566,7 +578,8 @@ def _export_event_metrics(
         "max_relative_area_pct": float(np.nanmax(relative_area_pct)) if np.isfinite(relative_area_pct).any() else None,
     }
     (metrics_dir / "metrics_summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
-    files_written += 1
+    _write_metrics_summary_markdown(metrics_dir / "metrics_summary.md", summary)
+    files_written += 2
     return {"files_written": int(files_written)}
 
 
@@ -929,3 +942,139 @@ def _write_manifest_json(path: Path, records: list[ExportRecord], events: list[d
         "frames": [asdict(rec) for rec in records],
     }
     path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+
+def _format_summary_value(value: object) -> str:
+    if value is None:
+        return "n/a"
+    if isinstance(value, bool):
+        return "yes" if value else "no"
+    if isinstance(value, float):
+        if not np.isfinite(value):
+            return "n/a"
+        return f"{value:.4f}".rstrip("0").rstrip(".")
+    if isinstance(value, (int, np.integer)):
+        return str(int(value))
+    if isinstance(value, (list, tuple)):
+        return ", ".join(_format_summary_value(item) for item in value) if value else "none"
+    return str(value)
+
+
+def _markdown_bullet(label: str, value: object) -> str:
+    return f"- {label}: {_format_summary_value(value)}"
+
+
+def _write_event_summary_markdown(path: Path, summary: dict[str, object]) -> None:
+    lines = [
+        f"# Event {summary.get('event_id', 'unknown')}",
+        "",
+        "## Timing",
+        _markdown_bullet("Start frame", summary.get("start_idx")),
+        _markdown_bullet("End frame", summary.get("end_idx")),
+        _markdown_bullet("Duration (frames)", summary.get("duration_frames")),
+        _markdown_bullet("Duration (sec)", summary.get("duration_sec")),
+        _markdown_bullet("Baseline start frame", summary.get("baseline_start_idx")),
+        _markdown_bullet("Baseline end frame", summary.get("baseline_end_idx")),
+    ]
+    flags = summary.get("flags")
+    if isinstance(flags, dict) and flags:
+        lines.extend(
+            [
+                "",
+                "## Flags",
+                "```json",
+                json.dumps(flags, indent=2, sort_keys=True),
+                "```",
+            ]
+        )
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def _write_manifest_markdown(
+    path: Path,
+    *,
+    records: list[ExportRecord],
+    events: list[dict[str, object]],
+    event_output_segment_by_id: dict[str, str],
+) -> None:
+    record_counts: dict[str, dict[str, int]] = {}
+    for rec in records:
+        counts = record_counts.setdefault(str(rec.event_id), {"baseline": 0, "event": 0})
+        counts[str(rec.role)] = counts.get(str(rec.role), 0) + 1
+
+    lines = [
+        "# Export Manifest",
+        "",
+        _markdown_bullet("Events exported", len(events)),
+        _markdown_bullet("Frames exported", len(records)),
+        "",
+        "## Events",
+    ]
+    if not events:
+        lines.append("- none")
+    else:
+        for event in events:
+            event_id = str(event.get("event_id", "unknown"))
+            counts = record_counts.get(event_id, {})
+            segment = event_output_segment_by_id.get(event_id, event_id)
+            lines.extend(
+                [
+                    f"### {event_id}",
+                    _markdown_bullet("Output folder", segment),
+                    _markdown_bullet("Start frame", event.get("start_idx")),
+                    _markdown_bullet("End frame", event.get("end_idx")),
+                    _markdown_bullet("Duration (frames)", event.get("duration_frames")),
+                    _markdown_bullet("Duration (sec)", event.get("duration_sec")),
+                    _markdown_bullet("Baseline start frame", event.get("baseline_start_idx")),
+                    _markdown_bullet("Baseline end frame", event.get("baseline_end_idx")),
+                    _markdown_bullet("Baseline frames exported", counts.get("baseline", 0)),
+                    _markdown_bullet("Event frames exported", counts.get("event", 0)),
+                    "",
+                ]
+            )
+
+    path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
+
+
+def _write_metrics_summary_markdown(path: Path, summary: dict[str, object]) -> None:
+    selected_metrics = summary.get("selected_metrics")
+    enabled_metrics = []
+    if isinstance(selected_metrics, dict):
+        enabled_metrics = [name for name, enabled in selected_metrics.items() if bool(enabled)]
+    lines = [
+        f"# Metrics Summary: {summary.get('event_id', 'unknown')}",
+        "",
+        _markdown_bullet("Frames per second", summary.get("frames_per_sec")),
+        _markdown_bullet("Event start time (sec)", summary.get("event_start_time_sec")),
+        _markdown_bullet("Event end time (sec)", summary.get("event_end_time_sec")),
+        _markdown_bullet("Scale available", summary.get("has_scale")),
+        _markdown_bullet("ROI available", summary.get("has_roi")),
+        _markdown_bullet("ROI pixels", summary.get("roi_pixels")),
+        _markdown_bullet("Selected metrics", enabled_metrics),
+        _markdown_bullet("Overall average speed (um/sec)", summary.get("overall_avg_speed_um_per_sec")),
+        _markdown_bullet("Max area (mm^2)", summary.get("max_area_mm2")),
+        _markdown_bullet("Max relative area (%)", summary.get("max_relative_area_pct")),
+        _markdown_bullet("Written files", summary.get("written_files")),
+    ]
+    warning = summary.get("propagation_gap_warning")
+    if isinstance(warning, dict) and warning:
+        lines.extend(
+            [
+                "",
+                "## Propagation Gap Warning",
+                _markdown_bullet("Action", warning.get("action")),
+                _markdown_bullet("Frame runs", warning.get("frame_runs")),
+            ]
+        )
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def _write_metrics_warning_markdown(path: Path, warning: dict[str, object]) -> None:
+    lines = [
+        f"# Propagation Speed Warning: {warning.get('event_id', 'unknown')}",
+        "",
+        _markdown_bullet("Metric", warning.get("metric")),
+        _markdown_bullet("Action applied", warning.get("action")),
+        _markdown_bullet("Frame runs", warning.get("frame_runs")),
+    ]
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")

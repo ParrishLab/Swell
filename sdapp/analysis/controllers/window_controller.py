@@ -164,6 +164,27 @@ class AnalysisWindowController:
         self.emit_host_metrics_update(reason="frames_per_sec")
         return None
 
+    def autosave_project_after_metrics_commit(self, reason: str) -> dict[str, object]:
+        if not bool(getattr(self.app, "_host_mode", False)):
+            return {"ok": True, "autosaved": False}
+        self.sync_project_path_from_host()
+        try:
+            self.app.save_project()
+        except Exception as exc:
+            return {
+                "ok": False,
+                "code": "SAVE_FAILED",
+                "message": f"Project change was applied, but autosave failed: {exc}",
+            }
+        current_project_path = str(getattr(self.app, "current_project_path", "") or "").strip()
+        if not current_project_path or bool(getattr(self.app, "project_dirty", False)):
+            return {
+                "ok": False,
+                "code": "SAVE_INCOMPLETE",
+                "message": "Project change was applied, but autosave did not complete.",
+            }
+        return {"ok": True, "autosaved": True, "project_path": current_project_path, "reason": str(reason or "")}
+
     def sync_project_path_from_host(self) -> None:
         if not bool(getattr(self.app, "_host_mode", False)):
             return

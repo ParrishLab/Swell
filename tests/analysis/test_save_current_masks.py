@@ -380,3 +380,26 @@ def test_emit_host_global_metrics_update_handles_rejection() -> None:
 
     assert isinstance(result, dict)
     assert result["ok"] is False
+
+
+def test_autosave_project_after_metrics_commit_saves_host_project() -> None:
+    app = _build_app()
+    app.current_project_path = "/tmp/test.sdproj"
+    save_calls: list[str] = []
+    app.save_project = lambda: save_calls.append("save")
+
+    result = app._autosave_project_after_metrics_commit("local_scale")
+
+    assert result["ok"] is True
+    assert save_calls == ["save"]
+
+
+def test_autosave_project_after_metrics_commit_reports_incomplete_save() -> None:
+    app = _build_app()
+    app.current_project_path = None
+    app.save_project = lambda: None
+
+    result = app._autosave_project_after_metrics_commit("global_roi")
+
+    assert result["ok"] is False
+    assert result["code"] == "SAVE_INCOMPLETE"

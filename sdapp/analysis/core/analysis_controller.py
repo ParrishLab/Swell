@@ -42,6 +42,7 @@ class AnalysisController:
         get_current_image_source_paths=None,
         on_metrics_settings_changed=None,
         emit_host_global_metrics_update=None,
+        autosave_project_after_metrics_commit=None,
         get_scale_is_local_override=None,
         set_scale_is_local_override=None,
         get_roi_is_local_override=None,
@@ -78,6 +79,11 @@ class AnalysisController:
         self.on_metrics_settings_changed = on_metrics_settings_changed
         self.emit_host_global_metrics_update = (
             emit_host_global_metrics_update if callable(emit_host_global_metrics_update) else (lambda _r, _m: None)
+        )
+        self.autosave_project_after_metrics_commit = (
+            autosave_project_after_metrics_commit
+            if callable(autosave_project_after_metrics_commit)
+            else (lambda _reason: {"ok": True})
         )
         self.get_scale_is_local_override = (
             get_scale_is_local_override if callable(get_scale_is_local_override) else (lambda: False)
@@ -400,6 +406,11 @@ class AnalysisController:
 
         if result["fallback"]:
             messagebox.showwarning("Scale Refinement", "Low-confidence refinement; using selected endpoints.", parent=self.root)
+        autosave_result = self.autosave_project_after_metrics_commit("local_scale")
+        if isinstance(autosave_result, dict) and not bool(autosave_result.get("ok", False)):
+            message = str(autosave_result.get("message", "Project autosave did not complete."))
+            messagebox.showwarning("Scale Set", message, parent=self.root)
+            return
         msg = f"Scale set to {result['px_per_mm']:.3f} px/mm"
         if result["refined_ok"]:
             msg += "\n(Refined from sampled intensity profile with sub-pixel edge fit.)"
@@ -436,6 +447,11 @@ class AnalysisController:
                 self.on_metrics_settings_changed("roi")
             except Exception:
                 pass
+        autosave_result = self.autosave_project_after_metrics_commit("local_roi")
+        if isinstance(autosave_result, dict) and not bool(autosave_result.get("ok", False)):
+            message = str(autosave_result.get("message", "Project autosave did not complete."))
+            messagebox.showwarning("ROI Set", message, parent=self.root)
+            return
         messagebox.showinfo("ROI Set", "ROI polygon saved.", parent=self.root)
 
     def start_local_scale_selection(self):
@@ -458,6 +474,11 @@ class AnalysisController:
             self.set_scale_px_per_mm(result["px_per_mm"])
             self.set_scale_points(result["scale_points"])
             self.set_scale_is_local_override(False)
+        autosave_result = self.autosave_project_after_metrics_commit("global_scale")
+        if isinstance(autosave_result, dict) and not bool(autosave_result.get("ok", False)):
+            message = str(autosave_result.get("message", "Project autosave did not complete."))
+            messagebox.showwarning("Global Scale", message, parent=self.root)
+            return
         msg = f"Global scale set to {result['px_per_mm']:.3f} px/mm"
         if result["refined_ok"]:
             msg += "\n(Refined from sampled intensity profile with sub-pixel edge fit.)"
@@ -493,6 +514,11 @@ class AnalysisController:
             self.set_roi_points(result["roi_points"])
             self.set_roi_is_local_override(False)
             self.update_display()
+        autosave_result = self.autosave_project_after_metrics_commit("global_roi")
+        if isinstance(autosave_result, dict) and not bool(autosave_result.get("ok", False)):
+            message = str(autosave_result.get("message", "Project autosave did not complete."))
+            messagebox.showwarning("Global ROI", message, parent=self.root)
+            return
         messagebox.showinfo("Global ROI Set", "Global ROI polygon saved.", parent=self.root)
 
     def start_global_roi_selection(self):

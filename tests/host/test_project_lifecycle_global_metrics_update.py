@@ -57,11 +57,12 @@ def test_global_metrics_update_sets_defaults_and_preserves_existing_local_overri
     logs: list[str] = []
     statuses: list[str] = []
     refresh_calls: list[str] = []
+    window_controller = SimpleNamespace(refresh_open_metrics_popup=lambda: refresh_calls.append("refresh"))
     app = SimpleNamespace(
         browser_controller=browser,
         _set_status=lambda text: statuses.append(str(text)),
         _log_info=lambda text: logs.append(str(text)),
-        _refresh_open_metrics_popup=lambda: refresh_calls.append("refresh"),
+        _get_window_controller=lambda: window_controller,
     )
     controller = HostProjectLifecycleController(app)
     roi_mask = np.ones((8, 9), dtype=bool)

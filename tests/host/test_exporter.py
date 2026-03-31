@@ -83,6 +83,10 @@ def test_export_without_trace_skips_trace_artifacts(tmp_path: Path) -> None:
     assert not (tmp_path / "trace_plot.png").exists()
     assert (tmp_path / "events_manifest.csv").exists()
     assert (tmp_path / "events_manifest.json").exists()
+    assert (tmp_path / "events_manifest.md").exists()
+    manifest_text = (tmp_path / "events_manifest.md").read_text(encoding="utf-8")
+    assert "Events exported: 1" in manifest_text
+    assert "### event_0001" in manifest_text
 
 
 def test_export_with_trace_writes_trace_files(tmp_path: Path) -> None:
@@ -174,6 +178,9 @@ def test_export_event_starting_at_zero_has_no_baseline_frames(tmp_path: Path) ->
     summary = json.loads((tmp_path / "event_0001" / "event_summary.json").read_text(encoding="utf-8"))
     assert summary["baseline_start_idx"] is None
     assert summary["baseline_end_idx"] is None
+    summary_text = (tmp_path / "event_0001" / "event_summary.md").read_text(encoding="utf-8")
+    assert "Baseline start frame: n/a" in summary_text
+    assert "Duration (frames): 2" in summary_text
 
 
 def test_export_baseline_pre_frames_limits_baseline_window(tmp_path: Path) -> None:
@@ -350,9 +357,13 @@ def test_export_metrics_only_writes_per_event_metrics_outputs(tmp_path: Path) ->
     assert (metrics_dir / "relative_area_recruited.csv").exists()
     assert (metrics_dir / "relative_area_recruited.png").exists()
     assert (metrics_dir / "metrics_summary.json").exists()
+    assert (metrics_dir / "metrics_summary.md").exists()
     summary = json.loads((metrics_dir / "metrics_summary.json").read_text(encoding="utf-8"))
     assert float(summary["event_start_time_sec"]) == 1.0
     assert float(summary["event_end_time_sec"]) == 2.5
+    metrics_text = (metrics_dir / "metrics_summary.md").read_text(encoding="utf-8")
+    assert "Selected metrics: propagation_speed, area_recruited, relative_area_recruited" in metrics_text
+    assert "ROI available: yes" in metrics_text
 
 
 def test_export_metrics_respects_selection_flags(tmp_path: Path) -> None:

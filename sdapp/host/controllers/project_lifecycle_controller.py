@@ -317,12 +317,19 @@ class HostProjectLifecycleController:
             "Updated global metrics defaults from analysis window and applied missing values to "
             f"{materialized} event(s)."
         )
-        refresh_metrics_popup = getattr(self.app, "_refresh_open_metrics_popup", None)
-        if callable(refresh_metrics_popup):
-            try:
-                refresh_metrics_popup()
-            except Exception:
-                pass
+        try:
+            get_window_controller = getattr(self.app, "_get_window_controller", None)
+            if callable(get_window_controller):
+                window_controller = get_window_controller()
+                refresh_metrics_popup = getattr(window_controller, "refresh_open_metrics_popup", None)
+                if callable(refresh_metrics_popup):
+                    refresh_metrics_popup()
+            else:
+                refresh_metrics_popup = getattr(self.app, "_refresh_open_metrics_popup", None)
+                if callable(refresh_metrics_popup):
+                    refresh_metrics_popup()
+        except Exception:
+            pass
         return {
             "ok": True,
             "changed": True,

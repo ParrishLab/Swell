@@ -262,6 +262,7 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
             log_success=self.log_success,
             on_metrics_settings_changed=self._on_metrics_settings_changed,
             emit_host_global_metrics_update=self._emit_host_global_metrics_update,
+            autosave_project_after_metrics_commit=self._autosave_project_after_metrics_commit,
             get_scale_is_local_override=lambda: bool(self._scale_is_local_override),
             set_scale_is_local_override=lambda v: setattr(self, "_scale_is_local_override", bool(v)),
             get_roi_is_local_override=lambda: bool(self._roi_is_local_override),
@@ -1973,6 +1974,9 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
 
     def _emit_host_global_metrics_update(self, reason: str, metrics_settings: dict[str, object]) -> dict[str, object] | None:
         return self._get_window_controller().emit_host_global_metrics_update(reason, metrics_settings)
+
+    def _autosave_project_after_metrics_commit(self, reason: str) -> dict[str, object]:
+        return self._get_window_controller().autosave_project_after_metrics_commit(reason)
 
     def _emit_host_checkpoint_update(self, reason: str) -> dict[str, object] | None:
         if not bool(getattr(self, "_host_mode", False)):
