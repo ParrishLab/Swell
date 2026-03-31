@@ -245,8 +245,9 @@ class SDAnalyzerApp:
         table_frame.pack(fill="both", expand=True)
         columns = ("id", "start", "end", "duration")
         self.tree = ttk.Treeview(table_frame, columns=columns, show="headings", height=12, selectmode="extended")
-        for col, width in [("id", 110), ("start", 75), ("end", 75), ("duration", 95)]:
-            self.tree.heading(col, text=col.upper())
+        for col, width in [("id", 160), ("start", 75), ("end", 75), ("duration", 95)]:
+            heading_text = "NAME" if col == "id" else col.upper()
+            self.tree.heading(col, text=heading_text)
             self.tree.column(col, width=width, anchor="center")
         self.tree.pack(fill="both", expand=True)
         self.tree.bind("<<TreeviewSelect>>", self._on_event_select)
@@ -429,7 +430,8 @@ class SDAnalyzerApp:
         selected = set(self.tree.selection())
         self.tree.delete(*self.tree.get_children())
         for event in events:
-            values = (event.event_id, event.start_idx, event.end_idx, event.duration_frames)
+            display_name = str(getattr(event, "label", "") or "").strip() or str(event.event_id)
+            values = (display_name, event.start_idx, event.end_idx, event.duration_frames)
             self.tree.insert("", "end", iid=event.event_id, values=values)
         for event_id in list(selected):
             if self.tree.exists(event_id):

@@ -209,6 +209,7 @@ class BrowserController:
                     duration_frames=(int(ev.end_idx) - int(ev.start_idx) + 1),
                     duration_sec=None,
                     flags=dict(ev.flags),
+                    label=str(ev.label),
                 )
             )
         return out

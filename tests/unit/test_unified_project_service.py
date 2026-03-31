@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
 
 from sdapp.shared.models import EventMeta, StackRef
@@ -102,3 +104,14 @@ def test_unified_service_analysis_reads_return_defensive_copies() -> None:
     assert reread is not None
     assert reread.prompts["points"][0]["frame"] == 1
     assert int(reread.masks_committed[0, 0, 0]) == 0
+
+
+def test_unified_service_save_project_defaults_to_input_folder_name(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    service = UnifiedProjectService()
+    service.new_project(_stack_ref("input_folder"))
+
+    state = service.save_project()
+
+    assert state.project_path == "input_folder.sdproj"
+    assert (tmp_path / "input_folder.sdproj").exists()

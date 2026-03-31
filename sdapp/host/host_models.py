@@ -61,6 +61,7 @@ class EventMeta:
             end_idx=self.end_idx,
             duration_frames=self.duration_frames,
             duration_sec=None,
+            label=str(self.label),
         )
 
 
@@ -71,7 +72,7 @@ class HostSessionState(UnifiedProjectState):
 def event_meta_from_candidate(event: EventCandidate, label: str | None = None) -> EventMeta:
     return EventMeta(
         event_id=str(event.event_id),
-        label=str(label if label is not None else event.event_id),
+        label=str(label if label is not None else getattr(event, "label", None) or event.event_id),
         global_start_idx=int(event.start_idx),
         global_end_idx=int(event.end_idx),
         flags={},

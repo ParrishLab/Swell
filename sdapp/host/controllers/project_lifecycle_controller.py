@@ -6,6 +6,7 @@ from tkinter import filedialog, messagebox
 
 from sdapp.host.host_models import stack_ref_from_stack_info
 from sdapp.host.stack_reader import StackReader
+from sdapp.shared.project_naming import derive_sdproj_name
 from sdapp.shared.ui import BackgroundTaskRunner
 
 
@@ -15,16 +16,6 @@ class HostProjectLifecycleController:
 
     def _dialog_parent(self):
         return getattr(self.app, "root", None)
-
-    @staticmethod
-    def _save_as_initial_name(current_project_path: str | None, *, default_base: str) -> str:
-        if not current_project_path:
-            return str(default_base)
-        current_name = Path(str(current_project_path)).name
-        if current_name.lower().endswith(".sdproj"):
-            stem = Path(current_name).stem
-            return stem or str(default_base)
-        return current_name
 
     def new_project(self) -> None:
         folder = filedialog.askdirectory(
@@ -66,7 +57,11 @@ class HostProjectLifecycleController:
             self.app._show_warning("Save SD Project", "Load a stack before saving.")
             return
         initial_dir = None
-        initial_name = self._save_as_initial_name(self.app.current_project_path, default_base="session")
+        initial_name = derive_sdproj_name(
+            self.app.current_project_path,
+            default_base="session",
+            input_dir=getattr(self.app.stack_info, "input_dir", None),
+        )
         if self.app.current_project_path:
             current = Path(self.app.current_project_path)
             initial_dir = str(current.parent)

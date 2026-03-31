@@ -38,6 +38,11 @@ class _PreparedVisualSequence:
         return np.asarray(self._prepared_source.get_visual_frame(int(idx)), dtype=np.uint8)
 
 
+def _event_output_name(event: EventCandidate) -> str:
+    label = str(getattr(event, "label", "") or "").strip()
+    return label or str(event.event_id)
+
+
 def _load_pyplot():
     import matplotlib
 
@@ -89,7 +94,7 @@ def export_analysis(
     for event in selected_events:
         key = str(event.event_id)
         if key not in event_output_segment_by_id:
-            event_output_segment_by_id[key] = allocate_event_path_segment(key, used_event_segments)
+            event_output_segment_by_id[key] = allocate_event_path_segment(_event_output_name(event), used_event_segments)
 
     has_trace = trace is not None and (
         bool(trace.frame_indices) or bool(trace.mean) or bool(trace.median) or bool(trace.std) or bool(trace.time_sec)
@@ -999,17 +1004,26 @@ def _markdown_bullet(label: str, value: object) -> str:
 
 
 def _write_event_summary_markdown(path: Path, summary: dict[str, object]) -> None:
+    label = str(summary.get("label", "") or "").strip()
+    title = f"# Event {label}" if label else f"# Event {summary.get('event_id', 'unknown')}"
     lines = [
-        f"# Event {summary.get('event_id', 'unknown')}",
+        title,
         "",
         "## Timing",
+        _markdown_bullet("Event ID", summary.get("event_id")),
+    ]
+    if label:
+        lines.append(_markdown_bullet("Label", label))
+    lines.extend(
+        [
         _markdown_bullet("Start frame", summary.get("start_idx")),
         _markdown_bullet("End frame", summary.get("end_idx")),
         _markdown_bullet("Duration (frames)", summary.get("duration_frames")),
         _markdown_bullet("Duration (sec)", summary.get("duration_sec")),
         _markdown_bullet("Baseline start frame", summary.get("baseline_start_idx")),
         _markdown_bullet("Baseline end frame", summary.get("baseline_end_idx")),
-    ]
+        ]
+    )
     flags = summary.get("flags")
     if isinstance(flags, dict) and flags:
         lines.extend(
@@ -1049,11 +1063,18 @@ def _write_manifest_markdown(
     else:
         for event in events:
             event_id = str(event.get("event_id", "unknown"))
+            label = str(event.get("label", "") or "").strip()
             counts = record_counts.get(event_id, {})
             segment = event_output_segment_by_id.get(event_id, event_id)
-            lines.extend(
+            heading = label or event_id
+            event_lines = [
+                f"### {heading}",
+                _markdown_bullet("Event ID", event_id),
+            ]
+            if label:
+                event_lines.append(_markdown_bullet("Label", label))
+            event_lines.extend(
                 [
-                    f"### {event_id}",
                     _markdown_bullet("Output folder", segment),
                     _markdown_bullet("Start frame", event.get("start_idx")),
                     _markdown_bullet("End frame", event.get("end_idx")),
@@ -1066,6 +1087,7 @@ def _write_manifest_markdown(
                     "",
                 ]
             )
+            lines.extend(event_lines)
 
     path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
 

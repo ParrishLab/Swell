@@ -106,3 +106,23 @@ def test_event_to_dict_includes_flags_only_when_present() -> None:
         "duration_sec": 3.0,
         "flags": {"baseline_pre_frames": 30},
     }
+
+
+def test_event_to_dict_includes_label_when_present() -> None:
+    event = EventCandidate(
+        event_id="event_0009",
+        start_idx=5,
+        end_idx=7,
+        duration_frames=3,
+        duration_sec=1.5,
+        label="Visible Event",
+    )
+
+    assert event_to_dict(event) == {
+        "event_id": "event_0009",
+        "start_idx": 5,
+        "end_idx": 7,
+        "duration_frames": 3,
+        "duration_sec": 1.5,
+        "label": "Visible Event",
+    }

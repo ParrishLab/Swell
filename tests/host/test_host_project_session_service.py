@@ -52,6 +52,17 @@ def test_project_session_roundtrip_single_stack_sdproj(tmp_path: Path) -> None:
     assert state.analysis_sidecar["event_0002"]["prompts"]["points"][0]["frame"] == 5
 
 
+def test_project_session_save_project_defaults_to_input_folder_name(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    svc = ProjectSessionService()
+    svc.new_project(_stack_ref("/tmp/input_folder", frame_count=10))
+
+    state = svc.save_project()
+
+    assert state.project_path == str((tmp_path / "input_folder.sdproj").resolve())
+    assert (tmp_path / "input_folder.sdproj").exists()
+
+
 def test_analysis_sidecar_is_event_scoped() -> None:
     svc = ProjectSessionService()
     svc.new_project(_stack_ref("/tmp/in_a"))

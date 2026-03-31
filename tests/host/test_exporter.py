@@ -53,7 +53,14 @@ def _load_manifest_rows(csv_path: Path) -> list[dict]:
         return list(csv.DictReader(f))
 
 
-def _event(event_id: str, start: int, end: int, *, flags: dict | None = None) -> EventCandidate:
+def _event(
+    event_id: str,
+    start: int,
+    end: int,
+    *,
+    flags: dict | None = None,
+    label: str | None = None,
+) -> EventCandidate:
     return EventCandidate(
         event_id=event_id,
         start_idx=start,
@@ -61,6 +68,7 @@ def _event(event_id: str, start: int, end: int, *, flags: dict | None = None) ->
         duration_frames=end - start + 1,
         duration_sec=None,
         flags=dict(flags or {}),
+        label=label,
     )
 
 
@@ -138,7 +146,10 @@ def test_export_selected_event_ids_filters_output(tmp_path: Path) -> None:
 def test_export_sanitizes_event_output_directory_names(tmp_path: Path) -> None:
     frames = [np.full((8, 8), i, dtype=np.uint8) for i in range(10)]
     reader = FakeReader(frames)
-    events = [_event("A:B", 2, 3), _event("A?B", 7, 8)]
+    events = [
+        _event("event_0001", 2, 3, label="A:B"),
+        _event("event_0002", 7, 8, label="A?B"),
+    ]
 
     export_analysis(
         reader=reader,
@@ -150,6 +161,44 @@ def test_export_sanitizes_event_output_directory_names(tmp_path: Path) -> None:
     used: set[str] = set()
     seg_a = allocate_event_path_segment("A:B", used)
     seg_b = allocate_event_path_segment("A?B", used)
+    assert (tmp_path / seg_a).exists()
+    assert (tmp_path / seg_b).exists()
+
+
+def test_export_uses_visible_label_for_output_directory_names(tmp_path: Path) -> None:
+    frames = [np.full((8, 8), i, dtype=np.uint8) for i in range(6)]
+    reader = FakeReader(frames)
+    events = [_event("event_0001", 1, 2, label="Renamed Event")]
+
+    export_analysis(
+        reader=reader,
+        events=events,
+        output_dir=tmp_path,
+        baseline_pre_frames=1,
+    )
+
+    assert (tmp_path / "Renamed Event").exists()
+    assert not (tmp_path / "event_0001").exists()
+
+
+def test_export_disambiguates_duplicate_visible_labels(tmp_path: Path) -> None:
+    frames = [np.full((8, 8), i, dtype=np.uint8) for i in range(8)]
+    reader = FakeReader(frames)
+    events = [
+        _event("event_0001", 1, 2, label="Same Label"),
+        _event("event_0002", 4, 5, label="Same Label"),
+    ]
+
+    export_analysis(
+        reader=reader,
+        events=events,
+        output_dir=tmp_path,
+        baseline_pre_frames=1,
+    )
+
+    used: set[str] = set()
+    seg_a = allocate_event_path_segment("Same Label", used)
+    seg_b = allocate_event_path_segment("Same Label", used)
     assert (tmp_path / seg_a).exists()
     assert (tmp_path / seg_b).exists()
 

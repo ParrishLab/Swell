@@ -277,6 +277,18 @@ def test_export_candidates_include_event_flags() -> None:
     assert bool(candidates[0].flags["analysis_processing"]["smoothing"]) is False
 
 
+def test_export_candidates_include_visible_label() -> None:
+    host = BrowserController()
+    host.on_stack_loaded(_FakeReader(), _FakeStackInfo())
+    event = host.create_event(start_idx=1, end_idx=3, frame_count=6, label="Visible Event")
+
+    candidates = host.export_candidates([event.event_id])
+
+    assert len(candidates) == 1
+    assert candidates[0].event_id == event.event_id
+    assert candidates[0].label == "Visible Event"
+
+
 def test_full_stack_event_persists_after_save_reopen_and_can_export(tmp_path: Path) -> None:
     host = BrowserController()
     host.on_stack_loaded(_FakeReader(), _FakeStackInfo())

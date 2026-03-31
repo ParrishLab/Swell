@@ -11,7 +11,7 @@ from sdapp.host.controllers.project_lifecycle_controller import HostProjectLifec
 def _build_app_stub(current_project_path: str | None):
     warnings: list[tuple[str, str]] = []
     return SimpleNamespace(
-        stack_info=object(),
+        stack_info=SimpleNamespace(input_dir="/tmp/input_folder"),
         current_project_path=current_project_path,
         output_var=SimpleNamespace(get=lambda: "/tmp/output"),
         root=object(),
@@ -32,13 +32,13 @@ def _capture_save_as_kwargs(controller: HostProjectLifecycleController) -> dict:
     return captured
 
 
-def test_save_as_defaults_to_session_base_name_without_extension() -> None:
+def test_save_as_defaults_to_input_folder_name_without_extension() -> None:
     app = _build_app_stub(current_project_path=None)
     controller = HostProjectLifecycleController(app)
 
     kwargs = _capture_save_as_kwargs(controller)
 
-    assert kwargs.get("initialfile") == "session"
+    assert kwargs.get("initialfile") == "input_folder"
     assert kwargs.get("defaultextension") == ".sdproj"
     assert kwargs.get("initialdir") == "/tmp/output"
 

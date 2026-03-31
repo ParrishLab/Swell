@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from sdapp.shared.models import clone_analysis_payload
+from sdapp.shared.project_naming import derive_sdproj_filename
 from sdapp.shared.services import MetricsSettingsResolver, UnifiedProjectService
 from sdapp.shared.services import MODEL_CHECKPOINT_METADATA_KEY
 from sdapp.shared.trace import TraceAttachment
@@ -41,7 +42,15 @@ class ProjectSessionService:
         return self.state()
 
     def save_project(self, path: str | Path | None = None) -> HostSessionState:
-        target = Path(path or self.state().project_path or "session.sdproj").expanduser().resolve()
+        state = self.state()
+        target = Path(
+            path
+            or state.project_path
+            or derive_sdproj_filename(
+                default_base="session",
+                input_dir=getattr(state.stack_ref, "input_dir", None),
+            )
+        ).expanduser().resolve()
         if target.suffix.lower() != ".sdproj":
             target = target.with_suffix(".sdproj")
         self._service.save_project(str(target))

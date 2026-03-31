@@ -148,6 +148,46 @@ def test_rename_selected_event_updates_label() -> None:
     assert calls["active"] == "event_0001"
 
 
+def test_refresh_event_table_uses_visible_label_and_preserves_selection() -> None:
+    inserts: list[dict[str, object]] = []
+    reselections: list[str] = []
+
+    class _Tree:
+        def selection(self):
+            return ["event_0002"]
+
+        def get_children(self):
+            return ["event_0001", "event_0002"]
+
+        def delete(self, *_items):
+            return None
+
+        def insert(self, _parent, _index, iid, values):
+            inserts.append({"iid": iid, "values": tuple(values)})
+
+        def exists(self, iid):
+            return str(iid) == "event_0002"
+
+        def selection_add(self, iid):
+            reselections.append(str(iid))
+
+    app = SDAnalyzerApp.__new__(SDAnalyzerApp)
+    app.tree = _Tree()
+
+    app.refresh_event_table(
+        [
+            SimpleNamespace(event_id="event_0001", label="Visible Event", start_idx=1, end_idx=3, duration_frames=3),
+            SimpleNamespace(event_id="event_0002", label="", start_idx=4, end_idx=5, duration_frames=2),
+        ]
+    )
+
+    assert inserts == [
+        {"iid": "event_0001", "values": ("Visible Event", 1, 3, 3)},
+        {"iid": "event_0002", "values": ("event_0002", 4, 5, 2)},
+    ]
+    assert reselections == ["event_0002"]
+
+
 def test_event_tree_context_menu_selects_clicked_row_and_returns_break() -> None:
     selected: list[str] = []
     focused: list[str] = []

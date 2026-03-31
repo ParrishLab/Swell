@@ -13,6 +13,7 @@ from sdapp.analysis.core.frame_source import EagerFrameSource
 from sdapp.analysis.core.project_fingerprint import fingerprints_match
 from sdapp.analysis.core.project_migration import migrate_project_state
 from sdapp.analysis.core.project_schema import validate_project_state, utc_now_iso
+from sdapp.shared.project_naming import derive_sdproj_name
 
 
 @dataclass
@@ -91,19 +92,13 @@ def save_project(app) -> None:
     save_project_to_path(app, app.current_project_path, is_autosave=False)
 
 
-def _save_as_initial_name(current_project_path: str | None, *, default_base: str) -> str:
-    if not current_project_path:
-        return str(default_base)
-    current_name = Path(str(current_project_path)).name
-    if current_name.lower().endswith(".sdproj"):
-        stem = Path(current_name).stem
-        return stem or str(default_base)
-    return current_name
-
-
 def save_project_as(app) -> None:
     initial_dir = None
-    initial_name = _save_as_initial_name(app.current_project_path, default_base="analysis")
+    initial_name = derive_sdproj_name(
+        app.current_project_path,
+        default_base="analysis",
+        source_paths=list(getattr(app, "_current_image_source_paths", []) or []),
+    )
     if app.current_project_path:
         current = Path(app.current_project_path)
         initial_dir = str(current.parent)

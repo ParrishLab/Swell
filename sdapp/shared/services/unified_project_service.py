@@ -13,6 +13,7 @@ from sdapp.shared.models import (
     clone_project_state,
 )
 from sdapp.shared.persistence import UnifiedProjectStore
+from sdapp.shared.project_naming import derive_sdproj_filename
 
 SESSION_SCHEMA_VERSION = 1
 ANALYSIS_BRIDGE_MODE = "single_stack_analysis_payload_v1"
@@ -138,7 +139,14 @@ class UnifiedProjectService:
         return self.state()
 
     def save_project(self, path: str | None = None) -> UnifiedProjectState:
-        target = str(path or self._state.project_path or "session.sdproj")
+        target = str(
+            path
+            or self._state.project_path
+            or derive_sdproj_filename(
+                default_base="session",
+                input_dir=getattr(self._state.stack_ref, "input_dir", None),
+            )
+        )
         self._normalize_loaded_state()
         self.store.save(target, self._state)
         self._state.project_path = target

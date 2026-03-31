@@ -36,6 +36,7 @@ class EventCandidate:
     duration_frames: int
     duration_sec: Optional[float] = None
     flags: dict[str, Any] = field(default_factory=dict)
+    label: Optional[str] = None
 
 
 @dataclass

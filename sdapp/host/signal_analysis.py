@@ -79,6 +79,9 @@ def event_to_dict(event: EventCandidate) -> dict:
         "duration_frames": int(event.duration_frames),
         "duration_sec": event.duration_sec,
     }
+    label = str(getattr(event, "label", "") or "").strip()
+    if label:
+        payload["label"] = label
     if event.flags:
         payload["flags"] = dict(event.flags)
     return payload
