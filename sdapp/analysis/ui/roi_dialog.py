@@ -5,6 +5,54 @@ import cv2
 import numpy as np
 from PIL import Image, ImageTk
 
+from sdapp.analysis.core.viewport import (
+    ViewportState,
+    clamp_viewport_center,
+    compute_transform,
+    fit_viewport,
+    zoom_viewport_at,
+    pan_viewport,
+)
+
+ROI_ICON_LABELS = {
+    "zoom_in": "+",
+    "zoom_out": "-",
+    "fit": "□",
+}
+
+
+def _dialog_transform_resample(resample):
+    if resample in (Image.Resampling.NEAREST, Image.Resampling.BILINEAR, Image.Resampling.BICUBIC):
+        return resample
+    return Image.Resampling.BICUBIC
+
+
+def _compute_roi_transform(state, *, canvas_width: int, canvas_height: int, image_width: int, image_height: int):
+    viewport_state = state.get("viewport_state")
+    if viewport_state is None:
+        viewport_state = fit_viewport(image_width, image_height)
+        state["viewport_state"] = viewport_state
+    return compute_transform(
+        viewport_state,
+        canvas_width=max(1, int(canvas_width)),
+        canvas_height=max(1, int(canvas_height)),
+        image_width=max(1, int(image_width)),
+        image_height=max(1, int(image_height)),
+    )
+
+
+def _clamp_roi_viewport(state, *, canvas_width: int, canvas_height: int, image_width: int, image_height: int):
+    viewport_state = state.get("viewport_state")
+    if viewport_state is None:
+        viewport_state = fit_viewport(image_width, image_height)
+    state["viewport_state"] = clamp_viewport_center(
+        viewport_state,
+        image_width=image_width,
+        image_height=image_height,
+        canvas_sizes=[(canvas_width, canvas_height)],
+    )
+    return state["viewport_state"]
+
 
 def open_roi_dialog(root, img_u8, initial_roi_points=None):
     popup = tk.Toplevel(root)
@@ -30,56 +78,77 @@ def open_roi_dialog(root, img_u8, initial_roi_points=None):
         "selected_idx": None,
         "closed": bool(points_seed),
         "dragging": False,
-        "ratio": base_ratio,
-        "disp_w": initial_w,
-        "disp_h": initial_h,
-        "offset_x": 0.0,
-        "offset_y": 0.0,
+        "viewport_state": fit_viewport(img_w, img_h),
+        "space_pan_requested": False,
+        "pan_active": False,
+        "pan_last_x": None,
+        "pan_last_y": None,
     }
     result = {"value": None}
 
-    def get_ratio():
-        return max(1e-6, float(state["ratio"]))
-
-    def image_to_canvas_xy(px, py):
-        ratio = get_ratio()
-        return (
-            float(state["offset_x"]) + float(px) * ratio,
-            float(state["offset_y"]) + float(py) * ratio,
+    def current_transform():
+        return _compute_roi_transform(
+            state,
+            canvas_width=max(1, int(canvas.winfo_width())),
+            canvas_height=max(1, int(canvas.winfo_height())),
+            image_width=img_w,
+            image_height=img_h,
         )
 
+    def refocus_canvas():
+        try:
+            canvas.focus_set()
+        except Exception:
+            pass
+
+    def image_to_canvas_xy(px, py):
+        return current_transform().image_to_canvas(px, py)
+
     def event_to_image_xy(event):
-        ratio = get_ratio()
-        px = int((float(event.x) - float(state["offset_x"])) / ratio)
-        py = int((float(event.y) - float(state["offset_y"])) / ratio)
+        px, py = current_transform().canvas_to_image(event.x, event.y)
+        px = int(px)
+        py = int(py)
         return px, py
 
     def render_background():
         avail_w = max(1, int(canvas.winfo_width()))
         avail_h = max(1, int(canvas.winfo_height()))
-        ratio = max(1e-6, min(float(avail_w) / float(img_w), float(avail_h) / float(img_h)))
-        disp_w = max(1, int(round(img_w * ratio)))
-        disp_h = max(1, int(round(img_h * ratio)))
-        offset_x = max(0.0, (float(avail_w) - float(disp_w)) * 0.5)
-        offset_y = max(0.0, (float(avail_h) - float(disp_h)) * 0.5)
-        img_resized = cv2.resize(img_rgb, (disp_w, disp_h), interpolation=cv2.INTER_LINEAR)
-        tk_img = ImageTk.PhotoImage(Image.fromarray(img_resized))
+        _clamp_roi_viewport(
+            state,
+            canvas_width=avail_w,
+            canvas_height=avail_h,
+            image_width=img_w,
+            image_height=img_h,
+        )
+        transform = current_transform()
+        pil_src = Image.fromarray(img_rgb)
+        pil_canvas = pil_src.transform(
+            (avail_w, avail_h),
+            Image.Transform.AFFINE,
+            data=(
+                1.0 / float(transform.scale),
+                0.0,
+                -float(transform.offset_x) / float(transform.scale),
+                0.0,
+                1.0 / float(transform.scale),
+                -float(transform.offset_y) / float(transform.scale),
+            ),
+            resample=_dialog_transform_resample(Image.Resampling.BICUBIC),
+            fillcolor=(0, 0, 0),
+        )
+        tk_img = ImageTk.PhotoImage(pil_canvas)
         popup._tk_img = tk_img
-        state["ratio"] = ratio
-        state["disp_w"] = disp_w
-        state["disp_h"] = disp_h
-        state["offset_x"] = offset_x
-        state["offset_y"] = offset_y
         canvas.delete("bg")
-        canvas.create_image(offset_x, offset_y, image=tk_img, anchor="nw", tags="bg")
+        canvas.create_image(0, 0, image=tk_img, anchor="nw", tags="bg")
         canvas.tag_lower("bg")
 
     def redraw():
         canvas.delete("overlay")
         if not state["points"]:
             return
+        transform = current_transform()
         for i, (px, py) in enumerate(state["points"]):
-            x, y = image_to_canvas_xy(px, py)
+            x, y = transform.image_to_canvas(px, py)
             if state["selected_idx"] == i:
                 canvas.create_oval(x - 7, y - 7, x + 7, y + 7, fill="#00ff66", outline="yellow", width=2, tags="overlay")
             else:
@@ -87,14 +156,14 @@ def open_roi_dialog(root, img_u8, initial_roi_points=None):
         if len(state["points"]) >= 2:
             pts = []
             for px, py in state["points"]:
-                x, y = image_to_canvas_xy(px, py)
+                x, y = transform.image_to_canvas(px, py)
                 pts.extend([x, y])
             canvas.create_line(*pts, fill="#00ff66", width=2, tags="overlay")
             if len(state["points"]) >= 3 and state["closed"]:
                 x0, y0 = state["points"][0]
                 x1, y1 = state["points"][-1]
-                cx0, cy0 = image_to_canvas_xy(x0, y0)
-                cx1, cy1 = image_to_canvas_xy(x1, y1)
+                cx0, cy0 = transform.image_to_canvas(x0, y0)
+                cx1, cy1 = transform.image_to_canvas(x1, y1)
                 canvas.create_line(
                     cx0,
                     cy0,
@@ -107,8 +176,8 @@ def open_roi_dialog(root, img_u8, initial_roi_points=None):
             elif len(state["points"]) >= 3:
                 x0, y0 = state["points"][0]
                 x1, y1 = state["points"][-1]
-                cx0, cy0 = image_to_canvas_xy(x0, y0)
-                cx1, cy1 = image_to_canvas_xy(x1, y1)
+                cx0, cy0 = transform.image_to_canvas(x0, y0)
+                cx1, cy1 = transform.image_to_canvas(x1, y1)
                 canvas.create_line(
                     cx0,
                     cy0,
@@ -124,7 +193,7 @@ def open_roi_dialog(root, img_u8, initial_roi_points=None):
         if not state["points"]:
             return None
         if max_dist_px is None:
-            max_dist_px = max(8.0, 12.0 / get_ratio())
+            max_dist_px = max(8.0, 12.0 / current_transform().scale)
         best_idx = None
         best_d2 = (max_dist_px**2) + 1
         for i, (x, y) in enumerate(state["points"]):
@@ -151,7 +220,7 @@ def open_roi_dialog(root, img_u8, initial_roi_points=None):
         if not state["closed"] or len(state["points"]) < 3:
             return None
         if max_dist_px is None:
-            max_dist_px = max(6.0, 10.0 / get_ratio())
+            max_dist_px = max(6.0, 10.0 / current_transform().scale)
         best = None
         best_dist = max_dist_px + 1
         n = len(state["points"])
@@ -165,6 +234,9 @@ def open_roi_dialog(root, img_u8, initial_roi_points=None):
         return best if best_dist <= max_dist_px else None
 
     def on_click(event):
+        refocus_canvas()
+        if state["pan_active"]:
+            return "break"
         px, py = event_to_image_xy(event)
         if not (0 <= px < img_w and 0 <= py < img_h):
             return
@@ -189,6 +261,9 @@ def open_roi_dialog(root, img_u8, initial_roi_points=None):
         redraw()
 
     def on_drag(event):
+        refocus_canvas()
+        if state["pan_active"]:
+            return "break"
         if state["selected_idx"] is None:
             return
         px, py = event_to_image_xy(event)
@@ -198,6 +273,12 @@ def open_roi_dialog(root, img_u8, initial_roi_points=None):
         redraw()
 
     def on_release(_event):
+        if state["pan_active"]:
+            state["pan_active"] = False
+            state["pan_last_x"] = None
+            state["pan_last_y"] = None
+            canvas.config(cursor="cross")
+            return "break"
         state["dragging"] = False
         redraw()
 
@@ -213,7 +294,131 @@ def open_roi_dialog(root, img_u8, initial_roi_points=None):
             state["selected_idx"] = 0
             redraw()
 
+    def on_mouse_wheel(event):
+        refocus_canvas()
+        delta = getattr(event, "delta", 0)
+        num = getattr(event, "num", None)
+        direction = 0
+        if delta:
+            direction = 1 if float(delta) > 0 else -1
+        elif num in (4, 5):
+            direction = 1 if int(num) == 4 else -1
+        if direction == 0:
+            return None
+        current_state = state["viewport_state"]
+        step = 1.25 if direction > 0 else (1.0 / 1.25)
+        state["viewport_state"] = zoom_viewport_at(
+            current_state,
+            image_width=img_w,
+            image_height=img_h,
+            canvas_width=max(1, int(canvas.winfo_width())),
+            canvas_height=max(1, int(canvas.winfo_height())),
+            anchor_canvas_x=float(getattr(event, "x", canvas.winfo_width() / 2.0)),
+            anchor_canvas_y=float(getattr(event, "y", canvas.winfo_height() / 2.0)),
+            new_zoom_factor=float(current_state.zoom_factor) * float(step),
+            shared_canvas_sizes=[(max(1, int(canvas.winfo_width())), max(1, int(canvas.winfo_height())))],
+        )
+        render_background()
+        redraw()
+        return "break"
+
+    def set_space_pan_active(_event=None):
+        refocus_canvas()
+        state["space_pan_requested"] = True
+        try:
+            canvas.config(cursor="fleur")
+        except Exception:
+            pass
+        return "break"
+
+    def clear_space_pan_active(_event=None):
+        state["space_pan_requested"] = False
+        if not state["pan_active"]:
+            try:
+                canvas.config(cursor="cross")
+            except Exception:
+                pass
+        return "break"
+
+    def start_pan(event):
+        if not bool(state["space_pan_requested"]):
+            return None
+        refocus_canvas()
+        state["pan_active"] = True
+        state["selected_idx"] = None
+        state["dragging"] = False
+        state["pan_last_x"] = float(event.x)
+        state["pan_last_y"] = float(event.y)
+        canvas.config(cursor="fleur")
+        return "break"
+
+    def drag_pan(event):
+        if not state["pan_active"]:
+            return None
+        last_x = state["pan_last_x"]
+        last_y = state["pan_last_y"]
+        if last_x is None or last_y is None:
+            state["pan_last_x"] = float(event.x)
+            state["pan_last_y"] = float(event.y)
+            return "break"
+        dx = float(event.x) - float(last_x)
+        dy = float(event.y) - float(last_y)
+        state["pan_last_x"] = float(event.x)
+        state["pan_last_y"] = float(event.y)
+        state["viewport_state"] = pan_viewport(
+            state["viewport_state"],
+            image_width=img_w,
+            image_height=img_h,
+            canvas_width=max(1, int(canvas.winfo_width())),
+            canvas_height=max(1, int(canvas.winfo_height())),
+            delta_canvas_x=dx,
+            delta_canvas_y=dy,
+            shared_canvas_sizes=[(max(1, int(canvas.winfo_width())), max(1, int(canvas.winfo_height())))],
+        )
+        render_background()
+        redraw()
+        return "break"
+
     def on_canvas_configure(_event=None):
+        render_background()
+        redraw()
+
+    def zoom_in():
+        width = max(1, int(canvas.winfo_width()))
+        height = max(1, int(canvas.winfo_height()))
+        state["viewport_state"] = zoom_viewport_at(
+            state["viewport_state"],
+            image_width=img_w,
+            image_height=img_h,
+            canvas_width=width,
+            canvas_height=height,
+            anchor_canvas_x=width / 2.0,
+            anchor_canvas_y=height / 2.0,
+            new_zoom_factor=float(state["viewport_state"].zoom_factor) * 1.25,
+            shared_canvas_sizes=[(width, height)],
+        )
+        render_background()
+        redraw()
+
+    def zoom_out():
+        width = max(1, int(canvas.winfo_width()))
+        height = max(1, int(canvas.winfo_height()))
+        state["viewport_state"] = zoom_viewport_at(
+            state["viewport_state"],
+            image_width=img_w,
+            image_height=img_h,
+            canvas_width=width,
+            canvas_height=height,
+            anchor_canvas_x=width / 2.0,
+            anchor_canvas_y=height / 2.0,
+            new_zoom_factor=float(state["viewport_state"].zoom_factor) / 1.25,
+            shared_canvas_sizes=[(width, height)],
+        )
+        render_background()
+        redraw()
+
+    def reset_view():
+        state["viewport_state"] = fit_viewport(img_w, img_h)
         render_background()
         redraw()
 
@@ -259,25 +464,46 @@ def open_roi_dialog(root, img_u8, initial_roi_points=None):
         }
         popup.destroy()
 
+    canvas.bind("<Button-1>", start_pan, add="+")
     canvas.bind("<Button-1>", on_click)
+    canvas.bind("<B1-Motion>", drag_pan, add="+")
     canvas.bind("<B1-Motion>", on_drag)
     canvas.bind("<ButtonRelease-1>", on_release)
     canvas.bind("<Double-Button-1>", on_double_click)
     canvas.bind("<Configure>", on_canvas_configure)
+    canvas.bind("<MouseWheel>", on_mouse_wheel)
+    canvas.bind("<Button-4>", on_mouse_wheel)
+    canvas.bind("<Button-5>", on_mouse_wheel)
     controls = ttk.Frame(popup)
     controls.pack(fill="x", padx=8, pady=(0, 8))
     ttk.Label(
         controls,
-        text="Click to add/select points. Double-click first point to close. Drag to move. Click edge to insert.",
+        text="Click to add/select points. Double-click first point to close. Drag to move. Click edge to insert. Wheel zooms. Space-drag pans.",
     ).pack(side="top", anchor="w", pady=(0, 4))
-    ttk.Button(controls, text="Undo Point", command=on_undo).pack(side="left", padx=3)
-    ttk.Button(controls, text="Delete Selected", command=on_delete_selected).pack(side="left", padx=3)
-    ttk.Button(controls, text="Clear", command=on_clear).pack(side="left", padx=3)
-    ttk.Button(controls, text="Save Global ROI", command=lambda: on_finish("global")).pack(side="right", padx=3)
-    ttk.Button(controls, text="Save Local ROI", command=lambda: on_finish("local")).pack(side="right", padx=3)
-    ttk.Button(controls, text="Cancel", command=popup.destroy).pack(side="right", padx=3)
+    button_opts = {"takefocus": False}
+    ttk.Button(controls, text="Undo Point", command=on_undo, **button_opts).pack(side="left", padx=3)
+    ttk.Button(controls, text="Delete Selected", command=on_delete_selected, **button_opts).pack(side="left", padx=3)
+    ttk.Button(controls, text="Clear", command=on_clear, **button_opts).pack(side="left", padx=3)
+    ttk.Button(controls, text=ROI_ICON_LABELS["zoom_in"], width=3, command=zoom_in, **button_opts).pack(side="left", padx=3)
+    ttk.Button(controls, text=ROI_ICON_LABELS["zoom_out"], width=3, command=zoom_out, **button_opts).pack(side="left", padx=3)
+    ttk.Button(controls, text=ROI_ICON_LABELS["fit"], width=3, command=reset_view, **button_opts).pack(side="left", padx=3)
+    ttk.Button(controls, text="Save Global ROI", command=lambda: on_finish("global"), **button_opts).pack(side="right", padx=3)
+    ttk.Button(controls, text="Save Local ROI", command=lambda: on_finish("local"), **button_opts).pack(side="right", padx=3)
+    ttk.Button(controls, text="Cancel", command=popup.destroy, **button_opts).pack(side="right", padx=3)
+    popup.bind("<KeyPress-space>", set_space_pan_active, add="+")
+    popup.bind("<space>", set_space_pan_active, add="+")
+    popup.bind("<KeyRelease-space>", clear_space_pan_active, add="+")
+    canvas.bind("<KeyPress-space>", set_space_pan_active, add="+")
+    canvas.bind("<space>", set_space_pan_active, add="+")
+    canvas.bind("<KeyRelease-space>", clear_space_pan_active, add="+")
+    popup.bind("<Key-plus>", lambda _e: (zoom_in(), "break")[1], add="+")
+    popup.bind("<Key-equal>", lambda _e: (zoom_in(), "break")[1], add="+")
+    popup.bind("<Key-minus>", lambda _e: (zoom_out(), "break")[1], add="+")
+    popup.bind("<Key-underscore>", lambda _e: (zoom_out(), "break")[1], add="+")
+    popup.bind("<Key-0>", lambda _e: (reset_view(), "break")[1], add="+")
 
     render_background()
     redraw()
+    refocus_canvas()
     popup.wait_window()
     return result["value"]

@@ -771,13 +771,7 @@ class SDAnalyzerApp:
             return
 
     def _on_root_close(self) -> None:
-        if self._instance_bridge is not None:
-            self._instance_bridge.stop()
-        self.analysis_window_manager.close_all()
-        try:
-            self.root.destroy()
-        except Exception:
-            pass
+        self._get_project_controller().request_host_close()
 
     def _on_stack_loaded(self, reader: StackReader, info) -> None:
         self._get_project_controller().on_stack_loaded(reader, info)

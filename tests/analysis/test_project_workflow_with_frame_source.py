@@ -58,6 +58,8 @@ class ProjectWorkflowFrameSourceTests(unittest.TestCase):
         app.update_display = lambda: None
         app.log_success = lambda *_args, **_kwargs: None
         app.log_warn = lambda *_args, **_kwargs: None
+        app.reset_viewport_calls = 0
+        app._reset_viewport_to_fit = lambda update_display=False: setattr(app, "reset_viewport_calls", app.reset_viewport_calls + 1)
         app.project_dirty = True
         app._apply_loaded_stack = lambda frames_raw, frames_sub, frames_sub_viz, frame_names, source_paths=None: (
             setattr(app, "frames_raw", frames_raw),
@@ -98,6 +100,7 @@ class ProjectWorkflowFrameSourceTests(unittest.TestCase):
         self.assertEqual(app.app_context.frame_source, app.frame_source)
         self.assertIn(1, app.seg_state.masks_cache)
         self.assertEqual(app.active_event_id, "sd_event_001")
+        self.assertEqual(app.reset_viewport_calls, 1)
 
 
 if __name__ == "__main__":

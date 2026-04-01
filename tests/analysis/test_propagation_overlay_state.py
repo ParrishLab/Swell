@@ -1,6 +1,7 @@
 import unittest
 
 import numpy as np
+from types import SimpleNamespace
 
 from sdapp.analysis.app import SDSegmentationApp
 from sdapp.analysis.core.overlay_renderer import recompute_slider_jump_markers
@@ -110,6 +111,19 @@ class PropagationOverlayStateTests(unittest.TestCase):
         self.assertEqual(app._largest_propagated_span, (20, 21))
         self.assertEqual(app._propagated_history_indices, {20, 21})
         self.assertEqual(app.propagated_frame_indices, {20, 21})
+
+    def test_clear_current_frame_data_reseeds_overlay_from_remaining_saved_masks(self):
+        app = self._make_app()
+        app._set_propagated_frames({2, 3, 4, 5})
+        app._collect_nonempty_final_mask_frames = lambda: {2, 4, 5}
+        app.interaction_controller = SimpleNamespace(clear_current_frame_data=lambda: None)
+        app._mark_project_dirty = lambda _reason="": None
+
+        app.clear_current_frame_data()
+
+        self.assertEqual(app._largest_propagated_span, (4, 5))
+        self.assertEqual(app._propagated_history_indices, {2, 4, 5})
+        self.assertEqual(app.propagated_frame_indices, {4, 5})
 
     def test_marker_sync_uses_current_nonempty_mask_edges(self):
         app = self._make_app(frame_count=30)

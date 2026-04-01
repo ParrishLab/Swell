@@ -2,6 +2,7 @@ import unittest
 from unittest.mock import patch
 
 from sdapp.analysis.app import SDSegmentationApp
+from sdapp.shared.services import AnalysisWindowManager
 
 
 class _MgrStub:
@@ -18,6 +19,9 @@ class _RootStub:
 
     def destroy(self):
         self.destroyed = True
+
+    def winfo_exists(self):
+        return not self.destroyed
 
 
 class AppCloseWarningsTests(unittest.TestCase):
@@ -95,6 +99,27 @@ class AppCloseWarningsTests(unittest.TestCase):
         self.assertEqual(called, ["save"])
         self.assertTrue(app.root.destroyed)
         self.assertTrue(app.autosave_manager.stopped)
+        ask_yesno_mock.assert_not_called()
+
+    @patch("sdapp.analysis.app.messagebox.askyesnocancel")
+    @patch("sdapp.analysis.app.messagebox.askyesno")
+    def test_direct_analysis_window_close_still_uses_native_unsaved_mask_prompt(self, ask_yesno_mock, ask_ync_mock):
+        app = self._make_app()
+        app._is_propagation_running = lambda: False
+        app.frames_raw = [object()]
+        app.current_project_path = "/tmp/proj.sdproj"
+        app.project_dirty = True
+        app._collect_nonempty_final_mask_frames = lambda: {1}
+        manager = AnalysisWindowManager()
+        manager.open_event_window("scope", "event_1", app.root, app)
+        ask_ync_mock.return_value = None
+
+        result = manager.close_event_window("scope", "event_1")
+
+        self.assertFalse(result.closed)
+        self.assertFalse(app.root.destroyed)
+        self.assertIsNotNone(manager.get("scope", "event_1"))
+        ask_ync_mock.assert_called_once()
         ask_yesno_mock.assert_not_called()
 
 

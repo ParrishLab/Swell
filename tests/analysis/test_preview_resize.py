@@ -35,10 +35,14 @@ class _App:
     def __init__(self):
         self.preview_frame = _PreviewFrame()
         self.update_preview_calls = 0
+        self.clamp_calls = 0
 
     def update_display(self, update_preview=False):
         if update_preview:
             self.update_preview_calls += 1
+
+    def _clamp_shared_viewport(self):
+        self.clamp_calls += 1
 
 
 class PreviewResizeTests(unittest.TestCase):
@@ -49,6 +53,7 @@ class PreviewResizeTests(unittest.TestCase):
         stop_resize_preview(app, _Event())
         self.assertGreater(app.preview_frame.width, 200)
         self.assertGreaterEqual(app.update_preview_calls, 2)
+        self.assertEqual(app.clamp_calls, 2)
 
 
 if __name__ == "__main__":

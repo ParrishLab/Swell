@@ -132,6 +132,7 @@ def compute_roi_metrics(
     speed_um_per_sec = (avg_dist_px * um_per_px) / float(sec_per_frame)
     valid_speed = speed_um_per_sec[np.isfinite(speed_um_per_sec)]
     overall_avg_speed = float(np.mean(valid_speed)) if valid_speed.size > 0 else np.nan
+    overall_max_speed = float(np.max(valid_speed)) if valid_speed.size > 0 else np.nan
 
     area_mm2 = areas_px * (mm_per_px**2)
     valid_area_px = areas_px[np.isfinite(areas_px)]
@@ -144,6 +145,7 @@ def compute_roi_metrics(
         "roi_area_mm2": roi_pixels * (mm_per_px**2),
         "speed_um_per_sec": speed_um_per_sec,
         "overall_avg_speed_um_per_sec": overall_avg_speed,
+        "overall_max_speed_um_per_sec": overall_max_speed,
         "area_mm2": area_mm2,
         "max_area_px": max_area_px,
         "max_area_mm2": max_area_mm2,

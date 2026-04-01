@@ -263,6 +263,8 @@ def apply_loaded_project_plan(app, plan: ProjectLoadPlan) -> None:
             app._set_spinbox_value(getattr(app, spin_name), plan.ui_state.get(key))
 
     app.tool_mode.set(str(plan.ui_state.get("active_tool", "select")))
+    if hasattr(app, "_reset_viewport_to_fit"):
+        app._reset_viewport_to_fit(update_display=False)
     try:
         idx = int(plan.ui_state.get("last_frame", 0))
         frame_count = int(app._get_frame_count()) if hasattr(app, "_get_frame_count") else 0
@@ -352,6 +354,22 @@ def _close_log_debug(app, message: str) -> None:
         return
 
 
+def _perform_close_teardown(app) -> None:
+    _close_log_debug(app, "Proceeding with close teardown.")
+    if hasattr(app, "_shutdown_model_resources"):
+        app._shutdown_model_resources()
+    if hasattr(app, "_emit_host_sync"):
+        app._emit_host_sync(reason="close")
+    autosave_mgr = getattr(app, "autosave_manager", None)
+    if autosave_mgr is not None and hasattr(autosave_mgr, "stop"):
+        autosave_mgr.stop()
+    app.inference_manager.stop()
+    if app._ui_alive():
+        _close_log_debug(app, "Destroying analysis root window.")
+        app.root.destroy()
+    app.cleanup_temp_files()
+
+
 def on_close(app) -> None:
     _close_log_debug(app, "Close requested.")
     requirements = evaluate_close_requirements(app)
@@ -402,16 +420,9 @@ def on_close(app) -> None:
                 _close_log_debug(app, "Close aborted because project remains dirty after save attempt.")
                 return
 
-    _close_log_debug(app, "Proceeding with close teardown.")
-    if hasattr(app, "_shutdown_model_resources"):
-        app._shutdown_model_resources()
-    if hasattr(app, "_emit_host_sync"):
-        app._emit_host_sync(reason="close")
-    autosave_mgr = getattr(app, "autosave_manager", None)
-    if autosave_mgr is not None and hasattr(autosave_mgr, "stop"):
-        autosave_mgr.stop()
-    app.inference_manager.stop()
-    if app._ui_alive():
-        _close_log_debug(app, "Destroying analysis root window.")
-        app.root.destroy()
-    app.cleanup_temp_files()
+    _perform_close_teardown(app)
+
+
+def force_close(app) -> None:
+    _close_log_debug(app, "Forced close requested.")
+    _perform_close_teardown(app)

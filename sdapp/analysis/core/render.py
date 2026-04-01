@@ -4,11 +4,41 @@ import time
 from PIL import Image, ImageTk
 
 from sdapp.shared.image_overlay import apply_mask_overlay, frame_to_rgb_u8
+from sdapp.analysis.core.viewport import compute_fit_scale
 
 
 class RenderActions:
     def _compute_display_ratio(self, max_w, max_h, orig_w, orig_h):
-        return min(max_w / orig_w, max_h / orig_h, 1.0)
+        return compute_fit_scale(max_w, max_h, orig_w, orig_h)
+
+    def _transform_resample(self, resample):
+        if resample in (Image.Resampling.NEAREST, Image.Resampling.BILINEAR, Image.Resampling.BICUBIC):
+            return resample
+        return Image.Resampling.BICUBIC
+
+    def _render_array_to_canvas_image(self, canvas, img_arr, *, resample, fill_value):
+        canvas_w = max(1, int(canvas.winfo_width()))
+        canvas_h = max(1, int(canvas.winfo_height()))
+        src = np.asarray(img_arr, dtype=np.uint8)
+        src_h, src_w = src.shape[:2]
+        transform = self._get_canvas_viewport_transform(canvas, src_w, src_h)
+        pil_src = Image.fromarray(src)
+        fillcolor = fill_value if pil_src.mode == "L" else tuple(int(v) for v in fill_value)
+        pil_canvas = pil_src.transform(
+            (canvas_w, canvas_h),
+            Image.Transform.AFFINE,
+            data=(
+                1.0 / float(transform.scale),
+                0.0,
+                -float(transform.offset_x) / float(transform.scale),
+                0.0,
+                1.0 / float(transform.scale),
+                -float(transform.offset_y) / float(transform.scale),
+            ),
+            resample=self._transform_resample(resample),
+            fillcolor=fillcolor,
+        )
+        return pil_canvas, transform
 
     def _draw_pending_frames_placeholder(self) -> None:
         total = int(self._get_frame_count()) if hasattr(self, "_get_frame_count") else 0
@@ -24,30 +54,31 @@ class RenderActions:
         if preview_viz is not None and preview_idx is not None and int(preview_idx) == idx:
             img_arr_gray = np.asarray(preview_viz, dtype=np.uint8)
             img_arr = frame_to_rgb_u8(img_arr_gray)
-            img_pil = Image.fromarray(img_arr)
-            lw = max(1, int(self.canvas_left.winfo_width()))
-            lh = max(1, int(self.canvas_left.winfo_height()))
-            if lw > 1 and lh > 1:
-                img_pil = self._resize_maintain_aspect(img_pil, lw, lh)
-            self.tk_img_left = ImageTk.PhotoImage(img_pil)
+            img_pil_left, left_transform = self._render_array_to_canvas_image(
+                self.canvas_left,
+                img_arr,
+                resample=Image.Resampling.LANCZOS,
+                fill_value=(241, 241, 241),
+            )
+            self.tk_img_left = ImageTk.PhotoImage(img_pil_left)
             self.canvas_left.delete("all")
-            self.canvas_left.create_image(lw // 2, lh // 2, image=self.tk_img_left, anchor="center")
+            self.canvas_left.create_image(0, 0, image=self.tk_img_left, anchor="nw")
             self.canvas_left.create_text(12, 12, text="Preparing frames...", fill="orange", anchor="nw")
 
-            rw = max(1, int(self.canvas_right.winfo_width()))
-            rh = max(1, int(self.canvas_right.winfo_height()))
-            right_pil = Image.fromarray(frame_to_rgb_u8(img_arr_gray))
-            if rw > 1 and rh > 1:
-                right_pil = self._resize_maintain_aspect(right_pil, rw, rh)
+            right_pil, _ = self._render_array_to_canvas_image(
+                self.canvas_right,
+                frame_to_rgb_u8(img_arr_gray),
+                resample=Image.Resampling.LANCZOS,
+                fill_value=(241, 241, 241),
+            )
             self.tk_img_right = ImageTk.PhotoImage(right_pil)
             self.canvas_right.delete("all")
-            self.canvas_right.create_image(rw // 2, rh // 2, image=self.tk_img_right, anchor="center")
+            self.canvas_right.create_image(0, 0, image=self.tk_img_right, anchor="nw")
             self.canvas_right.create_text(12, 12, text="Preparing frames...", fill="orange", anchor="nw")
 
             if preview_raw is not None:
                 orig_h, orig_w = np.asarray(preview_raw).shape[:2]
-                ratio, offset_x, offset_y = self._get_display_transform(self.canvas_left, orig_w, orig_h)
-                self._draw_overlay_elements(lw, lh, np.asarray(preview_raw).shape, ratio, offset_x, offset_y)
+                self._draw_overlay_elements(left_transform, np.asarray(preview_raw).shape)
             self.canvas_preview.delete("all")
             self.canvas_preview.create_text(70, 70, text="No Mask", fill="gray")
             return
@@ -127,15 +158,15 @@ class RenderActions:
         if np.any(final_mask):
             img_arr = apply_mask_overlay(img_arr, final_mask)
 
-        img_pil_left = Image.fromarray(img_arr)
-
-        w, h = self.canvas_left.winfo_width(), self.canvas_left.winfo_height()
-        if w > 1 and h > 1:
-            img_pil_left = self._resize_maintain_aspect(img_pil_left, w, h)
-
+        img_pil_left, left_transform = self._render_array_to_canvas_image(
+            self.canvas_left,
+            img_arr,
+            resample=Image.Resampling.NEAREST if self.is_dragging and self.tool_mode.get() in ["brush", "eraser"] else Image.Resampling.LANCZOS,
+            fill_value=(241, 241, 241),
+        )
         self.tk_img_left = ImageTk.PhotoImage(img_pil_left)
         self.canvas_left.delete("all")
-        self.canvas_left.create_image(w // 2, h // 2, image=self.tk_img_left, anchor="center")
+        self.canvas_left.create_image(0, 0, image=self.tk_img_left, anchor="nw")
 
         self._draw_brush_cursor_on_canvas()
 
@@ -144,49 +175,43 @@ class RenderActions:
             raw_shape = tuple(int(v) for v in img_arr_gray.shape[:2])
         else:
             raw_shape = tuple(int(v) for v in np.asarray(raw_frame).shape[:2])
-        orig_h, orig_w = raw_shape
-        ratio, offset_x, offset_y = self._get_display_transform(self.canvas_left, orig_w, orig_h)
-        self._draw_overlay_elements(w, h, raw_shape, ratio, offset_x, offset_y)
+        self._draw_overlay_elements(left_transform, raw_shape)
 
         if update_preview:
             if np.any(final_mask):
                 mask_uint8 = (final_mask * 255).astype(np.uint8)
-                preview_pil = Image.fromarray(mask_uint8)
-
-                pw = self.preview_frame.winfo_width() - 10
-                ph = self.preview_frame.winfo_height() - 10
-                if pw < 10 or ph < 10:
-                    pw, ph = 140, 140
-
-                p_ratio = min(pw / orig_w, ph / orig_h)
-                new_w, new_h = int(orig_w * p_ratio), int(orig_h * p_ratio)
-
-                preview_pil = preview_pil.resize((new_w, new_h), Image.Resampling.NEAREST)
-
+                preview_pil, _ = self._render_array_to_canvas_image(
+                    self.canvas_preview,
+                    mask_uint8,
+                    resample=Image.Resampling.NEAREST,
+                    fill_value=0,
+                )
                 self.tk_preview = ImageTk.PhotoImage(preview_pil)
                 self.canvas_preview.delete("all")
-                self.canvas_preview.create_image(pw // 2 + 5, ph // 2 + 5, image=self.tk_preview, anchor="center")
+                self.canvas_preview.create_image(0, 0, image=self.tk_preview, anchor="nw")
             else:
                 self.canvas_preview.delete("all")
                 self.canvas_preview.create_text(70, 70, text="No Mask", fill="gray")
 
         if not self.is_dragging:
             img_arr_right = frame_to_rgb_u8(img_arr_gray)
-            img_pil_right = Image.fromarray(img_arr_right)
-            if w > 1 and h > 1:
-                img_pil_right = self._resize_maintain_aspect(
-                    img_pil_right, self.canvas_right.winfo_width(), self.canvas_right.winfo_height()
-                )
+            img_pil_right, _ = self._render_array_to_canvas_image(
+                self.canvas_right,
+                img_arr_right,
+                resample=Image.Resampling.LANCZOS,
+                fill_value=(241, 241, 241),
+            )
             self.tk_img_right = ImageTk.PhotoImage(img_pil_right)
             self.canvas_right.delete("all")
-            rw = self.canvas_right.winfo_width()
-            rh = self.canvas_right.winfo_height()
-            self.canvas_right.create_image(rw // 2, rh // 2, image=self.tk_img_right, anchor="center")
+            self.canvas_right.create_image(0, 0, image=self.tk_img_right, anchor="nw")
             self._draw_analysis_overlay_on_right(idx)
         elapsed_ms = (time.perf_counter() - t0) * 1000.0
         self.log_debug("Perf", f"Display redraw elapsed={elapsed_ms:.2f}ms")
 
     def _get_display_transform(self, canvas, img_w, img_h):
+        if hasattr(self, "_get_canvas_viewport_transform"):
+            transform = self._get_canvas_viewport_transform(canvas, img_w, img_h)
+            return transform.scale, transform.offset_x, transform.offset_y
         canvas_w = canvas.winfo_width()
         canvas_h = canvas.winfo_height()
         ratio = self._compute_display_ratio(canvas_w, canvas_h, img_w, img_h)
@@ -205,13 +230,12 @@ class RenderActions:
 
         return pil_img.resize((int(orig_w * self.display_ratio), int(orig_h * self.display_ratio)), method)
 
-    def _draw_overlay_elements(self, canvas_w, canvas_h, img_shape, ratio, offset_x, offset_y):
+    def _draw_overlay_elements(self, transform, img_shape):
         idx = self.current_frame_idx
 
         if idx in self.points:
             for pt_i, pt in enumerate(self.points[idx]):
-                cx = int(pt["x"] * ratio + offset_x)
-                cy = int(pt["y"] * ratio + offset_y)
+                cx, cy = transform.image_to_canvas(pt["x"], pt["y"])
                 color = "#00FF00" if pt["label"] == 1 else "#FF0000"
 
                 is_selected = False
@@ -230,12 +254,13 @@ class RenderActions:
         if raw_frame is None:
             return
         h, w = np.asarray(raw_frame).shape[:2]
-        ratio, offset_x, offset_y = self._get_display_transform(self.canvas_right, w, h)
+        transform = self._get_canvas_viewport_transform(self.canvas_right, w, h)
 
         if hasattr(self, "roi_points") and self.roi_points:
             pts = []
             for x, y in self.roi_points:
-                pts.extend([x * ratio + offset_x, y * ratio + offset_y])
+                cx, cy = transform.image_to_canvas(x, y)
+                pts.extend([cx, cy])
             if len(pts) >= 4:
                 self.canvas_right.create_line(*pts, fill="#00ff66", width=2)
             if len(pts) >= 6 and self.roi_mask is not None:

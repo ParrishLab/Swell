@@ -410,8 +410,10 @@ def test_export_metrics_only_writes_per_event_metrics_outputs(tmp_path: Path) ->
     summary = json.loads((metrics_dir / "metrics_summary.json").read_text(encoding="utf-8"))
     assert float(summary["event_start_time_sec"]) == 1.0
     assert float(summary["event_end_time_sec"]) == 2.5
+    assert "overall_max_speed_um_per_sec" in summary
     metrics_text = (metrics_dir / "metrics_summary.md").read_text(encoding="utf-8")
     assert "Selected metrics: propagation_speed, area_recruited, relative_area_recruited" in metrics_text
+    assert "Overall max speed (um/sec): " in metrics_text
     assert "ROI available: yes" in metrics_text
 
 
@@ -657,6 +659,8 @@ def test_export_metrics_gap_warning_can_ignore(tmp_path: Path, monkeypatch: pyte
     assert rows[2]["speed_um_per_sec"] == ""
     assert warning["action"] == "ignore"
     assert warning["frame_runs"] == [[14, 14]]
+    summary = json.loads((metrics_dir / "metrics_summary.json").read_text(encoding="utf-8"))
+    assert float(summary["overall_max_speed_um_per_sec"]) == 5000.0
 
 
 def test_export_metrics_gap_warning_can_stop_at_gap(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

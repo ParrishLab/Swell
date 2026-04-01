@@ -3,6 +3,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 from unittest.mock import patch
 
+from sdapp.host.controllers.project_lifecycle_controller import HostProjectLifecycleController
 from sdapp.host.sd_gui import SDAnalyzerApp
 
 
@@ -10,12 +11,26 @@ class _Mgr:
     def __init__(self, refs):
         self._refs = list(refs)
         self.closed = False
+        self.close_force = None
+        self.results = [SimpleNamespace(closed=True)]
 
     def list_windows(self):
         return list(self._refs)
 
-    def close_all(self):
+    def close_all(self, *, force=False):
         self.closed = True
+        self.close_force = bool(force)
+        if self.close_force:
+            self._refs = []
+        return list(self.results)
+
+
+class _Root:
+    def __init__(self):
+        self.destroyed = False
+
+    def destroy(self):
+        self.destroyed = True
 
 
 def _app_with_refs(refs):
@@ -23,6 +38,11 @@ def _app_with_refs(refs):
     app.analysis_window_manager = _Mgr(refs)
     app._analysis_windows = []
     app._show_warning = lambda *_args, **_kwargs: None
+    app.root = _Root()
+    app._instance_bridge = None
+    app.browser_controller = SimpleNamespace(session=SimpleNamespace(state=lambda: SimpleNamespace(dirty=False)))
+    app.save_host_session = lambda path=None: SimpleNamespace(project_path=path or "/tmp/test.sdproj")
+    app.project_controller = HostProjectLifecycleController(app)
     return app
 
 
@@ -44,6 +64,7 @@ def test_close_analysis_windows_no_save_closes_all():
         result = app.close_analysis_windows_with_prompt()
     assert result["ok"] is True
     assert app.analysis_window_manager.closed is True
+    assert app.analysis_window_manager.close_force is True
 
 
 def test_close_analysis_windows_save_then_continue_closes_all():
@@ -57,6 +78,7 @@ def test_close_analysis_windows_save_then_continue_closes_all():
         result = app.close_analysis_windows_with_prompt()
     assert result["ok"] is True
     assert app.analysis_window_manager.closed is True
+    assert app.analysis_window_manager.close_force is True
 
 
 def test_close_analysis_windows_save_canceled_aborts():
@@ -68,6 +90,139 @@ def test_close_analysis_windows_save_canceled_aborts():
     assert result["ok"] is False
     assert result["reason"] == "save_canceled"
     assert app.analysis_window_manager.closed is False
+
+
+def test_close_analysis_windows_force_close_failure_aborts():
+    app = _app_with_refs([SimpleNamespace(app=SimpleNamespace(project_dirty=False))])
+    app.analysis_window_manager.results = [SimpleNamespace(closed=False)]
+
+    result = app.close_analysis_windows_with_prompt()
+
+    assert result["ok"] is False
+    assert result["reason"] == "close_canceled"
+
+
+def test_host_root_close_analysis_cancel_keeps_host_open():
+    app = _app_with_refs([])
+    app._get_project_controller = lambda: SimpleNamespace(request_host_close=lambda: {"ok": False, "reason": "canceled"})
+
+    app._on_root_close()
+
+    assert app.root.destroyed is False
+
+
+def test_host_root_close_dirty_analysis_cancel_keeps_children_tracked():
+    dirty = SimpleNamespace(project_dirty=True, save_project=lambda: None)
+    ref = SimpleNamespace(app=dirty)
+    app = _app_with_refs([ref])
+    app._analysis_windows = [("window", dirty)]
+
+    with patch("sdapp.host.sd_gui.messagebox.askyesnocancel", return_value=None):
+        result = app.project_controller.request_host_close()
+
+    assert result["ok"] is False
+    assert app.root.destroyed is False
+    assert app.analysis_window_manager.list_windows() == [ref]
+
+
+def test_host_root_close_dirty_analysis_no_save_closes_without_child_reprompt():
+    dirty = SimpleNamespace(project_dirty=True, save_project=lambda: None)
+    ref = SimpleNamespace(app=dirty)
+    app = _app_with_refs([ref])
+    app._analysis_windows = [("window", dirty)]
+
+    with patch("sdapp.host.sd_gui.messagebox.askyesnocancel", return_value=False):
+        result = app.project_controller.request_host_close()
+
+    assert result["ok"] is True
+    assert app.root.destroyed is True
+    assert app.analysis_window_manager.close_force is True
+
+
+def test_host_root_close_dirty_analysis_save_then_continue_closes_host():
+    def _save():
+        dirty.project_dirty = False
+
+    dirty = SimpleNamespace(project_dirty=True, save_project=_save)
+    ref = SimpleNamespace(app=dirty)
+    app = _app_with_refs([ref])
+
+    with patch("sdapp.host.sd_gui.messagebox.askyesnocancel", return_value=True):
+        result = app.project_controller.request_host_close()
+
+    assert result["ok"] is True
+    assert app.root.destroyed is True
+
+
+def test_host_root_close_dirty_analysis_save_failure_aborts():
+    dirty = SimpleNamespace(project_dirty=True, save_project=lambda: (_ for _ in ()).throw(RuntimeError("boom")))
+    ref = SimpleNamespace(app=dirty)
+    app = _app_with_refs([ref])
+    warnings = []
+    app._show_warning = lambda *args, **kwargs: warnings.append((args, kwargs))
+
+    with patch("sdapp.host.sd_gui.messagebox.askyesnocancel", return_value=True):
+        result = app.project_controller.request_host_close()
+
+    assert result["ok"] is False
+    assert result["reason"] == "save_failed"
+    assert app.root.destroyed is False
+    assert warnings
+
+
+def test_host_root_close_dirty_host_cancel_aborts():
+    app = _app_with_refs([])
+    app.browser_controller = SimpleNamespace(session=SimpleNamespace(state=lambda: SimpleNamespace(dirty=True)))
+
+    with patch("sdapp.host.sd_gui.messagebox.askyesnocancel", return_value=None):
+        result = app.project_controller.request_host_close()
+
+    assert result["ok"] is False
+    assert result["reason"] == "host_canceled"
+    assert app.root.destroyed is False
+
+
+def test_host_root_close_dirty_host_no_save_closes():
+    app = _app_with_refs([])
+    app.browser_controller = SimpleNamespace(session=SimpleNamespace(state=lambda: SimpleNamespace(dirty=True)))
+
+    with patch("sdapp.host.sd_gui.messagebox.askyesnocancel", return_value=False):
+        result = app.project_controller.request_host_close()
+
+    assert result["ok"] is True
+    assert app.root.destroyed is True
+
+
+def test_host_root_close_dirty_host_save_then_close():
+    app = _app_with_refs([])
+    dirty_state = SimpleNamespace(dirty=True)
+    app.browser_controller = SimpleNamespace(session=SimpleNamespace(state=lambda: dirty_state))
+
+    def _save(_path=None):
+        dirty_state.dirty = False
+        return SimpleNamespace(project_path="/tmp/test.sdproj")
+
+    app.save_host_session = _save
+
+    with patch("sdapp.host.sd_gui.messagebox.askyesnocancel", return_value=True):
+        result = app.project_controller.request_host_close()
+
+    assert result["ok"] is True
+    assert app.root.destroyed is True
+
+
+def test_host_root_close_dirty_host_save_leaves_dirty_aborts():
+    app = _app_with_refs([])
+    dirty_state = SimpleNamespace(dirty=True)
+    app.browser_controller = SimpleNamespace(session=SimpleNamespace(state=lambda: dirty_state))
+    app.save_host_session = lambda _path=None: SimpleNamespace(project_path="/tmp/test.sdproj")
+
+    with patch("sdapp.host.sd_gui.messagebox.askyesnocancel", return_value=True):
+        result = app.project_controller.request_host_close()
+
+    assert result["ok"] is False
+    assert result["reason"] == "host_save_canceled"
+    assert app.root.destroyed is False
 
 
 def test_center_window_on_screen_positions_geometry_to_screen_center():

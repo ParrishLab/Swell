@@ -399,9 +399,8 @@ class AnalysisHostModeController:
             except Exception:
                 pass
         self.app._sync_saved_mask_overlay_state()
-        self.app.display_ratio = 1.0
-        self.app.img_offset_x = 0
-        self.app.img_offset_y = 0
+        if hasattr(self.app, "_reset_viewport_to_fit"):
+            self.app._reset_viewport_to_fit(update_display=False)
         self.app.root.after_idle(lambda: self.app.update_display(update_preview=True))
         self.app.root.after(120, lambda: self.app.update_display(update_preview=True))
         self.app.log_info("HostMode", message)

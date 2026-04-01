@@ -38,6 +38,14 @@ from sdapp.analysis.core.preview_resize import stop_resize_preview as do_stop_re
 from sdapp.analysis.core.propagation_progress import PropagationProgressLogger
 from sdapp.analysis.core.app_context import AppContext
 from sdapp.analysis.core import project_workflow
+from sdapp.analysis.core.viewport import (
+    ViewportState,
+    clamp_viewport_center,
+    compute_transform,
+    fit_viewport,
+    pan_viewport,
+    zoom_viewport_at,
+)
 from sdapp.shared.app_metadata import format_window_title
 from sdapp.analysis.controllers import (
     AnalysisHostModeController,
@@ -121,6 +129,12 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         self.display_ratio = 1.0
         self.img_offset_x = 0
         self.img_offset_y = 0
+        self.viewport_state = ViewportState(center_x=0.5, center_y=0.5, zoom_factor=1.0)
+        self._space_pan_requested = False
+        self._viewport_pan_active = False
+        self._viewport_pan_canvas = None
+        self._viewport_pan_last_x = None
+        self._viewport_pan_last_y = None
 
         self.last_mouse_x = None
         self.last_mouse_y = None
@@ -929,6 +943,207 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         except (AttributeError, tk.TclError):
             return False
 
+    def _ensure_viewport_state(self) -> None:
+        if not hasattr(self, "viewport_state") or self.viewport_state is None:
+            self.viewport_state = ViewportState(center_x=0.5, center_y=0.5, zoom_factor=1.0)
+
+    def _current_image_dimensions(self) -> tuple[int, int]:
+        frame_count = int(self._get_frame_count()) if hasattr(self, "_get_frame_count") else 0
+        if frame_count <= 0:
+            return 1, 1
+        idx = max(0, min(int(getattr(self, "current_frame_idx", 0)), max(0, frame_count - 1)))
+        try:
+            frame_h, frame_w = self._get_frame_shape_for_idx(idx)
+        except Exception:
+            return 1, 1
+        return max(1, int(frame_w)), max(1, int(frame_h))
+
+    def _iter_viewport_canvas_sizes(self) -> list[tuple[int, int]]:
+        sizes: list[tuple[int, int]] = []
+        for name in ("canvas_left", "canvas_right", "canvas_preview"):
+            canvas = getattr(self, name, None)
+            if canvas is None:
+                continue
+            try:
+                sizes.append((max(1, int(canvas.winfo_width())), max(1, int(canvas.winfo_height()))))
+            except Exception:
+                continue
+        return sizes or [(1, 1)]
+
+    def _sync_legacy_viewport_fields(self) -> None:
+        canvas = getattr(self, "canvas_left", None)
+        if canvas is None:
+            return
+        try:
+            img_w, img_h = self._current_image_dimensions()
+            transform = self._get_canvas_viewport_transform(canvas, img_w, img_h)
+        except Exception:
+            return
+        self.display_ratio = float(transform.scale)
+        self.img_offset_x = int(round(transform.offset_x))
+        self.img_offset_y = int(round(transform.offset_y))
+
+    def _clamp_shared_viewport(self) -> None:
+        self._ensure_viewport_state()
+        img_w, img_h = self._current_image_dimensions()
+        self.viewport_state = clamp_viewport_center(
+            self.viewport_state,
+            image_width=img_w,
+            image_height=img_h,
+            canvas_sizes=self._iter_viewport_canvas_sizes(),
+        )
+        self._sync_legacy_viewport_fields()
+
+    def _reset_viewport_to_fit(self, *, update_display: bool = False) -> None:
+        self._ensure_viewport_state()
+        img_w, img_h = self._current_image_dimensions()
+        self.viewport_state = fit_viewport(
+            img_w,
+            img_h,
+            min_zoom=float(self.viewport_state.min_zoom),
+            max_zoom=float(self.viewport_state.max_zoom),
+        )
+        self._clamp_shared_viewport()
+        if bool(update_display) and self._ui_alive():
+            self.update_display(update_preview=True)
+
+    def _get_canvas_viewport_transform(self, canvas, img_w: int, img_h: int):
+        self._ensure_viewport_state()
+        transform = compute_transform(
+            self.viewport_state,
+            canvas_width=max(1, int(canvas.winfo_width())),
+            canvas_height=max(1, int(canvas.winfo_height())),
+            image_width=max(1, int(img_w)),
+            image_height=max(1, int(img_h)),
+        )
+        if getattr(self, "canvas_left", None) is canvas:
+            self.display_ratio = float(transform.scale)
+            self.img_offset_x = int(round(transform.offset_x))
+            self.img_offset_y = int(round(transform.offset_y))
+        return transform
+
+    def _get_display_transform(self, canvas, img_w, img_h):
+        transform = self._get_canvas_viewport_transform(canvas, img_w, img_h)
+        return transform.scale, transform.offset_x, transform.offset_y
+
+    def _zoom_shared_viewport(self, canvas, direction: int, anchor_x: float | None = None, anchor_y: float | None = None) -> str | None:
+        if self._focus_is_text_input():
+            return None
+        frame_count = int(self._get_frame_count()) if hasattr(self, "_get_frame_count") else 0
+        if frame_count <= 0:
+            return "break"
+        self._ensure_viewport_state()
+        img_w, img_h = self._current_image_dimensions()
+        anchor_x = float(anchor_x if anchor_x is not None else (canvas.winfo_width() / 2.0))
+        anchor_y = float(anchor_y if anchor_y is not None else (canvas.winfo_height() / 2.0))
+        step = 1.25 if int(direction) > 0 else (1.0 / 1.25)
+        self.viewport_state = zoom_viewport_at(
+            self.viewport_state,
+            image_width=img_w,
+            image_height=img_h,
+            canvas_width=max(1, int(canvas.winfo_width())),
+            canvas_height=max(1, int(canvas.winfo_height())),
+            anchor_canvas_x=anchor_x,
+            anchor_canvas_y=anchor_y,
+            new_zoom_factor=float(self.viewport_state.zoom_factor) * float(step),
+            shared_canvas_sizes=self._iter_viewport_canvas_sizes(),
+        )
+        self._sync_legacy_viewport_fields()
+        self.update_display(update_preview=True)
+        return "break"
+
+    def _pan_shared_viewport(self, canvas, delta_x: float, delta_y: float) -> None:
+        frame_count = int(self._get_frame_count()) if hasattr(self, "_get_frame_count") else 0
+        if frame_count <= 0:
+            return
+        self._ensure_viewport_state()
+        img_w, img_h = self._current_image_dimensions()
+        self.viewport_state = pan_viewport(
+            self.viewport_state,
+            image_width=img_w,
+            image_height=img_h,
+            canvas_width=max(1, int(canvas.winfo_width())),
+            canvas_height=max(1, int(canvas.winfo_height())),
+            delta_canvas_x=float(delta_x),
+            delta_canvas_y=float(delta_y),
+            shared_canvas_sizes=self._iter_viewport_canvas_sizes(),
+        )
+        self._sync_legacy_viewport_fields()
+        self.update_display(update_preview=True)
+
+    def _set_space_pan_active(self, event=None):
+        if self._focus_is_text_input():
+            return None
+        self._space_pan_requested = True
+        return "break" if event is not None else None
+
+    def _clear_space_pan_active(self, event=None):
+        self._space_pan_requested = False
+        return "break" if event is not None else None
+
+    def _start_canvas_pan(self, canvas, event) -> str | None:
+        if not bool(getattr(self, "_space_pan_requested", False)):
+            return None
+        self._viewport_pan_active = True
+        self._viewport_pan_canvas = canvas
+        self._viewport_pan_last_x = float(event.x)
+        self._viewport_pan_last_y = float(event.y)
+        try:
+            canvas.config(cursor="fleur")
+        except Exception:
+            pass
+        return "break"
+
+    def _drag_canvas_pan(self, canvas, event) -> str | None:
+        if not bool(getattr(self, "_viewport_pan_active", False)) or getattr(self, "_viewport_pan_canvas", None) is not canvas:
+            return None
+        if self._viewport_pan_last_x is None or self._viewport_pan_last_y is None:
+            self._viewport_pan_last_x = float(event.x)
+            self._viewport_pan_last_y = float(event.y)
+            return "break"
+        dx = float(event.x) - float(self._viewport_pan_last_x)
+        dy = float(event.y) - float(self._viewport_pan_last_y)
+        self._viewport_pan_last_x = float(event.x)
+        self._viewport_pan_last_y = float(event.y)
+        self._pan_shared_viewport(canvas, dx, dy)
+        return "break"
+
+    def _stop_canvas_pan(self, canvas, _event=None) -> str | None:
+        if getattr(self, "_viewport_pan_canvas", None) is canvas:
+            self._viewport_pan_active = False
+            self._viewport_pan_canvas = None
+            self._viewport_pan_last_x = None
+            self._viewport_pan_last_y = None
+            try:
+                if canvas is getattr(self, "canvas_left", None):
+                    self._draw_brush_cursor_on_canvas()
+                else:
+                    canvas.config(cursor="arrow")
+            except Exception:
+                pass
+            return "break"
+        return None
+
+    def _on_canvas_mouse_wheel(self, event):
+        delta = getattr(event, "delta", 0)
+        num = getattr(event, "num", None)
+        direction = 0
+        if delta:
+            direction = 1 if float(delta) > 0 else -1
+        elif num in (4, 5):
+            direction = 1 if int(num) == 4 else -1
+        if direction == 0:
+            return None
+        return self._zoom_shared_viewport(event.widget, direction, getattr(event, "x", 0.0), getattr(event, "y", 0.0))
+
+    def _on_viewport_canvas_configure(self, _event=None):
+        frame_count = int(self._get_frame_count()) if hasattr(self, "_get_frame_count") else 0
+        if frame_count <= 0:
+            return None
+        self._clamp_shared_viewport()
+        self._queue_display_update(update_preview=True)
+        return None
+
     def _center_window(self, window=None) -> None:
         target = window if window is not None else self.root
         if target is None:
@@ -1530,6 +1745,7 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         self.analysis_workspace.open_event("sd_event_001")
 
         self._finalize_load_ui()
+        self._reset_viewport_to_fit(update_display=False)
         self._schedule_analysis_prewarm(0)
         self._initial_frame_nav_ts = time.perf_counter()
         self.start_model_initialization(reason="stack_loaded")
@@ -1727,6 +1943,9 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
     def on_close(self):
         return project_workflow.on_close(self)
 
+    def force_close(self):
+        return project_workflow.force_close(self)
+
     def cleanup_temp_files(self):
         if self.temp_dir and os.path.exists(self.temp_dir):
             try:
@@ -1858,13 +2077,35 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         self.update_display()
         return "break"
 
+    def _zoom_in_hotkey(self, event=None):
+        if not hasattr(self, "canvas_left"):
+            return None
+        return self._zoom_shared_viewport(self.canvas_left, 1)
+
+    def _zoom_out_hotkey(self, event=None):
+        if not hasattr(self, "canvas_left"):
+            return None
+        return self._zoom_shared_viewport(self.canvas_left, -1)
+
+    def _reset_zoom_hotkey(self, event=None):
+        if self._focus_is_text_input():
+            return None
+        self._reset_viewport_to_fit(update_display=True)
+        return "break"
+
     def on_mouse_down(self, event):
+        if self._start_canvas_pan(self.canvas_left, event) == "break":
+            return "break"
         self.interaction_controller.on_mouse_down(event)
 
     def on_mouse_drag(self, event):
+        if self._drag_canvas_pan(self.canvas_left, event) == "break":
+            return "break"
         self.interaction_controller.on_mouse_drag(event)
 
     def on_mouse_up(self, event):
+        if self._stop_canvas_pan(self.canvas_left, event) == "break":
+            return "break"
         self.interaction_controller.on_mouse_up(event)
         self._mark_project_dirty("mouse_up")
 
@@ -1881,7 +2122,7 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
     def _sync_project_path_from_host(self) -> None:
         self._get_window_controller().sync_project_path_from_host()
 
-    def _sync_saved_mask_overlay_state(self) -> None:
+    def _sync_saved_mask_overlay_state(self, *, reset_history: bool = True) -> None:
         try:
             nonempty = self._collect_nonempty_final_mask_frames()
             if callable(getattr(self, "log_debug", None)):
@@ -1895,6 +2136,8 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
                     )
                 except Exception:
                     pass
+            if bool(reset_history):
+                self._clear_propagation_overlay_state()
             self._set_propagated_frames(nonempty, mark_dirty=False)
         except Exception as exc:
             self.log_warn("Overlay", f"Saved-mask reseed failed: {exc}")
@@ -2014,6 +2257,7 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
 
     def clear_current_frame_data(self):
         self.interaction_controller.clear_current_frame_data()
+        self._sync_saved_mask_overlay_state(reset_history=True)
         self._mark_project_dirty("clear_frame")
 
 

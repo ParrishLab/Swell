@@ -21,12 +21,18 @@ def do_resize_preview(app, event: Any) -> None:
     new_size = max(50, app._resize_start_w + delta)
     app.preview_frame.configure(width=new_size, height=new_size)
     app.preview_frame.update_idletasks()
+    if hasattr(app, "_clamp_shared_viewport"):
+        app._clamp_shared_viewport()
     app.update_display(update_preview=True)
 
 
 def stop_resize_preview(app, _event: Any) -> None:
     if not hasattr(app, "_resize_start_x"):
         return
-    del app._resize_start_x
+    for attr in ("_resize_start_x", "_resize_start_y", "_resize_start_w", "_resize_start_h"):
+        if hasattr(app, attr):
+            delattr(app, attr)
     app.preview_frame.update_idletasks()
+    if hasattr(app, "_clamp_shared_viewport"):
+        app._clamp_shared_viewport()
     app.update_display(update_preview=True)

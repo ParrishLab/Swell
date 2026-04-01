@@ -590,6 +590,7 @@ def _export_event_metrics(
         "propagation_gap_warning": dict(propagation_gap_warning) if propagation_gap_warning is not None else None,
         "written_files": list(written),
         "overall_avg_speed_um_per_sec": float(np.nanmean(speed_um_per_sec)) if np.isfinite(speed_um_per_sec).any() else None,
+        "overall_max_speed_um_per_sec": float(np.nanmax(speed_um_per_sec)) if np.isfinite(speed_um_per_sec).any() else None,
         "max_area_mm2": float(np.nanmax(area_mm2)) if np.isfinite(area_mm2).any() else None,
         "max_relative_area_pct": float(np.nanmax(relative_area_pct)) if np.isfinite(relative_area_pct).any() else None,
     }
@@ -1108,6 +1109,7 @@ def _write_metrics_summary_markdown(path: Path, summary: dict[str, object]) -> N
         _markdown_bullet("ROI pixels", summary.get("roi_pixels")),
         _markdown_bullet("Selected metrics", enabled_metrics),
         _markdown_bullet("Overall average speed (um/sec)", summary.get("overall_avg_speed_um_per_sec")),
+        _markdown_bullet("Overall max speed (um/sec)", summary.get("overall_max_speed_um_per_sec")),
         _markdown_bullet("Max area (mm^2)", summary.get("max_area_mm2")),
         _markdown_bullet("Max relative area (%)", summary.get("max_relative_area_pct")),
         _markdown_bullet("Written files", summary.get("written_files")),

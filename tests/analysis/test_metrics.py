@@ -42,6 +42,7 @@ class MetricsTests(unittest.TestCase):
         out = compute_roi_metrics(roi, areas, avg_dist, px_per_mm=10.0, sec_per_frame=2.0)
         self.assertEqual(out["roi_pixels"], 4)
         self.assertTrue(np.isfinite(out["max_area_mm2"]))
+        self.assertTrue(np.isfinite(out["overall_max_speed_um_per_sec"]))
 
     def test_write_outputs_and_generate_plots(self):
         with tempfile.TemporaryDirectory() as tmp:

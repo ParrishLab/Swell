@@ -401,6 +401,20 @@ class HostProjectLifecycleController:
             "project_path": resolved,
         }
 
+    def _host_session_is_dirty(self) -> bool:
+        try:
+            return bool(self.app.browser_controller.session.state().dirty)
+        except Exception:
+            return False
+
+    def _save_host_project_for_close(self) -> bool:
+        try:
+            self.app.save_host_session()
+        except Exception as exc:
+            self.app._show_warning("Close Window", f"Failed to save project before closing:\n{exc}")
+            return False
+        return not self._host_session_is_dirty()
+
     def close_analysis_windows_with_prompt(self) -> dict:
         refs = list(self.app.analysis_window_manager.list_windows())
         if not refs:
@@ -430,13 +444,48 @@ class HostProjectLifecycleController:
                         return {"ok": False, "reason": "save_failed"}
                     if bool(getattr(ref.app, "project_dirty", False)):
                         return {"ok": False, "reason": "save_canceled"}
-        self.app.analysis_window_manager.close_all()
-        self.app._analysis_windows.clear()
+        results = self.app.analysis_window_manager.close_all(force=True)
+        if not all(bool(result.closed) for result in results):
+            return {"ok": False, "reason": "close_canceled", "results": results}
+        self.app._analysis_windows = [
+            (w, a)
+            for (w, a) in self.app._analysis_windows
+            if bool(hasattr(w, "winfo_exists") and w.winfo_exists())
+        ]
         return {"ok": True}
 
     def prepare_context_switch(self) -> bool:
         result = self.close_analysis_windows_with_prompt()
         return bool(result.get("ok"))
+
+    def request_host_close(self) -> dict:
+        analysis_result = self.close_analysis_windows_with_prompt()
+        if not bool(analysis_result.get("ok")):
+            return analysis_result
+
+        if self._host_session_is_dirty():
+            response = messagebox.askyesnocancel(
+                "Unsaved Project",
+                (
+                    "The host project has unsaved changes.\n\n"
+                    "Yes = Save and close\n"
+                    "No = Close without saving\n"
+                    "Cancel = Abort"
+                ),
+                parent=self._dialog_parent(),
+            )
+            if response is None:
+                return {"ok": False, "reason": "host_canceled"}
+            if response is True and not self._save_host_project_for_close():
+                return {"ok": False, "reason": "host_save_canceled"}
+
+        if self.app._instance_bridge is not None:
+            self.app._instance_bridge.stop()
+        try:
+            self.app.root.destroy()
+        except Exception:
+            pass
+        return {"ok": True}
 
     def load_stack_from_folder(self, folder: str) -> None:
         self.app.input_var.set(folder)

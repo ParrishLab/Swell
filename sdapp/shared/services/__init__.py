@@ -3,7 +3,11 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from sdapp.shared.services.analysis_window_manager import AnalysisWindowManager, AnalysisWindowRef
+    from sdapp.shared.services.analysis_window_manager import (
+        AnalysisWindowCloseResult,
+        AnalysisWindowManager,
+        AnalysisWindowRef,
+    )
     from sdapp.shared.services.checkpoint_runtime_service import (
         CheckpointDescriptor,
         CheckpointResolution,
@@ -17,6 +21,7 @@ if TYPE_CHECKING:
     from sdapp.shared.services.update_service import ReleaseInfo, UpdateCheckResult, UpdateService
 
 _EXPORTS = {
+    "AnalysisWindowCloseResult": ("sdapp.shared.services.analysis_window_manager", "AnalysisWindowCloseResult"),
     "AnalysisWindowManager": ("sdapp.shared.services.analysis_window_manager", "AnalysisWindowManager"),
     "AnalysisWindowRef": ("sdapp.shared.services.analysis_window_manager", "AnalysisWindowRef"),
     "CheckpointDescriptor": ("sdapp.shared.services.checkpoint_runtime_service", "CheckpointDescriptor"),
@@ -33,6 +38,7 @@ _EXPORTS = {
 }
 
 __all__ = [
+    "AnalysisWindowCloseResult",
     "AnalysisWindowManager",
     "AnalysisWindowRef",
     "SingleInstanceBridge",

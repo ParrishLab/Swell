@@ -54,7 +54,7 @@ class _Event:
 
 
 class InteractionControllerTests(unittest.TestCase):
-    def _make_controller(self):
+    def _make_controller(self, *, display_transform=(1.0, 0.0, 0.0)):
         seg_state = SegmentationState()
         points = {}
         paint_layers = {}
@@ -115,7 +115,7 @@ class InteractionControllerTests(unittest.TestCase):
             lbl_brush_val=lbl,
             get_frame_count=lambda: len(frames_sub_viz),
             get_frame_shape_for_idx=lambda _idx: frame_shape,
-            get_display_transform=lambda _canvas, _w, _h: (1.0, 0, 0),
+            get_display_transform=lambda _canvas, _w, _h: display_transform,
             update_display=lambda **kwargs: holder.__setitem__("updates", holder["updates"] + 1),
             draw_paint_preview_segment=lambda *args: holder["preview_segments"].append(args),
             clear_paint_preview=lambda: holder.__setitem__("preview_clears", holder["preview_clears"] + 1),
@@ -172,6 +172,21 @@ class InteractionControllerTests(unittest.TestCase):
         self.assertEqual(holder["preview_clears"], 2)
         self.assertEqual(holder["updates"], 2)
         self.assertEqual(len(holder["records"]), 1)
+
+    def test_point_click_maps_canvas_coordinates_through_zoomed_transform(self):
+        controller, holder, mode, _lbl = self._make_controller(display_transform=(2.0, 10.0, 20.0))
+        mode.set("point_pos")
+        controller._handle_tool(_Event(14, 28), is_click=True)
+        self.assertEqual(controller.points[0][0]["x"], 2)
+        self.assertEqual(controller.points[0][0]["y"], 4)
+        self.assertEqual(holder["mask_updates"], 1)
+
+    def test_brush_preview_radius_scales_with_zoom(self):
+        controller, holder, mode, _lbl = self._make_controller(display_transform=(2.0, 10.0, 20.0))
+        mode.set("brush")
+        controller.on_mouse_down(_Event(14, 28))
+        radius = holder["preview_segments"][0][4]
+        self.assertEqual(radius, 6.0)
 
 
 if __name__ == "__main__":
