@@ -38,6 +38,10 @@ class AnalysisWindowController:
                         continue
             if len(clean_scale_points) == 2:
                 metrics["scale_points"] = clean_scale_points
+        if bool(getattr(self.app, "_scale_is_local_override", False)):
+            scale_image_path = str(getattr(self.app, "_last_scale_image_path", "") or "").strip()
+            if scale_image_path:
+                metrics["scale_image_path"] = scale_image_path
         if bool(getattr(self.app, "_roi_is_local_override", False)) and isinstance(self.app.roi_points, list) and self.app.roi_points:
             clean_points: list[list[float]] = []
             for pt in self.app.roi_points:
@@ -101,6 +105,10 @@ class AnalysisWindowController:
                 self.app.scale_points = cleaned_scale_points if len(cleaned_scale_points) == 2 else []
             elif not self.app._scale_is_local_override:
                 self.app.scale_points = []
+            if "scale_image_path" in normalized:
+                self.app._last_scale_image_path = str(normalized.get("scale_image_path", "") or "").strip()
+            elif not self.app._scale_is_local_override:
+                self.app._last_scale_image_path = ""
             if "roi_points" in normalized and isinstance(normalized.get("roi_points"), list):
                 cleaned_points: list[list[float]] = []
                 for pt in list(normalized.get("roi_points", [])):

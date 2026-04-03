@@ -26,11 +26,15 @@ class _SliderStub:
 
 
 class _SegStateStub:
+    def __init__(self):
+        self.user_invalidated = 0
+        self.final_invalidated = 0
+
     def invalidate_user_frames(self):
-        return None
+        self.user_invalidated += 1
 
     def invalidate_final_mask_frames(self):
-        return None
+        self.final_invalidated += 1
 
 
 class AppExportRangeStateTests(unittest.TestCase):
@@ -92,6 +96,36 @@ class AppExportRangeStateTests(unittest.TestCase):
         self.assertTrue(app._export_range_auto_follow)
         self.assertEqual(int(app.spin_prop_start.get()), 1)
         self.assertEqual(int(app.spin_prop_end.get()), 12)
+
+    def test_finalize_load_preserves_workspace_state_in_host_mode(self):
+        app = SDSegmentationApp.__new__(SDSegmentationApp)
+        seg_state = _SegStateStub()
+        points = {3: {"points": [{"x": 1.0, "y": 2.0, "label": 1}]}}
+        app.frames_raw = [object()] * 12
+        app.current_frame_idx = 4
+        app.points = points
+        app.seg_state = seg_state
+        app.selected_point = "selected"
+        app._export_range_auto_follow = False
+        app._programmatic_spinbox_update = False
+        app.spin_prop_start = _SpinStub(4)
+        app.spin_prop_end = _SpinStub(9)
+        app.slider = _SliderStub()
+        app.update_display = lambda: None
+        app._recompute_slider_jump_markers = lambda: (_ for _ in ()).throw(AssertionError("marker recompute should be deferred"))
+        app._set_data_controls_enabled = lambda _enabled: None
+        app._set_busy = lambda *_args: None
+        app.log_success = lambda *_args: None
+
+        app._finalize_load_ui(preserve_workspace_state=True)
+
+        self.assertFalse(app._export_range_auto_follow)
+        self.assertEqual(int(app.spin_prop_start.get()), 4)
+        self.assertEqual(int(app.spin_prop_end.get()), 9)
+        self.assertIs(app.points, points)
+        self.assertEqual(app.selected_point, "selected")
+        self.assertEqual(seg_state.user_invalidated, 0)
+        self.assertEqual(seg_state.final_invalidated, 0)
 
 
 if __name__ == "__main__":

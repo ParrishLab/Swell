@@ -2,12 +2,15 @@ from __future__ import annotations
 
 from pathlib import Path
 import threading
+import tkinter as tk
 from tkinter import filedialog, messagebox
 
+from sdapp.analysis.ui.theme import SPACING, apply_theme
 from sdapp.host.host_models import stack_ref_from_stack_info
 from sdapp.host.stack_reader import StackReader
 from sdapp.shared.project_naming import derive_sdproj_name
 from sdapp.shared.ui import BackgroundTaskRunner
+from sdapp.shared.ui.bootstrap import semantic_button_options, ttk
 
 
 class HostProjectLifecycleController:
@@ -16,6 +19,51 @@ class HostProjectLifecycleController:
 
     def _dialog_parent(self):
         return getattr(self.app, "root", None)
+
+    def _prompt_three_way_action(
+        self,
+        *,
+        title: str,
+        message: str,
+        yes_label: str,
+        no_label: str,
+        cancel_label: str = "Cancel",
+    ) -> bool | None:
+        parent = self._dialog_parent()
+        if parent is None:
+            return messagebox.askyesnocancel(title, message)
+
+        result = {"value": None}
+        dialog = tk.Toplevel(parent)
+        dialog.withdraw()
+        dialog.title(str(title))
+        dialog.transient(parent)
+        dialog.resizable(False, False)
+        dialog.geometry("420x220")
+        apply_theme(dialog)
+
+        shell = ttk.Frame(dialog, padding=SPACING.outer, style="AppShell.TFrame")
+        shell.pack(fill="both", expand=True)
+        ttk.Label(shell, text=str(message), justify="center", anchor="center", style="Meta.TLabel").pack(fill="x", pady=(0, 14))
+
+        def _finish(value: bool | None) -> None:
+            result["value"] = value
+            dialog.destroy()
+
+        buttons = ttk.Frame(shell, style="AppShell.TFrame")
+        buttons.pack(fill="x")
+        ttk.Button(buttons, text=str(yes_label), command=lambda: _finish(True), **semantic_button_options("primary")).pack(fill="x", pady=(0, 8))
+        ttk.Button(buttons, text=str(no_label), command=lambda: _finish(False), **semantic_button_options("secondary")).pack(fill="x", pady=(0, 8))
+        ttk.Button(buttons, text=str(cancel_label), command=lambda: _finish(None), **semantic_button_options("secondary")).pack(fill="x")
+        dialog.protocol("WM_DELETE_WINDOW", lambda: _finish(None))
+
+        center = getattr(self.app, "_center_window_on_screen", None)
+        if callable(center):
+            center(dialog, width=420, height=220)
+        dialog.deiconify()
+        dialog.grab_set()
+        dialog.wait_window()
+        return result["value"]
 
     def new_project(self) -> None:
         folder = filedialog.askdirectory(
@@ -423,15 +471,12 @@ class HostProjectLifecycleController:
         dirty_refs = [ref for ref in refs if bool(getattr(ref.app, "project_dirty", False))]
         if dirty_refs:
             count = len(dirty_refs)
-            response = messagebox.askyesnocancel(
-                "Open Analysis Windows",
-                (
-                    f"{count} analysis window(s) have unsaved changes.\n\n"
-                    "Yes = Save and continue\n"
-                    "No = Continue without saving\n"
-                    "Cancel = Abort"
-                ),
-                parent=self._dialog_parent(),
+            response = self._prompt_three_way_action(
+                title="Open Analysis Windows",
+                message=f"{count} analysis window(s) have unsaved changes.",
+                yes_label="Save and continue",
+                no_label="Continue without saving",
+                cancel_label="Abort",
             )
             if response is None:
                 return {"ok": False, "reason": "canceled"}
@@ -464,15 +509,12 @@ class HostProjectLifecycleController:
             return analysis_result
 
         if self._host_session_is_dirty():
-            response = messagebox.askyesnocancel(
-                "Unsaved Project",
-                (
-                    "The host project has unsaved changes.\n\n"
-                    "Yes = Save and close\n"
-                    "No = Close without saving\n"
-                    "Cancel = Abort"
-                ),
-                parent=self._dialog_parent(),
+            response = self._prompt_three_way_action(
+                title="Unsaved Project",
+                message="The host project has unsaved changes.",
+                yes_label="Save and close",
+                no_label="Close without saving",
+                cancel_label="Abort",
             )
             if response is None:
                 return {"ok": False, "reason": "host_canceled"}

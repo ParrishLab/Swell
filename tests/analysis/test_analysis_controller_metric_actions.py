@@ -11,6 +11,7 @@ def _make_controller():
     state = {
         "scale": None,
         "scale_points": [],
+        "scale_image_path": "",
         "roi_points": [],
         "roi_mask": None,
         "scale_local": False,
@@ -40,7 +41,7 @@ def _make_controller():
         get_scale_points=lambda: list(state["scale_points"]),
         set_scale_points=lambda v: state.__setitem__("scale_points", list(v)),
         get_last_scale_image_path=lambda: "",
-        set_last_scale_image_path=lambda _v: None,
+        set_last_scale_image_path=lambda v: state.__setitem__("scale_image_path", str(v or "")),
         get_roi_mask=lambda: state["roi_mask"],
         set_roi_mask=lambda v: state.__setitem__("roi_mask", v),
         get_roi_points=lambda: list(state["roi_points"]),
@@ -64,6 +65,7 @@ def test_local_scale_selection_updates_local_state() -> None:
     controller._capture_scale_selection = lambda: {
         "px_per_mm": 5.0,
         "scale_points": [(1.0, 1.0), (5.0, 1.0)],
+        "image_path": "/tmp/local-scale.png",
         "fallback": False,
         "refined_ok": True,
         "axis_mode": "horizontal",
@@ -72,6 +74,7 @@ def test_local_scale_selection_updates_local_state() -> None:
         controller.start_local_scale_selection()
 
     assert float(state["scale"]) == 5.0
+    assert state["scale_image_path"] == "/tmp/local-scale.png"
     assert state["scale_local"] is True
     assert state["metrics_changed"] == ["scale"]
     assert state["autosaves"] == ["local_scale"]
@@ -85,6 +88,7 @@ def test_global_scale_selection_emits_global_update_and_preserves_existing_local
     controller._capture_scale_selection = lambda: {
         "px_per_mm": 5.0,
         "scale_points": [(1.0, 1.0), (5.0, 1.0)],
+        "image_path": "/tmp/global-scale.png",
         "fallback": False,
         "refined_ok": True,
         "axis_mode": "horizontal",
@@ -96,6 +100,7 @@ def test_global_scale_selection_emits_global_update_and_preserves_existing_local
     assert state["scale_local"] is True
     assert state["global_updates"][0][0] == "global_scale"
     assert float(state["global_updates"][0][1]["scale_px_per_mm"]) == 5.0
+    assert state["global_updates"][0][1]["scale_image_path"] == "/tmp/global-scale.png"
     assert state["autosaves"] == ["global_scale"]
 
 

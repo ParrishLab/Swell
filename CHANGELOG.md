@@ -2,19 +2,32 @@
 
 All notable changes to this project are documented in this file.
 
-## [Unreleased]
+## [0.1.6] - 2026-04-02
+
+### UI overhaul
+- Reworked the host and analysis interfaces around a shared visual system with improved layout hierarchy, clearer surfaces, and more consistent button/dialog styling.
+- Updated the main review flows, preview surfaces, and popup tooling to feel more coherent during event review, export, and analysis handoff.
+- Improved the scale and ROI calibration dialogs so calibration state is preserved more reliably and the interaction model is easier to follow.
 
 ### Model/checkpoint compatibility
-- TBD
+- No checkpoint format or project schema bump is introduced in this release; existing managed and local SAM2 model selections remain compatible.
+- Refactored host and analysis model/runtime flows around a shared managed-model workflow, including background download/selection handling for packaged and development runs.
+- Added `h5py`, continued packaging of Sparkle/WinSparkle updater runtimes, and hardened PyInstaller metadata so packaged builds resolve runtime assets more reliably.
 
 ### Platform/backend limitations
-- TBD
+- Added DC trace import/filtering improvements and corrected WaveSurfer scaling so imported traces align more consistently with event review workflows.
+- Refined the host and analysis UI around shared runtime controllers, centered dialogs, improved preview handling, and a higher-fidelity visual hierarchy for core review/calibration screens.
+- Export flows now produce richer operator-facing artifacts, including markdown summaries alongside JSON/CSV outputs and a combined spreadsheet export path.
 
 ### .sdproj/migration notes
-- TBD
+- No `.sdproj` schema version bump is required for this release; existing projects remain loadable.
+- Project metadata now preserves more session context, including DC trace attachment references and autosaved metric/default updates.
+- Event labels now flow into derived project/export naming, so newly generated folders and summaries may use human-readable event labels instead of raw event IDs.
 
 ### Known segmentation caveats/regressions
-- TBD
+- No new release-blocking segmentation regressions are currently known from the automated suite.
+- SAM2 post-processing/native extension availability may still vary by environment; segmentation remains usable, but optional optimized paths can still be unavailable.
+- Auto-update behavior still depends on platform packaging/signing state and bundled updater assets, so update reliability should be validated against the final signed release artifacts.
 
 ## [0.1.5] - 2026-03-30
 

@@ -3,11 +3,12 @@ from __future__ import annotations
 from collections import OrderedDict
 import time
 import tkinter as tk
-from tkinter import messagebox, ttk
+from tkinter import messagebox
 
 import numpy as np
 from PIL import Image, ImageTk
 
+from sdapp.analysis.ui.theme import SPACING, apply_theme
 from sdapp.shared.frame_source import (
     EventScopedFrameSource,
     PreparedFrameSource,
@@ -16,6 +17,7 @@ from sdapp.shared.frame_source import (
 from sdapp.shared.frame_source.launch_preparation import build_launch_preparation_cache_key
 from sdapp.shared.menu.factory import build_shared_menu
 from sdapp.shared.ui import BackgroundTaskRunner
+from sdapp.shared.ui.bootstrap import center_window_on_screen as center_window, semantic_button_options, ttk
 
 
 class AnalysisLaunchController:
@@ -194,41 +196,66 @@ class AnalysisLaunchController:
         dialog.title(f"Open Analysis Options - {event_id}")
         dialog.transient(self.app.root)
         dialog.resizable(False, False)
+        dialog.geometry("760x560")
+        apply_theme(dialog)
 
-        shell = ttk.Frame(dialog, padding=10)
+        shell = ttk.Frame(dialog, padding=SPACING.outer, style="AppShell.TFrame")
         shell.pack(fill="both", expand=True)
+        shell.columnconfigure(0, weight=1)
 
-        ttk.Label(shell, text=f"Event range: {event_start + 1} - {event_end + 1}").pack(anchor="w")
+        summary = ttk.Frame(shell, padding=SPACING.card, style="Surface.TFrame")
+        summary.pack(fill="x", pady=(0, SPACING.inner))
+        summary.columnconfigure(0, weight=1)
+        summary.columnconfigure(1, weight=0)
+        ttk.Label(summary, text=f"Event range: {event_start + 1} - {event_end + 1}", style="Meta.TLabel").grid(row=0, column=0, sticky="w")
 
-        baseline_row = ttk.Frame(shell)
-        baseline_row.pack(fill="x", pady=(8, 6))
-        ttk.Label(baseline_row, text="Baseline Frames:").pack(side="left")
+        baseline_row = ttk.Frame(summary, style="Surface.TFrame")
+        baseline_row.grid(row=0, column=1, sticky="e", padx=(SPACING.inner, 0))
         baseline_var = tk.StringVar(value=str(max(1, int(self.app.baseline_pre_frames))))
-        baseline_spin = tk.Spinbox(baseline_row, from_=1, to=500, width=6, textvariable=baseline_var)
-        baseline_spin.pack(side="left", padx=(8, 0))
+        ttk.Label(baseline_row, text="Baseline Frames", style="Meta.TLabel").pack(side="left")
+        baseline_entry = ttk.Entry(baseline_row, textvariable=baseline_var, width=6, style="Compact.TEntry")
+        baseline_entry.pack(side="left", padx=(SPACING.gap, 0))
 
-        checks = ttk.LabelFrame(shell, text="Preprocessing")
-        checks.pack(fill="x", pady=(0, 8))
+        checks = ttk.Frame(shell, padding=SPACING.card, style="Surface.TFrame")
+        checks.pack(fill="x", pady=(0, SPACING.inner))
+        checks.columnconfigure(0, weight=1)
+        checks.columnconfigure(1, weight=1)
+        ttk.Label(checks, text="Preprocessing", style="SectionTitle.TLabel").pack(anchor="w", pady=(0, SPACING.gap))
         bar_denoise_var = tk.BooleanVar(value=False)
         smoothing_var = tk.BooleanVar(value=True)
         subtract_var = tk.BooleanVar(value=True)
         normalize_var = tk.BooleanVar(value=True)
-        ttk.Checkbutton(checks, text="Horizontal Bar Denoise", variable=bar_denoise_var).pack(anchor="w", padx=6, pady=(4, 2))
-        ttk.Checkbutton(checks, text="Smoothing", variable=smoothing_var).pack(anchor="w", padx=6, pady=2)
-        ttk.Checkbutton(checks, text="Baseline Subtraction", variable=subtract_var).pack(anchor="w", padx=6, pady=2)
-        ttk.Checkbutton(checks, text="Global Normalization", variable=normalize_var).pack(anchor="w", padx=6, pady=(2, 4))
+        checks_grid = ttk.Frame(checks, style="Surface.TFrame")
+        checks_grid.pack(fill="x")
+        checks_grid.columnconfigure(0, weight=1)
+        checks_grid.columnconfigure(1, weight=1)
+        ttk.Checkbutton(checks_grid, text="Horizontal Bar Denoise", variable=bar_denoise_var, style="Surface.TCheckbutton").grid(
+            row=0, column=0, sticky="w", pady=(0, 2), padx=(0, SPACING.inner)
+        )
+        ttk.Checkbutton(checks_grid, text="Smoothing", variable=smoothing_var, style="Surface.TCheckbutton").grid(
+            row=0, column=1, sticky="w", pady=(0, 2)
+        )
+        ttk.Checkbutton(checks_grid, text="Baseline Subtraction", variable=subtract_var, style="Surface.TCheckbutton").grid(
+            row=1, column=0, sticky="w", pady=(2, 0), padx=(0, SPACING.inner)
+        )
+        ttk.Checkbutton(checks_grid, text="Global Normalization", variable=normalize_var, style="Surface.TCheckbutton").grid(
+            row=1, column=1, sticky="w", pady=(2, 0)
+        )
 
-        preview_frame = ttk.LabelFrame(shell, text="Preview (event start frame)", width=460, height=260)
-        preview_frame.pack(fill="x", pady=(0, 4))
+        preview_frame = ttk.Frame(shell, padding=SPACING.card, style="Surface.TFrame", width=460, height=260)
+        preview_frame.pack(fill="x", pady=(0, SPACING.gap))
         preview_frame.pack_propagate(False)
-        preview_label = ttk.Label(preview_frame, anchor="center")
-        preview_label.pack(fill="both", expand=True, padx=6, pady=6)
+        ttk.Label(preview_frame, text="Preview", style="SectionTitle.TLabel").pack(anchor="w", pady=(0, SPACING.gap))
+        preview_body = ttk.Frame(preview_frame, padding=SPACING.gap, style="Inset.TFrame")
+        preview_body.pack(fill="both", expand=True)
+        preview_label = ttk.Label(preview_body, anchor="center", style="Card.TLabel")
+        preview_label.pack(fill="both", expand=True)
         preview_label.configure(text="Loading preview...")
 
-        footer = ttk.Frame(shell)
+        footer = ttk.Frame(shell, style="AppShell.TFrame")
         footer.pack(fill="x", pady=(8, 0))
         status_var = tk.StringVar(value="Preparing exact preview...")
-        ttk.Label(footer, textvariable=status_var).pack(side="left")
+        ttk.Label(footer, textvariable=status_var, style="Meta.TLabel").pack(side="left")
 
         result: dict[str, object] = {"ok": False}
         state: dict[str, object] = {
@@ -339,10 +366,10 @@ class AnalysisLaunchController:
 
         for var in (bar_denoise_var, smoothing_var, subtract_var, normalize_var):
             var.trace_add("write", lambda *_args: _schedule_preview_refresh())
-        for evt in ("<KeyRelease>", "<FocusOut>", "<<Increment>>", "<<Decrement>>", "<MouseWheel>", "<ButtonRelease-1>"):
-            baseline_spin.bind(evt, lambda _e: _schedule_preview_refresh())
+        for evt in ("<KeyRelease>", "<FocusOut>", "<Return>", "<MouseWheel>", "<ButtonRelease-1>"):
+            baseline_entry.bind(evt, lambda _e: _schedule_preview_refresh())
 
-        buttons = ttk.Frame(shell)
+        buttons = ttk.Frame(shell, style="AppShell.TFrame")
         buttons.pack(fill="x", pady=(8, 0))
 
         def _cancel() -> None:
@@ -383,10 +410,10 @@ class AnalysisLaunchController:
             )
             dialog.destroy()
 
-        ttk.Button(buttons, text="Cancel", command=_cancel).pack(side="right")
-        ttk.Button(buttons, text="Open Analysis", command=_open).pack(side="right", padx=(0, 8))
+        ttk.Button(buttons, text="Cancel", command=_cancel, **semantic_button_options("secondary")).pack(side="right")
+        ttk.Button(buttons, text="Open Analysis", command=_open, **semantic_button_options("primary")).pack(side="right", padx=(0, 8))
 
-        self.center_window_on_screen(dialog)
+        self.center_window_on_screen(dialog, width=760, height=560)
         dialog.deiconify()
         dialog.grab_set()
         _schedule_preview_refresh()
@@ -556,22 +583,8 @@ class AnalysisLaunchController:
             self.app._show_warning("Open Analysis", f"Failed to open analysis workspace:\n{exc}")
 
     @staticmethod
-    def center_window_on_screen(window) -> None:
-        try:
-            window.update_idletasks()
-            width = int(window.winfo_width())
-            height = int(window.winfo_height())
-            if width <= 1:
-                width = int(window.winfo_reqwidth())
-            if height <= 1:
-                height = int(window.winfo_reqheight())
-            width = max(1, width)
-            height = max(1, height)
-            x = max(0, int((int(window.winfo_screenwidth()) - width) / 2))
-            y = max(0, int((int(window.winfo_screenheight()) - height) / 2))
-            window.geometry(f"{width}x{height}+{x}+{y}")
-        except Exception:
-            return
+    def center_window_on_screen(window, *, width: int | None = None, height: int | None = None) -> None:
+        center_window(window, width=width, height=height)
 
     def compute_analysis_preview_frame(
         self,

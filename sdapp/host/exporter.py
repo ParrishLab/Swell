@@ -71,6 +71,7 @@ def export_analysis(
     include_metric_propagation_speed: bool = False,
     include_metric_area_recruited: bool = False,
     include_metric_relative_area_recruited: bool = False,
+    include_metric_combined_spreadsheet: bool = False,
     project_metadata: Optional[dict[str, object]] = None,
     propagation_gap_decision: Optional[Callable[[dict[str, object]], str]] = None,
 ) -> dict:
@@ -282,6 +283,7 @@ def export_analysis(
                     include_metric_propagation_speed=bool(include_metric_propagation_speed),
                     include_metric_area_recruited=bool(include_metric_area_recruited),
                     include_metric_relative_area_recruited=bool(include_metric_relative_area_recruited),
+                    include_metric_combined_spreadsheet=bool(include_metric_combined_spreadsheet),
                     propagation_gap_decision=propagation_gap_decision,
                     analysis_sidecar_payload=event_sidecar,
                 )
@@ -349,10 +351,25 @@ def _resolve_roi_mask(metrics_settings: dict[str, object], frame_shape: tuple[in
 def _write_metric_csv(path: Path, frame_indices: list[int], time_sec: list[float], values: np.ndarray, value_column: str) -> None:
     with path.open("w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
-        writer.writerow(["frame_index", "frame_display", "time_sec", value_column])
-        for frame_idx, t_sec, val in zip(frame_indices, time_sec, values):
-            out_val = "" if not np.isfinite(float(val)) else float(val)
-            writer.writerow([int(frame_idx), int(frame_idx) + 1, float(t_sec), out_val])
+        rows = _metric_table_rows(frame_indices, time_sec, values, value_column)
+        writer.writerow(rows["columns"])
+        writer.writerows(rows["rows"])
+
+
+def _metric_table_rows(
+    frame_indices: list[int],
+    time_sec: list[float],
+    values: np.ndarray,
+    value_column: str,
+) -> dict[str, object]:
+    rows: list[list[object]] = []
+    for frame_idx, t_sec, val in zip(frame_indices, time_sec, values):
+        out_val = "" if not np.isfinite(float(val)) else float(val)
+        rows.append([int(frame_idx), int(frame_idx) + 1, float(t_sec), out_val])
+    return {
+        "columns": ["frame_index", "frame_display", "time_sec", str(value_column)],
+        "rows": rows,
+    }
 
 
 def _write_metric_plot(path: Path, time_sec: list[float], values: np.ndarray, title: str, ylabel: str) -> None:
@@ -409,6 +426,55 @@ def _apply_propagation_gap_policy(values: np.ndarray, action: str) -> np.ndarray
     return arr
 
 
+def _write_metrics_combined_workbook(
+    path: Path,
+    *,
+    summary: dict[str, object],
+    metric_tables: list[dict[str, object]],
+) -> None:
+    from openpyxl import Workbook
+
+    workbook = Workbook()
+    summary_sheet = workbook.active
+    summary_sheet.title = "Summary"
+    summary_sheet.append(["Metric", "Value"])
+    summary_rows: list[tuple[str, object]] = [
+        ("Event ID", summary.get("event_id")),
+        ("Frames per second", summary.get("frames_per_sec")),
+        ("Event start time (sec)", summary.get("event_start_time_sec")),
+        ("Event end time (sec)", summary.get("event_end_time_sec")),
+        ("Scale available", summary.get("has_scale")),
+        ("ROI available", summary.get("has_roi")),
+        ("ROI pixels", summary.get("roi_pixels")),
+        ("Selected metrics", summary.get("selected_metrics")),
+        ("Overall average speed (um/sec)", summary.get("overall_avg_speed_um_per_sec")),
+        ("Overall max speed (um/sec)", summary.get("overall_max_speed_um_per_sec")),
+        ("Max area (mm^2)", summary.get("max_area_mm2")),
+        ("Max relative area (%)", summary.get("max_relative_area_pct")),
+        ("Written files", summary.get("written_files")),
+    ]
+    warning = summary.get("propagation_gap_warning")
+    if isinstance(warning, dict) and warning:
+        summary_rows.extend(
+            [
+                ("Propagation gap action", warning.get("action")),
+                ("Propagation gap frame runs", warning.get("frame_runs")),
+            ]
+        )
+    for label, value in summary_rows:
+        summary_sheet.append([str(label), _format_summary_value(value)])
+
+    for table in metric_tables:
+        sheet = workbook.create_sheet(title=str(table.get("sheet_name", "Metric"))[:31] or "Metric")
+        columns = list(table.get("columns", []) or [])
+        rows = list(table.get("rows", []) or [])
+        sheet.append(columns)
+        for row in rows:
+            sheet.append(list(row))
+
+    workbook.save(path)
+
+
 def _export_event_metrics(
     *,
     reader: StackReader,
@@ -419,6 +485,7 @@ def _export_event_metrics(
     include_metric_propagation_speed: bool,
     include_metric_area_recruited: bool,
     include_metric_relative_area_recruited: bool,
+    include_metric_combined_spreadsheet: bool,
     propagation_gap_decision: Optional[Callable[[dict[str, object]], str]] = None,
     analysis_sidecar_payload: Optional[dict[str, object]] = None,
 ) -> dict[str, object]:
@@ -503,6 +570,7 @@ def _export_event_metrics(
     metrics_dir.mkdir(parents=True, exist_ok=True)
     files_written = 0
     written: list[str] = []
+    metric_tables: list[dict[str, object]] = []
     propagation_gap_warning: dict[str, object] | None = None
 
     gap_runs = _find_interior_nan_runs(speed_um_per_sec) if bool(include_metric_propagation_speed and has_scale) else []
@@ -540,6 +608,7 @@ def _export_event_metrics(
         written.append("propagation_speed_warning.md")
 
     if include_metric_propagation_speed and has_scale:
+        speed_table = _metric_table_rows(frame_indices, time_sec, speed_um_per_sec, "speed_um_per_sec")
         _write_metric_csv(metrics_dir / "propagation_speed.csv", frame_indices, time_sec, speed_um_per_sec, "speed_um_per_sec")
         _write_metric_plot(
             metrics_dir / "propagation_speed.png",
@@ -548,14 +617,30 @@ def _export_event_metrics(
             "Propagation Speed",
             "Propagation Speed (um/sec)",
         )
+        metric_tables.append(
+            {
+                "sheet_name": "Propagation Speed",
+                "columns": speed_table["columns"],
+                "rows": speed_table["rows"],
+            }
+        )
         files_written += 2
         written.extend(["propagation_speed.csv", "propagation_speed.png"])
     if include_metric_area_recruited and has_scale and has_roi:
+        area_table = _metric_table_rows(frame_indices, time_sec, area_mm2, "area_mm2")
         _write_metric_csv(metrics_dir / "area_recruited.csv", frame_indices, time_sec, area_mm2, "area_mm2")
         _write_metric_plot(metrics_dir / "area_recruited.png", time_sec, area_mm2, "Area Recruited", "Area (mm^2)")
+        metric_tables.append(
+            {
+                "sheet_name": "Area Recruited",
+                "columns": area_table["columns"],
+                "rows": area_table["rows"],
+            }
+        )
         files_written += 2
         written.extend(["area_recruited.csv", "area_recruited.png"])
     if include_metric_relative_area_recruited and has_roi:
+        relative_area_table = _metric_table_rows(frame_indices, time_sec, relative_area_pct, "relative_area_pct")
         _write_metric_csv(
             metrics_dir / "relative_area_recruited.csv",
             frame_indices,
@@ -570,10 +655,16 @@ def _export_event_metrics(
             "Relative Area Recruited",
             "Area (% ROI)",
         )
+        metric_tables.append(
+            {
+                "sheet_name": "Relative Area Recruited",
+                "columns": relative_area_table["columns"],
+                "rows": relative_area_table["rows"],
+            }
+        )
         files_written += 2
         written.extend(["relative_area_recruited.csv", "relative_area_recruited.png"])
 
-    written.extend(["metrics_summary.json", "metrics_summary.md"])
     summary = {
         "event_id": str(event.event_id),
         "frames_per_sec": float(fps),
@@ -594,6 +685,17 @@ def _export_event_metrics(
         "max_area_mm2": float(np.nanmax(area_mm2)) if np.isfinite(area_mm2).any() else None,
         "max_relative_area_pct": float(np.nanmax(relative_area_pct)) if np.isfinite(relative_area_pct).any() else None,
     }
+    if include_metric_combined_spreadsheet and metric_tables:
+        written.append("metrics_combined.xlsx")
+        summary["written_files"] = list(written)
+        _write_metrics_combined_workbook(
+            metrics_dir / "metrics_combined.xlsx",
+            summary=summary,
+            metric_tables=metric_tables,
+        )
+        files_written += 1
+    written.extend(["metrics_summary.json", "metrics_summary.md"])
+    summary["written_files"] = list(written)
     (metrics_dir / "metrics_summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
     _write_metrics_summary_markdown(metrics_dir / "metrics_summary.md", summary)
     files_written += 2

@@ -4,15 +4,17 @@ from collections import OrderedDict
 from pathlib import Path
 import threading
 import tkinter as tk
-from tkinter import filedialog, messagebox, ttk
+from tkinter import filedialog, messagebox
 
 import numpy as np
 
 from sdapp.analysis.core.metrics import compute_scale
 from sdapp.analysis.ui.roi_dialog import open_roi_dialog
 from sdapp.analysis.ui.scale_dialog import open_scale_dialog
+from sdapp.analysis.ui.theme import SPACING, apply_theme
 from sdapp.host.exporter import analysis_image_cache_key, export_analysis
 from sdapp.shared.services import MetricsSettingsResolver
+from sdapp.shared.ui.bootstrap import center_window_on_screen as center_window, semantic_button_options, ttk
 
 
 class HostWindowController:
@@ -143,7 +145,8 @@ class HostWindowController:
         tip = tk.Toplevel(parent)
         tip.withdraw()
         tip.overrideredirect(True)
-        tip_label = ttk.Label(tip, text=str(message), padding=6, relief="solid")
+        apply_theme(tip)
+        tip_label = ttk.Label(tip, text=str(message), padding=6, style="Card.TLabel", justify="left")
         tip_label.pack()
 
         def _show_tip(event) -> None:
@@ -160,13 +163,27 @@ class HostWindowController:
         widget.bind("<Leave>", _hide_tip)
         widget.bind("<Destroy>", lambda _e: tip.destroy())
 
+    @staticmethod
+    def _can_export_combined_metric_spreadsheet(
+        *,
+        include_metric_propagation_speed: bool,
+        include_metric_area_recruited: bool,
+        include_metric_relative_area_recruited: bool,
+    ) -> bool:
+        return bool(
+            include_metric_propagation_speed
+            or include_metric_area_recruited
+            or include_metric_relative_area_recruited
+        )
+
     def prompt_export_options(self, event_ids: list[str]) -> dict[str, bool] | None:
         dialog = tk.Toplevel(self.app.root)
+        dialog.withdraw()
         dialog.title("Export Options")
         dialog.transient(self.app.root)
-        dialog.grab_set()
         dialog.resizable(False, False)
-        dialog.geometry("+%d+%d" % (self.app.root.winfo_rootx() + 120, self.app.root.winfo_rooty() + 120))
+        dialog.geometry("760x620")
+        apply_theme(dialog)
 
         include_event_var = tk.BooleanVar(value=True)
         include_baseline_var = tk.BooleanVar(value=True)
@@ -176,19 +193,20 @@ class HostWindowController:
         include_metric_speed_var = tk.BooleanVar(value=True)
         include_metric_area_var = tk.BooleanVar(value=True)
         include_metric_rel_area_var = tk.BooleanVar(value=True)
+        include_metric_combined_spreadsheet_var = tk.BooleanVar(value=False)
         output_dir_var = tk.StringVar(value=self.app.output_var.get().strip())
         result: dict[str, str | bool] | None = None
         has_masks = self.has_binary_masks_for_events(event_ids)
         metric_ready = self.resolve_export_metric_prerequisites(event_ids)
 
-        shell = ttk.Frame(dialog, padding=12)
+        shell = ttk.Frame(dialog, padding=SPACING.outer, style="AppShell.TFrame")
         shell.pack(fill="both", expand=True)
-        ttk.Label(shell, text=f"Choose export items for {len(event_ids)} event(s):").pack(anchor="w")
+        ttk.Label(shell, text=f"Choose export items for {len(event_ids)} event(s)", style="SectionTitle.TLabel").pack(anchor="w")
 
-        output_row = ttk.Frame(shell)
+        output_row = ttk.Frame(shell, padding=SPACING.card, style="Surface.TFrame")
         output_row.pack(fill="x", pady=(6, 10))
-        ttk.Label(output_row, text="Output Folder").pack(side="left")
-        output_entry = ttk.Entry(output_row, textvariable=output_dir_var)
+        ttk.Label(output_row, text="Output Folder", style="Meta.TLabel").pack(side="left")
+        output_entry = ttk.Entry(output_row, textvariable=output_dir_var, style="Compact.TEntry")
         output_entry.pack(side="left", fill="x", expand=True, padx=(8, 8))
 
         def _browse_output_dir() -> None:
@@ -197,10 +215,11 @@ class HostWindowController:
             if folder:
                 output_dir_var.set(str(folder))
 
-        ttk.Button(output_row, text="Browse...", command=_browse_output_dir).pack(side="left")
+        ttk.Button(output_row, text="Browse...", command=_browse_output_dir, **semantic_button_options("secondary")).pack(side="left")
 
-        checks = ttk.Frame(shell)
+        checks = ttk.Frame(shell, padding=SPACING.card, style="Surface.TFrame")
         checks.pack(fill="x", pady=(0, 10))
+        ttk.Label(checks, text="Include", style="SectionTitle.TLabel").pack(anchor="w", pady=(0, SPACING.gap))
         ttk.Checkbutton(checks, text="Event Images", variable=include_event_var).pack(anchor="w")
         ttk.Checkbutton(checks, text="Baseline Images", variable=include_baseline_var).pack(anchor="w")
         ttk.Checkbutton(checks, text="Analysis Images", variable=include_analysis_var).pack(anchor="w")
@@ -217,7 +236,7 @@ class HostWindowController:
             self.attach_disabled_tooltip(dialog, overlay_check, "No binary masks exist for the selected events.")
 
         ttk.Separator(checks, orient="horizontal").pack(fill="x", pady=(6, 4))
-        ttk.Label(checks, text="Metrics").pack(anchor="w")
+        ttk.Label(checks, text="Metrics", style="Meta.TLabel").pack(anchor="w")
         metric_speed_check = ttk.Checkbutton(checks, text="Propagation Speed", variable=include_metric_speed_var)
         metric_speed_check.pack(anchor="w")
         metric_area_check = ttk.Checkbutton(checks, text="Area Recruited", variable=include_metric_area_var)
@@ -226,6 +245,12 @@ class HostWindowController:
             checks, text="Relative Area Recruited", variable=include_metric_rel_area_var
         )
         metric_rel_area_check.pack(anchor="w")
+        metric_combined_spreadsheet_check = ttk.Checkbutton(
+            checks,
+            text="Export combined selected as a spreadsheet",
+            variable=include_metric_combined_spreadsheet_var,
+        )
+        metric_combined_spreadsheet_check.pack(anchor="w", pady=(2, 0))
 
         if not bool(metric_ready["propagation_speed"]["enabled"]):
             include_metric_speed_var.set(False)
@@ -244,7 +269,24 @@ class HostWindowController:
                 str(metric_ready["relative_area_recruited"]["reason"]),
             )
 
-        buttons = ttk.Frame(shell)
+        def _refresh_combined_metrics_spreadsheet_state(*_args) -> None:
+            enabled = self._can_export_combined_metric_spreadsheet(
+                include_metric_propagation_speed=bool(include_metric_speed_var.get()),
+                include_metric_area_recruited=bool(include_metric_area_var.get()),
+                include_metric_relative_area_recruited=bool(include_metric_rel_area_var.get()),
+            )
+            if enabled:
+                metric_combined_spreadsheet_check.configure(state="normal")
+            else:
+                include_metric_combined_spreadsheet_var.set(False)
+                metric_combined_spreadsheet_check.configure(state="disabled")
+
+        include_metric_speed_var.trace_add("write", _refresh_combined_metrics_spreadsheet_state)
+        include_metric_area_var.trace_add("write", _refresh_combined_metrics_spreadsheet_state)
+        include_metric_rel_area_var.trace_add("write", _refresh_combined_metrics_spreadsheet_state)
+        _refresh_combined_metrics_spreadsheet_state()
+
+        buttons = ttk.Frame(shell, style="AppShell.TFrame")
         buttons.pack(fill="x")
 
         def _cancel() -> None:
@@ -279,25 +321,30 @@ class HostWindowController:
                 "include_metric_propagation_speed": bool(include_metric_speed_var.get()),
                 "include_metric_area_recruited": bool(include_metric_area_var.get()),
                 "include_metric_relative_area_recruited": bool(include_metric_rel_area_var.get()),
+                "include_metric_combined_spreadsheet": bool(include_metric_combined_spreadsheet_var.get()),
             }
             dialog.destroy()
 
-        ttk.Button(buttons, text="Cancel", command=_cancel).pack(side="right")
-        ttk.Button(buttons, text="Export", command=_confirm).pack(side="right", padx=(0, 8))
+        ttk.Button(buttons, text="Cancel", command=_cancel, **semantic_button_options("secondary")).pack(side="right")
+        ttk.Button(buttons, text="Export", command=_confirm, **semantic_button_options("primary")).pack(side="right", padx=(0, 8))
         dialog.protocol("WM_DELETE_WINDOW", _cancel)
+        self.center_window_on_screen(dialog, width=760, height=620)
+        dialog.deiconify()
+        dialog.grab_set()
         dialog.wait_window()
         return result
 
     def prompt_propagation_gap_action(self, payload: dict[str, object]) -> str:
         result = {"action": "ignore"}
         dialog = tk.Toplevel(self.app.root)
+        dialog.withdraw()
         dialog.title("Propagation Speed Warning")
         dialog.transient(self.app.root)
-        dialog.grab_set()
         dialog.resizable(False, False)
-        dialog.geometry("+%d+%d" % (self.app.root.winfo_rootx() + 140, self.app.root.winfo_rooty() + 140))
+        dialog.geometry("600x220")
+        apply_theme(dialog)
 
-        shell = ttk.Frame(dialog, padding=12)
+        shell = ttk.Frame(dialog, padding=SPACING.outer, style="AppShell.TFrame")
         shell.pack(fill="both", expand=True)
         event_id = str(payload.get("event_id", "") or "")
         runs = list(payload.get("gap_frame_runs", []) or [])
@@ -313,46 +360,36 @@ class HostWindowController:
                 f"Frames: {run_labels or 'unknown'}"
             ),
             justify="left",
+            style="SectionTitle.TLabel",
         ).pack(anchor="w")
         ttk.Label(
             shell,
             text="Choose how export should handle those propagation-speed gaps for this export run.",
             justify="left",
+            style="Meta.TLabel",
         ).pack(anchor="w", pady=(8, 10))
 
         def _finish(action: str) -> None:
             result["action"] = str(action)
             dialog.destroy()
 
-        buttons = ttk.Frame(shell)
+        buttons = ttk.Frame(shell, style="AppShell.TFrame")
         buttons.pack(fill="x")
-        ttk.Button(buttons, text="Ignore", command=lambda: _finish("ignore")).pack(side="left")
-        ttk.Button(buttons, text="Stop There", command=lambda: _finish("stop")).pack(side="left", padx=(8, 0))
-        ttk.Button(buttons, text="Average Between Frames", command=lambda: _finish("interpolate")).pack(
+        ttk.Button(buttons, text="Ignore", command=lambda: _finish("ignore"), **semantic_button_options("secondary")).pack(side="left")
+        ttk.Button(buttons, text="Stop There", command=lambda: _finish("stop"), **semantic_button_options("secondary")).pack(side="left", padx=(8, 0))
+        ttk.Button(buttons, text="Average Between Frames", command=lambda: _finish("interpolate"), **semantic_button_options("primary")).pack(
             side="left", padx=(8, 0)
         )
         dialog.protocol("WM_DELETE_WINDOW", lambda: _finish("ignore"))
-        self.center_window_on_screen(dialog)
+        self.center_window_on_screen(dialog, width=600, height=220)
+        dialog.deiconify()
+        dialog.grab_set()
         dialog.wait_window()
         return str(result["action"])
 
     @staticmethod
-    def center_window_on_screen(window) -> None:
-        try:
-            window.update_idletasks()
-            width = int(window.winfo_width())
-            height = int(window.winfo_height())
-            if width <= 1:
-                width = int(window.winfo_reqwidth())
-            if height <= 1:
-                height = int(window.winfo_reqheight())
-            width = max(1, width)
-            height = max(1, height)
-            x = max(0, int((int(window.winfo_screenwidth()) - width) / 2))
-            y = max(0, int((int(window.winfo_screenheight()) - height) / 2))
-            window.geometry(f"{width}x{height}+{x}+{y}")
-        except Exception:
-            return
+    def center_window_on_screen(window, *, width: int | None = None, height: int | None = None) -> None:
+        center_window(window, width=width, height=height)
 
     def open_generate_metrics_popup(self) -> None:
         if self.app.reader is None or self.app.stack_info is None:
@@ -371,24 +408,27 @@ class HostWindowController:
         fps_initial, scale_value, scale_points, roi_points, roi_mask = self._global_metrics_defaults_state()
 
         dialog = tk.Toplevel(self.app.root)
+        dialog.withdraw()
         dialog.title("Open Metrics")
         dialog.transient(self.app.root)
-        dialog.grab_set()
         dialog.resizable(False, False)
+        dialog.geometry("720x320")
+        apply_theme(dialog)
         self.app._open_metrics_dialog = dialog
 
-        shell = ttk.Frame(dialog, padding=12)
+        shell = ttk.Frame(dialog, padding=SPACING.outer, style="AppShell.TFrame")
         shell.pack(fill="both", expand=True)
         ttk.Label(
             shell,
             text="Configure global Frames/sec, Scale, and ROI defaults for this project.",
+            style="Meta.TLabel",
         ).pack(anchor="w")
 
-        fps_row = ttk.Frame(shell)
+        fps_row = ttk.Frame(shell, padding=SPACING.card, style="Surface.TFrame")
         fps_row.pack(fill="x", pady=(10, 6))
-        ttk.Label(fps_row, text="Frames/sec").pack(side="left")
+        ttk.Label(fps_row, text="Frames/sec", style="SectionTitle.TLabel").pack(side="left")
         fps_var = tk.StringVar(value=f"{fps_initial:.6g}")
-        ttk.Entry(fps_row, textvariable=fps_var, width=10).pack(side="left", padx=(8, 0))
+        ttk.Entry(fps_row, textvariable=fps_var, width=10, style="Compact.TEntry").pack(side="left", padx=(8, 0))
 
         scale_status_var = tk.StringVar()
         roi_status_var = tk.StringVar()
@@ -412,7 +452,7 @@ class HostWindowController:
 
         self.app._refresh_open_metrics_dialog = _refresh_from_host
 
-        controls = ttk.Frame(shell)
+        controls = ttk.Frame(shell, style="AppShell.TFrame")
         controls.pack(fill="x", pady=(6, 6))
 
         def _set_scale() -> None:
@@ -468,14 +508,14 @@ class HostWindowController:
                     roi_mask = None
             _refresh_labels()
 
-        ttk.Button(controls, text="Set Scale", command=_set_scale).pack(side="left")
-        ttk.Button(controls, text="Draw ROI", command=_set_roi).pack(side="left", padx=(8, 0))
+        ttk.Button(controls, text="Set Scale", command=_set_scale, **semantic_button_options("secondary")).pack(side="left")
+        ttk.Button(controls, text="Draw ROI", command=_set_roi, **semantic_button_options("secondary")).pack(side="left", padx=(8, 0))
 
-        ttk.Label(shell, textvariable=scale_status_var).pack(anchor="w", pady=(2, 2))
-        ttk.Label(shell, textvariable=roi_status_var).pack(anchor="w", pady=(0, 8))
+        ttk.Label(shell, textvariable=scale_status_var, style="Meta.TLabel").pack(anchor="w", pady=(2, 2))
+        ttk.Label(shell, textvariable=roi_status_var, style="Meta.TLabel").pack(anchor="w", pady=(0, 8))
         _refresh_labels()
 
-        actions = ttk.Frame(shell)
+        actions = ttk.Frame(shell, style="AppShell.TFrame")
         actions.pack(fill="x")
 
         def _cancel() -> None:
@@ -509,8 +549,8 @@ class HostWindowController:
             )
             dialog.destroy()
 
-        ttk.Button(actions, text="Cancel", command=_cancel).pack(side="right")
-        ttk.Button(actions, text="Apply", command=_apply).pack(side="right", padx=(0, 8))
+        ttk.Button(actions, text="Cancel", command=_cancel, **semantic_button_options("secondary")).pack(side="right")
+        ttk.Button(actions, text="Apply", command=_apply, **semantic_button_options("primary")).pack(side="right", padx=(0, 8))
 
         def _on_destroy(_event=None) -> None:
             if getattr(self.app, "_open_metrics_dialog", None) is dialog:
@@ -518,7 +558,9 @@ class HostWindowController:
                 self.app._refresh_open_metrics_dialog = None
 
         dialog.bind("<Destroy>", _on_destroy)
-        self.center_window_on_screen(dialog)
+        self.center_window_on_screen(dialog, width=720, height=320)
+        dialog.deiconify()
+        dialog.grab_set()
         dialog.wait_window()
 
     def run_export(self, event_ids: list[str], *, options: dict[str, object]) -> None:
@@ -548,7 +590,8 @@ class HostWindowController:
             f"mask_overlay_images={bool(options.get('include_mask_overlay_images'))}, "
             f"metric_propagation_speed={bool(options.get('include_metric_propagation_speed'))}, "
             f"metric_area_recruited={bool(options.get('include_metric_area_recruited'))}, "
-            f"metric_relative_area_recruited={bool(options.get('include_metric_relative_area_recruited'))}."
+            f"metric_relative_area_recruited={bool(options.get('include_metric_relative_area_recruited'))}, "
+            f"metric_combined_spreadsheet={bool(options.get('include_metric_combined_spreadsheet'))}."
         )
         gap_policy_cache: dict[str, str] = {}
 
@@ -609,6 +652,7 @@ class HostWindowController:
                     include_metric_propagation_speed=bool(options.get("include_metric_propagation_speed")),
                     include_metric_area_recruited=bool(options.get("include_metric_area_recruited")),
                     include_metric_relative_area_recruited=bool(options.get("include_metric_relative_area_recruited")),
+                    include_metric_combined_spreadsheet=bool(options.get("include_metric_combined_spreadsheet")),
                     project_metadata=metadata,
                     propagation_gap_decision=_resolve_gap_decision,
                 )

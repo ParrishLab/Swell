@@ -50,7 +50,7 @@ def test_close_analysis_windows_cancel_aborts():
     dirty = SimpleNamespace(project_dirty=True, save_project=lambda: None)
     ref = SimpleNamespace(app=dirty)
     app = _app_with_refs([ref])
-    with patch("sdapp.host.sd_gui.messagebox.askyesnocancel", return_value=None):
+    with patch.object(app.project_controller, "_prompt_three_way_action", return_value=None):
         result = app.close_analysis_windows_with_prompt()
     assert result["ok"] is False
     assert app.analysis_window_manager.closed is False
@@ -60,7 +60,7 @@ def test_close_analysis_windows_no_save_closes_all():
     dirty = SimpleNamespace(project_dirty=True, save_project=lambda: None)
     ref = SimpleNamespace(app=dirty)
     app = _app_with_refs([ref])
-    with patch("sdapp.host.sd_gui.messagebox.askyesnocancel", return_value=False):
+    with patch.object(app.project_controller, "_prompt_three_way_action", return_value=False):
         result = app.close_analysis_windows_with_prompt()
     assert result["ok"] is True
     assert app.analysis_window_manager.closed is True
@@ -74,7 +74,7 @@ def test_close_analysis_windows_save_then_continue_closes_all():
     dirty = SimpleNamespace(project_dirty=True, save_project=_save)
     ref = SimpleNamespace(app=dirty)
     app = _app_with_refs([ref])
-    with patch("sdapp.host.sd_gui.messagebox.askyesnocancel", return_value=True):
+    with patch.object(app.project_controller, "_prompt_three_way_action", return_value=True):
         result = app.close_analysis_windows_with_prompt()
     assert result["ok"] is True
     assert app.analysis_window_manager.closed is True
@@ -85,7 +85,7 @@ def test_close_analysis_windows_save_canceled_aborts():
     dirty = SimpleNamespace(project_dirty=True, save_project=lambda: None)
     ref = SimpleNamespace(app=dirty)
     app = _app_with_refs([ref])
-    with patch("sdapp.host.sd_gui.messagebox.askyesnocancel", return_value=True):
+    with patch.object(app.project_controller, "_prompt_three_way_action", return_value=True):
         result = app.close_analysis_windows_with_prompt()
     assert result["ok"] is False
     assert result["reason"] == "save_canceled"
@@ -117,7 +117,7 @@ def test_host_root_close_dirty_analysis_cancel_keeps_children_tracked():
     app = _app_with_refs([ref])
     app._analysis_windows = [("window", dirty)]
 
-    with patch("sdapp.host.sd_gui.messagebox.askyesnocancel", return_value=None):
+    with patch.object(app.project_controller, "_prompt_three_way_action", return_value=None):
         result = app.project_controller.request_host_close()
 
     assert result["ok"] is False
@@ -131,7 +131,7 @@ def test_host_root_close_dirty_analysis_no_save_closes_without_child_reprompt():
     app = _app_with_refs([ref])
     app._analysis_windows = [("window", dirty)]
 
-    with patch("sdapp.host.sd_gui.messagebox.askyesnocancel", return_value=False):
+    with patch.object(app.project_controller, "_prompt_three_way_action", return_value=False):
         result = app.project_controller.request_host_close()
 
     assert result["ok"] is True
@@ -147,7 +147,7 @@ def test_host_root_close_dirty_analysis_save_then_continue_closes_host():
     ref = SimpleNamespace(app=dirty)
     app = _app_with_refs([ref])
 
-    with patch("sdapp.host.sd_gui.messagebox.askyesnocancel", return_value=True):
+    with patch.object(app.project_controller, "_prompt_three_way_action", return_value=True):
         result = app.project_controller.request_host_close()
 
     assert result["ok"] is True
@@ -161,7 +161,7 @@ def test_host_root_close_dirty_analysis_save_failure_aborts():
     warnings = []
     app._show_warning = lambda *args, **kwargs: warnings.append((args, kwargs))
 
-    with patch("sdapp.host.sd_gui.messagebox.askyesnocancel", return_value=True):
+    with patch.object(app.project_controller, "_prompt_three_way_action", return_value=True):
         result = app.project_controller.request_host_close()
 
     assert result["ok"] is False
@@ -174,7 +174,7 @@ def test_host_root_close_dirty_host_cancel_aborts():
     app = _app_with_refs([])
     app.browser_controller = SimpleNamespace(session=SimpleNamespace(state=lambda: SimpleNamespace(dirty=True)))
 
-    with patch("sdapp.host.sd_gui.messagebox.askyesnocancel", return_value=None):
+    with patch.object(app.project_controller, "_prompt_three_way_action", return_value=None):
         result = app.project_controller.request_host_close()
 
     assert result["ok"] is False
@@ -186,7 +186,7 @@ def test_host_root_close_dirty_host_no_save_closes():
     app = _app_with_refs([])
     app.browser_controller = SimpleNamespace(session=SimpleNamespace(state=lambda: SimpleNamespace(dirty=True)))
 
-    with patch("sdapp.host.sd_gui.messagebox.askyesnocancel", return_value=False):
+    with patch.object(app.project_controller, "_prompt_three_way_action", return_value=False):
         result = app.project_controller.request_host_close()
 
     assert result["ok"] is True
@@ -204,7 +204,7 @@ def test_host_root_close_dirty_host_save_then_close():
 
     app.save_host_session = _save
 
-    with patch("sdapp.host.sd_gui.messagebox.askyesnocancel", return_value=True):
+    with patch.object(app.project_controller, "_prompt_three_way_action", return_value=True):
         result = app.project_controller.request_host_close()
 
     assert result["ok"] is True
@@ -217,7 +217,7 @@ def test_host_root_close_dirty_host_save_leaves_dirty_aborts():
     app.browser_controller = SimpleNamespace(session=SimpleNamespace(state=lambda: dirty_state))
     app.save_host_session = lambda _path=None: SimpleNamespace(project_path="/tmp/test.sdproj")
 
-    with patch("sdapp.host.sd_gui.messagebox.askyesnocancel", return_value=True):
+    with patch.object(app.project_controller, "_prompt_three_way_action", return_value=True):
         result = app.project_controller.request_host_close()
 
     assert result["ok"] is False

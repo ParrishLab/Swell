@@ -1,7 +1,11 @@
 from __future__ import annotations
 
 import tkinter as tk
-from tkinter import messagebox, ttk
+from tkinter import messagebox
+
+from sdapp.analysis.ui.theme import SPACING, apply_theme
+from sdapp.host.ui_logic import clamp_popup_range
+from sdapp.shared.ui.bootstrap import center_window_on_screen as center_window, semantic_button_options, ttk
 
 
 class MarkPopupController:
@@ -25,6 +29,45 @@ class MarkPopupController:
             return
         self.open_popup(mode="edit", event_id=selected[0])
 
+    def _resolve_initial_popup_state(
+        self,
+        *,
+        mode: str,
+        event,
+        frame_count: int,
+        current_frame_idx: int,
+    ) -> tuple[int, int, int, int, int]:
+        if mode == "edit" and event is not None:
+            start_default = int(event.start_idx)
+            end_default = int(event.end_idx)
+            center_idx = int((start_default + end_default) // 2)
+        else:
+            center_idx = int(current_frame_idx)
+            start_default = center_idx
+            end_default = center_idx
+
+        local_start, local_end, clamped_center, _removed = clamp_popup_range(
+            center_idx - 100,
+            center_idx + 100,
+            int(frame_count),
+            center_idx,
+            None,
+        )
+        return clamped_center, start_default, end_default, local_start, local_end
+
+    def _begin_popup_session(self, range_start: int, range_end: int) -> None:
+        try:
+            self.app._apply_popup_range_bounds(int(range_start), int(range_end))
+        except Exception as exc:
+            self.app._log_warn(f"Initial popup preview failed: {exc}")
+
+        self.app._recompute_popup_pipeline_for_bounds(
+            int(getattr(self.app, "_mark_popup_local_start", range_start)),
+            int(getattr(self.app, "_mark_popup_local_end", range_end)),
+            show_errors=False,
+            loading_text="Computing selected range...",
+        )
+
     def open_popup(self, mode: str, event_id: str | None) -> None:
         if self.app.reader is None or self.app.stack_info is None:
             self.app._log_warn("Mark popup blocked: no stack loaded.")
@@ -42,18 +85,15 @@ class MarkPopupController:
             messagebox.showwarning("SD Event", "Selected event was not found.", parent=self.app.root)
             return
 
-        if mode == "edit" and event is not None:
-            center_idx = int((event.start_idx + event.end_idx) // 2)
-            start_default = event.start_idx
-            end_default = event.end_idx
-        else:
-            center_idx = int(self.app.current_frame_idx)
-            start_default = center_idx
-            end_default = center_idx
-
         frame_count = int(self.app.stack_info.frame_count)
-        self.app._mark_popup_local_start = max(0, center_idx - 100)
-        self.app._mark_popup_local_end = min(frame_count - 1, center_idx + 100)
+        center_idx, start_default, end_default, initial_range_start, initial_range_end = self._resolve_initial_popup_state(
+            mode=mode,
+            event=event,
+            frame_count=frame_count,
+            current_frame_idx=int(self.app.current_frame_idx),
+        )
+        self.app._mark_popup_local_start = initial_range_start
+        self.app._mark_popup_local_end = initial_range_end
         self.app._mark_range_start_idx = self.app._mark_popup_local_start
         self.app._mark_range_end_idx = self.app._mark_popup_local_end
         self.app._mark_popup_anchor_idx = center_idx
@@ -63,15 +103,17 @@ class MarkPopupController:
         self.app._mark_popup_event_id = event_id
 
         popup = tk.Toplevel(self.app.root)
+        popup.withdraw()
         self.app._mark_popup = popup
         popup.title("Mark SD Event" if mode == "new" else f"Edit SD Event ({event_id})")
         popup.geometry("1200x850")
         popup.transient(self.app.root)
+        apply_theme(popup)
 
-        content = ttk.Frame(popup, padding=8)
+        content = ttk.Frame(popup, padding=SPACING.outer, style="AppShell.TFrame")
         content.pack(fill="both", expand=True)
 
-        top_row = ttk.Frame(content)
+        top_row = ttk.Frame(content, style="AppShell.TFrame")
         top_row.pack(fill="x", pady=(0, 6))
         self.app._mark_range_canvas = tk.Canvas(top_row, height=28, bg="#24262a", highlightthickness=0, bd=0, cursor="hand2")
         self.app._mark_range_canvas.pack(side="left", fill="x", expand=True, padx=(0, 8))
@@ -79,14 +121,19 @@ class MarkPopupController:
         self.app._mark_range_canvas.bind("<Button-1>", self.app._popup_range_press)
         self.app._mark_range_canvas.bind("<B1-Motion>", self.app._popup_range_drag)
         self.app._mark_range_canvas.bind("<ButtonRelease-1>", self.app._popup_range_release)
-        ttk.Button(top_row, text="Refresh Selected Range", command=self.app._refresh_popup_full_sequence).pack(side="right")
+        ttk.Button(
+            top_row,
+            text="Refresh Selected Range",
+            command=self.app._refresh_popup_full_sequence,
+            **semantic_button_options("secondary"),
+        ).pack(side="right")
 
-        self.app._mark_main_view_shell = ttk.Frame(content)
+        self.app._mark_main_view_shell = ttk.Frame(content, padding=SPACING.card, style="Surface.TFrame")
         self.app._mark_main_view_shell.pack(fill="both", expand=True, pady=(6, 6))
-        self.app._mark_preview_label = ttk.Label(self.app._mark_main_view_shell, anchor="center")
+        self.app._mark_preview_label = ttk.Label(self.app._mark_main_view_shell, anchor="center", style="Card.TLabel")
         self.app._mark_preview_label.pack(fill="both", expand=True)
 
-        self.app._mark_mini_frame = ttk.Frame(self.app._mark_main_view_shell, width=180, height=180)
+        self.app._mark_mini_frame = ttk.Frame(self.app._mark_main_view_shell, width=180, height=180, style="Preview.TFrame")
         self.app._mark_mini_frame.pack_propagate(False)
         self.app._mark_mini_frame.place(relx=1.0, rely=0.0, anchor="ne", x=-12, y=12)
         self.app._mark_mini_canvas = tk.Canvas(
@@ -94,19 +141,17 @@ class MarkPopupController:
             bg="black",
             width=170,
             height=170,
-            highlightthickness=1,
-            highlightbackground="gray",
+            highlightthickness=0,
+            bd=0,
         )
-        self.app._mark_mini_canvas.pack(fill="both", expand=True)
-        self.app._mark_mini_grip = tk.Label(
+        self.app._mark_mini_canvas.pack(fill="both", expand=True, padx=6, pady=6)
+        self.app._mark_mini_grip = ttk.Label(
             self.app._mark_mini_frame,
             text="\u2199",
-            font=("Arial", 15),
+            style="PreviewGrip.TLabel",
             cursor="fleur",
-            bg="#444",
-            fg="white",
         )
-        self.app._mark_mini_grip.place(relx=0.0, rely=1.0, anchor="sw", width=24, height=24)
+        self.app._mark_mini_grip.place(relx=0.0, rely=1.0, anchor="sw", x=6, y=-6, width=24, height=24)
         self.app._mark_mini_grip.bind("<Button-1>", self.app._popup_start_resize_mini)
         self.app._mark_mini_grip.bind("<B1-Motion>", self.app._popup_do_resize_mini)
         self.app._mark_mini_grip.bind("<ButtonRelease-1>", self.app._popup_stop_resize_mini)
@@ -116,10 +161,10 @@ class MarkPopupController:
         self.app._mark_loading_var = tk.StringVar(value="")
         self.app._mark_contrast_var = tk.DoubleVar(value=1.0)
         self.app._mark_contrast_label_var = tk.StringVar(value="Contrast: 1.00x")
-        ttk.Label(content, textvariable=self.app._mark_frame_info_var).pack(anchor="w", pady=(0, 2))
-        ttk.Label(content, textvariable=self.app._mark_window_info_var).pack(anchor="w", pady=(0, 2))
-        self.app._mark_loading_label = ttk.Label(content, textvariable=self.app._mark_loading_var, foreground="#8fdcff")
-        self.app._mark_loading_bar = ttk.Progressbar(content, mode="indeterminate")
+        ttk.Label(content, textvariable=self.app._mark_frame_info_var, style="DataValue.TLabel").pack(anchor="w", pady=(0, 2))
+        ttk.Label(content, textvariable=self.app._mark_window_info_var, style="Meta.TLabel").pack(anchor="w", pady=(0, 2))
+        self.app._mark_loading_label = ttk.Label(content, textvariable=self.app._mark_loading_var, style="Meta.TLabel")
+        self.app._mark_loading_bar = ttk.Progressbar(content, mode="indeterminate", style="Loading.Horizontal.TProgressbar")
 
         self.app._mark_overlay = tk.Canvas(content, height=12, bg="#2a2b2f", highlightthickness=0, bd=0)
         self.app._mark_overlay.pack(fill="x", pady=(4, 2))
@@ -133,30 +178,35 @@ class MarkPopupController:
             showvalue=False,
             relief="flat",
             highlightthickness=0,
+            bd=0,
+            bg="#1f242b",
+            fg="#edf1f3",
+            troughcolor="#2a3038",
+            activebackground="#1b75bc",
             command=self.app._popup_on_slide,
         )
         self.app._mark_scale.pack(fill="x", pady=(0, 6))
 
-        nav_row = ttk.Frame(content)
+        nav_row = ttk.Frame(content, style="AppShell.TFrame")
         nav_row.pack(fill="x", pady=(4, 0))
-        ttk.Button(nav_row, text="Prev", command=lambda: self.app._popup_step(-1)).pack(side="left", padx=2)
-        ttk.Button(nav_row, text="Next", command=lambda: self.app._popup_step(1)).pack(side="left", padx=2)
-        ttk.Button(nav_row, text="Set Start", command=self.app._popup_set_start_current).pack(side="left", padx=6)
-        ttk.Button(nav_row, text="Set End", command=self.app._popup_set_end_current).pack(side="left", padx=2)
+        ttk.Button(nav_row, text="Prev", command=lambda: self.app._popup_step(-1), **semantic_button_options("secondary")).pack(side="left", padx=2)
+        ttk.Button(nav_row, text="Next", command=lambda: self.app._popup_step(1), **semantic_button_options("secondary")).pack(side="left", padx=2)
+        ttk.Button(nav_row, text="Set Start", command=self.app._popup_set_start_current, **semantic_button_options("secondary")).pack(side="left", padx=6)
+        ttk.Button(nav_row, text="Set End", command=self.app._popup_set_end_current, **semantic_button_options("secondary")).pack(side="left", padx=2)
 
-        baseline_row = ttk.Frame(content)
+        baseline_row = ttk.Frame(content, padding=SPACING.card, style="Surface.TFrame")
         baseline_row.pack(fill="x", pady=(6, 0))
-        ttk.Label(baseline_row, text="Baseline Count").pack(side="left")
+        ttk.Label(baseline_row, text="Baseline Count", style="SurfaceMeta.TLabel").pack(side="left")
         baseline_count_default = 30
-        baseline_end_default = max(0, self.app._mark_popup_anchor_idx - 1)
+        baseline_end_default = max(0, int(start_default) - 1)
         self.app._mark_baseline_count_var = tk.StringVar(value=str(baseline_count_default))
-        baseline_count_entry = ttk.Entry(baseline_row, textvariable=self.app._mark_baseline_count_var, width=8)
+        baseline_count_entry = ttk.Entry(baseline_row, textvariable=self.app._mark_baseline_count_var, width=8, style="Compact.TEntry")
         baseline_count_entry.pack(side="left", padx=(6, 14))
-        ttk.Label(baseline_row, text="Baseline End").pack(side="left")
+        ttk.Label(baseline_row, text="Baseline End", style="SurfaceMeta.TLabel").pack(side="left")
         self.app._mark_baseline_end_var = tk.StringVar(value=str(baseline_end_default))
-        baseline_end_entry = ttk.Entry(baseline_row, textvariable=self.app._mark_baseline_end_var, width=8)
+        baseline_end_entry = ttk.Entry(baseline_row, textvariable=self.app._mark_baseline_end_var, width=8, style="Compact.TEntry")
         baseline_end_entry.pack(side="left", padx=(6, 18))
-        ttk.Label(baseline_row, textvariable=self.app._mark_contrast_label_var).pack(side="left")
+        ttk.Label(baseline_row, textvariable=self.app._mark_contrast_label_var, style="SurfaceMeta.TLabel").pack(side="left")
         ttk.Scale(
             baseline_row,
             from_=0.5,
@@ -165,17 +215,18 @@ class MarkPopupController:
             length=150,
             variable=self.app._mark_contrast_var,
             command=self.app._popup_on_contrast_change,
+            style="Flat.Horizontal.TScale",
         ).pack(side="left", padx=(8, 0))
 
-        bounds_frame = ttk.Frame(content)
+        bounds_frame = ttk.Frame(content, style="AppShell.TFrame")
         bounds_frame.pack(fill="x")
-        ttk.Label(bounds_frame, text="Start").pack(side="left")
+        ttk.Label(bounds_frame, text="Start", style="Meta.TLabel").pack(side="left")
         self.app._mark_start_var = tk.StringVar(value=str(start_default))
-        start_entry = ttk.Entry(bounds_frame, textvariable=self.app._mark_start_var, width=10)
+        start_entry = ttk.Entry(bounds_frame, textvariable=self.app._mark_start_var, width=10, style="Compact.TEntry")
         start_entry.pack(side="left", padx=(4, 14))
-        ttk.Label(bounds_frame, text="End").pack(side="left")
+        ttk.Label(bounds_frame, text="End", style="Meta.TLabel").pack(side="left")
         self.app._mark_end_var = tk.StringVar(value=str(end_default))
-        end_entry = ttk.Entry(bounds_frame, textvariable=self.app._mark_end_var, width=10)
+        end_entry = ttk.Entry(bounds_frame, textvariable=self.app._mark_end_var, width=10, style="Compact.TEntry")
         end_entry.pack(side="left", padx=(4, 14))
         start_entry.bind(
             "<KeyRelease>",
@@ -195,27 +246,19 @@ class MarkPopupController:
         baseline_count_entry.bind("<KeyRelease>", lambda _e: self.app._schedule_popup_recompute())
         baseline_end_entry.bind("<KeyRelease>", lambda _e: self.app._schedule_popup_recompute())
 
-        buttons = ttk.Frame(content)
+        buttons = ttk.Frame(content, style="AppShell.TFrame")
         buttons.pack(fill="x", pady=(8, 0))
-        ttk.Button(buttons, text="Confirm", command=self.confirm).pack(side="right", padx=2)
-        ttk.Button(buttons, text="Cancel", command=self.cancel).pack(side="right", padx=2)
+        ttk.Button(buttons, text="Confirm", command=self.confirm, **semantic_button_options("primary")).pack(side="right", padx=2)
+        ttk.Button(buttons, text="Cancel", command=self.cancel, **semantic_button_options("secondary")).pack(side="right", padx=2)
 
         popup.protocol("WM_DELETE_WINDOW", self.cancel)
         popup.bind("<Destroy>", self.on_destroy)
         self.app._bind_popup_keys(popup)
 
+        center_window(popup, width=1200, height=850)
+        popup.deiconify()
         popup.update_idletasks()
-        self.app._redraw_popup_range_selector()
-        if self.app._mark_scale is not None:
-            self.app._mark_scale.set(center_idx)
-        popup.after_idle(
-            lambda: self.app._recompute_popup_pipeline_for_bounds(
-                self.app._mark_popup_local_start,
-                self.app._mark_popup_local_end,
-                show_errors=False,
-                loading_text="Computing selected range...",
-            )
-        )
+        self._begin_popup_session(initial_range_start, initial_range_end)
 
     def on_destroy(self, _event=None) -> None:
         popup_ref = self.app._mark_popup

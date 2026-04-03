@@ -51,6 +51,8 @@ class ProjectSessionServiceTests(unittest.TestCase):
             export_end=5,
             baseline_frame_count=10,
             scale_px_per_mm=2.0,
+            scale_points=[(1.0, 1.0), (5.0, 1.0)],
+            scale_image_path="/tmp/scale.png",
             roi_points=[],
             roi_mask=roi,
             created_at="2026-01-01T00:00:00Z",
@@ -61,6 +63,8 @@ class ProjectSessionServiceTests(unittest.TestCase):
         self.assertEqual(len(state["events"]), 2)
         self.assertIn("sd_event_001", payloads)
         self.assertIn("sd_event_002", payloads)
+        self.assertEqual(state["global"]["scale_points"], [(1.0, 1.0), (5.0, 1.0)])
+        self.assertEqual(state["global"]["scale_image_path"], "/tmp/scale.png")
         self.assertIsNotNone(roi_data["roi_mask_rle"])
         self.assertIn("masks_draft", payloads["sd_event_002"])
 

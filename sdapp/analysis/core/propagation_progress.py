@@ -26,6 +26,7 @@ class PropagationProgressLogger:
         log_success: Callable[[str, str], None],
         log_warn: Callable[[str, str], None],
         log_error: Callable[[str, str], None],
+        on_update: Callable[..., None] | None = None,
         bar_width: int = 30,
     ):
         self._write_progress = write_progress
@@ -33,7 +34,21 @@ class PropagationProgressLogger:
         self._log_success = log_success
         self._log_warn = log_warn
         self._log_error = log_error
+        self._on_update = on_update
         self.state = PropagationProgressState(bar_width=max(1, int(bar_width)))
+
+    def _emit_update(self, *, status: str) -> None:
+        callback = self._on_update
+        if not callable(callback):
+            return
+        callback(
+            active=bool(self.state.active),
+            done=int(self.state.done_steps),
+            total=int(self.state.total_steps),
+            label=str(self.state.label),
+            status=str(status),
+            run_id=int(self.state.run_id),
+        )
 
     def render_progress_line(self, done: int, total: int) -> str:
         safe_done = max(0, int(done))
@@ -60,6 +75,7 @@ class PropagationProgressLogger:
         self.state.last_pct = 100 if self.state.total_steps <= 0 else 0
         line = self.render_progress_line(self.state.done_steps, self.state.total_steps)
         self._write_progress(f"[INFO][{self.state.label}] {line}")
+        self._emit_update(status="started")
         return run_id
 
     def tick(self, increment: int = 1, run_id: int | None = None) -> None:
@@ -81,6 +97,7 @@ class PropagationProgressLogger:
         self.state.last_pct = pct
         line = self.render_progress_line(self.state.done_steps, self.state.total_steps)
         self._write_progress(f"[INFO][{self.state.label}] {line}")
+        self._emit_update(status="progress")
 
     def finish(self, status: str, run_id: int | None = None) -> None:
         if run_id is not None and run_id != self.state.run_id:
@@ -109,3 +126,4 @@ class PropagationProgressLogger:
         else:
             self._log_info("Propagation", status_msg)
         self.state.active = False
+        self._emit_update(status=str(status or "finished"))

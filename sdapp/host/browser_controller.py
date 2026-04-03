@@ -62,7 +62,7 @@ class BrowserController:
 
     def set_active_event(self, event_id: str | None) -> None:
         self.events.set_active_event(event_id)
-        self._sync_session()
+        self._sync_session(mark_dirty=False)
 
     def create_event(
         self,
@@ -343,6 +343,16 @@ class BrowserController:
         if event is None:
             raise KeyError(f"Event not found: {event_id}")
         state = self.session.state()
+        analysis_state = state.analysis_sidecar.get(str(event.event_id))
+        if isinstance(analysis_state, dict):
+            analysis_state = annotate_payload_origins(
+                dict(analysis_state),
+                bounds=EventBounds(
+                    start_idx=int(event.start_idx),
+                    end_idx=int(event.end_idx),
+                    flags=dict(getattr(event, "flags", {}) or {}),
+                ),
+            )
         return {
             "session_id": self.session.get_session_id(),
             "stack_id": self.session.get_stack_id(),
@@ -355,7 +365,7 @@ class BrowserController:
                 "end_idx": int(event.end_idx),
                 "flags": dict(event.flags),
             },
-            "analysis_state": state.analysis_sidecar.get(str(event.event_id)),
+            "analysis_state": analysis_state,
             "local_metrics_settings": self.load_event_metrics_settings(str(event.event_id)),
             "metrics_settings": self.resolve_event_metrics_settings(str(event.event_id)),
         }

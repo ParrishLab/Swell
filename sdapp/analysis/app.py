@@ -55,6 +55,7 @@ from sdapp.analysis.controllers import (
 )
 from sdapp.analysis.ui.layout import LayoutBuilder
 from sdapp.analysis.utils.paths import get_app_root, get_resources_root
+from sdapp.shared.ui.bootstrap import center_window_on_screen, ttk as themed_ttk
 from sdapp.shared.services import CheckpointRuntimeService, MODEL_CHECKPOINT_METADATA_KEY
 
 
@@ -96,6 +97,7 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         self.root = root
         self.root.title(format_window_title("IOS SD Analysis"))
         self.root.geometry("1400x950")
+        center_window_on_screen(self.root, width=1400, height=950)
 
         self.app_root = str(get_app_root())
         self.resource_root = str(get_resources_root())
@@ -173,6 +175,8 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         self._last_scale_image_path = ""
         self.analysis_panel_open = tk.BooleanVar(value=False)
         self._controls_hint_logged = False
+        self._analysis_log_buffer_limit = 150
+        self._analysis_log_entries: list[str] = []
         self._analysis_prewarm_generation = 0
         self._analysis_prewarm_thread = None
         self._analysis_prewarm_window = 4
@@ -216,6 +220,7 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
             log_success=self.log_success,
             log_warn=self.log_warn,
             log_error=self.log_error,
+            on_update=self._on_propagation_progress_update,
         )
         if hasattr(self.root, "after"):
             self.root.after(0, self._emit_optional_runtime_dependency_warnings)
@@ -806,20 +811,78 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
     def _set_loading_indicator(self, loading: bool, text: str = "Working...") -> None:
         if not hasattr(self, "loading_status_var") or not hasattr(self, "loading_bar"):
             return
+        if bool(getattr(self, "_propagation_progress_active", False)):
+            if loading:
+                self.loading_status_var.set(str(text or "Working..."))
+            elif int(getattr(self, "_loading_task_count", 0) or 0) <= 0:
+                self.loading_bar.stop()
+                if self.loading_bar.winfo_ismapped():
+                    self.loading_bar.grid_remove()
+            return
         if bool(loading):
             self.loading_status_var.set(str(text or "Working..."))
+            self.loading_bar.configure(mode="indeterminate")
+            self.loading_bar.configure(value=0, maximum=100)
             if not self.loading_bar.winfo_ismapped():
-                self.loading_bar.pack(fill="x", padx=6, pady=(0, 6))
+                self.loading_bar.grid()
             self.loading_bar.start(8)
             return
         self.loading_bar.stop()
         if self.loading_bar.winfo_ismapped():
-            self.loading_bar.pack_forget()
+            self.loading_bar.grid_remove()
 
     def _set_activity_message(self, text: str) -> None:
         if not hasattr(self, "loading_status_var"):
             return
-        self.loading_status_var.set(str(text or "Idle"))
+        if not bool(getattr(self, "_propagation_progress_active", False)):
+            self.loading_status_var.set(str(text or "Idle"))
+
+    def _apply_propagation_progress_update(self, *, active: bool, done: int, total: int, label: str, status: str, run_id: int) -> None:
+        del run_id
+        if not hasattr(self, "loading_status_var") or not hasattr(self, "loading_bar"):
+            return
+        total_steps = max(0, int(total))
+        done_steps = max(0, min(int(done), total_steps if total_steps > 0 else int(done)))
+        if bool(active):
+            self._propagation_progress_active = True
+            self.loading_bar.stop()
+            self.loading_bar.configure(mode="determinate")
+            self.loading_bar.configure(maximum=max(1, total_steps), value=done_steps)
+            pct = 100 if total_steps <= 0 else int(round((done_steps / max(1, total_steps)) * 100))
+            self.loading_status_var.set(f"{label} {pct}% ({done_steps}/{total_steps})")
+            if not self.loading_bar.winfo_ismapped():
+                self.loading_bar.grid()
+            return
+
+        self._propagation_progress_active = False
+        self.loading_bar.stop()
+        self.loading_bar.configure(mode="determinate")
+        self.loading_bar.configure(value=0, maximum=max(1, total_steps))
+        terminal_messages = {
+            "complete": "Propagation complete",
+            "stopped": "Propagation stopped",
+            "failed": "Propagation failed",
+        }
+        if status in terminal_messages:
+            self.loading_status_var.set(terminal_messages[status])
+        if int(getattr(self, "_loading_task_count", 0) or 0) > 0:
+            self._set_loading_indicator(True, str(self.loading_status_var.get() or "Working..."))
+            return
+        if self.loading_bar.winfo_ismapped():
+            self.loading_bar.grid_remove()
+
+    def _on_propagation_progress_update(self, **payload) -> None:
+        if not self._ui_alive():
+            return
+
+        def _apply() -> None:
+            if self._ui_alive():
+                self._apply_propagation_progress_update(**payload)
+
+        if threading.current_thread() is threading.main_thread():
+            _apply()
+        else:
+            self.root.after(0, _apply)
 
     def _begin_loading_task(self, text: str = "Working...") -> None:
         self._loading_task_count = int(getattr(self, "_loading_task_count", 0)) + 1
@@ -829,6 +892,51 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         self._loading_task_count = max(0, int(getattr(self, "_loading_task_count", 0)) - 1)
         if self._loading_task_count == 0:
             self._set_loading_indicator(False)
+
+    def _refresh_log_tree(self) -> None:
+        tree = getattr(self, "log_tree", None)
+        if tree is None:
+            return
+        try:
+            for item_id in list(tree.get_children("")):
+                tree.delete(item_id)
+            for entry in list(getattr(self, "_analysis_log_entries", [])):
+                tree.insert("", "end", text=entry)
+            children = tree.get_children("")
+            if children:
+                tree.see(children[-1])
+        except Exception:
+            return
+
+    def _append_log_entry(self, level: str, context: str, body: str) -> None:
+        entry = f"[{str(level or 'INFO').upper()}]"
+        if context:
+            entry = f"{entry} [{context}]"
+        if body:
+            entry = f"{entry} {body}"
+        entries = getattr(self, "_analysis_log_entries", None)
+        if not isinstance(entries, list):
+            entries = []
+            self._analysis_log_entries = entries
+        entries.append(entry)
+        limit = max(1, int(getattr(self, "_analysis_log_buffer_limit", 150) or 150))
+        if len(entries) > limit:
+            del entries[:-limit]
+
+        tree = getattr(self, "log_tree", None)
+        if tree is None:
+            return
+        try:
+            tree.insert("", "end", text=entry)
+            children = list(tree.get_children(""))
+            if len(children) > limit:
+                for item_id in children[:-limit]:
+                    tree.delete(item_id)
+                children = list(tree.get_children(""))
+            if children:
+                tree.see(children[-1])
+        except Exception:
+            self._refresh_log_tree()
 
     def _on_logger_message(self, message: str, is_progress: bool = False) -> None:
         text = str(message or "").strip()
@@ -855,8 +963,7 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
                     self._host_log_notifier(level, context, body)
                 except Exception:
                     pass
-            if bool(is_progress) and context == "Propagation":
-                self._set_loading_indicator(True, body or "Propagating...")
+            self._append_log_entry(level, context, body)
 
     def _set_runtime_status(self, text: str, color: str) -> None:
         return self._get_runtime_controller().set_runtime_status(text, color)
@@ -1144,25 +1251,11 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         self._queue_display_update(update_preview=True)
         return None
 
-    def _center_window(self, window=None) -> None:
+    def _center_window(self, window=None, *, width: int | None = None, height: int | None = None) -> None:
         target = window if window is not None else self.root
         if target is None:
             return
-        try:
-            target.update_idletasks()
-            width = int(target.winfo_width())
-            height = int(target.winfo_height())
-            if width <= 1:
-                width = int(target.winfo_reqwidth())
-            if height <= 1:
-                height = int(target.winfo_reqheight())
-            width = max(1, width)
-            height = max(1, height)
-            x = max(0, int((int(target.winfo_screenwidth()) - width) / 2))
-            y = max(0, int((int(target.winfo_screenheight()) - height) / 2))
-            target.geometry(f"{width}x{height}+{x}+{y}")
-        except Exception:
-            return
+        center_window_on_screen(target, width=width, height=height)
 
     def _frame_source_capabilities(self):
         frame_source = getattr(self, "frame_source", None)
@@ -1331,6 +1424,10 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
                 f"_set_spinbox_value widget={getattr(widget, 'widgetName', type(widget).__name__)} "
                 f"state={original_state} before={before} requested={text} after={after}",
             )
+            if widget in (getattr(self, "spin_prop_start", None), getattr(self, "spin_prop_end", None)):
+                redraw = getattr(self, "_redraw_propagation_range_bar", None)
+                if callable(redraw):
+                    redraw()
         finally:
             self._programmatic_spinbox_update = prev_flag
 
@@ -1358,7 +1455,7 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         return start_idx, end_idx
 
     def _set_container_controls_enabled(self, parent, enabled):
-        interactive_types = (
+        interactive_types = [
             tk.Button,
             tk.Entry,
             tk.Spinbox,
@@ -1371,9 +1468,13 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
             ttk.Scale,
             ttk.Radiobutton,
             ttk.Checkbutton,
-        )
+        ]
+        for widget_name in ("Button", "Entry", "Spinbox", "Scale", "Radiobutton", "Checkbutton"):
+            bootstrap_type = getattr(themed_ttk, widget_name, None)
+            if bootstrap_type is not None and bootstrap_type not in interactive_types:
+                interactive_types.append(bootstrap_type)
         for child in parent.winfo_children():
-            if isinstance(child, interactive_types):
+            if isinstance(child, tuple(interactive_types)):
                 self._set_widget_enabled(child, enabled)
             self._set_container_controls_enabled(child, enabled)
 
@@ -1406,10 +1507,9 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         self.analysis_panel_open.set(is_open)
         if not hasattr(self, "btn_analysis_toggle") or not hasattr(self, "frame_analysis_body"):
             return
-        self.btn_analysis_toggle.configure(text=f"Adjust Metrics {'▾' if is_open else '▸'}")
-        self.frame_analysis_body.pack_forget()
+        self.frame_analysis_body.grid_remove()
         if is_open:
-            self.frame_analysis_body.pack(fill="x", padx=4, pady=(0, 4))
+            self.frame_analysis_body.grid()
 
     def _toggle_analysis_panel(self):
         self._set_analysis_panel(not bool(self.analysis_panel_open.get()))
@@ -1445,17 +1545,6 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
             width = self.slider_overlay.winfo_width() if hasattr(self, "slider_overlay") else 0
         width = max(0, int(width))
         clamped_idx = float(max(0.0, min(float(frame_idx), max(0.0, float(total - 1)))))
-
-        # Prefer ttk.Scale's own coordinate mapping to stay visually aligned with slider values.
-        if hasattr(self, "slider") and hasattr(self, "slider_overlay"):
-            try:
-                coords = self.slider.coords(float(clamped_idx))
-                if coords and len(coords) >= 1:
-                    slider_x = float(coords[0])
-                    x_offset = float(self.slider.winfo_rootx() - self.slider_overlay.winfo_rootx())
-                    return slider_x + x_offset
-            except (tk.TclError, TypeError, ValueError):
-                pass
 
         if total <= 1:
             return width / 2.0
@@ -1811,6 +1900,8 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
                 export_end=prop_end,
                 baseline_frame_count=self.get_baseline_frame_count(),
                 scale_px_per_mm=self.scale_px_per_mm,
+                scale_points=list(self.scale_points) if self.scale_points else [],
+                scale_image_path=str(getattr(self, "_last_scale_image_path", "") or ""),
                 roi_points=list(self.roi_points) if self.roi_points else [],
                 roi_mask=self.roi_mask,
                 created_at=self._project_created_at,
@@ -2106,12 +2197,14 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
     def on_mouse_up(self, event):
         if self._stop_canvas_pan(self.canvas_left, event) == "break":
             return "break"
-        self.interaction_controller.on_mouse_up(event)
-        self._mark_project_dirty("mouse_up")
+        changed = bool(self.interaction_controller.on_mouse_up(event))
+        if changed:
+            self._mark_project_dirty("mouse_up")
 
     def delete_selected_point(self, event=None):
-        self.interaction_controller.delete_selected_point(event)
-        self._mark_project_dirty("delete_point")
+        changed = bool(self.interaction_controller.delete_selected_point(event))
+        if changed:
+            self._mark_project_dirty("delete_point")
 
     def _analysis_payload_has_saved_masks(self, payload) -> bool:
         return self._get_window_controller().analysis_payload_has_saved_masks(payload)
@@ -2153,7 +2246,8 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
             f"frame_count={self._get_frame_count()} frame_shape={self._get_frame_shape()}",
         )
         self._clear_propagation_overlay_state()
-        self._sync_saved_mask_overlay_state()
+        self._recompute_slider_jump_markers()
+        self._sync_saved_mask_overlay_state(reset_history=False)
 
     def _collect_current_metrics_settings(self) -> dict[str, object]:
         return self._get_window_controller().collect_current_metrics_settings()
@@ -2256,9 +2350,10 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         return self.save_current_masks()
 
     def clear_current_frame_data(self):
-        self.interaction_controller.clear_current_frame_data()
+        changed = bool(self.interaction_controller.clear_current_frame_data())
         self._sync_saved_mask_overlay_state(reset_history=True)
-        self._mark_project_dirty("clear_frame")
+        if changed:
+            self._mark_project_dirty("clear_frame")
 
 
 def main():

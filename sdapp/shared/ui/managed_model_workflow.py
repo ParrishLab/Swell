@@ -57,6 +57,21 @@ class ManagedModelWorkflow:
         self._activate_local = activate_local
         self._prompt_select_local = prompt_select_local
 
+    def _call_center_window(self, dialog) -> None:
+        center_window = self._options.on_center_window
+        if not callable(center_window):
+            return
+        try:
+            center_window(dialog, width=760, height=320)
+        except TypeError:
+            center_window(dialog)
+
+    @staticmethod
+    def _call_dialog_method(dialog, name: str, *args) -> None:
+        method = getattr(dialog, str(name), None)
+        if callable(method):
+            method(*args)
+
     def open_dialog(self, *, required: bool = False) -> dict[str, object]:
         service = self._service
         if service is None:
@@ -69,10 +84,11 @@ class ManagedModelWorkflow:
             return {"ok": False}
 
         dialog = tk.Toplevel(self._root)
+        self._call_dialog_method(dialog, "withdraw")
         dialog.title(self._options.title)
         dialog.transient(self._root)
         dialog.resizable(True, False)
-        dialog.grab_set()
+        self._call_dialog_method(dialog, "geometry", "760x320")
 
         shell = ttk.Frame(dialog, padding=10)
         shell.pack(fill="both", expand=True)
@@ -202,8 +218,7 @@ class ManagedModelWorkflow:
                 _complete(False)
 
         def _select_local() -> None:
-            if callable(self._options.on_center_window):
-                self._options.on_center_window(dialog)
+            self._call_center_window(dialog)
             selected = self._prompt_select_local(dialog, self._options.select_local_title)
             if not selected:
                 return
@@ -220,8 +235,9 @@ class ManagedModelWorkflow:
         local_btn.configure(command=_select_local)
         _refresh_rows()
         dialog.update_idletasks()
-        dialog.minsize(dialog.winfo_width(), dialog.winfo_height())
-        if callable(self._options.on_center_window):
-            self._options.on_center_window(dialog)
+        dialog.minsize(760, dialog.winfo_height())
+        self._call_center_window(dialog)
+        self._call_dialog_method(dialog, "deiconify")
+        dialog.grab_set()
         self._root.wait_window(dialog)
         return result

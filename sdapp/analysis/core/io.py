@@ -269,7 +269,7 @@ class IOActions:
             apply_global_normalization=True,
         )
 
-    def _finalize_load_ui(self):
+    def _finalize_load_ui(self, *, preserve_workspace_state: bool = False):
         count = int(self._get_frame_count()) if hasattr(self, "_get_frame_count") else 0
         if count == 0:
             self._set_data_controls_enabled(False)
@@ -278,13 +278,14 @@ class IOActions:
 
         self.slider.configure(to=count - 1)
         self.current_frame_idx = max(0, min(int(self.current_frame_idx), count - 1))
-        self.points.clear()
-        self.seg_state.invalidate_user_frames()
-        self.seg_state.invalidate_final_mask_frames()
-        self.selected_point = None
-        self._export_range_auto_follow = True
-        self._set_spinbox_value(self.spin_prop_start, 1)
-        self._set_spinbox_value(self.spin_prop_end, count)
+        if not bool(preserve_workspace_state):
+            self.points.clear()
+            self.seg_state.invalidate_user_frames()
+            self.seg_state.invalidate_final_mask_frames()
+            self.selected_point = None
+            self._export_range_auto_follow = True
+            self._set_spinbox_value(self.spin_prop_start, 1)
+            self._set_spinbox_value(self.spin_prop_end, count)
 
         if self._get_frames_raw() is None or self._get_frames_sub_viz() is None:
             self.update_display()
@@ -293,7 +294,8 @@ class IOActions:
             return
 
         self.update_display()
-        self._recompute_slider_jump_markers()
+        if not bool(preserve_workspace_state):
+            self._recompute_slider_jump_markers()
         self._set_data_controls_enabled(True)
         self._set_busy(False, "Status: Ready", "green")
         self.log_success("Import", f"Completed import with {count} frame(s).")

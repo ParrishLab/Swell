@@ -15,6 +15,9 @@ class ProjectStoreRoundtripTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             project_path = Path(tmp) / "x.sdproj"
             state = default_project_state("1.0.0")
+            state["global"]["scale_px_per_mm"] = 2.5
+            state["global"]["scale_points"] = [[10.0, 12.0], [30.0, 12.0]]
+            state["global"]["scale_image_path"] = "/tmp/scale-ref.png"
             state["events"] = [
                 {
                     "id": "sd_event_001",
@@ -36,6 +39,8 @@ class ProjectStoreRoundtripTests(unittest.TestCase):
             )
             loaded = store.load(project_path)
             self.assertEqual(loaded.project_state["schema_version"], state["schema_version"])
+            self.assertEqual(loaded.project_state["global"]["scale_points"], [[10.0, 12.0], [30.0, 12.0]])
+            self.assertEqual(loaded.project_state["global"]["scale_image_path"], "/tmp/scale-ref.png")
             self.assertEqual(loaded.event_payloads["sd_event_001"]["masks"].shape, (3, 4, 4))
             self.assertIn("frames", loaded.event_payloads["sd_event_001"]["prompts"])
 

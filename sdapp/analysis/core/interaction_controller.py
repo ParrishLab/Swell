@@ -84,6 +84,7 @@ class InteractionController:
         self.get_model_ready = get_model_ready
         self.record_action = record_action
         self.prune_empty_point_frames = prune_empty_point_frames
+        self._pending_dirty = False
 
     def on_mouse_move(self, event):
         self.set_last_mouse_x(event.x)
@@ -162,6 +163,7 @@ class InteractionController:
         idx = self.get_current_frame_idx()
         if mode in ["brush", "eraser"]:
             self.clear_paint_preview()
+            paint_before = self.get_paint_snapshot_before()
             data_after = None
             if idx in self.paint_layers:
                 data_after = {
@@ -169,10 +171,12 @@ class InteractionController:
                     "minus": self.paint_layers[idx]["minus"].copy(),
                 }
 
-            self.record_action("paint", idx, self.get_paint_snapshot_before(), data_after)
+            self.record_action("paint", idx, paint_before, data_after)
             self.set_paint_snapshot_before(None)
             self.update_display(update_preview=True)
             self.recompute_slider_jump_markers()
+            if data_after != paint_before:
+                self._pending_dirty = True
 
         selected_point = self.get_selected_point()
         if mode == "select" and selected_point:
@@ -187,12 +191,16 @@ class InteractionController:
                     self.record_action("point", idx, points_before, data_after)
                     self.seg_state.invalidate_user_frames()
                     self.seg_state.invalidate_final_mask_frames()
+                    self._pending_dirty = True
 
         if mode == "select":
             self.set_points_snapshot_before(None)
 
         self.recompute_slider_jump_markers()
         self.update_display()
+        changed = bool(self._pending_dirty)
+        self._pending_dirty = False
+        return changed
 
     def _handle_selection(self, event):
         frame_count = int(self.get_frame_count())
@@ -250,6 +258,9 @@ class InteractionController:
                 else:
                     self.update_display()
                 self.recompute_slider_jump_markers()
+                self._pending_dirty = True
+                return True
+        return False
 
     def _handle_tool(self, event, is_click=False):
         frame_count = int(self.get_frame_count())
@@ -276,6 +287,7 @@ class InteractionController:
                     self.points[idx][s_pt_i]["x"] = img_x
                     self.points[idx][s_pt_i]["y"] = img_y
                     self.seg_state.invalidate_final_mask_frames()
+                    self._pending_dirty = True
                     self.update_display()
 
         elif mode in ["point_pos", "point_neg"]:
@@ -292,6 +304,7 @@ class InteractionController:
                 data_after = copy.deepcopy(self.points.get(idx))
                 self.record_action("point", idx, data_before, data_after)
                 self.recompute_slider_jump_markers()
+                self._pending_dirty = True
 
                 if self.get_model_ready():
                     self.update_mask_prediction(idx)
@@ -368,11 +381,18 @@ class InteractionController:
 
     def clear_current_frame_data(self):
         idx = self.get_current_frame_idx()
+        had_points = bool(idx in self.points and self.points[idx])
+        had_mask = bool(idx in self.masks_cache and self.masks_cache[idx] is not None)
+        had_paint = bool(idx in self.paint_layers)
         self.seg_state.clear_points(idx)
         self.seg_state.clear_mask(idx)
         self.seg_state.clear_paint_layer(idx)
         self.recompute_slider_jump_markers()
         self.update_display()
+        changed = bool(had_points or had_mask or had_paint)
+        if changed:
+            self._pending_dirty = True
+        return changed
 
     def _preview_paint_segment(self, x0, y0, x1, y1, ratio, offset_x, offset_y, mode):
         radius = max(1.0, float(self.brush_size.get()) * float(ratio))

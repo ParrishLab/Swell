@@ -162,7 +162,6 @@ class SessionStateProxyTests(unittest.TestCase):
         app._host_buffer_cache_key = None
         app.frames_sub_viz = None
         app._host_buffer_generation = 0
-        app._host_post_open_ui_initialized = True
         app._host_pending_model_init_reason = None
         app.frame_names = []
         app._current_image_source_paths = []
@@ -177,8 +176,7 @@ class SessionStateProxyTests(unittest.TestCase):
         app._ui_alive = lambda: True
         app.log_info = lambda *_args, **_kwargs: None
         app.log_debug = lambda *_args, **_kwargs: None
-        app._finalize_load_ui = lambda: setattr(app, "_finalized", True)
-        app.update_display = lambda **_kwargs: setattr(app, "_updated", True)
+        app._post_host_mode_open_ui = lambda message: setattr(app, "_post_open_message", str(message))
         queued = {}
         app._run_thread = lambda target, **_kwargs: queued.setdefault("target", target)
 
@@ -188,8 +186,7 @@ class SessionStateProxyTests(unittest.TestCase):
         queued["target"]()
         self.assertEqual(app.frames_raw.shape, (3, 3, 4))
         self.assertEqual(app.frames_sub_viz.shape, (3, 3, 4))
-        self.assertTrue(getattr(app, "_finalized", False))
-        self.assertTrue(getattr(app, "_updated", False))
+        self.assertEqual(getattr(app, "_post_open_message", ""), "Host workspace initialized.")
 
     def test_open_from_host_handoff_scopes_frame_source_to_event_bounds(self):
         app = SDSegmentationApp.__new__(SDSegmentationApp)
@@ -226,10 +223,11 @@ class SessionStateProxyTests(unittest.TestCase):
 
         app.analysis_workspace = _Workspace()
         app._ensure_analysis_workspace = lambda: None
-        app._prepare_host_mode_buffers = lambda _fs: None
+        app._prepare_host_mode_buffers = lambda _fs: True
         app._finalize_load_ui = lambda: None
         app.log_info = lambda *_args, **_kwargs: None
         app.log_warn = lambda *_args, **_kwargs: None
+        app.log_debug = lambda *_args, **_kwargs: None
         app.start_model_initialization = lambda **_kwargs: setattr(app, "_thread_started", True)
         app.frame_source = None
         app.app_context = None
@@ -308,20 +306,25 @@ class SessionStateProxyTests(unittest.TestCase):
     def test_post_host_mode_open_ui_reloads_active_event_state_after_finalize(self):
         app = SDSegmentationApp.__new__(SDSegmentationApp)
         opened: list[str] = []
+        finalized: list[bool] = []
+        recomputed: list[str] = []
+        synced: list[str] = []
         app.slider = object()
         app.canvas_left = object()
         app.active_event_id = "event_0001"
-        app._finalize_load_ui = lambda: None
-        app._sync_saved_mask_overlay_state = lambda: None
+        app._finalize_load_ui = lambda preserve_workspace_state=False: finalized.append(bool(preserve_workspace_state))
+        app._recompute_slider_jump_markers = lambda: recomputed.append("markers")
+        app._sync_saved_mask_overlay_state = lambda: synced.append("masks")
         app.update_display = lambda **_kwargs: None
+        app.log_debug = lambda *_args, **_kwargs: None
         app.log_info = lambda *_args, **_kwargs: None
+        app.log_warn = lambda *_args, **_kwargs: None
         app.lbl_status = type("L", (), {"configure": lambda self, **_kwargs: None})()
         app.analysis_workspace = type("W", (), {"open_event": lambda self, eid: opened.append(str(eid))})()
         app.root = type(
             "R",
             (),
             {
-                "after_idle": staticmethod(lambda fn: fn()),
                 "after": staticmethod(lambda _ms, fn: fn()),
             },
         )()
@@ -329,6 +332,65 @@ class SessionStateProxyTests(unittest.TestCase):
         app._post_host_mode_open_ui("Host direct workspace initialized.")
 
         self.assertEqual(opened, ["event_0001"])
+        self.assertEqual(finalized, [True])
+        self.assertEqual(recomputed, ["markers"])
+        self.assertEqual(synced, ["masks"])
+
+    def test_open_from_host_context_ready_path_completes_host_open_once(self):
+        app = SDSegmentationApp.__new__(SDSegmentationApp)
+
+        class _Workspace:
+            def bind_frame_source(self, _frame_source):
+                return None
+
+            def open_from_host_event_context(self, context, frame_source=None, sync_emitter=None):
+                del context, sync_emitter
+                return {"ok": True, "frame_count": int(frame_source.frame_count)}
+
+        class _Source:
+            frame_count = 5
+            frame_shape = (3, 4)
+            frame_names = [f"f{i}" for i in range(5)]
+            source_paths = [f"/tmp/{i}" for i in range(5)]
+
+        app.analysis_workspace = _Workspace()
+        app._ensure_analysis_workspace = lambda: None
+        app._prepare_host_mode_buffers = lambda _fs, **_kwargs: True
+        post_open_messages: list[str] = []
+        app._post_host_mode_open_ui = lambda message: post_open_messages.append(str(message))
+        app.log_info = lambda *_args, **_kwargs: None
+        app.log_warn = lambda *_args, **_kwargs: None
+        app.log_debug = lambda *_args, **_kwargs: None
+        app.frame_source = None
+        app.app_context = None
+        app._host_analysis_updater = None
+        app._host_project_saved_notifier = None
+        app._host_sync_result_notifier = None
+        app._host_log_notifier = None
+        app._host_metrics_updater = None
+        app._host_global_metrics_updater = None
+        app._host_checkpoint_updater = None
+        app._host_open_model_manager = None
+        app._host_project_saver = lambda *args, **kwargs: None
+        app._host_project_path_provider = None
+        app._set_active_checkpoint_metadata = lambda *args, **kwargs: None
+        app._apply_host_metrics_settings = lambda *args, **kwargs: None
+        app._sync_saved_mask_overlay_state = lambda *args, **kwargs: None
+        app._analysis_payload_has_saved_masks = lambda payload: bool(payload)
+        app._saved_project_masks_by_event = {}
+        app.current_project_path = None
+        started: list[str] = []
+        app.start_model_initialization = lambda **kwargs: started.append(str(kwargs.get("reason")))
+
+        result = app.open_from_host_context(
+            {"event": {"event_id": "event_0001", "start_idx": 1, "end_idx": 3}},
+            frame_source=_Source(),
+            on_host_project_save=lambda *args, **kwargs: None,
+        )
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(post_open_messages, ["Host direct workspace initialized."])
+        self.assertEqual(started, [])
 
 
 if __name__ == "__main__":

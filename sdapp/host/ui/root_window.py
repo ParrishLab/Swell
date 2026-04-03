@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import tkinter as tk
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -12,17 +11,38 @@ def run_host_app(
     initial_project_path: str | None = None,
     instance_bridge: SingleInstanceBridge | None = None,
 ) -> None:
-    root = tk.Tk()
+    from sdapp.analysis.ui.theme import apply_theme
+    from sdapp.shared.ui.bootstrap import center_window_on_screen, create_root_window, ttk
+
+    root = create_root_window(themename="darkly")
+    apply_theme(root)
     root.title("SDApp")
     root.geometry("480x220")
-    splash = tk.Frame(root, padx=24, pady=24)
-    splash.pack(fill="both", expand=True)
-    tk.Label(splash, text="Starting SDApp...", font=("Helvetica", 18, "bold")).pack(anchor="center", pady=(24, 8))
-    tk.Label(
-        splash,
+    center_window_on_screen(root, width=480, height=220)
+    root.columnconfigure(0, weight=1)
+    root.rowconfigure(0, weight=1)
+
+    splash = ttk.Frame(root, padding=24, style="AppShell.TFrame")
+    splash.grid(row=0, column=0, sticky="nsew")
+    splash.columnconfigure(0, weight=1)
+    splash.rowconfigure(0, weight=1)
+
+    splash_card = ttk.Frame(splash, padding=24, style="Card.TFrame")
+    splash_card.grid(row=0, column=0, sticky="nsew")
+    splash_card.columnconfigure(0, weight=1)
+
+    ttk.Label(splash_card, text="Starting SDApp...", style="SectionTitle.TLabel", anchor="center").grid(
+        row=0,
+        column=0,
+        pady=(12, 8),
+    )
+    ttk.Label(
+        splash_card,
         text="Loading the packaged runtime and UI modules.",
+        style="Meta.TLabel",
         justify="center",
-    ).pack(anchor="center")
+        anchor="center",
+    ).grid(row=1, column=0)
     try:
         root.update_idletasks()
         root.update()

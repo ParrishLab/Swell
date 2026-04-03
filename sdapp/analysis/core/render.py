@@ -43,7 +43,10 @@ class RenderActions:
     def _draw_pending_frames_placeholder(self) -> None:
         total = int(self._get_frame_count()) if hasattr(self, "_get_frame_count") else 0
         idx = max(0, min(int(getattr(self, "current_frame_idx", 0)), max(0, total - 1)))
-        self.lbl_frame.configure(text=f"Frame: {idx + 1} / {max(1, total)}  [Preparing frames...]")
+        if hasattr(self, "frame_status_var"):
+            self.frame_status_var.set(f"Frame {idx + 1} / {max(1, total)}")
+        if hasattr(self, "frame_meta_var"):
+            self.frame_meta_var.set("Preparing frames…")
         if hasattr(self, "slider_value"):
             self.slider_value.set(str(idx + 1))
 
@@ -80,7 +83,6 @@ class RenderActions:
                 orig_h, orig_w = np.asarray(preview_raw).shape[:2]
                 self._draw_overlay_elements(left_transform, np.asarray(preview_raw).shape)
             self.canvas_preview.delete("all")
-            self.canvas_preview.create_text(70, 70, text="No Mask", fill="gray")
             return
 
         for canvas in (self.canvas_left, self.canvas_right, self.canvas_preview):
@@ -101,8 +103,6 @@ class RenderActions:
             elapsed_ms = (time.perf_counter() - float(self._initial_frame_nav_ts)) * 1000.0
             self.log_debug("Perf", f"First-frame navigation elapsed={elapsed_ms:.1f}ms")
             self._initial_frame_nav_ts = None
-        if hasattr(self, "_mark_project_dirty"):
-            self._mark_project_dirty("frame_change")
 
     def update_display(self, update_preview=True):
         t0 = time.perf_counter()
@@ -115,7 +115,10 @@ class RenderActions:
         fname = self.frame_names[idx] if hasattr(self, "frame_names") and idx < len(self.frame_names) else ""
         display_idx = idx + 1
         display_total = frame_count
-        self.lbl_frame.configure(text=f"Frame: {display_idx} / {display_total}  [{fname}]")
+        if hasattr(self, "frame_status_var"):
+            self.frame_status_var.set(f"Frame {display_idx} / {display_total}")
+        if hasattr(self, "frame_meta_var"):
+            self.frame_meta_var.set(fname or "No file loaded")
         if hasattr(self, "slider_value"):
             self.slider_value.set(str(display_idx))
 
@@ -191,7 +194,6 @@ class RenderActions:
                 self.canvas_preview.create_image(0, 0, image=self.tk_preview, anchor="nw")
             else:
                 self.canvas_preview.delete("all")
-                self.canvas_preview.create_text(70, 70, text="No Mask", fill="gray")
 
         if not self.is_dragging:
             img_arr_right = frame_to_rgb_u8(img_arr_gray)

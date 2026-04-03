@@ -29,12 +29,18 @@ class WorkspaceUiState:
     export_end: int
     baseline_frame_count: int
     scale_px_per_mm: object
+    scale_points: list
+    scale_image_path: str
     roi_points: list
     roi_mask: object
     created_at: str
 
 
 class AnalysisWorkspaceController:
+    _FRAME_ORIGIN_SCOPE_LOCAL = "analysis_scope_local"
+    _FRAME_ORIGIN_EVENT_LOCAL = "event_local"
+    _FRAME_ORIGIN_GLOBAL = "global"
+
     def __init__(
         self,
         *,
@@ -82,16 +88,65 @@ class AnalysisWorkspaceController:
         frame_count: int,
         scope_start: int | None,
         scope_end: int | None,
+        local_event_start: int | None = None,
+        local_event_end: int | None = None,
+        origin_hint: object = None,
     ) -> int | None:
         raw = int(idx)
-        if 0 <= raw < int(frame_count):
-            return raw
-        if scope_start is None or scope_end is None:
+        total_frames = int(frame_count)
+        if total_frames <= 0:
             return None
-        if int(scope_start) <= raw <= int(scope_end):
-            local = int(raw) - int(scope_start)
-            if 0 <= local < int(frame_count):
-                return local
+        normalized_origin = str(origin_hint or "").strip().lower()
+        event_span_len = None
+        if local_event_start is not None and local_event_end is not None:
+            try:
+                start_idx = int(local_event_start)
+                end_idx = int(local_event_end)
+                if end_idx >= start_idx:
+                    event_span_len = int(end_idx - start_idx + 1)
+            except (TypeError, ValueError):
+                event_span_len = None
+
+        def _from_scope_local(value: int) -> int | None:
+            if 0 <= int(value) < total_frames:
+                return int(value)
+            return None
+
+        def _from_global(value: int) -> int | None:
+            if scope_start is None or scope_end is None:
+                return None
+            if int(scope_start) <= int(value) <= int(scope_end):
+                local = int(value) - int(scope_start)
+                if 0 <= local < total_frames:
+                    return local
+            return None
+
+        def _from_event_local(value: int) -> int | None:
+            if local_event_start is None or event_span_len is None:
+                return None
+            if 0 <= int(value) < int(event_span_len):
+                local = int(local_event_start) + int(value)
+                if 0 <= local < total_frames:
+                    return local
+            return None
+
+        if normalized_origin == "analysis_scope_local":
+            return _from_scope_local(raw) or _from_global(raw)
+        if normalized_origin == "event_local":
+            return _from_event_local(raw) or _from_global(raw) or _from_scope_local(raw)
+        if normalized_origin == "global":
+            return _from_global(raw)
+
+        # Heuristic fallback for legacy payloads without origin metadata.
+        from_global = _from_global(raw)
+        if from_global is not None:
+            return from_global
+        if 0 <= raw < total_frames:
+            if event_span_len is not None and local_event_start is not None and int(local_event_start) > 0 and raw < int(event_span_len):
+                inferred_event_local = _from_event_local(raw)
+                if inferred_event_local is not None and raw < int(local_event_start):
+                    return inferred_event_local
+            return raw
         return None
 
     def _normalize_prompts_to_local(
@@ -102,6 +157,9 @@ class AnalysisWorkspaceController:
         frame_shape: tuple[int, int],
         scope_start: int | None,
         scope_end: int | None,
+        local_event_start: int | None = None,
+        local_event_end: int | None = None,
+        origin_hint: object = None,
     ) -> tuple[dict[int, list[dict[str, Any]]], dict[int, dict[str, np.ndarray]]]:
         tmp = SegmentationState()
         tmp.load_prompts_json(prompts_payload, base_shape=frame_shape)
@@ -113,6 +171,9 @@ class AnalysisWorkspaceController:
                 frame_count=frame_count,
                 scope_start=scope_start,
                 scope_end=scope_end,
+                local_event_start=local_event_start,
+                local_event_end=local_event_end,
+                origin_hint=origin_hint,
             )
             if local is None:
                 continue
@@ -123,6 +184,9 @@ class AnalysisWorkspaceController:
                 frame_count=frame_count,
                 scope_start=scope_start,
                 scope_end=scope_end,
+                local_event_start=local_event_start,
+                local_event_end=local_event_end,
+                origin_hint=origin_hint,
             )
             if local is None:
                 continue
@@ -148,6 +212,7 @@ class AnalysisWorkspaceController:
         frame_shape: tuple[int, int] | None = None,
         local_event_start: int | None = None,
         local_event_end: int | None = None,
+        origin_hint: object = None,
     ) -> dict[int, np.ndarray]:
         def _coerce_2d_mask(mask_payload: Any) -> np.ndarray | None:
             try:
@@ -204,6 +269,9 @@ class AnalysisWorkspaceController:
                     frame_count=frame_count,
                     scope_start=scope_start,
                     scope_end=scope_end,
+                    local_event_start=local_event_start,
+                    local_event_end=local_event_end,
+                    origin_hint=origin_hint,
                 )
                 if local is None:
                     continue
@@ -223,6 +291,32 @@ class AnalysisWorkspaceController:
             expected = (int(frame_shape[0]), int(frame_shape[1]))
             if tuple(arr.shape[1:]) != expected:
                 return {}
+        normalized_origin = str(origin_hint or "").strip().lower()
+        if normalized_origin == "analysis_scope_local" and arr.shape[0] == frame_count:
+            return _array_to_masks_dict(arr)
+        if normalized_origin == "global":
+            if scope_start is not None and scope_end is not None and arr.shape[0] > int(scope_end):
+                scoped = arr[int(scope_start) : int(scope_end) + 1]
+                if scoped.shape[0] == frame_count:
+                    return _array_to_masks_dict(scoped)
+            return {}
+        if (
+            normalized_origin == "event_local"
+            and event_span_len is not None
+            and local_event_start is not None
+            and arr.shape[0] == int(event_span_len)
+            and 0 <= int(local_event_start) < frame_count
+        ):
+            out: dict[int, np.ndarray] = {}
+            base = int(local_event_start)
+            for idx in range(arr.shape[0]):
+                local_idx = base + int(idx)
+                if local_idx >= frame_count:
+                    break
+                mask_2d = _coerce_2d_mask(arr[idx])
+                if mask_2d is not None and np.any(mask_2d):
+                    out[local_idx] = mask_2d
+            return out
         if arr.shape[0] == frame_count:
             return _array_to_masks_dict(arr)
         if scope_start is not None and scope_end is not None and arr.shape[0] > int(scope_end):
@@ -351,6 +445,9 @@ class AnalysisWorkspaceController:
                         frame_shape=frame_shape,
                         scope_start=scope_start,
                         scope_end=scope_end,
+                        local_event_start=local_start,
+                        local_event_end=local_end,
+                        origin_hint=initial_state.get("prompts_frame_origin"),
                     )
                     record.analysis.points = self.session_service.copy_points_dict(points)
                     record.analysis.paint_layers = self.session_service.copy_paint_layers(paint_layers)
@@ -365,6 +462,7 @@ class AnalysisWorkspaceController:
                             frame_shape=frame_shape,
                             local_event_start=local_start,
                             local_event_end=local_end,
+                            origin_hint=initial_state.get("masks_committed_frame_origin"),
                         )
                     except Exception:
                         pass
@@ -506,6 +604,8 @@ class AnalysisWorkspaceController:
             export_end=int(ui_state.export_end),
             baseline_frame_count=int(ui_state.baseline_frame_count),
             scale_px_per_mm=ui_state.scale_px_per_mm,
+            scale_points=list(ui_state.scale_points) if ui_state.scale_points else [],
+            scale_image_path=str(ui_state.scale_image_path or ""),
             roi_points=list(ui_state.roi_points) if ui_state.roi_points else [],
             roi_mask=ui_state.roi_mask,
             created_at=str(ui_state.created_at),

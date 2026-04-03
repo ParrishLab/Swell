@@ -1,31 +1,78 @@
-import tkinter as tk
-from tkinter import ttk
-import sys
+from __future__ import annotations
 
+import sys
+import tkinter as tk
+
+from sdapp.analysis.ui.theme import CANVAS_BACKGROUND, SLIDER_OVERLAY_BACKGROUND, SPACING, apply_theme
 from sdapp.analysis.ui.widgets import build_preview_overlay
+from sdapp.shared.ui.bootstrap import semantic_button_options, ttk
 
 
 class LayoutBuilder:
     def setup_ui(self):
-        canvas_bg = "#f1f1f1"
-        slider_overlay_bg = "#d4d7db"
-        insert_cursor = "#1f1f1f"
+        apply_theme(self.root)
+        self.root.columnconfigure(0, weight=1)
+        self.root.rowconfigure(0, weight=1)
 
-        self.lbl_status = ttk.Label(
-            self.root,
-            text="Status: Idle",
-            foreground="gray",
-            justify="left",
-            wraplength=320,
+        shell = ttk.Frame(self.root, padding=SPACING.outer, style="AppShell.TFrame")
+        shell.grid(row=0, column=0, sticky="nsew")
+        shell.columnconfigure(0, weight=1)
+        shell.rowconfigure(1, weight=1)
+        self.frame_status_var = tk.StringVar(value="Frame 0 / 0")
+        self.frame_meta_var = tk.StringVar(value="No file loaded")
+
+        self._build_status_row(shell)
+
+        content = ttk.Frame(shell, style="AppShell.TFrame")
+        content.grid(row=1, column=0, sticky="nsew", pady=(0, SPACING.inner))
+        content.columnconfigure(0, weight=1, uniform="viewer")
+        content.columnconfigure(1, weight=1, uniform="viewer")
+        content.rowconfigure(0, weight=1)
+
+        self.build_left_panel(content)
+        self.build_right_panel(content)
+
+        controls = ttk.Frame(shell, style="AppShell.TFrame")
+        controls.grid(row=2, column=0, sticky="ew")
+        controls.columnconfigure(0, weight=1)
+
+        self.build_controls(controls)
+        self._disable_button_focus(shell)
+        self._bind_clicks_to_clear_text_focus(shell)
+        self._configure_text_cursor()
+        self._bind_shortcuts()
+
+    def _build_status_row(self, parent):
+        status_row = ttk.Frame(parent, style="AppShell.TFrame")
+        status_row.grid(row=0, column=0, sticky="ew", pady=(0, SPACING.inner))
+        status_row.columnconfigure(0, weight=1)
+        status_row.columnconfigure(1, weight=1)
+
+        self.lbl_status = ttk.Label(status_row, text="Status: Idle", style="Meta.TLabel", justify="left", wraplength=480)
+        self.lbl_status.grid(row=0, column=0, sticky="w")
+
+        self.loading_status_var = tk.StringVar(value="Idle")
+        self.loading_status_label = ttk.Label(
+            status_row,
+            textvariable=self.loading_status_var,
+            style="Meta.TLabel",
+            justify="right",
+            anchor="e",
+            wraplength=420,
         )
+        self.loading_status_label.grid(row=0, column=1, sticky="e")
 
-        viz_frame = ttk.Frame(self.root)
-        viz_frame.pack(fill="both", expand=True, padx=10, pady=5)
+        self.loading_bar = ttk.Progressbar(status_row, mode="indeterminate", style="Loading.Horizontal.TProgressbar")
+        self.loading_bar.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(SPACING.gap, 0))
+        self.loading_bar.grid_remove()
 
-        self.panel_left = ttk.LabelFrame(viz_frame, text="Interactive Selection (Global Norm)", padding=5)
-        self.panel_left.pack(side="left", fill="both", expand=True)
-        self.canvas_left = tk.Canvas(self.panel_left, bg=canvas_bg, cursor="cross")
-        self.canvas_left.pack(fill="both", expand=True)
+    def build_left_panel(self, parent):
+        self.panel_left, body = self._create_view_panel(parent, row=0, column=0, title="Interactive Selection", padx=(0, SPACING.gap))
+        body.rowconfigure(0, weight=1)
+        body.columnconfigure(0, weight=1)
+
+        self.canvas_left = tk.Canvas(body, bg=CANVAS_BACKGROUND, cursor="cross", highlightthickness=0, bd=0)
+        self.canvas_left.grid(row=0, column=0, sticky="nsew")
 
         self.canvas_left.bind("<Button-1>", self.on_mouse_down)
         self.canvas_left.bind("<B1-Motion>", self.on_mouse_drag)
@@ -42,13 +89,25 @@ class LayoutBuilder:
             self.start_resize_preview,
             self.do_resize_preview,
             self.stop_resize_preview,
-            dark_theme=False,
+            dark_theme=True,
         )
+        self.canvas_preview.bind("<Button-1>", lambda event: self._start_canvas_pan(self.canvas_preview, event), add="+")
+        self.canvas_preview.bind("<B1-Motion>", lambda event: self._drag_canvas_pan(self.canvas_preview, event), add="+")
+        self.canvas_preview.bind("<ButtonRelease-1>", lambda event: self._stop_canvas_pan(self.canvas_preview, event), add="+")
+        self.canvas_preview.bind("<Configure>", self._on_viewport_canvas_configure, add="+")
+        self.canvas_preview.bind("<MouseWheel>", self._on_canvas_mouse_wheel, add="+")
+        self.canvas_preview.bind("<Button-4>", self._on_canvas_mouse_wheel, add="+")
+        self.canvas_preview.bind("<Button-5>", self._on_canvas_mouse_wheel, add="+")
 
-        self.panel_right = ttk.LabelFrame(viz_frame, text="Reference View", padding=5)
-        self.panel_right.pack(side="right", fill="both", expand=True)
-        self.canvas_right = tk.Canvas(self.panel_right, bg=canvas_bg)
-        self.canvas_right.pack(fill="both", expand=True)
+    def build_right_panel(self, parent):
+        self.panel_right, body = self._create_view_panel(parent, row=0, column=1, title="Reference View", padx=(SPACING.gap, 0))
+        body.rowconfigure(0, weight=1)
+        body.columnconfigure(0, weight=1)
+
+        self.canvas_right = tk.Canvas(body, bg=CANVAS_BACKGROUND, highlightthickness=0, bd=0)
+        self.canvas_right.grid(row=0, column=0, sticky="nsew")
+        self.reference_overlay = self._create_frame_overlay(body)
+        self.reference_overlay.lift()
         self.canvas_right.bind("<Button-1>", self.on_right_canvas_click)
         self.canvas_right.bind("<Double-Button-1>", self.on_right_canvas_double_click)
         self.canvas_right.bind("<Button-1>", lambda event: self._start_canvas_pan(self.canvas_right, event), add="+")
@@ -58,163 +117,355 @@ class LayoutBuilder:
         self.canvas_right.bind("<MouseWheel>", self._on_canvas_mouse_wheel, add="+")
         self.canvas_right.bind("<Button-4>", self._on_canvas_mouse_wheel, add="+")
         self.canvas_right.bind("<Button-5>", self._on_canvas_mouse_wheel, add="+")
-        self.canvas_preview.bind("<Button-1>", lambda event: self._start_canvas_pan(self.canvas_preview, event), add="+")
-        self.canvas_preview.bind("<B1-Motion>", lambda event: self._drag_canvas_pan(self.canvas_preview, event), add="+")
-        self.canvas_preview.bind("<ButtonRelease-1>", lambda event: self._stop_canvas_pan(self.canvas_preview, event), add="+")
-        self.canvas_preview.bind("<Configure>", self._on_viewport_canvas_configure, add="+")
-        self.canvas_preview.bind("<MouseWheel>", self._on_canvas_mouse_wheel, add="+")
-        self.canvas_preview.bind("<Button-4>", self._on_canvas_mouse_wheel, add="+")
-        self.canvas_preview.bind("<Button-5>", self._on_canvas_mouse_wheel, add="+")
 
-        action_frame = ttk.Frame(self.root, padding=10)
-        action_frame.pack(fill="x", padx=10)
+    def build_controls(self, parent):
+        parent.rowconfigure(1, weight=1)
+        parent.columnconfigure(0, weight=1)
 
-        self.lbl_frame = ttk.Label(action_frame, text="Frame: 0 / 0")
-        self.lbl_frame.pack(side="top", anchor="w")
+        self._build_timeline_band(parent)
+        self._build_control_strip(parent)
 
-        slider_row = ttk.Frame(action_frame)
-        slider_row.pack(fill="x", pady=5)
+    def _build_timeline_band(self, parent):
+        timeline = ttk.Frame(parent, padding=(SPACING.card, SPACING.card, SPACING.card, SPACING.card), style="Strip.TFrame")
+        timeline.grid(row=0, column=0, sticky="ew")
+        timeline.columnconfigure(0, weight=1)
 
-        slider_wrap = ttk.Frame(slider_row)
-        slider_wrap.pack(side="left", fill="x", expand=True)
+        ttk.Label(timeline, text="Timeline", style="StripTitle.TLabel").grid(row=0, column=0, sticky="w")
+
+        slider_row = ttk.Frame(timeline, style="Strip.TFrame")
+        slider_row.grid(row=1, column=0, sticky="ew", pady=(SPACING.inner, 0))
+        slider_row.columnconfigure(0, weight=1)
 
         self.slider_overlay = tk.Canvas(
-            slider_wrap,
-            height=12,
-            bg=slider_overlay_bg,
+            slider_row,
+            height=18,
+            bg=SLIDER_OVERLAY_BACKGROUND,
             highlightthickness=0,
             bd=0,
             cursor="hand2",
         )
-        self.slider_overlay.pack(fill="x", pady=(0, 2))
+        self.slider_overlay.grid(row=0, column=0, sticky="ew", pady=(0, 4))
         self.slider_overlay.bind("<Button-1>", self._on_slider_overlay_click)
-        self.slider_overlay.bind("<Configure>", lambda _e: self._redraw_slider_overlay())
+        self.slider_overlay.bind("<Configure>", lambda _event: self._redraw_slider_overlay())
 
-        self.slider = ttk.Scale(slider_wrap, from_=0, to=100, orient="horizontal", command=self.on_slider_move)
-        self.slider.pack(fill="x", expand=True)
-        self.slider_value = tk.StringVar(value="1")
-        self.lbl_slider_value = ttk.Label(slider_row, textvariable=self.slider_value, width=5)
-        self.lbl_slider_value.pack(side="right", padx=6)
+        self.slider = ttk.Scale(slider_row, from_=0, to=100, orient="horizontal", command=self.on_slider_move, style="Flat.Horizontal.TScale")
+        self.slider.grid(row=1, column=0, sticky="ew")
 
-        btn_box = ttk.Frame(action_frame)
-        btn_box.pack(fill="x", pady=5)
+    def _build_control_strip(self, parent):
+        strip = ttk.Frame(parent, padding=(SPACING.card, SPACING.inner, SPACING.card, SPACING.card), style="Strip.TFrame")
+        strip.grid(row=1, column=0, sticky="ew", pady=(SPACING.gap, 0))
+        for column, weight in enumerate((5, 4, 3)):
+            strip.columnconfigure(column * 2, weight=weight)
+        self.frame_tools = self._build_tools_group(strip, 0)
+        self._add_strip_separator(strip, 1)
+        self.frame_prop = self._build_propagation_group(strip, 2)
+        self._add_strip_separator(strip, 3)
+        self.right_controls = self._build_metrics_masks_group(strip, 4)
 
+    def _build_tools_group(self, parent, column):
+        frame = ttk.Frame(parent, padding=(SPACING.card, SPACING.gap, SPACING.card, SPACING.card), style="Subpanel.TFrame")
+        frame.grid(row=0, column=column, sticky="nsew")
+        frame.columnconfigure(0, weight=1)
+        frame.columnconfigure(1, weight=1)
+        frame.columnconfigure(2, weight=1)
         self.tool_mode = tk.StringVar(value="select")
+        self.tool_mode.trace_add("write", lambda *_args: self._sync_tool_mode_buttons())
 
-        self.frame_tools = ttk.LabelFrame(btn_box, text="Tools")
-        self.frame_tools.pack(side="left", padx=5)
+        ttk.Label(frame, text="Tools", style="SubpanelTitle.TLabel").grid(row=0, column=0, columnspan=3, sticky="w", pady=(0, SPACING.gap))
+        segmented = ttk.Frame(frame, style="Subpanel.TFrame")
+        segmented.grid(row=1, column=0, columnspan=3, sticky="ew")
+        for seg_col in range(3):
+            segmented.columnconfigure(seg_col, weight=1)
+        self.btn_tool_select = ttk.Button(segmented, text="Select", command=lambda: self._set_tool_mode("select"), style="SegmentedActive.TButton")
+        self.btn_tool_select.grid(row=0, column=0, sticky="ew")
+        self.btn_tool_point_pos = ttk.Button(segmented, text="Point (+)", command=lambda: self._set_tool_mode("point_pos"), style="Segmented.TButton")
+        self.btn_tool_point_pos.grid(row=0, column=1, sticky="ew", padx=(1, 1))
+        self.btn_tool_point_neg = ttk.Button(segmented, text="Point (-)", command=lambda: self._set_tool_mode("point_neg"), style="Segmented.TButton")
+        self.btn_tool_point_neg.grid(row=0, column=2, sticky="ew")
 
-        row1 = ttk.Frame(self.frame_tools)
-        row1.pack(side="top", fill="x", anchor="w")
-        ttk.Radiobutton(row1, text="Select", variable=self.tool_mode, value="select").pack(side="left", padx=5)
-        ttk.Radiobutton(row1, text="Point (+)", variable=self.tool_mode, value="point_pos").pack(side="left", padx=5)
-        ttk.Radiobutton(row1, text="Point (-)", variable=self.tool_mode, value="point_neg").pack(side="left", padx=5)
+        sensitivity_row = ttk.Frame(frame, style="Subpanel.TFrame")
+        sensitivity_row.grid(row=2, column=0, columnspan=3, sticky="ew", pady=(SPACING.gap, 0))
+        sensitivity_row.columnconfigure(1, weight=1)
 
-        ttk.Label(row1, text="| Sens:").pack(side="left", padx=2)
+        ttk.Label(sensitivity_row, text="Sensitivity", style="SubpanelMeta.TLabel").grid(row=0, column=0, sticky="w")
         self.sensitivity = tk.DoubleVar(value=0.0)
         ttk.Scale(
-            row1,
+            sensitivity_row,
             from_=-3.0,
             to=3.0,
             variable=self.sensitivity,
             orient="horizontal",
-            length=60,
             command=self.on_sensitivity_change,
-        ).pack(side="left", padx=5)
-        self.lbl_sens = ttk.Label(row1, text="0.0")
-        self.lbl_sens.pack(side="left")
-        ttk.Button(row1, text="Clear Frame", command=self.clear_current_frame_data).pack(side="right", padx=5)
+            style="Flat.Horizontal.TScale",
+        ).grid(row=0, column=1, sticky="ew", padx=(SPACING.gap, SPACING.gap))
+        self.lbl_sens = ttk.Label(sensitivity_row, text="0.0", style="SubpanelMeta.TLabel", width=5)
+        self.lbl_sens.grid(row=0, column=2, sticky="w")
 
-        row2 = ttk.Frame(self.frame_tools)
-        row2.pack(side="top", fill="x", anchor="w", pady=2)
-        ttk.Radiobutton(row2, text="Brush (+)", variable=self.tool_mode, value="brush").pack(side="left", padx=5)
-        ttk.Radiobutton(row2, text="Eraser (-)", variable=self.tool_mode, value="eraser").pack(side="left", padx=5)
+        brush_row = ttk.Frame(frame, style="Subpanel.TFrame")
+        brush_row.grid(row=3, column=0, columnspan=3, sticky="ew", pady=(SPACING.inner, 0))
+        brush_row.columnconfigure(0, weight=1)
+        brush_row.columnconfigure(1, weight=1)
+        self.btn_tool_brush = ttk.Button(brush_row, text="Brush (+)", command=lambda: self._set_tool_mode("brush"), style="Segmented.TButton")
+        self.btn_tool_brush.grid(row=0, column=0, sticky="ew", padx=(0, 1))
+        self.btn_tool_eraser = ttk.Button(brush_row, text="Eraser (-)", command=lambda: self._set_tool_mode("eraser"), style="Segmented.TButton")
+        self.btn_tool_eraser.grid(row=0, column=1, sticky="ew")
 
-        ttk.Label(row2, text="| Size:").pack(side="left", padx=2)
+        brush_size_row = ttk.Frame(frame, style="Subpanel.TFrame")
+        brush_size_row.grid(row=4, column=0, columnspan=3, sticky="ew", pady=(SPACING.inner, 0))
+        brush_size_row.columnconfigure(1, weight=1)
+
+        ttk.Label(brush_size_row, text="Brush", style="SubpanelMeta.TLabel").grid(row=0, column=0, sticky="w")
         self.brush_size = tk.DoubleVar(value=10.0)
         self.scale_brush = ttk.Scale(
-            row2,
+            brush_size_row,
             from_=1,
             to=50,
             variable=self.brush_size,
             orient="horizontal",
-            length=60,
             command=self.on_brush_size_change,
+            style="Flat.Horizontal.TScale",
         )
-        self.scale_brush.pack(side="left", padx=5)
-        self.lbl_brush_val = ttk.Label(row2, text="10 px", width=5)
-        self.lbl_brush_val.pack(side="left")
+        self.scale_brush.grid(row=0, column=1, sticky="ew", padx=(SPACING.gap, SPACING.gap))
+        self.lbl_brush_val = ttk.Label(brush_size_row, text="10 px", style="SubpanelMeta.TLabel", width=7)
+        self.lbl_brush_val.grid(row=0, column=2, sticky="w")
 
-        self.frame_prop = ttk.LabelFrame(btn_box, text="Propagation")
-        self.frame_prop.pack(side="left", padx=15, pady=2)
+        ttk.Button(frame, text="Clear Frame", command=self.clear_current_frame_data, **semantic_button_options("secondary")).grid(
+            row=5,
+            column=2,
+            sticky="e",
+            pady=(SPACING.inner, 0),
+        )
+        self._sync_tool_mode_buttons()
+        return frame
 
-        ttk.Label(self.frame_prop, text="Start:").pack(side="left", padx=2)
-        self.spin_prop_start = tk.Spinbox(self.frame_prop, from_=1, to=10000, width=5)
-        self.spin_prop_start.pack(side="left", padx=2)
+    def _build_propagation_group(self, parent, column):
+        frame = ttk.Frame(parent, padding=(SPACING.card, SPACING.gap, SPACING.card, SPACING.card), style="Subpanel.TFrame")
+        frame.grid(row=0, column=column, sticky="nsew")
+        frame.columnconfigure(1, weight=1)
+        frame.columnconfigure(3, weight=1)
+
+        ttk.Label(frame, text="Propagation", style="SubpanelTitle.TLabel").grid(row=0, column=0, columnspan=4, sticky="w", pady=(0, SPACING.gap))
+        self.propagation_range_canvas = tk.Canvas(frame, height=16, bg=SLIDER_OVERLAY_BACKGROUND, highlightthickness=0, bd=0)
+        self.propagation_range_canvas.grid(row=1, column=0, columnspan=4, sticky="ew", pady=(0, SPACING.gap))
+        ttk.Label(frame, text="Start", style="SubpanelMeta.TLabel").grid(row=2, column=0, sticky="w")
+        self.spin_prop_start = ttk.Entry(frame, width=5, style="Compact.TEntry")
+        self.spin_prop_start.grid(row=2, column=1, sticky="ew", padx=(SPACING.gap, SPACING.inner))
         self._set_spinbox_value(self.spin_prop_start, 1)
+        self.spin_prop_start.bind("<KeyRelease>", lambda _event: self._redraw_propagation_range_bar(), add="+")
+        self.spin_prop_start.bind("<FocusOut>", lambda _event: self._redraw_propagation_range_bar(), add="+")
 
-        ttk.Label(self.frame_prop, text="End:").pack(side="left", padx=2)
-        self.spin_prop_end = tk.Spinbox(self.frame_prop, from_=1, to=10000, width=5)
-        self.spin_prop_end.pack(side="left", padx=2)
+        ttk.Label(frame, text="End", style="SubpanelMeta.TLabel").grid(row=2, column=2, sticky="w")
+        self.spin_prop_end = ttk.Entry(frame, width=5, style="Compact.TEntry")
+        self.spin_prop_end.grid(row=2, column=3, sticky="ew", padx=(SPACING.gap, 0))
         self._set_spinbox_value(self.spin_prop_end, 100)
+        self.spin_prop_end.bind("<KeyRelease>", lambda _event: self._redraw_propagation_range_bar(), add="+")
+        self.spin_prop_end.bind("<FocusOut>", lambda _event: self._redraw_propagation_range_bar(), add="+")
 
-        ttk.Button(self.frame_prop, text="Run Propagation", width=14, command=self._trigger_background_propagation).pack(
-            side="left", padx=5
+        self.btn_run_propagation = ttk.Button(frame, text="Run Propagation", command=self._trigger_background_propagation, **semantic_button_options("success"))
+        self.btn_run_propagation.grid(
+            row=3,
+            column=0,
+            columnspan=4,
+            sticky="ew",
+            pady=(SPACING.inner, 0),
         )
+        self.propagation_range_canvas.bind("<Configure>", lambda _event: self._redraw_propagation_range_bar(), add="+")
+        self._redraw_propagation_range_bar()
+        return frame
 
-        self.right_controls = ttk.Frame(btn_box)
-        self.right_controls.pack(side="right", padx=8, pady=2)
+    def _build_metrics_group(self, parent, column):
+        frame = ttk.Frame(parent, style="Subpanel.TFrame")
+        frame.grid(row=0, column=column, sticky="nsew")
+        frame.columnconfigure(0, weight=1)
+        self.frame_metrics = frame
 
-        analysis_section = ttk.LabelFrame(self.right_controls, text="Metrics Settings")
-        analysis_section.pack(side="left", padx=(0, 6))
-        self.btn_analysis_toggle = ttk.Button(
-            analysis_section,
-            text="Metrics Settings ▸",
-            width=16,
-            command=self._toggle_analysis_panel,
-        )
-        self.btn_analysis_toggle.pack(fill="x", padx=4, pady=(4, 2))
-        self.frame_analysis_body = ttk.Frame(analysis_section)
-        analysis_row1 = ttk.Frame(self.frame_analysis_body)
-        analysis_row1.pack(side="top", fill="x", pady=1)
-        analysis_row2 = ttk.Frame(self.frame_analysis_body)
-        analysis_row2.pack(side="top", fill="x", pady=1)
+        ttk.Label(frame, text="Metrics", style="SubpanelTitle.TLabel").grid(row=0, column=0, sticky="w")
+        self.btn_analysis_toggle = ttk.Button(frame, text="Adjust Metrics", width=18, command=self._toggle_analysis_panel, **semantic_button_options("secondary"))
+        self.btn_analysis_toggle.grid(row=1, column=0, sticky="ew", pady=(SPACING.gap, 0))
 
-        ttk.Label(analysis_row1, text="Frames/sec:").pack(side="left", padx=2)
+        self.frame_analysis_body = ttk.Frame(frame, style="Subpanel.TFrame")
+        self.frame_analysis_body.grid(row=2, column=0, sticky="ew", pady=(SPACING.inner, 0))
+        self.frame_analysis_body.columnconfigure(1, weight=1)
+
+        ttk.Label(self.frame_analysis_body, text="Frames/sec", style="SubpanelMeta.TLabel").grid(row=0, column=0, sticky="w")
         self.frames_per_sec_var = tk.DoubleVar(value=1.0)
-        self.entry_frames_per_sec = tk.Entry(analysis_row1, textvariable=self.frames_per_sec_var, width=6)
-        self.entry_frames_per_sec.pack(side="left", padx=2)
-        self.btn_set_scale = ttk.Button(analysis_row1, text="Set Scale", command=self.start_scale_selection)
-        self.btn_set_scale.pack(side="left", padx=3)
+        self.entry_frames_per_sec = ttk.Entry(self.frame_analysis_body, textvariable=self.frames_per_sec_var, width=7, style="Compact.TEntry")
+        self.entry_frames_per_sec.grid(row=0, column=1, sticky="ew", padx=(SPACING.gap, 0))
 
-        self.btn_draw_roi = ttk.Button(analysis_row2, text="Draw ROI", command=self.start_roi_selection)
-        self.btn_draw_roi.pack(side="left", padx=3)
+        metrics_actions = ttk.Frame(self.frame_analysis_body, style="Subpanel.TFrame")
+        metrics_actions.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(SPACING.inner, 0))
+        metrics_actions.columnconfigure(0, weight=1)
+        metrics_actions.columnconfigure(1, weight=1)
 
-        export_section = ttk.LabelFrame(self.right_controls, text="Masks")
-        export_section.pack(side="left")
-        self.btn_save_masks = ttk.Button(
-            export_section,
-            text="Save Current Masks",
-            width=18,
-            command=self.save_current_masks,
-        )
-        self.btn_save_masks.pack(fill="x", padx=4, pady=(4, 4))
+        self.btn_set_scale = ttk.Button(metrics_actions, text="Set Scale", command=self.start_scale_selection, **semantic_button_options("secondary"))
+        self.btn_set_scale.grid(row=0, column=0, sticky="ew", padx=(0, SPACING.gap))
+        self.btn_draw_roi = ttk.Button(metrics_actions, text="Draw ROI", command=self.start_roi_selection, **semantic_button_options("secondary"))
+        self.btn_draw_roi.grid(row=0, column=1, sticky="ew")
 
+        self._stabilize_metrics_group_width()
         self._set_analysis_panel(False)
 
-        activity_frame = ttk.LabelFrame(self.root, text="Activity", height=64)
-        activity_frame.pack(fill="x", padx=10, pady=5)
-        self.loading_status_var = tk.StringVar(value="Idle")
-        self.loading_status_label = ttk.Label(activity_frame, textvariable=self.loading_status_var, foreground="#4d6f8a")
-        self.loading_status_label.pack(anchor="w", padx=6, pady=(2, 2))
-        self.loading_bar = ttk.Progressbar(activity_frame, mode="indeterminate")
+    def _stabilize_metrics_group_width(self):
+        frame = getattr(self, "frame_metrics", None)
+        body = getattr(self, "frame_analysis_body", None)
+        toggle = getattr(self, "btn_analysis_toggle", None)
+        if frame is None or body is None or toggle is None:
+            return
+        try:
+            frame.update_idletasks()
+            stable_width = max(int(toggle.winfo_reqwidth()), int(body.winfo_reqwidth()))
+            frame.columnconfigure(0, minsize=stable_width)
+        except Exception:
+            return
 
-        # Ensure a visible blinking text cursor in ttk Entry/Spinbox controls.
-        for text_widget in [
-            self.spin_prop_start,
-            self.spin_prop_end,
-            self.entry_frames_per_sec,
-        ]:
+    def _build_masks_group(self, parent, column):
+        frame = ttk.Frame(parent, style="Subpanel.TFrame")
+        frame.grid(row=0, column=column, sticky="ne", padx=(SPACING.inner * 2, 0))
+
+        ttk.Label(frame, text="Masks", style="SubpanelTitle.TLabel").grid(row=0, column=0, sticky="w")
+        self.btn_save_masks = ttk.Button(frame, text="Save Current Masks", command=self.save_current_masks, **semantic_button_options("secondary"))
+        self.btn_save_masks.grid(row=1, column=0, sticky="w", pady=(SPACING.gap, 0))
+
+    def _build_metrics_masks_group(self, parent, column):
+        frame = ttk.Frame(parent, padding=(SPACING.card, SPACING.gap, SPACING.card, SPACING.card), style="Subpanel.TFrame")
+        frame.grid(row=0, column=column, sticky="nsew")
+        frame.columnconfigure(0, weight=1)
+        frame.columnconfigure(1, weight=0)
+
+        self._build_metrics_group(frame, 0)
+        self._build_masks_group(frame, 1)
+        return frame
+
+    def _create_view_panel(self, parent, *, row, column, title, padx=(0, 0)):
+        panel = ttk.Frame(parent, padding=(SPACING.card, SPACING.card, SPACING.card, SPACING.card), style="Surface.TFrame")
+        panel.grid(row=row, column=column, sticky="nsew", padx=padx)
+        panel.columnconfigure(0, weight=1)
+        panel.rowconfigure(1, weight=1)
+
+        ttk.Label(panel, text=title, style="SectionTitle.TLabel").grid(row=0, column=0, sticky="w", pady=(0, SPACING.inner))
+
+        body = ttk.Frame(panel, style="Inset.TFrame")
+        body.grid(row=1, column=0, sticky="nsew")
+        body.columnconfigure(0, weight=1)
+        body.rowconfigure(0, weight=1)
+        return panel, body
+
+    def _create_frame_overlay(self, parent):
+        overlay = ttk.Frame(parent, padding=(8, 6), style="OverlayFrame.TFrame")
+        overlay.place(relx=0.0, rely=1.0, anchor="sw", x=10, y=-10)
+        overlay.columnconfigure(0, weight=1)
+        ttk.Label(overlay, textvariable=self.frame_status_var, style="OverlayValue.TLabel").grid(row=0, column=0, sticky="w")
+        ttk.Label(overlay, textvariable=self.frame_meta_var, style="OverlayMeta.TLabel").grid(row=1, column=0, sticky="w")
+        return overlay
+
+    def _set_tool_mode(self, mode):
+        self.tool_mode.set(str(mode))
+
+    def _sync_tool_mode_buttons(self):
+        current = str(self.tool_mode.get())
+        mapping = {
+            getattr(self, "btn_tool_select", None): "select",
+            getattr(self, "btn_tool_point_pos", None): "point_pos",
+            getattr(self, "btn_tool_point_neg", None): "point_neg",
+            getattr(self, "btn_tool_brush", None): "brush",
+            getattr(self, "btn_tool_eraser", None): "eraser",
+        }
+        for button, mode in mapping.items():
+            if button is None:
+                continue
+            button.configure(style="SegmentedActive.TButton" if current == mode else "Segmented.TButton")
+
+    def _parse_entry_frame_range(self):
+        total = int(self._get_frame_count()) if hasattr(self, "_get_frame_count") else 0
+        if total <= 0:
+            return 0, 0, 0
+        try:
+            start_idx = max(0, min(total - 1, int(float(self.spin_prop_start.get())) - 1))
+        except Exception:
+            start_idx = 0
+        try:
+            end_idx = max(0, min(total - 1, int(float(self.spin_prop_end.get())) - 1))
+        except Exception:
+            end_idx = total - 1
+        if end_idx < start_idx:
+            start_idx, end_idx = end_idx, start_idx
+        return total, start_idx, end_idx
+
+    def _redraw_propagation_range_bar(self):
+        canvas = getattr(self, "propagation_range_canvas", None)
+        if canvas is None:
+            return
+        canvas.delete("all")
+        width = max(1, int(canvas.winfo_width()))
+        height = max(1, int(canvas.winfo_height()))
+        canvas.create_rectangle(0, 0, width, height, fill=SLIDER_OVERLAY_BACKGROUND, outline="")
+        total, start_idx, end_idx = self._parse_entry_frame_range()
+        if total <= 0:
+            return
+        left = int((start_idx / max(1, total - 1)) * (width - 1))
+        right = int((end_idx / max(1, total - 1)) * (width - 1))
+        if right <= left:
+            right = min(width, left + 3)
+        canvas.create_rectangle(left, 3, right, height - 3, fill="#1b75bc", outline="")
+        canvas.create_rectangle(max(0, left - 1), 1, min(width, left + 2), height - 1, fill="#00d26a", outline="")
+        canvas.create_rectangle(max(0, right - 2), 1, min(width, right + 1), height - 1, fill="#ff5c5c", outline="")
+
+    def _ensure_overlay_tooltip(self):
+        tip = getattr(self, "_overlay_tooltip", None)
+        if tip is not None:
+            return tip
+        tip = tk.Toplevel(self.root)
+        tip.withdraw()
+        tip.overrideredirect(True)
+        frame = ttk.Frame(tip, padding=(8, 5), style="OverlayFrame.TFrame")
+        frame.grid(row=0, column=0, sticky="nsew")
+        label = ttk.Label(frame, text="", style="OverlayMeta.TLabel")
+        label.grid(row=0, column=0, sticky="w")
+        self._overlay_tooltip = tip
+        self._overlay_tooltip_label = label
+        return tip
+
+    def _show_overlay_tooltip(self, event, text):
+        if not text:
+            self._hide_overlay_tooltip()
+            return
+        tip = self._ensure_overlay_tooltip()
+        self._overlay_tooltip_label.configure(text=str(text))
+        x = int(event.x_root) + 12
+        y = int(event.y_root) + 12
+        tip.geometry(f"+{x}+{y}")
+        tip.deiconify()
+        tip.lift()
+
+    def _hide_overlay_tooltip(self, _event=None):
+        tip = getattr(self, "_overlay_tooltip", None)
+        if tip is None:
+            return
+        try:
+            tip.withdraw()
+        except Exception:
+            pass
+
+    def _on_slider_overlay_motion(self, event):
+        regions = list(getattr(self, "_slider_overlay_regions", []))
+        for left, right, text in regions:
+            if float(left) <= float(event.x) <= float(right):
+                self._show_overlay_tooltip(event, text)
+                return
+        self._hide_overlay_tooltip()
+
+    def _add_strip_separator(self, parent, column, *, vertical=True):
+        separator = ttk.Separator(parent, orient="vertical" if vertical else "horizontal")
+        if vertical:
+            separator.grid(row=0, column=column, sticky="ns", padx=SPACING.inner)
+        else:
+            separator.grid(row=0, column=column, sticky="ns", padx=SPACING.inner)
+
+    def _configure_text_cursor(self):
+        insert_cursor = "#edf1f3"
+        for text_widget in [getattr(self, "spin_prop_start", None), getattr(self, "spin_prop_end", None), getattr(self, "entry_frames_per_sec", None)]:
+            if text_widget is None:
+                continue
             try:
                 text_widget.configure(insertbackground=insert_cursor, insertwidth=2, insertontime=600, insertofftime=300)
             except Exception:
@@ -223,6 +474,44 @@ class LayoutBuilder:
                 except Exception:
                     pass
 
+    def _disable_button_focus(self, parent):
+        for widget in parent.winfo_children():
+            try:
+                if str(widget.winfo_class()) in {"TButton", "Button"}:
+                    widget.configure(takefocus=False)
+            except Exception:
+                pass
+            self._disable_button_focus(widget)
+
+    def _bind_clicks_to_clear_text_focus(self, parent):
+        text_classes = {"TEntry", "Entry", "TSpinbox", "Spinbox", "Text", "TCombobox", "Combobox"}
+        skip_classes = {"Treeview"}
+        for widget in parent.winfo_children():
+            try:
+                widget_class = str(widget.winfo_class())
+            except Exception:
+                widget_class = ""
+            if widget_class not in text_classes | skip_classes:
+                try:
+                    widget.bind("<Button-1>", self._focus_clicked_widget, add="+")
+                except Exception:
+                    pass
+            self._bind_clicks_to_clear_text_focus(widget)
+
+    def _focus_clicked_widget(self, event):
+        widget = getattr(event, "widget", None)
+        if widget is None:
+            return None
+        try:
+            widget.focus_set()
+        except Exception:
+            try:
+                self.root.focus_set()
+            except Exception:
+                return None
+        return None
+
+    def _bind_shortcuts(self):
         is_mac = sys.platform == "darwin"
         mod_key = "Command" if is_mac else "Control"
 

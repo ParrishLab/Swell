@@ -7,9 +7,11 @@ from typing import Optional
 import cv2
 import numpy as np
 import tkinter as tk
-from tkinter import filedialog, messagebox, ttk
+from tkinter import filedialog, messagebox
 from PIL import Image, ImageTk
 
+from sdapp.analysis.ui.theme import SPACING, apply_theme
+from sdapp.shared.ui.bootstrap import center_window_on_screen, semantic_button_options, ttk
 from sdapp.shared.image_overlay import apply_mask_overlay
 
 
@@ -35,20 +37,35 @@ class MaskImportDialogService:
     def choose_paths(self, root) -> list[Path]:
         mode = {"value": None}
         top = tk.Toplevel(root)
+        top.withdraw()
         top.title("Import External Masks")
         top.transient(root)
-        top.grab_set()
-        ttk.Label(top, text="Choose import source:", padding=10).pack(fill="x")
-        btns = ttk.Frame(top, padding=(10, 0, 10, 10))
+        top.resizable(False, False)
+        top.geometry("520x180")
+        apply_theme(top)
+
+        shell = ttk.Frame(top, padding=SPACING.outer, style="AppShell.TFrame")
+        shell.pack(fill="both", expand=True)
+        ttk.Label(shell, text="Choose import source", style="SectionTitle.TLabel").pack(anchor="w")
+        ttk.Label(shell, text="Select a folder sequence or a set of individual mask images.", style="Meta.TLabel").pack(
+            anchor="w", pady=(SPACING.gap, SPACING.inner)
+        )
+
+        btns = ttk.Frame(shell, style="AppShell.TFrame")
         btns.pack(fill="x")
 
         def pick(value):
             mode["value"] = value
             top.destroy()
 
-        ttk.Button(btns, text="From Folder...", command=lambda: pick("folder")).pack(side="left")
-        ttk.Button(btns, text="From Files...", command=lambda: pick("files")).pack(side="left", padx=(8, 0))
-        ttk.Button(btns, text="Cancel", command=top.destroy).pack(side="right")
+        ttk.Button(btns, text="From Folder...", command=lambda: pick("folder"), **semantic_button_options("primary")).pack(side="left")
+        ttk.Button(btns, text="From Files...", command=lambda: pick("files"), **semantic_button_options("secondary")).pack(
+            side="left", padx=(SPACING.inner, 0)
+        )
+        ttk.Button(btns, text="Cancel", command=top.destroy, **semantic_button_options("secondary")).pack(side="right")
+        center_window_on_screen(top, width=520, height=180)
+        top.deiconify()
+        top.grab_set()
         root.wait_window(top)
 
         if mode["value"] is None:
@@ -101,47 +118,57 @@ class MaskImportDialogService:
         if not masks:
             return None
         top = tk.Toplevel(root)
+        top.withdraw()
         top.title("Mask Alignment Preview")
         top.transient(root)
-        top.grab_set()
+        top.geometry("920x680")
+        top.minsize(920, 680)
+        top.resizable(True, True)
+        apply_theme(top)
         result = {"offset": None}
 
         offset_var = tk.IntVar(value=int(guessed_offset) + 1)
         mask_idx_var = tk.IntVar(value=1)
         info_var = tk.StringVar(value="")
 
-        control = ttk.Frame(top, padding=8)
+        shell = ttk.Frame(top, padding=SPACING.outer, style="AppShell.TFrame")
+        shell.pack(fill="both", expand=True)
+
+        control = ttk.Frame(shell, padding=SPACING.card, style="Surface.TFrame")
         control.pack(fill="x")
-        row_a = ttk.Frame(control)
+        row_a = ttk.Frame(control, style="Surface.TFrame")
         row_a.pack(fill="x", pady=(0, 4))
-        row_b = ttk.Frame(control)
+        row_b = ttk.Frame(control, style="Surface.TFrame")
         row_b.pack(fill="x")
-        ttk.Label(row_a, text="Mask Preview Index:").pack(side="left")
-        scrub = tk.Scale(
+        ttk.Label(row_a, text="Mask Preview", style="SectionTitle.TLabel").pack(side="left")
+        scrub = ttk.Scale(
             row_a,
             from_=1,
             to=max(1, len(masks)),
             orient="horizontal",
-            showvalue=True,
-            length=320,
             variable=mask_idx_var,
+            style="Flat.Horizontal.TScale",
         )
-        scrub.pack(side="left", padx=6)
-        ttk.Label(row_b, text="Start Frame (1-based):").pack(side="left")
-        align = tk.Scale(
+        scrub.pack(side="left", fill="x", expand=True, padx=(SPACING.inner, SPACING.inner))
+        ttk.Label(row_a, textvariable=mask_idx_var, style="Meta.TLabel", width=4).pack(side="left")
+
+        ttk.Label(row_b, text="Start Frame", style="Meta.TLabel").pack(side="left")
+        align = ttk.Scale(
             row_b,
             from_=1,
             to=max(1, int(frame_count)),
             orient="horizontal",
-            showvalue=True,
-            length=320,
             variable=offset_var,
+            style="Flat.Horizontal.TScale",
         )
-        align.pack(side="left", padx=6)
-        ttk.Label(row_b, textvariable=info_var).pack(side="left", padx=8)
+        align.pack(side="left", fill="x", expand=True, padx=(SPACING.inner, SPACING.inner))
+        ttk.Label(row_b, textvariable=offset_var, style="Meta.TLabel", width=6).pack(side="left")
+        ttk.Label(control, textvariable=info_var, style="Meta.TLabel").pack(anchor="w", pady=(SPACING.gap, 0))
 
-        canvas = tk.Canvas(top, width=760, height=460, bg="#1f2023", highlightthickness=0)
-        canvas.pack(fill="both", expand=True, padx=8, pady=8)
+        canvas_shell = ttk.Frame(shell, padding=SPACING.card, style="Inset.TFrame")
+        canvas_shell.pack(fill="both", expand=True, pady=(SPACING.inner, SPACING.inner))
+        canvas = tk.Canvas(canvas_shell, width=760, height=460, bg="#1f2023", highlightthickness=0)
+        canvas.pack(fill="both", expand=True)
         image_ref = {"tk": None}
 
         def redraw(*_args):
@@ -189,14 +216,19 @@ class MaskImportDialogService:
             result["offset"] = frame_idx
             top.destroy()
 
-        btns = ttk.Frame(top, padding=(8, 0, 8, 8))
+        btns = ttk.Frame(shell, style="AppShell.TFrame")
         btns.pack(fill="x")
-        ttk.Button(btns, text="Cancel", command=top.destroy).pack(side="right")
-        ttk.Button(btns, text="Apply", command=apply_and_close).pack(side="right", padx=(0, 8))
+        ttk.Button(btns, text="Cancel", command=top.destroy, **semantic_button_options("secondary")).pack(side="right")
+        ttk.Button(btns, text="Apply", command=apply_and_close, **semantic_button_options("primary")).pack(
+            side="right", padx=(0, SPACING.inner)
+        )
 
         scrub.configure(command=lambda _v: redraw())
         align.configure(command=lambda _v: redraw())
         canvas.bind("<Configure>", redraw)
         redraw()
+        center_window_on_screen(top, width=920, height=680)
+        top.deiconify()
+        top.grab_set()
         root.wait_window(top)
         return result["offset"]

@@ -116,6 +116,36 @@ def test_capture_scale_selection_passes_existing_scale_points_to_dialog(tmp_path
     assert dialog_mock.call_args.kwargs["initial_scale_points"] == [(10.0, 12.0), (30.0, 12.0)]
 
 
+def test_capture_scale_selection_returns_selected_image_path(tmp_path):
+    app_root = tmp_path / "app"
+    app_root.mkdir()
+    image_path = tmp_path / "scale_ref.png"
+    image_path.write_bytes(b"not-an-image")
+
+    controller = _make_controller(
+        app_root=str(app_root),
+        source_paths=[],
+    )
+    controller._load_image_u8_from_path = lambda _path: np.zeros((40, 50), dtype=np.uint8)
+
+    with patch("sdapp.analysis.core.analysis_controller.filedialog.askopenfilename", return_value=str(image_path)):
+        with patch(
+            "sdapp.analysis.core.analysis_controller.open_scale_dialog",
+            return_value={
+                "target_scope": "local",
+                "px_per_mm": 2.0,
+                "scale_points": [(10.0, 12.0), (30.0, 12.0)],
+                "axis_mode": "horizontal",
+                "refined_ok": True,
+                "fallback": False,
+            },
+        ):
+            result = controller._capture_scale_selection()
+
+    assert result is not None
+    assert result["image_path"] == str(image_path)
+
+
 def test_capture_scale_selection_reuses_last_scale_image_path_when_available(tmp_path):
     app_root = tmp_path / "app"
     app_root.mkdir()

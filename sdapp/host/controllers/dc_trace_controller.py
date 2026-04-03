@@ -3,19 +3,22 @@ from __future__ import annotations
 from pathlib import Path
 import threading
 import tkinter as tk
-from tkinter import filedialog, messagebox, ttk
+from tkinter import filedialog, messagebox
 from typing import Any
 
 import numpy as np
 
+from sdapp.analysis.ui.theme import SPACING, apply_theme
 from sdapp.host.dc_trace import WaveSurferH5Adapter
 from sdapp.shared.trace import TimeAlignment, TraceAttachment, TraceRecord
 from sdapp.shared.ui import BackgroundTaskRunner
+from sdapp.shared.ui.bootstrap import center_window_on_screen, semantic_button_options, ttk
 
 TRACE_EVENT_SPAN_COLOR = "#c9b4f2"
 TRACE_DISPLAY_LOWPASS_HZ = 10.0
 TRACE_DISPLAY_TARGET_FS = 50.0
 TRACE_DISPLAY_FILTER_ORDER = 4
+TRACE_CURSOR_UPDATE_INTERVAL_MS = 16
 
 
 class HostDCTraceController:
@@ -32,9 +35,12 @@ class HostDCTraceController:
         self._axes = None
         self._canvas: Any | None = None
         self._cursor_artist = None
+        self._cursor_background = None
         self._panel_visible = False
         self._load_generation = 0
         self._missing_restore_warning_path = ""
+        self._pending_cursor_frame_idx: int | None = None
+        self._pending_cursor_after_id = None
 
     def bind_panel(self, parent) -> None:
         del parent
@@ -124,6 +130,15 @@ class HostDCTraceController:
         self._trace_time_cache = None
         self._display_cache.clear()
         self._cursor_artist = None
+        self._cursor_background = None
+        self._pending_cursor_frame_idx = None
+        pending_after_id = self._pending_cursor_after_id
+        self._pending_cursor_after_id = None
+        if pending_after_id is not None:
+            try:
+                self.app.root.after_cancel(pending_after_id)
+            except Exception:
+                pass
         self._set_panel_visible(False)
         axes = self._axes
         if axes is not None:
@@ -137,12 +152,28 @@ class HostDCTraceController:
     def update_for_frame(self, frame_idx: int) -> None:
         if self._trace_record is None or self._attachment is None:
             return
-        self._update_cursor(frame_idx)
+        self._pending_cursor_frame_idx = int(frame_idx)
+        pending_after_id = self._pending_cursor_after_id
+        if pending_after_id is not None:
+            return
+        try:
+            self._pending_cursor_after_id = self.app.root.after(TRACE_CURSOR_UPDATE_INTERVAL_MS, self._flush_pending_cursor_update)
+        except Exception:
+            self._pending_cursor_after_id = None
+            self._flush_pending_cursor_update()
 
     def on_events_changed(self) -> None:
         if self._trace_record is None or self._attachment is None:
             return
         self.refresh_plot()
+
+    def _flush_pending_cursor_update(self) -> None:
+        self._pending_cursor_after_id = None
+        frame_idx = self._pending_cursor_frame_idx
+        self._pending_cursor_frame_idx = None
+        if frame_idx is None:
+            return
+        self._update_cursor(int(frame_idx))
 
     def get_trace_time_for_frame(self, frame_idx: int) -> float | None:
         fps = self._frames_per_sec()
@@ -311,14 +342,16 @@ class HostDCTraceController:
 
     def _open_import_dialog(self, metadata: dict[str, object]) -> tuple[int, float] | None:
         dialog = tk.Toplevel(self.app.root)
+        dialog.withdraw()
         dialog.title("Import DC Trace")
         dialog.transient(self.app.root)
-        dialog.grab_set()
         dialog.resizable(False, False)
+        dialog.geometry("700x300")
+        apply_theme(dialog)
 
-        shell = ttk.Frame(dialog, padding=12)
+        shell = ttk.Frame(dialog, padding=SPACING.outer, style="AppShell.TFrame")
         shell.pack(fill="both", expand=True)
-        ttk.Label(shell, text=f"File: {Path(str(metadata.get('source_path', ''))).name}").pack(anchor="w")
+        ttk.Label(shell, text=f"File: {Path(str(metadata.get('source_path', ''))).name}", style="SectionTitle.TLabel").pack(anchor="w")
         ttk.Label(
             shell,
             text=(
@@ -326,15 +359,16 @@ class HostDCTraceController:
                 f"Sample rate: {self._format_float(metadata.get('sample_rate_hz'))} Hz    "
                 f"Duration: {self._format_float(metadata.get('duration_s'))} s"
             ),
+            style="Meta.TLabel",
         ).pack(anchor="w", pady=(4, 8))
 
         channel_names = list(metadata.get("channel_names") or [])
         channel_var = tk.StringVar(value=str(channel_names[0] if channel_names else ""))
         channel_name_var = tk.StringVar(value=str(channel_names[0] if channel_names else ""))
         offset_var = tk.StringVar(value="0")
-        row = ttk.Frame(shell)
+        row = ttk.Frame(shell, padding=SPACING.card, style="Surface.TFrame")
         row.pack(fill="x", pady=(0, 8))
-        ttk.Label(row, text="Channel").pack(side="left")
+        ttk.Label(row, text="Channel", style="Meta.TLabel").pack(side="left")
         combo = ttk.Combobox(row, textvariable=channel_var, values=channel_names, state="readonly", width=28)
         if len(channel_names) <= 1:
             combo.state(["disabled"])
@@ -356,13 +390,13 @@ class HostDCTraceController:
             unit_var.set(str(units[idx] if idx < len(units) else ""))
 
         combo.bind("<<ComboboxSelected>>", _sync_channel_preview, add="+")
-        ttk.Label(shell, textvariable=channel_name_var).pack(anchor="w", pady=(0, 2))
-        ttk.Label(shell, textvariable=unit_var).pack(anchor="w", pady=(0, 8))
+        ttk.Label(shell, textvariable=channel_name_var, style="Meta.TLabel").pack(anchor="w", pady=(0, 2))
+        ttk.Label(shell, textvariable=unit_var, style="Meta.TLabel").pack(anchor="w", pady=(0, 8))
 
-        offset_row = ttk.Frame(shell)
+        offset_row = ttk.Frame(shell, padding=SPACING.card, style="Surface.TFrame")
         offset_row.pack(fill="x", pady=(0, 8))
-        ttk.Label(offset_row, text="Trace time at video frame 0 (s)").pack(side="left")
-        ttk.Entry(offset_row, textvariable=offset_var, width=12).pack(side="left", padx=(8, 0))
+        ttk.Label(offset_row, text="Trace time at video frame 0 (s)", style="Meta.TLabel").pack(side="left")
+        ttk.Entry(offset_row, textvariable=offset_var, width=12, style="Compact.TEntry").pack(side="left", padx=(8, 0))
 
         result: dict[str, object] = {}
 
@@ -380,10 +414,13 @@ class HostDCTraceController:
             result["offset_s"] = float(offset_s)
             dialog.destroy()
 
-        actions = ttk.Frame(shell)
+        actions = ttk.Frame(shell, style="AppShell.TFrame")
         actions.pack(fill="x")
-        ttk.Button(actions, text="Cancel", command=_cancel).pack(side="right")
-        ttk.Button(actions, text="Import", command=_apply).pack(side="right", padx=(0, 8))
+        ttk.Button(actions, text="Cancel", command=_cancel, **semantic_button_options("secondary")).pack(side="right")
+        ttk.Button(actions, text="Import", command=_apply, **semantic_button_options("primary")).pack(side="right", padx=(0, 8))
+        center_window_on_screen(dialog, width=700, height=300)
+        dialog.deiconify()
+        dialog.grab_set()
         dialog.wait_window()
         if "channel_index" not in result:
             return None
@@ -391,17 +428,22 @@ class HostDCTraceController:
 
     def _open_loading_dialog(self, *, title: str, message: str):
         dialog = tk.Toplevel(self.app.root)
+        dialog.withdraw()
         dialog.title(title)
         dialog.transient(self.app.root)
-        dialog.grab_set()
         dialog.resizable(False, False)
+        dialog.geometry("420x120")
         dialog.protocol("WM_DELETE_WINDOW", lambda: None)
-        shell = ttk.Frame(dialog, padding=12)
+        apply_theme(dialog)
+        shell = ttk.Frame(dialog, padding=SPACING.outer, style="AppShell.TFrame")
         shell.pack(fill="both", expand=True)
-        ttk.Label(shell, text=message).pack(anchor="w", pady=(0, 8))
-        bar = ttk.Progressbar(shell, mode="indeterminate", length=260)
+        ttk.Label(shell, text=message, style="Meta.TLabel").pack(anchor="w", pady=(0, 8))
+        bar = ttk.Progressbar(shell, mode="indeterminate", length=260, style="Loading.Horizontal.TProgressbar")
         bar.pack(fill="x")
         bar.start(10)
+        center_window_on_screen(dialog, width=420, height=120)
+        dialog.deiconify()
+        dialog.grab_set()
         return dialog
 
     @staticmethod
@@ -472,7 +514,21 @@ class HostDCTraceController:
         self._cursor_artist = None
         if cursor_t is not None:
             self._cursor_artist = axes.axvline(float(cursor_t), color="#dc2626", linewidth=1.2)
-        canvas.draw_idle()
+            try:
+                self._cursor_artist.set_animated(True)
+            except Exception:
+                pass
+        self._cursor_background = None
+        try:
+            canvas.draw()
+            self._capture_cursor_background()
+            if self._cursor_artist is not None and not self._blit_cursor():
+                canvas.draw_idle()
+        except Exception:
+            try:
+                canvas.draw_idle()
+            except Exception:
+                pass
 
     def _update_cursor(self, frame_idx: int) -> None:
         if not self._panel_visible or self._attachment is None:
@@ -487,9 +543,54 @@ class HostDCTraceController:
             return
         try:
             artist.set_xdata([float(cursor_t), float(cursor_t)])
-            canvas.draw_idle()
+            if not self._blit_cursor():
+                canvas.draw_idle()
         except Exception:
             self.refresh_plot(frame_idx=frame_idx)
+
+    def _capture_cursor_background(self) -> None:
+        canvas = self._canvas
+        artist = self._cursor_artist
+        axes = self._axes
+        figure = self._figure
+        if canvas is None or artist is None or axes is None or figure is None:
+            self._cursor_background = None
+            return
+        tk_widget = getattr(canvas, "get_tk_widget", lambda: None)()
+        if tk_widget is not None:
+            try:
+                if not bool(tk_widget.winfo_ismapped()):
+                    self._cursor_background = None
+                    return
+            except Exception:
+                pass
+        try:
+            artist.set_visible(False)
+            canvas.draw()
+            self._cursor_background = canvas.copy_from_bbox(axes.bbox)
+        except Exception:
+            self._cursor_background = None
+        finally:
+            try:
+                artist.set_visible(True)
+            except Exception:
+                pass
+
+    def _blit_cursor(self) -> bool:
+        canvas = self._canvas
+        artist = self._cursor_artist
+        axes = self._axes
+        background = self._cursor_background
+        if canvas is None or artist is None or axes is None or background is None:
+            return False
+        try:
+            canvas.restore_region(background)
+            axes.draw_artist(artist)
+            canvas.blit(axes.bbox)
+            return True
+        except Exception:
+            self._cursor_background = None
+            return False
 
     def _display_data_for_series(
         self,
@@ -629,6 +730,7 @@ class HostDCTraceController:
                 return
             if not self._panel_visible:
                 try:
+                    center_window_on_screen(window, width=980, height=360)
                     window.deiconify()
                     window.lift()
                     window.focus_force()
@@ -656,7 +758,8 @@ class HostDCTraceController:
         window.minsize(760, 320)
         window.withdraw()
         window.protocol("WM_DELETE_WINDOW", self._on_window_closed)
-        shell = ttk.Frame(window, padding=8)
+        apply_theme(window)
+        shell = ttk.Frame(window, padding=SPACING.outer, style="AppShell.TFrame")
         shell.pack(fill="both", expand=True)
         figure = Figure(figsize=(9.0, 2.6), dpi=100)
         axes = figure.add_subplot(111)

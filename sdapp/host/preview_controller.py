@@ -16,11 +16,26 @@ class HostPreviewController:
     def __init__(self, app) -> None:
         self.app = app
 
+    def apply_live_frame_position(self, idx: int) -> None:
+        stack_info = getattr(self.app, "stack_info", None)
+        if stack_info is None:
+            return
+        frame_count = int(getattr(stack_info, "frame_count", 0) or 0)
+        if frame_count <= 0:
+            return
+        frame_idx = max(0, min(int(idx), frame_count - 1))
+        self.app.current_frame_idx = frame_idx
+        self.redraw_main_overlay()
+        self.app.dc_trace_controller.update_for_frame(frame_idx)
+
     def schedule_main_preview_update(self, idx: int) -> None:
-        self.app._pending_main_frame_idx = int(idx)
-        if self.app._pending_main_after_id is not None:
+        frame_idx = int(idx)
+        self.app._pending_main_frame_idx = frame_idx
+        self.apply_live_frame_position(frame_idx)
+        pending_after_id = getattr(self.app, "_pending_main_after_id", None)
+        if pending_after_id is not None:
             try:
-                self.app.root.after_cancel(self.app._pending_main_after_id)
+                self.app.root.after_cancel(pending_after_id)
             except Exception:
                 pass
         self.app._pending_main_after_id = self.app.root.after(16, self.flush_main_preview_update)
@@ -124,7 +139,7 @@ class HostPreviewController:
         if self.app.reader is None or self.app.stack_info is None:
             return
         frame_idx = max(0, min(frame_idx, self.app.stack_info.frame_count - 1))
-        self.app.current_frame_idx = frame_idx
+        self.apply_live_frame_position(frame_idx)
         max_w = self.app.preview_label.winfo_width() - 12
         max_h = self.app.preview_label.winfo_height() - 12
         if max_w < 120 or max_h < 120:
@@ -161,9 +176,8 @@ class HostPreviewController:
         self.app.preview_label.configure(image=image)
 
         frame_name = self.app.reader.get_frame_name(frame_idx)
-        self.app.preview_label_info.set(f"Frame: {frame_idx}  [{frame_name}]")
-        self.redraw_main_overlay()
-        self.app.dc_trace_controller.update_for_frame(frame_idx)
+        self.app.preview_label_info.set(f"Frame {frame_idx + 1}")
+        self.app.preview_label_meta.set(str(frame_name or "No file loaded"))
 
     def scale_value_to_x(
         self,
@@ -219,6 +233,7 @@ class HostPreviewController:
         end_idx: int,
         spans: list[tuple[int, int, str]],
         markers: list[tuple[int, str]],
+        hover_regions: list[tuple[float, float, str]] | None = None,
     ) -> None:
         if canvas is None:
             return
@@ -228,7 +243,7 @@ class HostPreviewController:
         if w <= 2 or h <= 2:
             return
 
-        canvas.create_rectangle(0, 0, w, h, fill="#2a2b2f", outline="")
+        canvas.create_rectangle(0, 0, w, h, fill="#232830", outline="")
         if end_idx < start_idx:
             return
 
@@ -237,27 +252,37 @@ class HostPreviewController:
             right_x = self.scale_value_to_x(scale, canvas, span_end, start_idx, end_idx, w)
             left = max(0.0, min(left_x, right_x))
             right = min(float(w), max(left_x, right_x))
-            if right - left < 2.0:
-                right = min(float(w), left + 2.0)
-            canvas.create_rectangle(left, 0, right, h, fill=color, outline="")
+            if right - left < 5.0:
+                right = min(float(w), left + 5.0)
+            canvas.create_rectangle(left, 3, right, h - 3, fill=color, outline="")
 
         for marker_idx, color in markers:
             x = self.scale_value_to_x(scale, canvas, marker_idx, start_idx, end_idx, w)
-            left = max(0.0, x - 1.5)
-            right = min(float(w), x + 1.5)
-            canvas.create_rectangle(left, 0, right, h, fill=color, outline="")
+            left = max(0.0, x - 2.0)
+            right = min(float(w), x + 2.0)
+            canvas.create_rectangle(left, 2, right, h - 2, fill=color, outline="")
+        self.app._main_overlay_regions = list(hover_regions or [])
 
     def redraw_main_overlay(self) -> None:
         if self.app.preview_overlay is None or self.app.stack_info is None:
             return
         frame_count = int(self.app.stack_info.frame_count)
         if frame_count <= 0:
-            self.draw_overlay_bar(self.app.preview_overlay, self.app.preview_scale, 0, 0, [], [])
+            self.draw_overlay_bar(self.app.preview_overlay, self.app.preview_scale, 0, 0, [], [], [])
             return
 
         spans = [(event.start_idx, event.end_idx, "#7a57c7") for event in self.app.events]
         markers = [(self.app.current_frame_idx, "#e6e6e6")]
-        self.draw_overlay_bar(self.app.preview_overlay, self.app.preview_scale, 0, frame_count - 1, spans, markers)
+        hover_regions: list[tuple[float, float, str]] = []
+        width = max(1, self.app.preview_overlay.winfo_width())
+        for event in self.app.events:
+            left = self.scale_value_to_x(self.app.preview_scale, self.app.preview_overlay, event.start_idx, 0, frame_count - 1, width)
+            right = self.scale_value_to_x(self.app.preview_scale, self.app.preview_overlay, event.end_idx, 0, frame_count - 1, width)
+            label = str(getattr(event, "label", "") or getattr(event, "event_id", "")).strip() or str(getattr(event, "event_id", "Event"))
+            hover_regions.append((min(left, right), max(left, right), f"{label}: frames {event.start_idx + 1}–{event.end_idx + 1}"))
+        marker_x = self.scale_value_to_x(self.app.preview_scale, self.app.preview_overlay, self.app.current_frame_idx, 0, frame_count - 1, width)
+        hover_regions.append((max(0.0, marker_x - 4.0), min(float(width), marker_x + 4.0), f"Current frame {self.app.current_frame_idx + 1}"))
+        self.draw_overlay_bar(self.app.preview_overlay, self.app.preview_scale, 0, frame_count - 1, spans, markers, hover_regions)
 
     def on_main_overlay_click(self, event) -> None:
         if self.app.preview_overlay is None or self.app.stack_info is None:
@@ -382,11 +407,6 @@ class HostPreviewController:
         mark_start, mark_end = self.popup_get_normalized_mark_bounds_for_overlay()
 
         spans: list[tuple[int, int, str]] = []
-        if mark_start is not None and mark_end is not None:
-            left = min(mark_start, mark_end)
-            right = max(mark_start, mark_end)
-            spans.append((left, right, "#00aebf"))
-
         if self.app.stack_info is not None:
             try:
                 baseline_count, baseline_end = self.app._popup_parse_baseline_controls()
@@ -396,16 +416,28 @@ class HostPreviewController:
             except Exception:
                 pass
 
+        if mark_start is not None and mark_end is not None:
+            left = min(mark_start, mark_end)
+            right = max(mark_start, mark_end)
+            spans.append((left, right, "#00aebf"))
+
+        if self.app.stack_info is not None:
+            try:
+                baseline_count, baseline_end = self.app._popup_parse_baseline_controls()
+                baseline_start = max(0, baseline_end - baseline_count + 1)
+            except Exception:
+                baseline_start = None
+        else:
+            baseline_start = None
+
+        # Draw baseline-start before event start/end so the event markers remain visible
+        # when they are only a frame or two apart.
         markers = [(self.app._mark_popup_current_idx, "#e6e6e6")]
+        if baseline_start is not None:
+            markers.append((baseline_start, "#79ccff"))
         if mark_start is not None:
             markers.append((mark_start, "#00d26a"))
         if mark_end is not None:
             markers.append((mark_end, "#ff5c5c"))
-        if self.app.stack_info is not None:
-            try:
-                _baseline_count, baseline_end = self.app._popup_parse_baseline_controls()
-                markers.append((baseline_end, "#79ccff"))
-            except Exception:
-                pass
 
         self.draw_overlay_bar(self.app._mark_overlay, self.app._mark_scale, start_idx, end_idx, spans, markers)

@@ -112,6 +112,18 @@ class PropagationOverlayStateTests(unittest.TestCase):
         self.assertEqual(app._propagated_history_indices, {20, 21})
         self.assertEqual(app.propagated_frame_indices, {20, 21})
 
+    def test_workspace_event_opened_preserves_prompt_markers_when_no_saved_masks_exist(self):
+        app = self._make_app(frame_count=30)
+        app._recompute_slider_jump_markers = SDSegmentationApp._recompute_slider_jump_markers.__get__(app, SDSegmentationApp)
+        app._collect_user_defined_frames = lambda: {9}
+        app._collect_nonempty_final_mask_frames = lambda: set()
+
+        app._on_workspace_event_opened("event_0003")
+
+        self.assertEqual(app.slider_jump_markers[9], "user")
+        self.assertIsNone(app._largest_propagated_span)
+        self.assertEqual(app.propagated_frame_indices, set())
+
     def test_clear_current_frame_data_reseeds_overlay_from_remaining_saved_masks(self):
         app = self._make_app()
         app._set_propagated_frames({2, 3, 4, 5})

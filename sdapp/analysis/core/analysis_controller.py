@@ -406,11 +406,13 @@ class AnalysisController:
         )
         if result is None:
             return None
+        result["image_path"] = str(image_path)
         return result
 
     def _apply_local_scale_selection(self, result) -> None:
         self.set_scale_px_per_mm(result["px_per_mm"])
         self.set_scale_points(result["scale_points"])
+        self.set_last_scale_image_path(result.get("image_path", ""))
         self.set_scale_is_local_override(True)
         if callable(self.on_metrics_settings_changed):
             try:
@@ -501,6 +503,9 @@ class AnalysisController:
             "scale_px_per_mm": float(result["px_per_mm"]),
             "scale_points": [[float(pt[0]), float(pt[1])] for pt in list(result.get("scale_points", []))],
         }
+        scale_image_path = str(result.get("image_path", "") or "").strip()
+        if scale_image_path:
+            payload["scale_image_path"] = scale_image_path
         update_result = self.emit_host_global_metrics_update("global_scale", payload)
         if isinstance(update_result, dict) and not bool(update_result.get("ok", False)):
             message = str(update_result.get("message", "Host rejected global scale update."))
@@ -509,6 +514,7 @@ class AnalysisController:
         if not bool(self.get_scale_is_local_override()):
             self.set_scale_px_per_mm(result["px_per_mm"])
             self.set_scale_points(result["scale_points"])
+            self.set_last_scale_image_path(scale_image_path)
             self.set_scale_is_local_override(False)
         autosave_result = self.autosave_project_after_metrics_commit("global_scale")
         if isinstance(autosave_result, dict) and not bool(autosave_result.get("ok", False)):

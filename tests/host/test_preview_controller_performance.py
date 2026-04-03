@@ -73,6 +73,7 @@ def _build_app(frames: list[np.ndarray]) -> SimpleNamespace:
         current_frame_idx=0,
         preview_label=_Label(),
         preview_label_info=_InfoVar(),
+        preview_label_meta=_InfoVar(),
         preview_overlay=None,
         preview_scale=None,
         dc_trace_controller=SimpleNamespace(update_for_frame=lambda _idx: None),
@@ -148,3 +149,32 @@ def test_popup_mini_reuses_main_preview_normalization_cache() -> None:
     assert app.reader.read_calls == [1]
     assert normalize_calls == [(1, "default")]
     assert len(app._mark_mini_canvas.images) == 1
+
+
+def test_schedule_main_preview_update_moves_live_cursor_before_render() -> None:
+    frames = [np.arange(64, dtype=np.float32).reshape(8, 8) for _ in range(3)]
+    redraw_calls: list[int] = []
+    trace_calls: list[int] = []
+    after_calls: list[tuple[int, object]] = []
+
+    class _Root:
+        def after(self, delay_ms: int, callback):
+            after_calls.append((int(delay_ms), callback))
+            return "after-id"
+
+        def after_cancel(self, _after_id) -> None:
+            return
+
+    app = _build_app(frames)
+    app.root = _Root()
+    app.dc_trace_controller = SimpleNamespace(update_for_frame=lambda idx: trace_calls.append(int(idx)))
+    controller = HostPreviewController(app)
+    controller.redraw_main_overlay = lambda: redraw_calls.append(int(app.current_frame_idx))  # type: ignore[method-assign]
+
+    controller.schedule_main_preview_update(2)
+
+    assert app.current_frame_idx == 2
+    assert redraw_calls == [2]
+    assert trace_calls == [2]
+    assert app._pending_main_frame_idx == 2
+    assert after_calls and after_calls[0][0] == 16

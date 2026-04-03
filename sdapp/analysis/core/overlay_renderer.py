@@ -172,13 +172,14 @@ def redraw_slider_overlay(app) -> None:
         return
     canvas = app.slider_overlay
     canvas.delete("all")
+    app._slider_overlay_regions = []
 
     w = canvas.winfo_width()
     h = canvas.winfo_height()
     if w <= 2 or h <= 2:
         return
 
-    canvas.create_rectangle(0, 0, w, h, fill="#2a2b2f", outline="")
+    canvas.create_rectangle(0, 0, w, h, fill="#232830", outline="")
 
     total = app._get_frame_count() if hasattr(app, "_get_frame_count") else 0
     if total <= 0:
@@ -209,30 +210,31 @@ def redraw_slider_overlay(app) -> None:
         x1 = app._frame_to_overlay_x(end_idx, width=w, total_frames=total)
         left = min(x0, x1)
         right = max(x0, x1)
-        left = max(0, left - 1.5)
-        right = min(w, right + 1.5)
-        if right - left < 3:
-            right = min(w, left + 3)
-        canvas.create_rectangle(left, 0, right, h, fill="#00ffff", outline="")
-
-    for _frame_idx, (left, right) in marker_bounds.items():
-        canvas.create_rectangle(left, 0, right, h, fill="#00ffff", outline="")
+        left = max(0, left - 2.0)
+        right = min(w, right + 2.0)
+        if right - left < 5:
+            right = min(w, left + 5)
+        canvas.create_rectangle(left, 4, right, h - 4, fill="#2ecfd0", outline="")
+        app._slider_overlay_regions.append((left, right, f"Coverage: frames {start_idx + 1}–{end_idx + 1}"))
 
     for frame_idx, marker_type, x in marker_positions:
         left, right = marker_bounds.get(frame_idx, (x - 1.0, x + 1.0))
         if marker_type == "start":
             color = "#00d26a"
-            canvas.create_rectangle(left, 0, right, h, fill=color, outline="")
-            tri_w = max(5.0, min(9.0, (right - left) / 2.0 + 2.0))
-            canvas.create_polygon(x, 0, x - tri_w, 7, x + tri_w, 7, fill=color, outline="")
+            band_left = max(0.0, left - 1.5)
+            band_right = min(float(w), right + 1.5)
+            canvas.create_rectangle(band_left, 2, band_right, h - 2, fill=color, outline="")
+            app._slider_overlay_regions.append((left, right, f"Propagation start: frame {frame_idx + 1}"))
         elif marker_type == "end":
             color = "#ff5c5c"
-            canvas.create_rectangle(left, 0, right, h, fill=color, outline="")
-            tri_w = max(5.0, min(9.0, (right - left) / 2.0 + 2.0))
-            canvas.create_polygon(x, 0, x - tri_w, 7, x + tri_w, 7, fill=color, outline="")
+            band_left = max(0.0, left - 1.5)
+            band_right = min(float(w), right + 1.5)
+            canvas.create_rectangle(band_left, 2, band_right, h - 2, fill=color, outline="")
+            app._slider_overlay_regions.append((left, right, f"Propagation end: frame {frame_idx + 1}"))
         else:
             color = "#b26bff"
-            canvas.create_rectangle(left, 0, right, h, fill=color, outline="")
+            canvas.create_rectangle(left, 3, right, h - 3, fill=color, outline="")
+            app._slider_overlay_regions.append((left, right, f"Prompt frame {frame_idx + 1}"))
 
     app._slider_marker_bounds = marker_bounds
     elapsed_ms = (time.perf_counter() - t0) * 1000.0

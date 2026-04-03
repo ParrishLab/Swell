@@ -13,6 +13,7 @@ from tkinter import filedialog, messagebox, simpledialog, ttk
 import numpy as np
 from PIL import Image, ImageTk
 
+from sdapp.analysis.ui.theme import CANVAS_BACKGROUND, SLIDER_OVERLAY_BACKGROUND, SPACING
 from sdapp.analysis.core.state import AppConfig
 from .browser_controller import BrowserController
 from .config import APP_TITLE, DEFAULT_BASELINE_PRE_FRAMES, TraceResult
@@ -31,12 +32,15 @@ from .stack_reader import StackReader
 from .ui_geometry import (
     adjust_baseline_end_for_start,
     clamp_popup_range,
+    linear_value_to_x,
+    linear_x_to_value,
 )
 
 from sdapp.shared.services import AnalysisWindowManager, CheckpointRuntimeService, SingleInstanceBridge
 from sdapp.shared.menu.factory import build_shared_menu
 from sdapp.shared.app_metadata import format_window_title
 from sdapp.shared.frame_source import normalize_visual_frame
+from sdapp.shared.ui.bootstrap import center_window_on_screen, semantic_button_options
 
 
 class SDAnalyzerApp:
@@ -50,6 +54,7 @@ class SDAnalyzerApp:
         self.root = root
         self.root.title(format_window_title(APP_TITLE))
         self.root.geometry("1400x900")
+        center_window_on_screen(self.root, width=1400, height=900)
         self._app_icon_image: ImageTk.PhotoImage | None = None
         self._apply_runtime_icon()
         self._instance_bridge = instance_bridge
@@ -156,6 +161,10 @@ class SDAnalyzerApp:
         self._analysis_app_class_cache = None
         self._analysis_app_import_started = False
         self._last_scale_image_path = ""
+        self._logs_expanded = False
+        self._main_overlay_regions: list[tuple[float, float, str]] = []
+        self._log_summary_var = tk.StringVar(value="Ready")
+        self.preview_label_meta = tk.StringVar(value="")
 
         self._build_ui()
         self._refresh_model_gate_ui()
@@ -186,106 +195,219 @@ class SDAnalyzerApp:
             return
 
     def _build_ui(self) -> None:
-        main = ttk.Frame(self.root, padding=8)
-        main.pack(fill="both", expand=True)
+        self.root.columnconfigure(0, weight=1)
+        self.root.rowconfigure(0, weight=1)
+
+        main = ttk.Frame(self.root, padding=SPACING.outer, style="AppShell.TFrame")
+        main.grid(row=0, column=0, sticky="nsew")
+        main.columnconfigure(0, weight=1)
+        main.rowconfigure(1, weight=1)
 
         self.status_var = tk.StringVar(value="Idle")
-        ttk.Label(main, textvariable=self.status_var).pack(anchor="w", pady=(0, 6))
+        ttk.Label(main, textvariable=self.status_var, style="Meta.TLabel").grid(row=0, column=0, sticky="w", pady=(0, SPACING.inner))
 
         body = ttk.Panedwindow(main, orient="horizontal")
-        body.pack(fill="both", expand=True)
-
-        left = ttk.Frame(body)
-        right = ttk.Frame(body)
-        body.add(left, weight=6)
-        body.add(right, weight=2)
+        body.grid(row=1, column=0, sticky="nsew")
         self.body_split = body
 
-        viewer_frame = ttk.LabelFrame(left, text="Frame Viewer", padding=6)
-        viewer_frame.pack(fill="both", expand=True)
+        left = ttk.Frame(body, style="AppShell.TFrame")
+        right = ttk.Frame(body, style="Sidebar.TFrame")
+        body.add(left, weight=6)
+        body.add(right, weight=2)
 
-        self.preview_label = ttk.Label(viewer_frame, anchor="center")
-        self.preview_label.pack(fill="both", expand=True)
+        viewer_card = ttk.Frame(left, padding=(SPACING.card, SPACING.card, SPACING.card, SPACING.card), style="Surface.TFrame")
+        viewer_card.grid(row=0, column=0, sticky="nsew", padx=(0, SPACING.inner))
+        left.columnconfigure(0, weight=1)
+        left.rowconfigure(0, weight=1)
+        viewer_card.columnconfigure(0, weight=1)
+        viewer_card.rowconfigure(1, weight=1)
 
-        self.preview_label_info = tk.StringVar(value="Frame: -")
-        ttk.Label(viewer_frame, textvariable=self.preview_label_info).pack(anchor="w")
+        ttk.Label(viewer_card, text="Frame Viewer", style="SectionTitle.TLabel").grid(row=0, column=0, sticky="w")
 
-        self.preview_overlay = tk.Canvas(viewer_frame, height=12, bg="#2a2b2f", highlightthickness=0, bd=0, cursor="hand2")
-        self.preview_overlay.pack(fill="x", pady=(4, 2))
+        viewer_shell = ttk.Frame(viewer_card, padding=(0, SPACING.inner, 0, 0), style="Surface.TFrame")
+        viewer_shell.grid(row=1, column=0, sticky="nsew")
+        viewer_shell.columnconfigure(0, weight=1)
+        viewer_shell.rowconfigure(0, weight=1)
+
+        canvas_shell = ttk.Frame(viewer_shell, style="Inset.TFrame")
+        canvas_shell.grid(row=0, column=0, sticky="nsew")
+        canvas_shell.columnconfigure(0, weight=1)
+        canvas_shell.rowconfigure(0, weight=1)
+
+        self.preview_label = ttk.Label(canvas_shell, anchor="center")
+        self.preview_label.grid(row=0, column=0, sticky="nsew", padx=SPACING.gap, pady=SPACING.gap)
+
+        self.preview_label_info = tk.StringVar(value="Frame -")
+        preview_overlay_frame = ttk.Frame(canvas_shell, padding=(8, 6), style="OverlayFrame.TFrame")
+        preview_overlay_frame.place(relx=0.0, rely=1.0, anchor="sw", x=10, y=-10)
+        ttk.Label(preview_overlay_frame, textvariable=self.preview_label_info, style="OverlayValue.TLabel").grid(row=0, column=0, sticky="w")
+        ttk.Label(preview_overlay_frame, textvariable=self.preview_label_meta, style="OverlayMeta.TLabel").grid(row=1, column=0, sticky="w")
+
+        self.preview_overlay = tk.Canvas(
+            viewer_shell,
+            height=18,
+            bg=SLIDER_OVERLAY_BACKGROUND,
+            highlightthickness=0,
+            bd=0,
+            cursor="hand2",
+        )
+        self.preview_overlay.grid(row=1, column=0, sticky="ew", pady=(SPACING.inner, 4))
         self.preview_overlay.bind("<Configure>", lambda _e: self._redraw_main_overlay())
         self.preview_overlay.bind("<Button-1>", self._on_main_overlay_click)
+        self.preview_overlay.bind("<Motion>", self._on_main_overlay_motion, add="+")
+        self.preview_overlay.bind("<Leave>", self._hide_main_overlay_tooltip, add="+")
 
-        self.preview_scale = tk.Scale(
-            viewer_frame,
+        self.preview_scale = ttk.Scale(
+            viewer_shell,
             from_=0,
             to=1,
             orient="horizontal",
-            showvalue=False,
-            relief="flat",
-            highlightthickness=0,
             command=self._on_preview_slide,
+            style="Flat.Horizontal.TScale",
         )
-        self.preview_scale.pack(fill="x", pady=(6, 4))
+        self.preview_scale.grid(row=2, column=0, sticky="ew", pady=(0, SPACING.inner))
 
-        nav_row = ttk.Frame(viewer_frame)
-        nav_row.pack(fill="x")
-        ttk.Button(nav_row, text="Prev", command=lambda: self._step_preview(-1)).pack(side="left", padx=2)
-        ttk.Button(nav_row, text="Mark SD", command=self._mark_sd).pack(side="left", padx=6)
-        ttk.Button(nav_row, text="Next", command=lambda: self._step_preview(1)).pack(side="left", padx=2)
+        nav_row = ttk.Frame(viewer_shell, style="Surface.TFrame")
+        nav_row.grid(row=3, column=0, sticky="ew")
+        for column in range(3):
+            nav_row.columnconfigure(column, weight=1)
+        ttk.Button(nav_row, text="Prev", command=lambda: self._step_preview(-1), **semantic_button_options("secondary")).grid(
+            row=0,
+            column=0,
+            sticky="ew",
+        )
+        ttk.Button(nav_row, text="Mark SD", command=self._mark_sd, **semantic_button_options("primary")).grid(
+            row=0,
+            column=1,
+            sticky="ew",
+            padx=(SPACING.gap, SPACING.gap),
+        )
+        ttk.Button(nav_row, text="Next", command=lambda: self._step_preview(1), **semantic_button_options("secondary")).grid(
+            row=0,
+            column=2,
+            sticky="ew",
+        )
 
-        right_split = ttk.Panedwindow(right, orient="vertical")
-        right_split.pack(fill="both", expand=True)
-        self.right_split = right_split
-        right_top = ttk.Frame(right_split)
-        right_bottom = ttk.Frame(right_split)
-        right_split.add(right_top, weight=3)
-        right_split.add(right_bottom, weight=2)
+        right.columnconfigure(0, weight=1)
+        right.rowconfigure(0, weight=1)
+        right.rowconfigure(1, weight=0)
+        right_top = ttk.Frame(right, style="Sidebar.TFrame")
+        right_top.grid(row=0, column=0, sticky="nsew")
+        right_bottom = ttk.Frame(right, style="Sidebar.TFrame")
+        right_bottom.grid(row=1, column=0, sticky="ew", pady=(SPACING.gap, 0))
 
-        table_frame = ttk.LabelFrame(right_top, text="Marked SD Events", padding=6)
-        table_frame.pack(fill="both", expand=True)
+        right_top.columnconfigure(0, weight=1)
+        right_top.rowconfigure(0, weight=1)
+        right_top.rowconfigure(1, weight=0)
+        right_bottom.columnconfigure(0, weight=1)
+        right_bottom.rowconfigure(0, weight=0)
+
+        table_frame = ttk.Frame(right_top, padding=(SPACING.card, SPACING.card, SPACING.card, SPACING.gap), style="Sidebar.TFrame")
+        table_frame.grid(row=0, column=0, sticky="nsew")
+        table_frame.columnconfigure(0, weight=1)
+        table_frame.rowconfigure(1, weight=1)
+        ttk.Label(table_frame, text="Marked SD Events", style="SidebarTitle.TLabel").grid(row=0, column=0, sticky="w")
+
+        table_shell = ttk.Frame(table_frame, padding=(0, SPACING.inner, 0, 0), style="Sidebar.TFrame")
+        table_shell.grid(row=1, column=0, sticky="nsew")
+        table_shell.columnconfigure(0, weight=1)
+        table_shell.rowconfigure(0, weight=1)
+        table_inset = ttk.Frame(table_shell, style="Inset.TFrame")
+        table_inset.grid(row=0, column=0, sticky="nsew")
+        table_inset.columnconfigure(0, weight=1)
+        table_inset.rowconfigure(0, weight=1)
+
         columns = ("id", "start", "end", "duration")
-        self.tree = ttk.Treeview(table_frame, columns=columns, show="headings", height=12, selectmode="extended")
+        self.tree = ttk.Treeview(table_inset, columns=columns, show="headings", height=12, selectmode="extended")
         for col, width in [("id", 160), ("start", 75), ("end", 75), ("duration", 95)]:
             heading_text = "NAME" if col == "id" else col.upper()
             self.tree.heading(col, text=heading_text)
             self.tree.column(col, width=width, anchor="center")
-        self.tree.pack(fill="both", expand=True)
+        self.tree.grid(row=0, column=0, sticky="nsew", padx=SPACING.gap, pady=SPACING.gap)
         self.tree.bind("<<TreeviewSelect>>", self._on_event_select)
         self.tree.bind("<Button-2>", self._on_event_tree_context_menu)
         self.tree.bind("<Button-3>", self._on_event_tree_context_menu)
 
-        action_frame = ttk.LabelFrame(right_top, text="Event Actions", padding=6)
-        action_frame.pack(fill="x", pady=(6, 0))
-        for col in range(2):
-            action_frame.columnconfigure(col, weight=1)
-        ttk.Button(action_frame, text="Edit Selected", command=self._edit_selected).grid(
-            row=0, column=0, sticky="ew", padx=2, pady=2
+        ttk.Separator(right_top, orient="horizontal").grid(row=1, column=0, sticky="ew", pady=(0, SPACING.gap))
+
+        action_frame = ttk.Frame(right_top, padding=(SPACING.card, SPACING.gap, SPACING.card, SPACING.card), style="Sidebar.TFrame")
+        action_frame.grid(row=2, column=0, sticky="ew")
+        action_frame.columnconfigure(0, weight=1)
+        action_frame.columnconfigure(1, weight=1)
+        ttk.Label(action_frame, text="Event Actions", style="SidebarTitle.TLabel").grid(row=0, column=0, columnspan=2, sticky="w")
+        ttk.Button(action_frame, text="Edit Selected", command=self._edit_selected, **semantic_button_options("secondary")).grid(
+            row=1, column=0, sticky="ew", pady=(SPACING.inner, SPACING.gap)
         )
-        ttk.Button(action_frame, text="Delete Selected", command=self._delete_selected_events).grid(
-            row=0, column=1, sticky="ew", padx=2, pady=2
+        ttk.Button(
+            action_frame,
+            text="Delete Selected",
+            command=self._delete_selected_events,
+            **semantic_button_options("danger"),
+        ).grid(row=1, column=1, sticky="ew", padx=(SPACING.gap, 0), pady=(SPACING.inner, SPACING.gap))
+        self.btn_open_analysis = ttk.Button(
+            action_frame,
+            text="Open Analysis...",
+            command=self._analyze_selected_event,
+            **semantic_button_options("secondary"),
         )
-        self.btn_open_analysis = ttk.Button(action_frame, text="Open Analysis...", command=self._analyze_selected_event)
-        self.btn_open_analysis.grid(row=1, column=0, columnspan=2, sticky="ew", padx=2, pady=(6, 2))
-        ttk.Button(action_frame, text="Open Metrics...", command=self._open_generate_metrics_popup).grid(
-            row=2, column=0, columnspan=2, sticky="ew", padx=2, pady=2
+        self.btn_open_analysis.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(0, SPACING.gap))
+        ttk.Button(
+            action_frame,
+            text="Open Metrics...",
+            command=self._open_generate_metrics_popup,
+            **semantic_button_options("secondary"),
+        ).grid(row=3, column=0, columnspan=2, sticky="ew", pady=(0, SPACING.gap))
+        ttk.Button(action_frame, text="Export Selected", command=self._export_selected, **semantic_button_options("secondary")).grid(
+            row=4, column=0, sticky="ew"
         )
-        ttk.Button(action_frame, text="Export Selected", command=self._export_selected).grid(
-            row=3, column=0, sticky="ew", padx=2, pady=2
-        )
-        ttk.Button(action_frame, text="Export All", command=self._export_all).grid(
-            row=3, column=1, sticky="ew", padx=2, pady=2
+        ttk.Button(action_frame, text="Export All", command=self._export_all, **semantic_button_options("secondary")).grid(
+            row=4, column=1, sticky="ew", padx=(SPACING.gap, 0)
         )
 
-        logs_frame = ttk.LabelFrame(right_bottom, text="Logs", padding=6)
-        logs_frame.pack(fill="both", expand=True, pady=(6, 0))
-        clear_row = ttk.Frame(logs_frame)
-        clear_row.pack(fill="x")
-        ttk.Button(clear_row, text="Clear Logs", command=self._clear_logs).pack(side="right")
-        self.log_text = tk.Text(logs_frame, height=8, wrap="word", state="disabled")
-        log_scroll = ttk.Scrollbar(logs_frame, orient="vertical", command=self.log_text.yview)
+        logs_frame = ttk.Frame(right_bottom, padding=(SPACING.card, SPACING.gap, SPACING.card, SPACING.gap), style="Sidebar.TFrame")
+        logs_frame.grid(row=0, column=0, sticky="nsew")
+        logs_frame.columnconfigure(0, weight=1)
+        logs_frame.rowconfigure(1, weight=1)
+
+        logs_header = ttk.Frame(logs_frame, style="Sidebar.TFrame")
+        logs_header.grid(row=0, column=0, sticky="ew")
+        logs_header.columnconfigure(0, weight=1)
+        self.lbl_log_summary = ttk.Label(logs_header, textvariable=self._log_summary_var, style="Meta.TLabel", cursor="hand2")
+        self.lbl_log_summary.grid(row=0, column=0, sticky="ew")
+        self.lbl_log_summary.bind("<Button-1>", lambda _event: self._toggle_logs_expanded())
+        self.btn_toggle_logs = ttk.Button(logs_header, text="Show Logs", command=self._toggle_logs_expanded, **semantic_button_options("secondary"))
+        self.btn_toggle_logs.grid(
+            row=0,
+            column=1,
+            sticky="e",
+        )
+        self.btn_clear_logs = ttk.Button(logs_header, text="Clear", command=self._clear_logs, **semantic_button_options("secondary"))
+        self.btn_clear_logs.grid(row=0, column=2, sticky="e", padx=(SPACING.gap, 0))
+
+        log_shell = ttk.Frame(logs_frame, style="Inset.TFrame")
+        log_shell.grid(row=1, column=0, sticky="nsew", pady=(SPACING.inner, 0))
+        log_shell.columnconfigure(0, weight=1)
+        log_shell.rowconfigure(0, weight=1)
+        self.log_shell = log_shell
+        self.log_text = tk.Text(
+            log_shell,
+            height=5,
+            wrap="word",
+            state="disabled",
+            bg=CANVAS_BACKGROUND,
+            fg="#c4cdd6",
+            insertbackground="#c4cdd6",
+            relief="flat",
+            highlightthickness=0,
+            bd=0,
+            padx=8,
+            pady=8,
+        )
+        log_scroll = ttk.Scrollbar(log_shell, orient="vertical", command=self.log_text.yview)
         self.log_text.configure(yscrollcommand=log_scroll.set)
-        self.log_text.pack(side="left", fill="both", expand=True)
-        log_scroll.pack(side="right", fill="y")
+        self.log_text.grid(row=0, column=0, sticky="nsew", padx=(SPACING.gap, 0), pady=SPACING.gap)
+        log_scroll.grid(row=0, column=1, sticky="ns", padx=(0, SPACING.gap), pady=SPACING.gap)
+        self._set_logs_expanded(False)
 
         self.root.after(150, self._reset_main_layout)
         self._bind_main_keys()
@@ -331,6 +453,26 @@ class SDAnalyzerApp:
         self.log_text.delete("1.0", "end")
         self.log_text.configure(state="disabled")
         self._log_info("Logs cleared.")
+
+    def _set_logs_expanded(self, expanded: bool) -> None:
+        self._logs_expanded = bool(expanded)
+        shell = getattr(self, "log_shell", None)
+        if shell is not None:
+            if self._logs_expanded:
+                shell.grid()
+            else:
+                shell.grid_remove()
+        if hasattr(self, "btn_toggle_logs"):
+            self.btn_toggle_logs.configure(text="Hide" if self._logs_expanded else "Logs")
+        if hasattr(self, "btn_clear_logs"):
+            if self._logs_expanded:
+                self.btn_clear_logs.grid()
+                self.btn_clear_logs.configure(state="normal")
+            else:
+                self.btn_clear_logs.grid_remove()
+
+    def _toggle_logs_expanded(self) -> None:
+        self._set_logs_expanded(not bool(getattr(self, "_logs_expanded", False)))
 
     def _reset_main_layout(self) -> None:
         if not hasattr(self, "body_split"):
@@ -386,13 +528,17 @@ class SDAnalyzerApp:
             return
         self._last_log_msg = message
         self._last_log_time = now
-        line = f"[{datetime.now().strftime('%H:%M:%S')}] [{level}] {message}\n"
+        prefix = "" if level == "INFO" else f"{level} "
+        line = f"{datetime.now().strftime('%H:%M:%S')} {prefix}{message}\n"
         if threading.current_thread() is threading.main_thread():
             self._append_log_line(line)
         else:
             self.root.after(0, lambda: self._append_log_line(line))
 
     def _append_log_line(self, line: str) -> None:
+        clean = str(line).strip()
+        if clean:
+            self._log_summary_var.set(self._summarize_log_line(clean))
         self.log_text.configure(state="normal")
         self.log_text.insert("end", line)
         total_lines = int(float(self.log_text.index("end-1c").split(".")[0]))
@@ -401,6 +547,13 @@ class SDAnalyzerApp:
             self.log_text.delete("1.0", f"{remove_count + 1}.0")
         self.log_text.see("end")
         self.log_text.configure(state="disabled")
+
+    @staticmethod
+    def _summarize_log_line(line: str, *, max_length: int = 44) -> str:
+        text = " ".join(str(line or "").split())
+        if len(text) <= int(max_length):
+            return text
+        return text[: max(1, int(max_length) - 1)].rstrip() + "…"
 
     def _log_info(self, message: str) -> None:
         self._log("INFO", message)
@@ -436,6 +589,7 @@ class SDAnalyzerApp:
         for event_id in list(selected):
             if self.tree.exists(event_id):
                 self.tree.selection_add(event_id)
+        self._refresh_model_gate_ui()
 
     def refresh_timeline_overlays(self, _events, _active_event_id: str | None) -> None:
         self._redraw_main_overlay()
@@ -443,6 +597,47 @@ class SDAnalyzerApp:
 
     def _show_warning(self, title: str, text: str) -> None:
         messagebox.showwarning(title, text, parent=self.root)
+
+    def _ensure_main_overlay_tooltip(self):
+        tip = getattr(self, "_main_overlay_tooltip", None)
+        if tip is not None:
+            return tip
+        tip = tk.Toplevel(self.root)
+        tip.withdraw()
+        tip.overrideredirect(True)
+        frame = ttk.Frame(tip, padding=(8, 5), style="OverlayFrame.TFrame")
+        frame.grid(row=0, column=0, sticky="nsew")
+        label = ttk.Label(frame, text="", style="OverlayMeta.TLabel")
+        label.grid(row=0, column=0, sticky="w")
+        self._main_overlay_tooltip = tip
+        self._main_overlay_tooltip_label = label
+        return tip
+
+    def _show_main_overlay_tooltip(self, event, text: str) -> None:
+        if not text:
+            self._hide_main_overlay_tooltip()
+            return
+        tip = self._ensure_main_overlay_tooltip()
+        self._main_overlay_tooltip_label.configure(text=str(text))
+        tip.geometry(f"+{int(event.x_root) + 12}+{int(event.y_root) + 12}")
+        tip.deiconify()
+        tip.lift()
+
+    def _hide_main_overlay_tooltip(self, _event=None) -> None:
+        tip = getattr(self, "_main_overlay_tooltip", None)
+        if tip is None:
+            return
+        try:
+            tip.withdraw()
+        except Exception:
+            pass
+
+    def _on_main_overlay_motion(self, event) -> None:
+        for left, right, text in list(getattr(self, "_main_overlay_regions", [])):
+            if float(left) <= float(event.x) <= float(right):
+                self._show_main_overlay_tooltip(event, text)
+                return
+        self._hide_main_overlay_tooltip()
 
     def save_host_session(self, path: str | None = None):
         return self.browser_controller.save_session(path)
@@ -722,8 +917,8 @@ class SDAnalyzerApp:
         }
 
     @staticmethod
-    def _center_window_on_screen(window) -> None:
-        HostWindowController.center_window_on_screen(window)
+    def _center_window_on_screen(window, *, width: int | None = None, height: int | None = None) -> None:
+        center_window_on_screen(window, width=width, height=height)
 
     def _open_generate_metrics_popup(self) -> None:
         self._get_window_controller().open_generate_metrics_popup()
@@ -765,8 +960,11 @@ class SDAnalyzerApp:
         if btn is None:
             return
         try:
-            state = "normal" if bool(self._model_setup_ready and not self._model_setup_disabled) else "disabled"
-            btn.configure(state=state)
+            allowed = bool(self._model_setup_ready and not self._model_setup_disabled)
+            selection = tuple(self.tree.selection()) if hasattr(self, "tree") else ()
+            actionable = bool(allowed and len(selection) == 1)
+            state = "disabled" if not allowed or len(selection) > 1 else "normal"
+            btn.configure(state=state, style="Accent.TButton" if actionable else "Quiet.TButton")
         except Exception:
             return
 
@@ -827,9 +1025,11 @@ class SDAnalyzerApp:
         selected = self.tree.selection()
         if not selected:
             self._set_active_event_id(None)
+            self._refresh_model_gate_ui()
             return
 
         self._set_active_event_id(selected[0])
+        self._refresh_model_gate_ui()
         event = self._get_event_by_id(self._active_event_id())
         if event is None:
             return
@@ -1100,9 +1300,28 @@ class SDAnalyzerApp:
         left = min(x0, x1)
         right = max(x0, x1)
         c.create_line(left, y, right, y, fill="#9cdb8f", width=6, capstyle=tk.ROUND)
-        r = 6
-        c.create_oval(x0 - r, y - r, x0 + r, y + r, fill="#b7ffd9", outline="")
-        c.create_oval(x1 - r, y - r, x1 + r, y + r, fill="#ffd1d1", outline="")
+        c.create_rectangle(left, y - 4, right, y + 4, fill="#9cdb8f", outline="")
+
+        handle_radius = 7
+        inner_radius = 4
+        for x_pos, fill in ((x0, "#b7ffd9"), (x1, "#ffd1d1")):
+            c.create_oval(
+                x_pos - handle_radius,
+                y - handle_radius,
+                x_pos + handle_radius,
+                y + handle_radius,
+                fill="#171b20",
+                outline="#e7edf2",
+                width=2,
+            )
+            c.create_oval(
+                x_pos - inner_radius,
+                y - inner_radius,
+                x_pos + inner_radius,
+                y + inner_radius,
+                fill=fill,
+                outline="",
+            )
 
     def _popup_range_press(self, event) -> None:
         if self.stack_info is None or self._mark_range_canvas is None:
@@ -1136,6 +1355,11 @@ class SDAnalyzerApp:
             return
         # Keep the selected popup frame valid by preventing range collapse past current.
         current_idx = int(self._mark_popup_current_idx)
+        mark_start, mark_end = self._popup_get_normalized_mark_bounds_for_overlay()
+        if mark_start is not None:
+            start_idx = min(int(start_idx), int(mark_start))
+        if mark_end is not None:
+            end_idx = max(int(end_idx), int(mark_end))
         start_idx = min(int(start_idx), current_idx)
         end_idx = max(int(end_idx), current_idx)
         start_idx, end_idx, clamped_current, _removed = clamp_popup_range(
@@ -1224,8 +1448,8 @@ class SDAnalyzerApp:
         self._set_popup_loading(False)
 
         if error is not None:
+            self._log_warn(f"Popup recompute failed: {error}")
             if show_errors:
-                self._log_warn(f"Popup recompute failed: {error}")
                 messagebox.showwarning("Mark SD", str(error), parent=self.root)
             return
         if result is None:

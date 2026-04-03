@@ -97,6 +97,20 @@ class RenderActionsTests(unittest.TestCase):
         )
         self.assertEqual(rendered.size, (40, 40))
 
+    def test_slider_move_does_not_mark_dirty(self):
+        harness = _RenderHarness()
+        harness.current_frame_idx = 0
+        harness.update_display = lambda: None
+        harness._schedule_analysis_prewarm = lambda _idx: None
+        harness._initial_frame_nav_ts = None
+        calls = []
+        harness._mark_project_dirty = lambda reason="": calls.append(str(reason))
+
+        harness.on_slider_move(3)
+
+        self.assertEqual(harness.current_frame_idx, 3)
+        self.assertEqual(calls, [])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -6,7 +6,7 @@ import numpy as np
 
 
 class MetricsSettingsResolver:
-    METRIC_KEYS = ("frames_per_sec", "scale_px_per_mm", "scale_points", "roi_points", "roi_mask")
+    METRIC_KEYS = ("frames_per_sec", "scale_px_per_mm", "scale_points", "scale_image_path", "roi_points", "roi_mask")
 
     @staticmethod
     def normalize(settings: dict | None) -> dict[str, object]:
@@ -39,6 +39,9 @@ class MetricsSettingsResolver:
                     continue
             if len(clean_scale_points) == 2:
                 out["scale_points"] = clean_scale_points
+        scale_image_path = str(settings.get("scale_image_path", "") or "").strip()
+        if scale_image_path:
+            out["scale_image_path"] = scale_image_path
         points = settings.get("roi_points")
         if isinstance(points, list) and points:
             clean_points: list[list[float]] = []
@@ -72,6 +75,8 @@ class MetricsSettingsResolver:
                 return False
         if key == "scale_points":
             return isinstance(value, list) and len(value) >= 2
+        if key == "scale_image_path":
+            return isinstance(value, str) and bool(value.strip())
         if key == "roi_points":
             return isinstance(value, list) and len(value) > 0
         if key == "roi_mask":

@@ -6,7 +6,7 @@ from sdapp.analysis.ui.widgets import build_preview_overlay
 
 
 class _FakeStyle:
-    def __init__(self, _root):
+    def __init__(self, _root=None):
         self.theme_calls = []
         self.config_calls = []
         self.map_calls = []
@@ -26,10 +26,16 @@ class _FakeFrame:
         self.parent = parent
         self.kwargs = kwargs
         self.place_args = None
-        self.pack_prop = None
+        self.grid_prop = None
 
-    def pack_propagate(self, flag):
-        self.pack_prop = flag
+    def grid_propagate(self, flag):
+        self.grid_prop = flag
+
+    def columnconfigure(self, *_args, **_kwargs):
+        return None
+
+    def rowconfigure(self, *_args, **_kwargs):
+        return None
 
     def place(self, **kwargs):
         self.place_args = kwargs
@@ -39,10 +45,10 @@ class _FakeCanvas:
     def __init__(self, parent, **kwargs):
         self.parent = parent
         self.kwargs = kwargs
-        self.packed = False
+        self.grid_args = None
 
-    def pack(self, **kwargs):
-        self.packed = True
+    def grid(self, **kwargs):
+        self.grid_args = kwargs
 
 
 class _FakeLabel:
@@ -62,16 +68,17 @@ class _FakeLabel:
 class UiHelpersTests(unittest.TestCase):
     def test_apply_theme_configures_style(self):
         fake = _FakeStyle(None)
-        with patch("sdapp.analysis.ui.theme.ttk.Style", return_value=fake):
+        with patch("sdapp.analysis.ui.theme.Style", return_value=fake):
             apply_theme(root=None)
         configured = {name for name, _ in fake.config_calls}
-        self.assertIn("TFrame", configured)
+        self.assertIn("Card.TFrame", configured)
         self.assertIn("Preview.TFrame", configured)
+        self.assertIn("Loading.Horizontal.TProgressbar", configured)
         self.assertTrue(fake.map_calls)
 
     def test_build_preview_overlay_binds_drag_handlers(self):
         with patch("sdapp.analysis.ui.widgets.ttk.Frame", _FakeFrame), patch("sdapp.analysis.ui.widgets.tk.Canvas", _FakeCanvas), patch(
-            "sdapp.analysis.ui.widgets.tk.Label", _FakeLabel
+            "sdapp.analysis.ui.widgets.ttk.Label", _FakeLabel
         ):
             start = lambda _e: None
             drag = lambda _e: None

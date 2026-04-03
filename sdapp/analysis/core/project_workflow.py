@@ -30,6 +30,8 @@ class ProjectLoadPlan:
     frame_source: Any
     event_records: dict[str, Any]
     active_event_id: str
+    scale_points: list
+    scale_image_path: str
     roi_points: list
     roi_mask: Any
     fingerprint_mismatches: list[str]
@@ -217,6 +219,8 @@ def prepare_loaded_project(app, loaded, project_path) -> ProjectLoadPlan:
         ),
         event_records=dict(loaded_actions.event_records),
         active_event_id=str(loaded_actions.active_event_id),
+        scale_points=list(loaded_actions.scale_points) if loaded_actions.scale_points else [],
+        scale_image_path=str(loaded_actions.scale_image_path or ""),
         roi_points=safe_roi_points,
         roi_mask=roi_mask,
         fingerprint_mismatches=mismatches,
@@ -247,6 +251,8 @@ def apply_loaded_project_plan(app, plan: ProjectLoadPlan) -> None:
     app.active_event_id = str(plan.active_event_id)
     app._propagation_committed_snapshot = None
     app.scale_px_per_mm = plan.global_state.get("scale_px_per_mm")
+    app.scale_points = list(plan.scale_points)
+    app._last_scale_image_path = str(plan.scale_image_path or "")
     app.roi_points = list(plan.roi_points)
     app.roi_mask = plan.roi_mask
 

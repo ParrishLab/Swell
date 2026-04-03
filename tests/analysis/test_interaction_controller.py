@@ -167,11 +167,12 @@ class InteractionControllerTests(unittest.TestCase):
         self.assertEqual(holder["updates"], 0)
         self.assertEqual(len(holder["preview_segments"]), 2)
 
-        controller.on_mouse_up(_Event(8, 9))
+        changed = controller.on_mouse_up(_Event(8, 9))
 
         self.assertEqual(holder["preview_clears"], 2)
         self.assertEqual(holder["updates"], 2)
         self.assertEqual(len(holder["records"]), 1)
+        self.assertTrue(changed)
 
     def test_point_click_maps_canvas_coordinates_through_zoomed_transform(self):
         controller, holder, mode, _lbl = self._make_controller(display_transform=(2.0, 10.0, 20.0))
@@ -187,6 +188,28 @@ class InteractionControllerTests(unittest.TestCase):
         controller.on_mouse_down(_Event(14, 28))
         radius = holder["preview_segments"][0][4]
         self.assertEqual(radius, 6.0)
+
+    def test_mouse_up_without_edit_returns_false(self):
+        controller, _holder, mode, _lbl = self._make_controller()
+        mode.set("select")
+
+        changed = controller.on_mouse_up(_Event(0, 0))
+
+        self.assertFalse(changed)
+
+    def test_delete_selected_point_returns_false_when_no_selection(self):
+        controller, _holder, _mode, _lbl = self._make_controller()
+
+        changed = controller.delete_selected_point()
+
+        self.assertFalse(changed)
+
+    def test_clear_current_frame_data_returns_false_when_frame_empty(self):
+        controller, _holder, _mode, _lbl = self._make_controller()
+
+        changed = controller.clear_current_frame_data()
+
+        self.assertFalse(changed)
 
 
 if __name__ == "__main__":

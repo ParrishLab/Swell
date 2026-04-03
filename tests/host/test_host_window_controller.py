@@ -48,3 +48,22 @@ def test_seed_analysis_image_export_cache_keeps_live_sequence_without_materializ
     entry = cache[cache_key]
     assert entry["frames_viz"] is frames_viz
     assert entry["frame_count"] == 4
+
+
+def test_combined_metric_spreadsheet_requires_at_least_one_metric_selection() -> None:
+    assert (
+        HostWindowController._can_export_combined_metric_spreadsheet(
+            include_metric_propagation_speed=False,
+            include_metric_area_recruited=False,
+            include_metric_relative_area_recruited=False,
+        )
+        is False
+    )
+    assert (
+        HostWindowController._can_export_combined_metric_spreadsheet(
+            include_metric_propagation_speed=True,
+            include_metric_area_recruited=False,
+            include_metric_relative_area_recruited=False,
+        )
+        is True
+    )

@@ -116,6 +116,33 @@ class InferenceManager:
     def _is_propagation_cancelled(self, generation):
         return self._prop_stop_event.is_set() or generation != self._active_propagation_generation
 
+    def _frame_shape_hw(self) -> tuple[int, int] | None:
+        try:
+            frame_shape = tuple(int(v) for v in self.get_frame_shape()[:2])
+        except Exception:
+            return None
+        if len(frame_shape) != 2 or frame_shape[0] <= 0 or frame_shape[1] <= 0:
+            return None
+        return frame_shape
+
+    def _has_nonempty_cached_mask(self, frame_idx: int) -> bool:
+        try:
+            cached = self.state.masks_cache.get(int(frame_idx))
+        except Exception:
+            return False
+        if cached is None:
+            return False
+        try:
+            return bool(np.any(cached))
+        except Exception:
+            return False
+
+    def _nearest_frame(self, candidates: set[int], target_idx: int) -> int | None:
+        cleaned = sorted(int(idx) for idx in candidates)
+        if not cleaned:
+            return None
+        return min(cleaned, key=lambda idx: (abs(idx - int(target_idx)), idx))
+
     def _notify_mask_updated(self, *, recompute_markers: bool = True):
         if self.is_ui_alive():
             if recompute_markers:
@@ -402,8 +429,6 @@ class InferenceManager:
             if self._is_propagation_cancelled(propagation_generation):
                 return
             self.state.prune_invalid_points()
-            if self.is_ui_alive():
-                self.root.after(0, lambda: self.set_status("Propagating...", "purple"))
 
             total_frames = int(self.get_frame_count())
             if total_frames <= 0:
@@ -412,25 +437,39 @@ class InferenceManager:
             prop_end = max(0, min(int(prop_end), total_frames - 1))
             anchor_frame = max(prop_start, min(int(anchor_frame), prop_end))
             in_range = range(prop_start, prop_end + 1)
-
-            def frame_has_mask_or_paint(idx):
-                if idx in self.state.masks_cache and self.state.masks_cache[idx] is not None and np.any(self.state.masks_cache[idx]):
-                    return True
-                return self.state.has_nonempty_paint(idx)
-
-            if not frame_has_mask_or_paint(anchor_frame):
-                candidates = [i for i in in_range if frame_has_mask_or_paint(i)]
-                if candidates:
-                    anchor_frame = min(candidates, key=lambda i: abs(i - self.get_current_frame_idx()))
-                    if self.is_ui_alive():
-                        self.root.after(0, lambda f=anchor_frame: self.set_slider_frame(f))
-
             point_frames = {idx for idx in in_range if idx in self.state.get_valid_point_frames()}
             paint_frames = {idx for idx in in_range if self.state.has_nonempty_paint(idx)}
-            frames_with_input = point_frames | paint_frames
+            frame_shape = self._frame_shape_hw()
+            mask_only_frames = {
+                idx for idx in in_range if self._has_nonempty_cached_mask(idx)
+            }
+            user_seed_frames = point_frames | paint_frames
+            mask_seed_frames: set[int] = set()
+            frames_with_input = set(user_seed_frames)
+
+            if user_seed_frames:
+                nearest_seed = self._nearest_frame(user_seed_frames, anchor_frame)
+                if nearest_seed is not None:
+                    anchor_frame = nearest_seed
+            elif mask_only_frames:
+                nearest_mask = self._nearest_frame(mask_only_frames, anchor_frame)
+                if nearest_mask is None:
+                    nearest_mask = self._nearest_frame(mask_only_frames, self.get_current_frame_idx())
+                if nearest_mask is not None:
+                    anchor_frame = nearest_mask
+                    mask_seed_frames = {nearest_mask}
+                    frames_with_input = {nearest_mask}
+                    self._log_info(
+                        "Propagation",
+                        f"No point/paint prompts found; using committed mask on frame {nearest_mask + 1} as the seed.",
+                    )
+
             if not frames_with_input:
-                self._log_warn("Propagation", "No valid point/paint prompts found in selected range; stopping.")
+                self._log_warn("Propagation", "No valid point prompts, paint edits, or committed masks found in selected range; stopping.")
                 return
+
+            if self.is_ui_alive():
+                self.root.after(0, lambda f=anchor_frame: self.set_slider_frame(f))
             thresh = float(self.get_sensitivity())
 
             self._log_info(
@@ -443,6 +482,8 @@ class InferenceManager:
             backward_expected = max(0, anchor_frame - prop_start + 1)
             total_expected = forward_expected + backward_expected
             prop_log_run_id = self.prop_log_start(total_expected, "Propagation")
+            if self.is_ui_alive():
+                self.root.after(0, lambda: self.set_status("Propagating...", "purple"))
 
             def cleanup():
                 gc.collect()
@@ -460,100 +501,119 @@ class InferenceManager:
                 with io.StringIO() as silent_out, io.StringIO() as silent_err:
                     with contextlib.redirect_stdout(silent_out), contextlib.redirect_stderr(silent_err):
                         if self._is_propagation_cancelled(propagation_generation):
-                            return
-                        self.predictor.reset_state(self.inference_state)
-                        sorted_frames = sorted(list(frames_with_input))
-                        self._log_info("Propagation", f"Injecting prompts for {len(sorted_frames)} frame(s).")
+                            was_stopped = True
+                        else:
+                            self.predictor.reset_state(self.inference_state)
+                            sorted_frames = sorted(list(frames_with_input))
+                            self._log_info("Propagation", f"Injecting prompts for {len(sorted_frames)} frame(s).")
 
-                        for f_idx in sorted_frames:
-                            if self._is_propagation_cancelled(propagation_generation):
-                                break
-                            has_paint = f_idx in paint_frames
-
-                            if has_paint:
-                                frame_shape = tuple(int(v) for v in self.get_frame_shape()[:2])
-                                if len(frame_shape) != 2 or frame_shape[0] <= 0 or frame_shape[1] <= 0:
-                                    self._log_warn("Propagation", "Skipping paint prompt injection: invalid frame shape.")
-                                    continue
-                                base_mask = np.zeros(frame_shape, dtype=bool)
-                                if f_idx in self.state.masks_cache and self.state.masks_cache[f_idx] is not None:
-                                    base_mask = self.state.masks_cache[f_idx].astype(bool)
-
-                                plus = self.state.paint_layers[f_idx]["plus"]
-                                minus = self.state.paint_layers[f_idx]["minus"]
-                                final_mask = (base_mask | plus) & ~minus
-
-                                self.predictor.add_new_mask(
-                                    inference_state=self.inference_state,
-                                    frame_idx=f_idx,
-                                    obj_id=1,
-                                    mask=final_mask.astype(np.float32),
-                                )
-                                self.state.set_mask(f_idx, final_mask)
-
-                            else:
-                                if f_idx not in self.state.get_valid_point_frames():
-                                    self._log_warn("Propagation", f"Skipping frame {f_idx + 1}: no valid point prompts.")
-                                    continue
-                                pt_list = self.state.points[f_idx]
-                                points = np.array([[p["x"], p["y"]] for p in pt_list], dtype=np.float32)
-                                labels = np.array([p["label"] for p in pt_list], dtype=np.int32)
-                                valid_arrays, reason = self._validate_point_prompt_arrays(points, labels)
-                                if not valid_arrays:
-                                    self._log_warn(
-                                        "Propagation", f"Skipping frame {f_idx + 1}: invalid point prompt ({reason})."
-                                    )
-                                    continue
-                                self.predictor.add_new_points_or_box(
-                                    inference_state=self.inference_state,
-                                    frame_idx=f_idx,
-                                    obj_id=1,
-                                    points=points,
-                                    labels=labels,
-                                )
-
-                        forward_generator = self.predictor.propagate_in_video(
-                            self.inference_state, start_frame_idx=anchor_frame, reverse=False
-                        )
-
-                        for out_frame_idx, out_obj_ids, out_mask_logits in forward_generator:
-                            if self._is_propagation_cancelled(propagation_generation):
-                                was_stopped = True
-                                break
-                            if out_frame_idx > prop_end:
-                                break
-
-                            self.prop_log_tick(run_id=prop_log_run_id)
-                            if len(out_obj_ids) > 0:
-                                if out_frame_idx in frames_with_input:
-                                    continue
-                                res_mask = (out_mask_logits[0] > thresh).cpu().numpy().squeeze()
-                                self.state.set_mask(out_frame_idx, res_mask)
-                                propagated_result_frames.add(out_frame_idx)
-                                if out_frame_idx == self.get_current_frame_idx() and self.is_ui_alive():
-                                    self.root.after(0, self.update_display)
-
-                        if not was_stopped:
-                            backward_generator = self.predictor.propagate_in_video(
-                                self.inference_state, start_frame_idx=anchor_frame, reverse=True
-                            )
-
-                            for out_frame_idx, out_obj_ids, out_mask_logits in backward_generator:
+                            for f_idx in sorted_frames:
                                 if self._is_propagation_cancelled(propagation_generation):
                                     was_stopped = True
                                     break
-                                if out_frame_idx < prop_start:
-                                    break
+                                has_paint = f_idx in paint_frames
+                                has_mask_seed = f_idx in mask_seed_frames
 
-                                self.prop_log_tick(run_id=prop_log_run_id)
-                                if len(out_obj_ids) > 0:
-                                    if out_frame_idx in frames_with_input:
+                                if has_paint:
+                                    if frame_shape is None:
+                                        self._log_warn("Propagation", "Skipping paint prompt injection: invalid frame shape.")
                                         continue
-                                    res_mask = (out_mask_logits[0] > thresh).cpu().numpy().squeeze()
-                                    self.state.set_mask(out_frame_idx, res_mask)
-                                    propagated_result_frames.add(out_frame_idx)
-                                    if out_frame_idx == self.get_current_frame_idx() and self.is_ui_alive():
-                                        self.root.after(0, self.update_display)
+                                    base_mask = np.zeros(frame_shape, dtype=bool)
+                                    if f_idx in self.state.masks_cache and self.state.masks_cache[f_idx] is not None:
+                                        base_mask = self.state.masks_cache[f_idx].astype(bool)
+
+                                    plus = self.state.paint_layers[f_idx]["plus"]
+                                    minus = self.state.paint_layers[f_idx]["minus"]
+                                    final_mask = (base_mask | plus) & ~minus
+
+                                    self.predictor.add_new_mask(
+                                        inference_state=self.inference_state,
+                                        frame_idx=f_idx,
+                                        obj_id=1,
+                                        mask=final_mask.astype(np.float32),
+                                    )
+                                    self.state.set_mask(f_idx, final_mask)
+
+                                elif has_mask_seed:
+                                    if frame_shape is None:
+                                        self._log_warn("Propagation", "Skipping mask prompt injection: invalid frame shape.")
+                                        continue
+                                    final_mask = self.state.compose_final_mask(f_idx, frame_shape)
+                                    if final_mask is None or not np.any(final_mask):
+                                        self._log_warn("Propagation", f"Skipping frame {f_idx + 1}: empty mask prompt.")
+                                        continue
+                                    self.predictor.add_new_mask(
+                                        inference_state=self.inference_state,
+                                        frame_idx=f_idx,
+                                        obj_id=1,
+                                        mask=np.asarray(final_mask, dtype=np.float32),
+                                    )
+                                    self.state.set_mask(f_idx, np.asarray(final_mask, dtype=bool))
+
+                                else:
+                                    if f_idx not in self.state.get_valid_point_frames():
+                                        self._log_warn("Propagation", f"Skipping frame {f_idx + 1}: no valid point prompts.")
+                                        continue
+                                    pt_list = self.state.points[f_idx]
+                                    points = np.array([[p["x"], p["y"]] for p in pt_list], dtype=np.float32)
+                                    labels = np.array([p["label"] for p in pt_list], dtype=np.int32)
+                                    valid_arrays, reason = self._validate_point_prompt_arrays(points, labels)
+                                    if not valid_arrays:
+                                        self._log_warn(
+                                            "Propagation", f"Skipping frame {f_idx + 1}: invalid point prompt ({reason})."
+                                        )
+                                        continue
+                                    self.predictor.add_new_points_or_box(
+                                        inference_state=self.inference_state,
+                                        frame_idx=f_idx,
+                                        obj_id=1,
+                                        points=points,
+                                        labels=labels,
+                                    )
+
+                            if not was_stopped:
+                                forward_generator = self.predictor.propagate_in_video(
+                                    self.inference_state, start_frame_idx=anchor_frame, reverse=False
+                                )
+
+                                for out_frame_idx, out_obj_ids, out_mask_logits in forward_generator:
+                                    if self._is_propagation_cancelled(propagation_generation):
+                                        was_stopped = True
+                                        break
+                                    if out_frame_idx > prop_end:
+                                        break
+
+                                    self.prop_log_tick(run_id=prop_log_run_id)
+                                    if len(out_obj_ids) > 0:
+                                        if out_frame_idx in frames_with_input:
+                                            continue
+                                        res_mask = (out_mask_logits[0] > thresh).cpu().numpy().squeeze()
+                                        self.state.set_mask(out_frame_idx, res_mask)
+                                        propagated_result_frames.add(out_frame_idx)
+                                        if out_frame_idx == self.get_current_frame_idx() and self.is_ui_alive():
+                                            self.root.after(0, self.update_display)
+
+                            if not was_stopped:
+                                backward_generator = self.predictor.propagate_in_video(
+                                    self.inference_state, start_frame_idx=anchor_frame, reverse=True
+                                )
+
+                                for out_frame_idx, out_obj_ids, out_mask_logits in backward_generator:
+                                    if self._is_propagation_cancelled(propagation_generation):
+                                        was_stopped = True
+                                        break
+                                    if out_frame_idx < prop_start:
+                                        break
+
+                                    self.prop_log_tick(run_id=prop_log_run_id)
+                                    if len(out_obj_ids) > 0:
+                                        if out_frame_idx in frames_with_input:
+                                            continue
+                                        res_mask = (out_mask_logits[0] > thresh).cpu().numpy().squeeze()
+                                        self.state.set_mask(out_frame_idx, res_mask)
+                                        propagated_result_frames.add(out_frame_idx)
+                                        if out_frame_idx == self.get_current_frame_idx() and self.is_ui_alive():
+                                            self.root.after(0, self.update_display)
 
             cleanup()
             if was_stopped or self._is_propagation_cancelled(propagation_generation):

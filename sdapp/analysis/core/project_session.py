@@ -54,6 +54,8 @@ class SessionSnapshot:
     export_end: int
     baseline_frame_count: int
     scale_px_per_mm: Any
+    scale_points: list
+    scale_image_path: str
     roi_points: list
     roi_mask: np.ndarray | None
     created_at: str
@@ -66,6 +68,8 @@ class LoadedSessionActions:
     active_event_id: str
     event_records: dict[str, EventRecord]
     scale_px_per_mm: Any
+    scale_points: list
+    scale_image_path: str
     roi_points: list
     roi_mask: np.ndarray | None
     baseline_frame_count: int
@@ -343,6 +347,8 @@ class ProjectSessionService:
         }
         state["global"] = {
             "scale_px_per_mm": snapshot.scale_px_per_mm,
+            "scale_points": list(snapshot.scale_points) if snapshot.scale_points else [],
+            "scale_image_path": str(snapshot.scale_image_path or ""),
             "roi": {"ref": "roi.json"},
             "baseline_frame_count": int(snapshot.baseline_frame_count),
         }
@@ -447,6 +453,8 @@ class ProjectSessionService:
             active_event_id=active_id,
             event_records=event_records,
             scale_px_per_mm=global_state.get("scale_px_per_mm"),
+            scale_points=list(global_state.get("scale_points", [])) if isinstance(global_state.get("scale_points"), list) else [],
+            scale_image_path=str(global_state.get("scale_image_path", "") or ""),
             roi_points=roi_points,
             roi_mask=roi_mask,
             baseline_frame_count=int(global_state.get("baseline_frame_count", 30)),

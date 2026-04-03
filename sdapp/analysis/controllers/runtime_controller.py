@@ -9,22 +9,41 @@ class AnalysisRuntimeController:
     def __init__(self, app) -> None:
         self.app = app
 
+    def _set_propagation_button_state(self, running: bool) -> None:
+        button = getattr(self.app, "btn_run_propagation", None)
+        if button is None:
+            return
+        try:
+            button.configure(
+                text="Running…" if running else "Run Propagation",
+                state="disabled" if running else ("normal" if self.app._has_loaded_stack() else "disabled"),
+            )
+        except Exception:
+            return
+
     def set_runtime_status(self, text: str, color: str) -> None:
         del color
         status = str(text or "")
-        self.app._set_activity_message(status)
         if "Propagating" in status:
-            self.app._set_loading_indicator(True, status)
+            self.app._set_activity_message(status)
+            self._set_propagation_button_state(True)
             return
         if status in {"Propagation Complete", "Propagation Stopped", "Propagation Error"}:
+            self.app._propagation_progress_active = False
+            self.app._set_activity_message(status)
+            self._set_propagation_button_state(False)
             if self.app._loading_task_count <= 0 and hasattr(self.app, "loading_bar"):
                 self.app.loading_bar.stop()
                 if self.app.loading_bar.winfo_ismapped():
-                    self.app.loading_bar.pack_forget()
+                    self.app.loading_bar.grid_remove()
+            return
+        self.app._set_activity_message(status)
 
     def set_busy(self, is_busy, status_text, color) -> None:
         self.app.lbl_status.configure(text=status_text, foreground=color)
         self.app._set_loading_indicator(bool(is_busy), str(status_text).replace("Status:", "").strip() or "Working...")
+        if not is_busy:
+            self._set_propagation_button_state(False)
         if hasattr(self.app, "btn_save_masks"):
             if is_busy:
                 self.app.btn_save_masks.configure(state="disabled")

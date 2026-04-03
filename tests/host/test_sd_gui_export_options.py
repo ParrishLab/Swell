@@ -14,6 +14,7 @@ def test_export_selected_routes_through_options_dialog() -> None:
         "include_event_images": True,
         "include_baseline_images": False,
         "include_binary_masks": True,
+        "include_metric_combined_spreadsheet": True,
     }
     captured: dict[str, object] = {}
     app._run_export = lambda ids, *, options: captured.update({"ids": list(ids), "options": dict(options)})
@@ -25,6 +26,7 @@ def test_export_selected_routes_through_options_dialog() -> None:
         "include_event_images": True,
         "include_baseline_images": False,
         "include_binary_masks": True,
+        "include_metric_combined_spreadsheet": True,
     }
 
 
@@ -60,6 +62,7 @@ def test_export_all_routes_through_options_dialog() -> None:
         "include_event_images": False,
         "include_baseline_images": True,
         "include_binary_masks": False,
+        "include_metric_combined_spreadsheet": False,
     }
     captured: dict[str, object] = {}
     app._run_export = lambda ids, *, options: captured.update({"ids": list(ids), "options": dict(options)})
@@ -71,6 +74,7 @@ def test_export_all_routes_through_options_dialog() -> None:
         "include_event_images": False,
         "include_baseline_images": True,
         "include_binary_masks": False,
+        "include_metric_combined_spreadsheet": False,
     }
 
 

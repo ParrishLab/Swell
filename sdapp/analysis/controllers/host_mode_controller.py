@@ -13,6 +13,33 @@ class AnalysisHostModeController:
     def __init__(self, app) -> None:
         self.app = app
 
+    def _set_host_open_status(self, message: str, color: str = "gray") -> None:
+        try:
+            self.app.lbl_status.configure(text=f"Status: {str(message)}", foreground=str(color))
+        except Exception:
+            return
+
+    def _log_overlay_snapshot(self, label: str) -> None:
+        try:
+            frame_count = int(getattr(self.app, "_get_frame_count", lambda: 0)())
+        except Exception:
+            frame_count = 0
+        try:
+            prompt_frames = sorted(int(i) for i in self.app._collect_user_defined_frames())[:12]
+        except Exception:
+            prompt_frames = []
+        try:
+            mask_frames = sorted(int(i) for i in self.app._collect_nonempty_final_mask_frames())[:12]
+        except Exception:
+            mask_frames = []
+        markers = dict(getattr(self.app, "slider_jump_markers", {}) or {})
+        self.app.log_debug(
+            "HostMode",
+            f"{label} frame_count={frame_count} prompt_frames={prompt_frames} "
+            f"mask_frames={mask_frames} marker_count={len(markers)} "
+            f"marker_sample={list(sorted(markers.items()))[:6]}",
+        )
+
     def _visual_frames_ready(self) -> bool:
         get_frames_sub_viz = getattr(self.app, "_get_frames_sub_viz", None)
         if not callable(get_frames_sub_viz):
@@ -35,6 +62,7 @@ class AnalysisHostModeController:
             self.app.log_info("HostMode", "Deferring model initialization until visualization frames are ready...")
             return
         self.app._host_pending_model_init_reason = None
+        self.app.log_debug("HostMode", f"Model init kicked reason={reason}")
         self.app.log_info("HostMode", "Initializing model for host-driven workspace...")
         self.app.start_model_initialization(reason=str(reason))
 
@@ -127,6 +155,29 @@ class AnalysisHostModeController:
             f"Host open prewarm elapsed={(time.perf_counter() - started) * 1000.0:.1f}ms "
             f"center={center + 1} frames={len(indices)}",
         )
+
+    def _restore_active_host_event_state(self) -> None:
+        active_event_id = str(getattr(self.app, "active_event_id", "") or "")
+        workspace = getattr(self.app, "analysis_workspace", None)
+        if not active_event_id or workspace is None:
+            return
+        try:
+            workspace.open_event(active_event_id)
+            self.app.log_debug("HostMode", f"Event state restored event_id={active_event_id}")
+        except Exception as exc:
+            self.app.log_warn("HostMode", f"Failed to restore active event state: {exc}")
+            return
+        recompute = getattr(self.app, "_recompute_slider_jump_markers", None)
+        if callable(recompute):
+            recompute()
+            self.app.log_debug("HostMode", f"First marker recompute complete event_id={active_event_id}")
+        sync_overlay = getattr(self.app, "_sync_saved_mask_overlay_state", None)
+        if callable(sync_overlay):
+            try:
+                sync_overlay(reset_history=False)
+            except TypeError:
+                sync_overlay()
+        self._log_overlay_snapshot("after_restore_active_event")
 
     def emit_host_sync(self, reason: str) -> dict[str, object] | None:
         if not hasattr(self.app, "analysis_workspace") or self.app.analysis_workspace is None:
@@ -282,14 +333,19 @@ class AnalysisHostModeController:
         )
         if not bool(result.get("ok")):
             return result
+        self.app.log_debug("HostMode", "Host context normalized and event state loaded.")
         metrics_settings = context.get("metrics_settings") if isinstance(context, dict) else None
         local_metrics_settings = context.get("local_metrics_settings") if isinstance(context, dict) else None
         self.app._apply_host_metrics_settings(
             metrics_settings if isinstance(metrics_settings, dict) else None,
             local_metrics_settings if isinstance(local_metrics_settings, dict) else None,
         )
-        self.app._sync_saved_mask_overlay_state()
-        self.app._post_host_mode_open_ui("Preparing host workspace...")
+        try:
+            self.app._sync_saved_mask_overlay_state(reset_history=True)
+        except TypeError:
+            self.app._sync_saved_mask_overlay_state()
+        self._log_overlay_snapshot("after_host_context_initial_sync")
+        self._set_host_open_status("Preparing host workspace...", "orange")
         if self.app.frame_source is not None:
             try:
                 ready = bool(
@@ -304,11 +360,10 @@ class AnalysisHostModeController:
             if hasattr(self.app, "app_context") and self.app.app_context is not None:
                 self.app.app_context.frame_source = self.app.frame_source
             if ready:
-                self.app._finalize_load_ui()
-                self.app.update_display(update_preview=True)
+                self.app._post_host_mode_open_ui("Host direct workspace initialized.")
                 self._maybe_start_host_model_initialization("host_context_open")
             else:
-                self._maybe_start_host_model_initialization("host_context_open")
+                self.app._host_pending_model_init_reason = "host_context_open"
         return result
 
     def open_from_host_handoff(self, payload: dict, frame_source=None, sync_emitter=None):
@@ -365,7 +420,13 @@ class AnalysisHostModeController:
         )
         if not bool(result.get("ok")):
             return result
-        self.app._sync_saved_mask_overlay_state()
+        self.app.log_debug("HostMode", "Host handoff normalized and event state loaded.")
+        try:
+            self.app._sync_saved_mask_overlay_state(reset_history=True)
+        except TypeError:
+            self.app._sync_saved_mask_overlay_state()
+        self._log_overlay_snapshot("after_host_handoff_initial_sync")
+        self._set_host_open_status("Preparing host workspace...", "orange")
 
         if self.app.frame_source is not None:
             try:
@@ -383,7 +444,7 @@ class AnalysisHostModeController:
                 self.app._post_host_mode_open_ui("Host-driven analysis workspace initialized.")
                 self._maybe_start_host_model_initialization("host_handoff_open")
             else:
-                self._maybe_start_host_model_initialization("host_handoff_open")
+                self.app._host_pending_model_init_reason = "host_handoff_open"
         return result
 
     def post_host_mode_open_ui(self, message: str) -> None:
@@ -391,23 +452,22 @@ class AnalysisHostModeController:
             return
         self.app._host_post_open_ui_initialized = True
         self._debug_frame_source("post_host_mode_open_ui.pre_finalize", getattr(self.app, "frame_source", None))
-        self.app._finalize_load_ui()
-        active_event_id = str(getattr(self.app, "active_event_id", "") or "")
-        if active_event_id and hasattr(self.app, "analysis_workspace") and self.app.analysis_workspace is not None:
+        self._restore_active_host_event_state()
+        finalize = getattr(self.app, "_finalize_load_ui", None)
+        if callable(finalize):
             try:
-                self.app.analysis_workspace.open_event(active_event_id)
-            except Exception:
-                pass
-        self.app._sync_saved_mask_overlay_state()
+                finalize(preserve_workspace_state=True)
+            except TypeError:
+                finalize()
         if hasattr(self.app, "_reset_viewport_to_fit"):
             self.app._reset_viewport_to_fit(update_display=False)
-        self.app.root.after_idle(lambda: self.app.update_display(update_preview=True))
+        if hasattr(self.app.root, "after_idle"):
+            self.app.root.after_idle(lambda: self.app.update_display(update_preview=True))
         self.app.root.after(120, lambda: self.app.update_display(update_preview=True))
+        self._log_overlay_snapshot("after_host_open_finalize")
+        self.app.log_debug("HostMode", "Host-open finalize complete.")
         self.app.log_info("HostMode", message)
-        try:
-            self.app.lbl_status.configure(text="Status: Host-bound mode (project managed by SD ID)", foreground="gray")
-        except Exception:
-            pass
+        self._set_host_open_status("Host-bound mode (project managed by SD ID)")
 
     def prepare_host_mode_buffers(self, frame_source, on_ready_message: str | None = None, prefer_async: bool = False):
         if not hasattr(self.app, "_host_buffer_cache_key"):
@@ -543,6 +603,7 @@ class AnalysisHostModeController:
             if callable(getattr(self.app, "_schedule_analysis_prewarm", None)):
                 self.app._schedule_analysis_prewarm(0 if local_frame_idx is None else int(local_frame_idx))
             self.app._initial_frame_nav_ts = time.perf_counter()
+            self.app.log_debug("HostMode", f"Prepared source applied frame_count={frame_count}")
             self.app.log_info("HostMode", f"Prepared lazy visualization source ({frame_count} frames).")
             if on_ready_message:
                 self.app.log_info("HostMode", str(on_ready_message))
@@ -573,15 +634,8 @@ class AnalysisHostModeController:
                     if int(getattr(self.app, "_host_buffer_generation", 0) or 0) != generation:
                         return
                     _apply_prepared_source(prepared_source)
-                    if not bool(getattr(self.app, "_host_post_open_ui_initialized", False)) and callable(
-                        getattr(self.app, "_post_host_mode_open_ui", None)
-                    ):
+                    if callable(getattr(self.app, "_post_host_mode_open_ui", None)):
                         self.app._post_host_mode_open_ui(str(on_ready_message or "Host workspace initialized."))
-                    else:
-                        if callable(getattr(self.app, "_finalize_load_ui", None)):
-                            self.app._finalize_load_ui()
-                        if callable(getattr(self.app, "update_display", None)):
-                            self.app.update_display(update_preview=True)
                     pending_reason = str(getattr(self.app, "_host_pending_model_init_reason", "") or "").strip()
                     if pending_reason:
                         self._maybe_start_host_model_initialization(pending_reason)

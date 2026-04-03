@@ -1,5 +1,5 @@
 import tkinter as tk
-from tkinter import messagebox, ttk
+from tkinter import messagebox
 
 import cv2
 import numpy as np
@@ -13,6 +13,8 @@ from sdapp.analysis.core.viewport import (
     zoom_viewport_at,
     pan_viewport,
 )
+from sdapp.analysis.ui.theme import SPACING, apply_theme
+from sdapp.shared.ui.bootstrap import center_window_on_screen, semantic_button_options, ttk
 
 ROI_ICON_LABELS = {
     "zoom_in": "+",
@@ -56,9 +58,14 @@ def _clamp_roi_viewport(state, *, canvas_width: int, canvas_height: int, image_w
 
 def open_roi_dialog(root, img_u8, initial_roi_points=None):
     popup = tk.Toplevel(root)
+    popup.withdraw()
     popup.title("Draw ROI - First Original Frame")
-    popup.grab_set()
     popup.resizable(True, True)
+    popup.geometry("1080x860")
+    popup.minsize(900, 760)
+    apply_theme(popup)
+    popup.columnconfigure(0, weight=1)
+    popup.rowconfigure(0, weight=1)
 
     img_h, img_w = img_u8.shape[:2]
     max_w, max_h = 900, 700
@@ -67,10 +74,18 @@ def open_roi_dialog(root, img_u8, initial_roi_points=None):
     initial_w = max(1, int(round(img_w * base_ratio)))
     initial_h = max(1, int(round(img_h * base_ratio)))
 
-    canvas_shell = ttk.Frame(popup)
-    canvas_shell.pack(padx=8, pady=8, fill="both", expand=True)
+    shell = ttk.Frame(popup, padding=SPACING.outer, style="AppShell.TFrame")
+    shell.grid(row=0, column=0, sticky="nsew")
+    shell.columnconfigure(0, weight=1)
+    shell.rowconfigure(0, weight=1)
+    shell.rowconfigure(1, weight=0)
+
+    canvas_shell = ttk.Frame(shell, padding=SPACING.card, style="Inset.TFrame")
+    canvas_shell.grid(row=0, column=0, sticky="nsew")
+    canvas_shell.columnconfigure(0, weight=1)
+    canvas_shell.rowconfigure(0, weight=1)
     canvas = tk.Canvas(canvas_shell, width=initial_w, height=initial_h, bg="black", highlightthickness=0)
-    canvas.pack(fill="both", expand=True)
+    canvas.grid(row=0, column=0, sticky="nsew")
 
     points_seed = list(initial_roi_points) if initial_roi_points else []
     state = {
@@ -465,31 +480,36 @@ def open_roi_dialog(root, img_u8, initial_roi_points=None):
         popup.destroy()
 
     canvas.bind("<Button-1>", start_pan, add="+")
-    canvas.bind("<Button-1>", on_click)
+    canvas.bind("<Button-1>", on_click, add="+")
     canvas.bind("<B1-Motion>", drag_pan, add="+")
-    canvas.bind("<B1-Motion>", on_drag)
+    canvas.bind("<B1-Motion>", on_drag, add="+")
     canvas.bind("<ButtonRelease-1>", on_release)
     canvas.bind("<Double-Button-1>", on_double_click)
     canvas.bind("<Configure>", on_canvas_configure)
     canvas.bind("<MouseWheel>", on_mouse_wheel)
     canvas.bind("<Button-4>", on_mouse_wheel)
     canvas.bind("<Button-5>", on_mouse_wheel)
-    controls = ttk.Frame(popup)
-    controls.pack(fill="x", padx=8, pady=(0, 8))
+    controls = ttk.Frame(shell, padding=(0, SPACING.inner, 0, 0), style="Surface.TFrame")
+    controls.grid(row=1, column=0, sticky="ew")
     ttk.Label(
         controls,
         text="Click to add/select points. Double-click first point to close. Drag to move. Click edge to insert. Wheel zooms. Space-drag pans.",
+        style="Meta.TLabel",
     ).pack(side="top", anchor="w", pady=(0, 4))
     button_opts = {"takefocus": False}
-    ttk.Button(controls, text="Undo Point", command=on_undo, **button_opts).pack(side="left", padx=3)
-    ttk.Button(controls, text="Delete Selected", command=on_delete_selected, **button_opts).pack(side="left", padx=3)
-    ttk.Button(controls, text="Clear", command=on_clear, **button_opts).pack(side="left", padx=3)
-    ttk.Button(controls, text=ROI_ICON_LABELS["zoom_in"], width=3, command=zoom_in, **button_opts).pack(side="left", padx=3)
-    ttk.Button(controls, text=ROI_ICON_LABELS["zoom_out"], width=3, command=zoom_out, **button_opts).pack(side="left", padx=3)
-    ttk.Button(controls, text=ROI_ICON_LABELS["fit"], width=3, command=reset_view, **button_opts).pack(side="left", padx=3)
-    ttk.Button(controls, text="Save Global ROI", command=lambda: on_finish("global"), **button_opts).pack(side="right", padx=3)
-    ttk.Button(controls, text="Save Local ROI", command=lambda: on_finish("local"), **button_opts).pack(side="right", padx=3)
-    ttk.Button(controls, text="Cancel", command=popup.destroy, **button_opts).pack(side="right", padx=3)
+    left_controls = ttk.Frame(controls, style="Surface.TFrame")
+    left_controls.pack(side="left")
+    ttk.Button(left_controls, text="Undo Point", command=on_undo, **button_opts, **semantic_button_options("secondary")).pack(side="left", padx=(0, SPACING.gap))
+    ttk.Button(left_controls, text="Delete Selected", command=on_delete_selected, **button_opts, **semantic_button_options("secondary")).pack(side="left", padx=(0, SPACING.gap))
+    ttk.Button(left_controls, text="Clear", command=on_clear, **button_opts, **semantic_button_options("secondary")).pack(side="left", padx=(0, SPACING.gap))
+    ttk.Button(left_controls, text=ROI_ICON_LABELS["zoom_in"], width=3, command=zoom_in, **button_opts, **semantic_button_options("secondary")).pack(side="left", padx=(SPACING.inner, SPACING.gap))
+    ttk.Button(left_controls, text=ROI_ICON_LABELS["zoom_out"], width=3, command=zoom_out, **button_opts, **semantic_button_options("secondary")).pack(side="left", padx=(0, SPACING.gap))
+    ttk.Button(left_controls, text=ROI_ICON_LABELS["fit"], width=3, command=reset_view, **button_opts, **semantic_button_options("secondary")).pack(side="left")
+    right_controls = ttk.Frame(controls, style="Surface.TFrame")
+    right_controls.pack(side="right")
+    ttk.Button(right_controls, text="Cancel", command=popup.destroy, **button_opts, **semantic_button_options("secondary")).pack(side="right")
+    ttk.Button(right_controls, text="Save Local ROI", command=lambda: on_finish("local"), **button_opts, **semantic_button_options("secondary")).pack(side="right", padx=(0, SPACING.gap))
+    ttk.Button(right_controls, text="Save Global ROI", command=lambda: on_finish("global"), **button_opts, **semantic_button_options("primary")).pack(side="right", padx=(0, SPACING.gap))
     popup.bind("<KeyPress-space>", set_space_pan_active, add="+")
     popup.bind("<space>", set_space_pan_active, add="+")
     popup.bind("<KeyRelease-space>", clear_space_pan_active, add="+")
@@ -505,5 +525,8 @@ def open_roi_dialog(root, img_u8, initial_roi_points=None):
     render_background()
     redraw()
     refocus_canvas()
+    center_window_on_screen(popup, width=1080, height=860)
+    popup.deiconify()
+    popup.grab_set()
     popup.wait_window()
     return result["value"]

@@ -1,23 +1,37 @@
 import tkinter as tk
-from tkinter import messagebox, simpledialog, ttk
+from tkinter import messagebox, simpledialog
 
 import cv2
 import numpy as np
 from PIL import Image, ImageTk
 
+from sdapp.analysis.ui.theme import SPACING, apply_theme
+from sdapp.shared.ui.bootstrap import center_window_on_screen, semantic_button_options, ttk
+
 
 def open_scale_dialog(root, img_u8, snap_scale_points_axis, refine_scale_bar_points, compute_scale, initial_scale_points=None):
     popup = tk.Toplevel(root)
+    popup.withdraw()
     popup.title("Set Scale - First Original Frame")
-    popup.grab_set()
     popup.resizable(True, True)
+    popup.geometry("1080x860")
+    popup.minsize(900, 760)
+    apply_theme(popup)
+    popup.columnconfigure(0, weight=1)
+    popup.rowconfigure(0, weight=1)
+
+    shell = ttk.Frame(popup, padding=SPACING.outer, style="AppShell.TFrame")
+    shell.grid(row=0, column=0, sticky="nsew")
+    shell.columnconfigure(0, weight=1)
+    shell.rowconfigure(0, weight=1)
+    shell.rowconfigure(1, weight=0)
 
     img_h, img_w = img_u8.shape[:2]
     max_w, max_h = 900, 700
     initial_fit_ratio = min(max_w / img_w, max_h / img_h, 1.0)
 
-    canvas_shell = ttk.Frame(popup)
-    canvas_shell.pack(padx=8, pady=8, fill="both", expand=True)
+    canvas_shell = ttk.Frame(shell, padding=SPACING.card, style="Inset.TFrame")
+    canvas_shell.grid(row=0, column=0, sticky="nsew")
     x_scroll = ttk.Scrollbar(canvas_shell, orient="horizontal")
     y_scroll = ttk.Scrollbar(canvas_shell, orient="vertical")
     canvas = tk.Canvas(
@@ -237,7 +251,7 @@ def open_scale_dialog(root, img_u8, snap_scale_points_axis, refine_scale_bar_poi
                     cc1y,
                     cc2x,
                     cc2y,
-                    fill="#ff66ff",
+                    fill="#1b75bc",
                     width=max(2, int(round(line_width))),
                     tags="overlay",
                 )
@@ -246,7 +260,7 @@ def open_scale_dialog(root, img_u8, snap_scale_points_axis, refine_scale_bar_poi
                     cc1y - point_radius,
                     cc1x + point_radius,
                     cc1y + point_radius,
-                    outline="yellow" if state["dragging_idx"] == 0 else "#ff66ff",
+                    outline="yellow" if state["dragging_idx"] == 0 else "#1b75bc",
                     width=max(2, int(round(line_width))),
                     tags="overlay",
                 )
@@ -255,7 +269,7 @@ def open_scale_dialog(root, img_u8, snap_scale_points_axis, refine_scale_bar_poi
                     cc2y - point_radius,
                     cc2x + point_radius,
                     cc2y + point_radius,
-                    outline="yellow" if state["dragging_idx"] == 1 else "#ff66ff",
+                    outline="yellow" if state["dragging_idx"] == 1 else "#1b75bc",
                     width=max(2, int(round(line_width))),
                     tags="overlay",
                 )
@@ -367,18 +381,49 @@ def open_scale_dialog(root, img_u8, snap_scale_points_axis, refine_scale_bar_poi
     popup.focus_set()
     render_background()
     redraw()
-    controls = ttk.Frame(popup)
-    controls.pack(fill="x", padx=8, pady=(0, 8))
-    ttk.Button(controls, text="Undo", command=on_undo).pack(side="left", padx=3)
-    ttk.Button(controls, text="Clear", command=on_clear).pack(side="left", padx=3)
-    ttk.Radiobutton(controls, text="Edit", value="edit", variable=tool_mode_var).pack(side="left", padx=(8, 0))
-    ttk.Radiobutton(controls, text="Pan", value="pan", variable=tool_mode_var).pack(side="left", padx=3)
-    ttk.Radiobutton(controls, text="Zoom In", value="zoom_in", variable=tool_mode_var).pack(side="left", padx=3)
-    ttk.Radiobutton(controls, text="Zoom Out", value="zoom_out", variable=tool_mode_var).pack(side="left", padx=3)
-    ttk.Checkbutton(controls, text="Axis Lock", variable=axis_lock_var, command=redraw).pack(side="left", padx=(8, 3))
-    ttk.Button(controls, text="Set Global Scale", command=lambda: on_set_scale("global")).pack(side="right", padx=3)
-    ttk.Button(controls, text="Set Local Scale", command=lambda: on_set_scale("local")).pack(side="right", padx=3)
-    ttk.Button(controls, text="Cancel", command=popup.destroy).pack(side="right", padx=3)
+    controls = ttk.Frame(shell, padding=(0, SPACING.inner, 0, 0), style="Surface.TFrame")
+    controls.grid(row=1, column=0, sticky="ew")
+    controls.columnconfigure(0, weight=1)
+    controls.columnconfigure(1, weight=1)
 
+    tool_buttons = {}
+
+    def sync_tool_buttons(*_args):
+        active_mode = tool_mode_var.get()
+        for mode_name, button in tool_buttons.items():
+            button.configure(style="SegmentedActive.TButton" if mode_name == active_mode else "Segmented.TButton")
+
+    left_controls = ttk.Frame(controls, style="Surface.TFrame")
+    left_controls.grid(row=0, column=0, sticky="w")
+    ttk.Button(left_controls, text="Undo", command=on_undo, **semantic_button_options("secondary")).pack(side="left", padx=(0, SPACING.gap))
+    ttk.Button(left_controls, text="Clear", command=on_clear, **semantic_button_options("secondary")).pack(side="left", padx=(0, SPACING.gap))
+    tool_strip = ttk.Frame(left_controls, style="Surface.TFrame")
+    tool_strip.pack(side="left", padx=(SPACING.inner, SPACING.gap))
+    for index, (mode_name, label) in enumerate((("edit", "Edit"), ("pan", "Pan"), ("zoom_in", "Zoom In"), ("zoom_out", "Zoom Out"))):
+        button = ttk.Button(
+            tool_strip,
+            text=label,
+            command=lambda value=mode_name: tool_mode_var.set(value),
+            style="Segmented.TButton",
+        )
+        button.pack(side="left", padx=(0 if index == 0 else 1, 0))
+        tool_buttons[mode_name] = button
+    ttk.Checkbutton(left_controls, text="Axis Lock", variable=axis_lock_var, command=redraw).pack(side="left", padx=(SPACING.inner, 0))
+    tool_mode_var.trace_add("write", sync_tool_buttons)
+    sync_tool_buttons()
+
+    right_controls = ttk.Frame(controls, style="Surface.TFrame")
+    right_controls.grid(row=0, column=1, sticky="e")
+    ttk.Button(right_controls, text="Cancel", command=popup.destroy, **semantic_button_options("secondary")).pack(side="right")
+    ttk.Button(right_controls, text="Set Local Scale", command=lambda: on_set_scale("local"), **semantic_button_options("secondary")).pack(
+        side="right", padx=(0, SPACING.gap)
+    )
+    ttk.Button(right_controls, text="Set Global Scale", command=lambda: on_set_scale("global"), **semantic_button_options("primary")).pack(
+        side="right", padx=(0, SPACING.gap)
+    )
+
+    center_window_on_screen(popup, width=1080, height=860)
+    popup.deiconify()
+    popup.grab_set()
     popup.wait_window()
     return result["value"]

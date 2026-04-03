@@ -126,3 +126,14 @@ def test_build_handoff_payload_keeps_grayscale_shape_unchanged() -> None:
     payload = build_handoff_payload(ev, c.get_frame_source(), c.session.state())
 
     assert payload["stack"]["frame_shape"] == [4, 5]
+
+
+def test_set_active_event_does_not_dirty_session() -> None:
+    c = BrowserController()
+    c.on_stack_loaded(FakeReader(), FakeStackInfo())
+    ev = c.create_event(start_idx=0, end_idx=1, frame_count=2)
+    c.save_session("/tmp/test-analysis-handoff.sdproj")
+
+    c.set_active_event(ev.event_id)
+
+    assert c.session.state().dirty is False

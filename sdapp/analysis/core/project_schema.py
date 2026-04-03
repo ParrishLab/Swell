@@ -35,6 +35,8 @@ def default_project_state(app_version: str = "dev") -> Dict[str, Any]:
         },
         "global": {
             "scale_px_per_mm": None,
+            "scale_points": [],
+            "scale_image_path": "",
             "roi": {"ref": "roi.json"},
             "baseline_frame_count": 30,
         },
