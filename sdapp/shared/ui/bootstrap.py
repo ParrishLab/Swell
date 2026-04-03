@@ -3,25 +3,12 @@ from __future__ import annotations
 import tkinter as tk
 from tkinter import ttk as tk_ttk
 
-try:
-    import ttkbootstrap as ttkbootstrap_module
-except Exception:  # pragma: no cover - exercised when dependency is absent locally
-    ttkbootstrap_module = None
-
-
-BOOTSTRAP_AVAILABLE = ttkbootstrap_module is not None
-
-if BOOTSTRAP_AVAILABLE:
-    ttk = ttkbootstrap_module
-    Style = ttkbootstrap_module.Style
-else:
-    ttk = tk_ttk
-    Style = tk_ttk.Style
+BOOTSTRAP_AVAILABLE = False
+ttk = tk_ttk
+Style = tk_ttk.Style
 
 
 def create_root_window(*, themename: str = "darkly"):
-    if BOOTSTRAP_AVAILABLE:
-        return ttkbootstrap_module.Window(themename=themename)
     return tk.Tk()
 
 

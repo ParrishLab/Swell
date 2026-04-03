@@ -956,9 +956,11 @@ class SDAnalyzerApp:
         try:
             allowed = bool(self._model_setup_ready and not self._model_setup_disabled)
             selection = tuple(self.tree.selection()) if hasattr(self, "tree") else ()
-            actionable = bool(allowed and len(selection) == 1)
             state = "disabled" if not allowed or len(selection) > 1 else "normal"
-            btn.configure(state=state, style="AppAccent.TButton" if actionable else "AppQuiet.TButton")
+            # Keep a stable visual style here. The 0.1.6 UI overhaul regressed
+            # this button by changing both state and style dynamically, which
+            # made its rendered height drift from the adjacent action buttons.
+            btn.configure(state=state, style="AppQuiet.TButton")
         except Exception:
             return
 
