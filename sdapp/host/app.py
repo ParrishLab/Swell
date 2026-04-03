@@ -201,32 +201,32 @@ class SDAnalyzerApp:
         main.rowconfigure(1, weight=1)
 
         self.status_var = tk.StringVar(value="Idle")
-        ttk.Label(main, textvariable=self.status_var, style="Meta.TLabel").grid(row=0, column=0, sticky="w", pady=(0, SPACING.inner))
+        ttk.Label(main, textvariable=self.status_var, style="AppMeta.TLabel").grid(row=0, column=0, sticky="w", pady=(0, SPACING.inner))
 
         body = ttk.Panedwindow(main, orient="horizontal")
         body.grid(row=1, column=0, sticky="nsew")
         self.body_split = body
 
         left = ttk.Frame(body, style="AppShell.TFrame")
-        right = ttk.Frame(body, style="Sidebar.TFrame")
+        right = ttk.Frame(body, style="AppSidebar.TFrame")
         body.add(left, weight=6)
         body.add(right, weight=2)
 
-        viewer_card = ttk.Frame(left, padding=(SPACING.card, SPACING.card, SPACING.card, SPACING.card), style="Surface.TFrame")
+        viewer_card = ttk.Frame(left, padding=(SPACING.card, SPACING.card, SPACING.card, SPACING.card), style="AppSurface.TFrame")
         viewer_card.grid(row=0, column=0, sticky="nsew", padx=(0, SPACING.inner))
         left.columnconfigure(0, weight=1)
         left.rowconfigure(0, weight=1)
         viewer_card.columnconfigure(0, weight=1)
         viewer_card.rowconfigure(1, weight=1)
 
-        ttk.Label(viewer_card, text="Frame Viewer", style="SectionTitle.TLabel").grid(row=0, column=0, sticky="w")
+        ttk.Label(viewer_card, text="Frame Viewer", style="AppSectionTitle.TLabel").grid(row=0, column=0, sticky="w")
 
-        viewer_shell = ttk.Frame(viewer_card, padding=(0, SPACING.inner, 0, 0), style="Surface.TFrame")
+        viewer_shell = ttk.Frame(viewer_card, padding=(0, SPACING.inner, 0, 0), style="AppSurface.TFrame")
         viewer_shell.grid(row=1, column=0, sticky="nsew")
         viewer_shell.columnconfigure(0, weight=1)
         viewer_shell.rowconfigure(0, weight=1)
 
-        canvas_shell = ttk.Frame(viewer_shell, style="Inset.TFrame")
+        canvas_shell = ttk.Frame(viewer_shell, style="AppInset.TFrame")
         canvas_shell.grid(row=0, column=0, sticky="nsew")
         canvas_shell.columnconfigure(0, weight=1)
         canvas_shell.rowconfigure(0, weight=1)
@@ -235,10 +235,10 @@ class SDAnalyzerApp:
         self.preview_label.grid(row=0, column=0, sticky="nsew", padx=SPACING.gap, pady=SPACING.gap)
 
         self.preview_label_info = tk.StringVar(value="Frame -")
-        preview_overlay_frame = ttk.Frame(canvas_shell, padding=(8, 6), style="OverlayFrame.TFrame")
+        preview_overlay_frame = ttk.Frame(canvas_shell, padding=(8, 6), style="AppOverlay.TFrame")
         preview_overlay_frame.place(relx=0.0, rely=1.0, anchor="sw", x=10, y=-10)
-        ttk.Label(preview_overlay_frame, textvariable=self.preview_label_info, style="OverlayValue.TLabel").grid(row=0, column=0, sticky="w")
-        ttk.Label(preview_overlay_frame, textvariable=self.preview_label_meta, style="OverlayMeta.TLabel").grid(row=1, column=0, sticky="w")
+        ttk.Label(preview_overlay_frame, textvariable=self.preview_label_info, style="AppOverlayValue.TLabel").grid(row=0, column=0, sticky="w")
+        ttk.Label(preview_overlay_frame, textvariable=self.preview_label_meta, style="AppOverlayMeta.TLabel").grid(row=1, column=0, sticky="w")
 
         self.preview_overlay = tk.Canvas(
             viewer_shell,
@@ -260,11 +260,11 @@ class SDAnalyzerApp:
             to=1,
             orient="horizontal",
             command=self._on_preview_slide,
-            style="Flat.Horizontal.TScale",
+            style="AppFlat.Horizontal.TScale",
         )
         self.preview_scale.grid(row=2, column=0, sticky="ew", pady=(0, SPACING.inner))
 
-        nav_row = ttk.Frame(viewer_shell, style="Surface.TFrame")
+        nav_row = ttk.Frame(viewer_shell, style="AppSurface.TFrame")
         nav_row.grid(row=3, column=0, sticky="ew")
         for column in range(3):
             nav_row.columnconfigure(column, weight=1)
@@ -288,9 +288,9 @@ class SDAnalyzerApp:
         right.columnconfigure(0, weight=1)
         right.rowconfigure(0, weight=1)
         right.rowconfigure(1, weight=0)
-        right_top = ttk.Frame(right, style="Sidebar.TFrame")
+        right_top = ttk.Frame(right, style="AppSidebar.TFrame")
         right_top.grid(row=0, column=0, sticky="nsew")
-        right_bottom = ttk.Frame(right, style="Sidebar.TFrame")
+        right_bottom = ttk.Frame(right, style="AppSidebar.TFrame")
         right_bottom.grid(row=1, column=0, sticky="ew", pady=(SPACING.gap, 0))
 
         right_top.columnconfigure(0, weight=1)
@@ -299,17 +299,17 @@ class SDAnalyzerApp:
         right_bottom.columnconfigure(0, weight=1)
         right_bottom.rowconfigure(0, weight=0)
 
-        table_frame = ttk.Frame(right_top, padding=(SPACING.card, SPACING.card, SPACING.card, SPACING.gap), style="Sidebar.TFrame")
+        table_frame = ttk.Frame(right_top, padding=(SPACING.card, SPACING.card, SPACING.card, SPACING.gap), style="AppSidebar.TFrame")
         table_frame.grid(row=0, column=0, sticky="nsew")
         table_frame.columnconfigure(0, weight=1)
         table_frame.rowconfigure(1, weight=1)
-        ttk.Label(table_frame, text="Marked SD Events", style="SidebarTitle.TLabel").grid(row=0, column=0, sticky="w")
+        ttk.Label(table_frame, text="Marked SD Events", style="AppSidebarTitle.TLabel").grid(row=0, column=0, sticky="w")
 
-        table_shell = ttk.Frame(table_frame, padding=(0, SPACING.inner, 0, 0), style="Sidebar.TFrame")
+        table_shell = ttk.Frame(table_frame, padding=(0, SPACING.inner, 0, 0), style="AppSidebar.TFrame")
         table_shell.grid(row=1, column=0, sticky="nsew")
         table_shell.columnconfigure(0, weight=1)
         table_shell.rowconfigure(0, weight=1)
-        table_inset = ttk.Frame(table_shell, style="Inset.TFrame")
+        table_inset = ttk.Frame(table_shell, style="AppInset.TFrame")
         table_inset.grid(row=0, column=0, sticky="nsew")
         table_inset.columnconfigure(0, weight=1)
         table_inset.rowconfigure(0, weight=1)
@@ -327,11 +327,11 @@ class SDAnalyzerApp:
 
         ttk.Separator(right_top, orient="horizontal").grid(row=1, column=0, sticky="ew", pady=(0, SPACING.gap))
 
-        action_frame = ttk.Frame(right_top, padding=(SPACING.card, SPACING.gap, SPACING.card, SPACING.card), style="Sidebar.TFrame")
+        action_frame = ttk.Frame(right_top, padding=(SPACING.card, SPACING.gap, SPACING.card, SPACING.card), style="AppSidebar.TFrame")
         action_frame.grid(row=2, column=0, sticky="ew")
         action_frame.columnconfigure(0, weight=1)
         action_frame.columnconfigure(1, weight=1)
-        ttk.Label(action_frame, text="Event Actions", style="SidebarTitle.TLabel").grid(row=0, column=0, columnspan=2, sticky="w")
+        ttk.Label(action_frame, text="Event Actions", style="AppSidebarTitle.TLabel").grid(row=0, column=0, columnspan=2, sticky="w")
         ttk.Button(action_frame, text="Edit Selected", command=self._edit_selected, **semantic_button_options("secondary")).grid(
             row=1, column=0, sticky="ew", pady=(SPACING.inner, SPACING.gap)
         )
@@ -361,15 +361,15 @@ class SDAnalyzerApp:
             row=4, column=1, sticky="ew", padx=(SPACING.gap, 0)
         )
 
-        logs_frame = ttk.Frame(right_bottom, padding=(SPACING.card, SPACING.gap, SPACING.card, SPACING.gap), style="Sidebar.TFrame")
+        logs_frame = ttk.Frame(right_bottom, padding=(SPACING.card, SPACING.gap, SPACING.card, SPACING.gap), style="AppSidebar.TFrame")
         logs_frame.grid(row=0, column=0, sticky="nsew")
         logs_frame.columnconfigure(0, weight=1)
         logs_frame.rowconfigure(1, weight=1)
 
-        logs_header = ttk.Frame(logs_frame, style="Sidebar.TFrame")
+        logs_header = ttk.Frame(logs_frame, style="AppSidebar.TFrame")
         logs_header.grid(row=0, column=0, sticky="ew")
         logs_header.columnconfigure(0, weight=1)
-        self.lbl_log_summary = ttk.Label(logs_header, textvariable=self._log_summary_var, style="Meta.TLabel", cursor="hand2")
+        self.lbl_log_summary = ttk.Label(logs_header, textvariable=self._log_summary_var, style="AppMeta.TLabel", cursor="hand2")
         self.lbl_log_summary.grid(row=0, column=0, sticky="ew")
         self.lbl_log_summary.bind("<Button-1>", lambda _event: self._toggle_logs_expanded())
         self.btn_toggle_logs = ttk.Button(logs_header, text="Show Logs", command=self._toggle_logs_expanded, **semantic_button_options("secondary"))
@@ -381,7 +381,7 @@ class SDAnalyzerApp:
         self.btn_clear_logs = ttk.Button(logs_header, text="Clear", command=self._clear_logs, **semantic_button_options("secondary"))
         self.btn_clear_logs.grid(row=0, column=2, sticky="e", padx=(SPACING.gap, 0))
 
-        log_shell = ttk.Frame(logs_frame, style="Inset.TFrame")
+        log_shell = ttk.Frame(logs_frame, style="AppInset.TFrame")
         log_shell.grid(row=1, column=0, sticky="nsew", pady=(SPACING.inner, 0))
         log_shell.columnconfigure(0, weight=1)
         log_shell.rowconfigure(0, weight=1)
@@ -599,9 +599,9 @@ class SDAnalyzerApp:
         tip = tk.Toplevel(self.root)
         tip.withdraw()
         tip.overrideredirect(True)
-        frame = ttk.Frame(tip, padding=(8, 5), style="OverlayFrame.TFrame")
+        frame = ttk.Frame(tip, padding=(8, 5), style="AppOverlay.TFrame")
         frame.grid(row=0, column=0, sticky="nsew")
-        label = ttk.Label(frame, text="", style="OverlayMeta.TLabel")
+        label = ttk.Label(frame, text="", style="AppOverlayMeta.TLabel")
         label.grid(row=0, column=0, sticky="w")
         self._main_overlay_tooltip = tip
         self._main_overlay_tooltip_label = label
@@ -958,7 +958,7 @@ class SDAnalyzerApp:
             selection = tuple(self.tree.selection()) if hasattr(self, "tree") else ()
             actionable = bool(allowed and len(selection) == 1)
             state = "disabled" if not allowed or len(selection) > 1 else "normal"
-            btn.configure(state=state, style="Accent.TButton" if actionable else "Quiet.TButton")
+            btn.configure(state=state, style="AppAccent.TButton" if actionable else "AppQuiet.TButton")
         except Exception:
             return
 

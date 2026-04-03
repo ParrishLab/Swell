@@ -128,12 +128,12 @@ class MarkPopupController:
             **semantic_button_options("secondary"),
         ).pack(side="right")
 
-        self.app._mark_main_view_shell = ttk.Frame(content, padding=SPACING.card, style="Surface.TFrame")
+        self.app._mark_main_view_shell = ttk.Frame(content, padding=SPACING.card, style="AppSurface.TFrame")
         self.app._mark_main_view_shell.pack(fill="both", expand=True, pady=(6, 6))
-        self.app._mark_preview_label = ttk.Label(self.app._mark_main_view_shell, anchor="center", style="Card.TLabel")
+        self.app._mark_preview_label = ttk.Label(self.app._mark_main_view_shell, anchor="center", style="AppCard.TLabel")
         self.app._mark_preview_label.pack(fill="both", expand=True)
 
-        self.app._mark_mini_frame = ttk.Frame(self.app._mark_main_view_shell, width=180, height=180, style="Preview.TFrame")
+        self.app._mark_mini_frame = ttk.Frame(self.app._mark_main_view_shell, width=180, height=180, style="AppPreview.TFrame")
         self.app._mark_mini_frame.pack_propagate(False)
         self.app._mark_mini_frame.place(relx=1.0, rely=0.0, anchor="ne", x=-12, y=12)
         self.app._mark_mini_canvas = tk.Canvas(
@@ -148,7 +148,7 @@ class MarkPopupController:
         self.app._mark_mini_grip = ttk.Label(
             self.app._mark_mini_frame,
             text="\u2199",
-            style="PreviewGrip.TLabel",
+            style="AppPreviewGrip.TLabel",
             cursor="fleur",
         )
         self.app._mark_mini_grip.place(relx=0.0, rely=1.0, anchor="sw", x=6, y=-6, width=24, height=24)
@@ -161,10 +161,10 @@ class MarkPopupController:
         self.app._mark_loading_var = tk.StringVar(value="")
         self.app._mark_contrast_var = tk.DoubleVar(value=1.0)
         self.app._mark_contrast_label_var = tk.StringVar(value="Contrast: 1.00x")
-        ttk.Label(content, textvariable=self.app._mark_frame_info_var, style="DataValue.TLabel").pack(anchor="w", pady=(0, 2))
-        ttk.Label(content, textvariable=self.app._mark_window_info_var, style="Meta.TLabel").pack(anchor="w", pady=(0, 2))
-        self.app._mark_loading_label = ttk.Label(content, textvariable=self.app._mark_loading_var, style="Meta.TLabel")
-        self.app._mark_loading_bar = ttk.Progressbar(content, mode="indeterminate", style="Loading.Horizontal.TProgressbar")
+        ttk.Label(content, textvariable=self.app._mark_frame_info_var, style="AppDataValue.TLabel").pack(anchor="w", pady=(0, 2))
+        ttk.Label(content, textvariable=self.app._mark_window_info_var, style="AppMeta.TLabel").pack(anchor="w", pady=(0, 2))
+        self.app._mark_loading_label = ttk.Label(content, textvariable=self.app._mark_loading_var, style="AppMeta.TLabel")
+        self.app._mark_loading_bar = ttk.Progressbar(content, mode="indeterminate", style="AppLoading.Horizontal.TProgressbar")
 
         self.app._mark_overlay = tk.Canvas(content, height=12, bg="#2a2b2f", highlightthickness=0, bd=0)
         self.app._mark_overlay.pack(fill="x", pady=(4, 2))
@@ -194,19 +194,19 @@ class MarkPopupController:
         ttk.Button(nav_row, text="Set Start", command=self.app._popup_set_start_current, **semantic_button_options("secondary")).pack(side="left", padx=6)
         ttk.Button(nav_row, text="Set End", command=self.app._popup_set_end_current, **semantic_button_options("secondary")).pack(side="left", padx=2)
 
-        baseline_row = ttk.Frame(content, padding=SPACING.card, style="Surface.TFrame")
+        baseline_row = ttk.Frame(content, padding=SPACING.card, style="AppSurface.TFrame")
         baseline_row.pack(fill="x", pady=(6, 0))
-        ttk.Label(baseline_row, text="Baseline Count", style="SurfaceMeta.TLabel").pack(side="left")
+        ttk.Label(baseline_row, text="Baseline Count", style="AppSurfaceMeta.TLabel").pack(side="left")
         baseline_count_default = 30
         baseline_end_default = max(0, int(start_default) - 1)
         self.app._mark_baseline_count_var = tk.StringVar(value=str(baseline_count_default))
-        baseline_count_entry = ttk.Entry(baseline_row, textvariable=self.app._mark_baseline_count_var, width=8, style="Compact.TEntry")
+        baseline_count_entry = ttk.Entry(baseline_row, textvariable=self.app._mark_baseline_count_var, width=8, style="AppCompact.TEntry")
         baseline_count_entry.pack(side="left", padx=(6, 14))
-        ttk.Label(baseline_row, text="Baseline End", style="SurfaceMeta.TLabel").pack(side="left")
+        ttk.Label(baseline_row, text="Baseline End", style="AppSurfaceMeta.TLabel").pack(side="left")
         self.app._mark_baseline_end_var = tk.StringVar(value=str(baseline_end_default))
-        baseline_end_entry = ttk.Entry(baseline_row, textvariable=self.app._mark_baseline_end_var, width=8, style="Compact.TEntry")
+        baseline_end_entry = ttk.Entry(baseline_row, textvariable=self.app._mark_baseline_end_var, width=8, style="AppCompact.TEntry")
         baseline_end_entry.pack(side="left", padx=(6, 18))
-        ttk.Label(baseline_row, textvariable=self.app._mark_contrast_label_var, style="SurfaceMeta.TLabel").pack(side="left")
+        ttk.Label(baseline_row, textvariable=self.app._mark_contrast_label_var, style="AppSurfaceMeta.TLabel").pack(side="left")
         ttk.Scale(
             baseline_row,
             from_=0.5,
@@ -215,18 +215,18 @@ class MarkPopupController:
             length=150,
             variable=self.app._mark_contrast_var,
             command=self.app._popup_on_contrast_change,
-            style="Flat.Horizontal.TScale",
+            style="AppFlat.Horizontal.TScale",
         ).pack(side="left", padx=(8, 0))
 
         bounds_frame = ttk.Frame(content, style="AppShell.TFrame")
         bounds_frame.pack(fill="x")
-        ttk.Label(bounds_frame, text="Start", style="Meta.TLabel").pack(side="left")
+        ttk.Label(bounds_frame, text="Start", style="AppMeta.TLabel").pack(side="left")
         self.app._mark_start_var = tk.StringVar(value=str(start_default))
-        start_entry = ttk.Entry(bounds_frame, textvariable=self.app._mark_start_var, width=10, style="Compact.TEntry")
+        start_entry = ttk.Entry(bounds_frame, textvariable=self.app._mark_start_var, width=10, style="AppCompact.TEntry")
         start_entry.pack(side="left", padx=(4, 14))
-        ttk.Label(bounds_frame, text="End", style="Meta.TLabel").pack(side="left")
+        ttk.Label(bounds_frame, text="End", style="AppMeta.TLabel").pack(side="left")
         self.app._mark_end_var = tk.StringVar(value=str(end_default))
-        end_entry = ttk.Entry(bounds_frame, textvariable=self.app._mark_end_var, width=10, style="Compact.TEntry")
+        end_entry = ttk.Entry(bounds_frame, textvariable=self.app._mark_end_var, width=10, style="AppCompact.TEntry")
         end_entry.pack(side="left", padx=(4, 14))
         start_entry.bind(
             "<KeyRelease>",

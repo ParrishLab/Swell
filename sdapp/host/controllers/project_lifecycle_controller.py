@@ -44,7 +44,7 @@ class HostProjectLifecycleController:
 
         shell = ttk.Frame(dialog, padding=SPACING.outer, style="AppShell.TFrame")
         shell.pack(fill="both", expand=True)
-        ttk.Label(shell, text=str(message), justify="center", anchor="center", style="Meta.TLabel").pack(fill="x", pady=(0, 14))
+        ttk.Label(shell, text=str(message), justify="center", anchor="center", style="AppMeta.TLabel").pack(fill="x", pady=(0, 14))
 
         def _finish(value: bool | None) -> None:
             result["value"] = value

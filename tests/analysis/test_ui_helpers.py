@@ -79,9 +79,9 @@ class UiHelpersTests(unittest.TestCase):
         with patch("sdapp.analysis.ui.theme.Style", return_value=fake):
             apply_theme(root=None)
         configured = {name for name, _ in fake.config_calls}
-        self.assertIn("Card.TFrame", configured)
-        self.assertIn("Preview.TFrame", configured)
-        self.assertIn("Loading.Horizontal.TProgressbar", configured)
+        self.assertIn("AppCard.TFrame", configured)
+        self.assertIn("AppPreview.TFrame", configured)
+        self.assertIn("AppLoading.Horizontal.TProgressbar", configured)
         self.assertTrue(fake.map_calls)
 
     def test_apply_theme_falls_back_when_bootstrap_scrollbar_builder_fails(self):

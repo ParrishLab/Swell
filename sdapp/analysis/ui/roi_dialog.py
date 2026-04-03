@@ -80,7 +80,7 @@ def open_roi_dialog(root, img_u8, initial_roi_points=None):
     shell.rowconfigure(0, weight=1)
     shell.rowconfigure(1, weight=0)
 
-    canvas_shell = ttk.Frame(shell, padding=SPACING.card, style="Inset.TFrame")
+    canvas_shell = ttk.Frame(shell, padding=SPACING.card, style="AppInset.TFrame")
     canvas_shell.grid(row=0, column=0, sticky="nsew")
     canvas_shell.columnconfigure(0, weight=1)
     canvas_shell.rowconfigure(0, weight=1)
@@ -489,15 +489,15 @@ def open_roi_dialog(root, img_u8, initial_roi_points=None):
     canvas.bind("<MouseWheel>", on_mouse_wheel)
     canvas.bind("<Button-4>", on_mouse_wheel)
     canvas.bind("<Button-5>", on_mouse_wheel)
-    controls = ttk.Frame(shell, padding=(0, SPACING.inner, 0, 0), style="Surface.TFrame")
+    controls = ttk.Frame(shell, padding=(0, SPACING.inner, 0, 0), style="AppSurface.TFrame")
     controls.grid(row=1, column=0, sticky="ew")
     ttk.Label(
         controls,
         text="Click to add/select points. Double-click first point to close. Drag to move. Click edge to insert. Wheel zooms. Space-drag pans.",
-        style="Meta.TLabel",
+        style="AppMeta.TLabel",
     ).pack(side="top", anchor="w", pady=(0, 4))
     button_opts = {"takefocus": False}
-    left_controls = ttk.Frame(controls, style="Surface.TFrame")
+    left_controls = ttk.Frame(controls, style="AppSurface.TFrame")
     left_controls.pack(side="left")
     ttk.Button(left_controls, text="Undo Point", command=on_undo, **button_opts, **semantic_button_options("secondary")).pack(side="left", padx=(0, SPACING.gap))
     ttk.Button(left_controls, text="Delete Selected", command=on_delete_selected, **button_opts, **semantic_button_options("secondary")).pack(side="left", padx=(0, SPACING.gap))
@@ -505,7 +505,7 @@ def open_roi_dialog(root, img_u8, initial_roi_points=None):
     ttk.Button(left_controls, text=ROI_ICON_LABELS["zoom_in"], width=3, command=zoom_in, **button_opts, **semantic_button_options("secondary")).pack(side="left", padx=(SPACING.inner, SPACING.gap))
     ttk.Button(left_controls, text=ROI_ICON_LABELS["zoom_out"], width=3, command=zoom_out, **button_opts, **semantic_button_options("secondary")).pack(side="left", padx=(0, SPACING.gap))
     ttk.Button(left_controls, text=ROI_ICON_LABELS["fit"], width=3, command=reset_view, **button_opts, **semantic_button_options("secondary")).pack(side="left")
-    right_controls = ttk.Frame(controls, style="Surface.TFrame")
+    right_controls = ttk.Frame(controls, style="AppSurface.TFrame")
     right_controls.pack(side="right")
     ttk.Button(right_controls, text="Cancel", command=popup.destroy, **button_opts, **semantic_button_options("secondary")).pack(side="right")
     ttk.Button(right_controls, text="Save Local ROI", command=lambda: on_finish("local"), **button_opts, **semantic_button_options("secondary")).pack(side="right", padx=(0, SPACING.gap))

@@ -351,7 +351,7 @@ class HostDCTraceController:
 
         shell = ttk.Frame(dialog, padding=SPACING.outer, style="AppShell.TFrame")
         shell.pack(fill="both", expand=True)
-        ttk.Label(shell, text=f"File: {Path(str(metadata.get('source_path', ''))).name}", style="SectionTitle.TLabel").pack(anchor="w")
+        ttk.Label(shell, text=f"File: {Path(str(metadata.get('source_path', ''))).name}", style="AppSectionTitle.TLabel").pack(anchor="w")
         ttk.Label(
             shell,
             text=(
@@ -359,16 +359,16 @@ class HostDCTraceController:
                 f"Sample rate: {self._format_float(metadata.get('sample_rate_hz'))} Hz    "
                 f"Duration: {self._format_float(metadata.get('duration_s'))} s"
             ),
-            style="Meta.TLabel",
+            style="AppMeta.TLabel",
         ).pack(anchor="w", pady=(4, 8))
 
         channel_names = list(metadata.get("channel_names") or [])
         channel_var = tk.StringVar(value=str(channel_names[0] if channel_names else ""))
         channel_name_var = tk.StringVar(value=str(channel_names[0] if channel_names else ""))
         offset_var = tk.StringVar(value="0")
-        row = ttk.Frame(shell, padding=SPACING.card, style="Surface.TFrame")
+        row = ttk.Frame(shell, padding=SPACING.card, style="AppSurface.TFrame")
         row.pack(fill="x", pady=(0, 8))
-        ttk.Label(row, text="Channel", style="Meta.TLabel").pack(side="left")
+        ttk.Label(row, text="Channel", style="AppMeta.TLabel").pack(side="left")
         combo = ttk.Combobox(row, textvariable=channel_var, values=channel_names, state="readonly", width=28)
         if len(channel_names) <= 1:
             combo.state(["disabled"])
@@ -390,13 +390,13 @@ class HostDCTraceController:
             unit_var.set(str(units[idx] if idx < len(units) else ""))
 
         combo.bind("<<ComboboxSelected>>", _sync_channel_preview, add="+")
-        ttk.Label(shell, textvariable=channel_name_var, style="Meta.TLabel").pack(anchor="w", pady=(0, 2))
-        ttk.Label(shell, textvariable=unit_var, style="Meta.TLabel").pack(anchor="w", pady=(0, 8))
+        ttk.Label(shell, textvariable=channel_name_var, style="AppMeta.TLabel").pack(anchor="w", pady=(0, 2))
+        ttk.Label(shell, textvariable=unit_var, style="AppMeta.TLabel").pack(anchor="w", pady=(0, 8))
 
-        offset_row = ttk.Frame(shell, padding=SPACING.card, style="Surface.TFrame")
+        offset_row = ttk.Frame(shell, padding=SPACING.card, style="AppSurface.TFrame")
         offset_row.pack(fill="x", pady=(0, 8))
-        ttk.Label(offset_row, text="Trace time at video frame 0 (s)", style="Meta.TLabel").pack(side="left")
-        ttk.Entry(offset_row, textvariable=offset_var, width=12, style="Compact.TEntry").pack(side="left", padx=(8, 0))
+        ttk.Label(offset_row, text="Trace time at video frame 0 (s)", style="AppMeta.TLabel").pack(side="left")
+        ttk.Entry(offset_row, textvariable=offset_var, width=12, style="AppCompact.TEntry").pack(side="left", padx=(8, 0))
 
         result: dict[str, object] = {}
 
@@ -437,8 +437,8 @@ class HostDCTraceController:
         apply_theme(dialog)
         shell = ttk.Frame(dialog, padding=SPACING.outer, style="AppShell.TFrame")
         shell.pack(fill="both", expand=True)
-        ttk.Label(shell, text=message, style="Meta.TLabel").pack(anchor="w", pady=(0, 8))
-        bar = ttk.Progressbar(shell, mode="indeterminate", length=260, style="Loading.Horizontal.TProgressbar")
+        ttk.Label(shell, text=message, style="AppMeta.TLabel").pack(anchor="w", pady=(0, 8))
+        bar = ttk.Progressbar(shell, mode="indeterminate", length=260, style="AppLoading.Horizontal.TProgressbar")
         bar.pack(fill="x")
         bar.start(10)
         center_window_on_screen(dialog, width=420, height=120)

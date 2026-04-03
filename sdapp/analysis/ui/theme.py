@@ -86,114 +86,114 @@ def apply_theme(root, *, themename: str = "darkly"):
 
     style.configure("TFrame", background=palette["app_bg"])
     style.configure("AppShell.TFrame", background=palette["app_bg"])
-    style.configure("Card.TFrame", background=palette["surface_bg"], borderwidth=0, relief="flat")
-    style.configure("CardBody.TFrame", background=palette["surface_bg"])
-    style.configure("Surface.TFrame", background=palette["surface_bg"], borderwidth=0, relief="flat")
-    style.configure("Strip.TFrame", background=palette["strip_bg"], borderwidth=0, relief="flat")
-    style.configure("Subpanel.TFrame", background=palette["subpanel_bg"], borderwidth=0, relief="flat")
-    style.configure("Sidebar.TFrame", background=palette["sidebar_bg"], borderwidth=0, relief="flat")
-    style.configure("Inset.TFrame", background=palette["inset_bg"], borderwidth=0, relief="flat")
-    style.configure("Divider.TFrame", background=palette["border"], borderwidth=0, relief="flat")
+    style.configure("AppCard.TFrame", background=palette["surface_bg"], borderwidth=0, relief="flat")
+    style.configure("AppCardBody.TFrame", background=palette["surface_bg"])
+    style.configure("AppSurface.TFrame", background=palette["surface_bg"], borderwidth=0, relief="flat")
+    style.configure("AppStrip.TFrame", background=palette["strip_bg"], borderwidth=0, relief="flat")
+    style.configure("AppSubpanel.TFrame", background=palette["subpanel_bg"], borderwidth=0, relief="flat")
+    style.configure("AppSidebar.TFrame", background=palette["sidebar_bg"], borderwidth=0, relief="flat")
+    style.configure("AppInset.TFrame", background=palette["inset_bg"], borderwidth=0, relief="flat")
+    style.configure("AppDivider.TFrame", background=palette["border"], borderwidth=0, relief="flat")
 
     style.configure("TPanedwindow", background=palette["app_bg"], sashwidth=6)
     style.configure("TSeparator", background=palette["border"])
 
     style.configure("TLabel", background=palette["app_bg"], foreground=palette["text"], font=base_font)
     for label_style, background in {
-        "Card.TLabel": palette["surface_bg"],
-        "Strip.TLabel": palette["strip_bg"],
-        "Sidebar.TLabel": palette["sidebar_bg"],
-        "Subpanel.TLabel": palette["subpanel_bg"],
+        "AppCard.TLabel": palette["surface_bg"],
+        "AppStrip.TLabel": palette["strip_bg"],
+        "AppSidebar.TLabel": palette["sidebar_bg"],
+        "AppSubpanel.TLabel": palette["subpanel_bg"],
     }.items():
         style.configure(label_style, background=background, foreground=palette["text"], font=base_font)
 
     style.configure(
-        "SectionTitle.TLabel",
+        "AppSectionTitle.TLabel",
         background=palette["surface_bg"],
         foreground=palette["muted_soft"],
         font=("TkDefaultFont", 8, "bold"),
     )
     style.configure(
-        "StripTitle.TLabel",
+        "AppStripTitle.TLabel",
         background=palette["strip_bg"],
         foreground=palette["muted"],
         font=("TkDefaultFont", 8, "bold"),
     )
     style.configure(
-        "SidebarTitle.TLabel",
+        "AppSidebarTitle.TLabel",
         background=palette["sidebar_bg"],
         foreground=palette["muted_soft"],
         font=("TkDefaultFont", 8, "bold"),
     )
     style.configure(
-        "SubpanelTitle.TLabel",
+        "AppSubpanelTitle.TLabel",
         background=palette["subpanel_bg"],
         foreground=palette["muted"],
         font=("TkDefaultFont", 8, "bold"),
     )
     style.configure(
-        "Value.TLabel",
+        "AppValue.TLabel",
         background=palette["strip_bg"],
         foreground=palette["text"],
         font=("TkDefaultFont", 10, "bold"),
     )
     style.configure(
-        "DataValue.TLabel",
+        "AppDataValue.TLabel",
         background=palette["app_bg"],
         foreground=palette["text"],
         font=("TkDefaultFont", 10, "bold"),
     )
     style.configure(
-        "Meta.TLabel",
+        "AppMeta.TLabel",
         background=palette["app_bg"],
         foreground=palette["muted"],
         font=("TkDefaultFont", 8),
     )
     style.configure(
-        "SurfaceMeta.TLabel",
+        "AppSurfaceMeta.TLabel",
         background=palette["surface_bg"],
         foreground=palette["muted"],
         font=("TkDefaultFont", 8),
     )
     style.configure(
-        "StripMeta.TLabel",
+        "AppStripMeta.TLabel",
         background=palette["strip_bg"],
         foreground=palette["muted"],
         font=("TkDefaultFont", 8),
     )
     style.configure(
-        "SubpanelMeta.TLabel",
+        "AppSubpanelMeta.TLabel",
         background=palette["subpanel_bg"],
         foreground=palette["muted"],
         font=("TkDefaultFont", 8),
     )
     style.configure(
-        "OverlayFrame.TFrame",
+        "AppOverlay.TFrame",
         background="#161b21",
         borderwidth=0,
         relief="flat",
     )
     style.configure(
-        "OverlayValue.TLabel",
+        "AppOverlayValue.TLabel",
         background="#161b21",
         foreground=palette["text"],
         font=("TkDefaultFont", 9, "bold"),
     )
     style.configure(
-        "OverlayMeta.TLabel",
+        "AppOverlayMeta.TLabel",
         background="#161b21",
         foreground=palette["muted"],
         font=("TkDefaultFont", 8),
     )
 
     style.configure(
-        "PreviewGrip.TLabel",
+        "AppPreviewGrip.TLabel",
         background=palette["inset_bg"],
         foreground=palette["text"],
         font=("TkDefaultFont", 10, "bold"),
         anchor="center",
     )
-    style.configure("Preview.TFrame", background=palette["inset_bg"], borderwidth=0, relief="flat")
+    style.configure("AppPreview.TFrame", background=palette["inset_bg"], borderwidth=0, relief="flat")
 
     button_common = {
         "font": ("TkDefaultFont", 9),
@@ -204,7 +204,7 @@ def apply_theme(root, *, themename: str = "darkly"):
         "foreground": palette["text"],
     }
     style.configure(
-        "Quiet.TButton",
+        "AppQuiet.TButton",
         background=palette["control_bg"],
         darkcolor=palette["control_bg"],
         lightcolor=palette["control_bg"],
@@ -212,14 +212,14 @@ def apply_theme(root, *, themename: str = "darkly"):
         **button_common,
     )
     style.map(
-        "Quiet.TButton",
+        "AppQuiet.TButton",
         background=[("active", palette["control_active"]), ("pressed", palette["control_active"])],
         darkcolor=[("active", palette["control_active"]), ("pressed", palette["control_active"])],
         lightcolor=[("active", palette["control_active"]), ("pressed", palette["control_active"])],
         foreground=[("disabled", palette["muted"])],
     )
     style.configure(
-        "Accent.TButton",
+        "AppAccent.TButton",
         background=palette["accent"],
         darkcolor=palette["accent"],
         lightcolor=palette["accent"],
@@ -227,14 +227,14 @@ def apply_theme(root, *, themename: str = "darkly"):
         **(button_common | {"font": ("TkDefaultFont", 10, "bold")}),
     )
     style.map(
-        "Accent.TButton",
+        "AppAccent.TButton",
         background=[("active", "#2484d1"), ("pressed", "#165f98")],
         darkcolor=[("active", "#2484d1"), ("pressed", "#165f98")],
         lightcolor=[("active", "#2484d1"), ("pressed", "#165f98")],
         foreground=[("disabled", palette["muted"])],
     )
     style.configure(
-        "Danger.TButton",
+        "AppDanger.TButton",
         background=palette["danger"],
         darkcolor=palette["danger"],
         lightcolor=palette["danger"],
@@ -242,7 +242,7 @@ def apply_theme(root, *, themename: str = "darkly"):
         **button_common,
     )
     style.map(
-        "Danger.TButton",
+        "AppDanger.TButton",
         background=[("active", palette["danger_active"]), ("pressed", palette["danger_active"])],
         darkcolor=[("active", palette["danger_active"]), ("pressed", palette["danger_active"])],
         lightcolor=[("active", palette["danger_active"]), ("pressed", palette["danger_active"])],
@@ -255,31 +255,31 @@ def apply_theme(root, *, themename: str = "darkly"):
         "focuscolor": palette["control_bg"],
         "focusthickness": 0,
     }
-    for style_name in ("Segmented.TButton", "SegmentedActive.TButton"):
+    for style_name in ("AppSegmented.TButton", "AppSegmentedActive.TButton"):
         style.configure(
             style_name,
-            background=palette["control_bg"] if style_name == "Segmented.TButton" else palette["accent"],
-            darkcolor=palette["control_bg"] if style_name == "Segmented.TButton" else palette["accent"],
-            lightcolor=palette["control_bg"] if style_name == "Segmented.TButton" else palette["accent"],
-            bordercolor=palette["border"] if style_name == "Segmented.TButton" else palette["accent"],
+            background=palette["control_bg"] if style_name == "AppSegmented.TButton" else palette["accent"],
+            darkcolor=palette["control_bg"] if style_name == "AppSegmented.TButton" else palette["accent"],
+            lightcolor=palette["control_bg"] if style_name == "AppSegmented.TButton" else palette["accent"],
+            bordercolor=palette["border"] if style_name == "AppSegmented.TButton" else palette["accent"],
             foreground=palette["text"],
             **segmented_common,
         )
     style.map(
-        "Segmented.TButton",
+        "AppSegmented.TButton",
         background=[("active", palette["control_active"]), ("pressed", palette["control_active"])],
         darkcolor=[("active", palette["control_active"]), ("pressed", palette["control_active"])],
         lightcolor=[("active", palette["control_active"]), ("pressed", palette["control_active"])],
     )
     style.map(
-        "SegmentedActive.TButton",
+        "AppSegmentedActive.TButton",
         background=[("active", "#2484d1"), ("pressed", "#165f98")],
         darkcolor=[("active", "#2484d1"), ("pressed", "#165f98")],
         lightcolor=[("active", "#2484d1"), ("pressed", "#165f98")],
     )
 
     style.configure(
-        "Compact.TEntry",
+        "AppCompact.TEntry",
         fieldbackground=palette["control_bg"],
         foreground=palette["text"],
         bordercolor=palette["border"],
@@ -289,12 +289,12 @@ def apply_theme(root, *, themename: str = "darkly"):
         insertcolor=palette["text"],
     )
     style.map(
-        "Compact.TEntry",
+        "AppCompact.TEntry",
         fieldbackground=[("readonly", palette["control_bg"]), ("disabled", palette["control_bg"])],
         foreground=[("disabled", palette["muted"])],
     )
     style.configure(
-        "Compact.TSpinbox",
+        "AppCompact.TSpinbox",
         fieldbackground=palette["control_bg"],
         foreground=palette["text"],
         bordercolor=palette["border"],
@@ -305,7 +305,7 @@ def apply_theme(root, *, themename: str = "darkly"):
         insertcolor=palette["text"],
     )
     style.configure(
-        "Flat.Horizontal.TScale",
+        "AppFlat.Horizontal.TScale",
         background=palette["strip_bg"],
         troughcolor=palette["control_bg"],
         bordercolor=palette["border"],
@@ -313,7 +313,7 @@ def apply_theme(root, *, themename: str = "darkly"):
         lightcolor=palette["control_bg"],
     )
     style.configure(
-        "Loading.Horizontal.TProgressbar",
+        "AppLoading.Horizontal.TProgressbar",
         background=palette["accent"],
         troughcolor=palette["control_bg"],
         bordercolor=palette["border"],
@@ -322,7 +322,7 @@ def apply_theme(root, *, themename: str = "darkly"):
         thickness=8,
     )
     style.configure(
-        "Subtle.Horizontal.TProgressbar",
+        "AppSubtle.Horizontal.TProgressbar",
         background=palette["accent"],
         troughcolor=palette["inset_bg"],
         bordercolor=palette["border"],
@@ -340,8 +340,8 @@ def apply_theme(root, *, themename: str = "darkly"):
         "padding": (0, 2),
     }
     style.configure("TCheckbutton", background=palette["app_bg"], **check_common)
-    style.configure("Surface.TCheckbutton", background=palette["surface_bg"], **check_common)
-    style.configure("Subpanel.TCheckbutton", background=palette["subpanel_bg"], **check_common)
+    style.configure("AppSurface.TCheckbutton", background=palette["surface_bg"], **check_common)
+    style.configure("AppSubpanel.TCheckbutton", background=palette["subpanel_bg"], **check_common)
     style.map(
         "TCheckbutton",
         background=[("active", palette["app_bg"]), ("selected", palette["app_bg"])],
@@ -349,13 +349,13 @@ def apply_theme(root, *, themename: str = "darkly"):
         indicatorbackground=[("selected", palette["accent"]), ("active", palette["control_active"])],
     )
     style.map(
-        "Surface.TCheckbutton",
+        "AppSurface.TCheckbutton",
         background=[("active", palette["surface_bg"]), ("selected", palette["surface_bg"])],
         foreground=[("disabled", palette["muted"])],
         indicatorbackground=[("selected", palette["accent"]), ("active", palette["control_active"])],
     )
     style.map(
-        "Subpanel.TCheckbutton",
+        "AppSubpanel.TCheckbutton",
         background=[("active", palette["subpanel_bg"]), ("selected", palette["subpanel_bg"])],
         foreground=[("disabled", palette["muted"])],
         indicatorbackground=[("selected", palette["accent"]), ("active", palette["control_active"])],
@@ -363,7 +363,7 @@ def apply_theme(root, *, themename: str = "darkly"):
     style.configure("TRadiobutton", background=palette["subpanel_bg"], foreground=palette["text"], font=("TkDefaultFont", 9))
     style.map("TRadiobutton", foreground=[("disabled", palette["muted"])])
     style.configure(
-        "Compact.TCombobox",
+        "AppCompact.TCombobox",
         fieldbackground=palette["control_bg"],
         foreground=palette["text"],
         bordercolor=palette["border"],
@@ -374,7 +374,7 @@ def apply_theme(root, *, themename: str = "darkly"):
         padding=(6, 3),
     )
     style.map(
-        "Compact.TCombobox",
+        "AppCompact.TCombobox",
         fieldbackground=[("readonly", palette["control_bg"]), ("disabled", palette["control_bg"])],
         foreground=[("readonly", palette["text"]), ("disabled", palette["muted"])],
         arrowcolor=[("disabled", palette["muted"])],

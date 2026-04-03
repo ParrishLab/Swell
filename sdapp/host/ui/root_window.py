@@ -29,11 +29,11 @@ def run_host_app(
     splash.columnconfigure(0, weight=1)
     splash.rowconfigure(0, weight=1)
 
-    splash_card = ttk.Frame(splash, padding=24, style="Card.TFrame")
+    splash_card = ttk.Frame(splash, padding=24, style="AppCard.TFrame")
     splash_card.grid(row=0, column=0, sticky="nsew")
     splash_card.columnconfigure(0, weight=1)
 
-    ttk.Label(splash_card, text="Starting SDApp...", style="SectionTitle.TLabel", anchor="center").grid(
+    ttk.Label(splash_card, text="Starting SDApp...", style="AppSectionTitle.TLabel", anchor="center").grid(
         row=0,
         column=0,
         pady=(12, 8),
@@ -41,7 +41,7 @@ def run_host_app(
     ttk.Label(
         splash_card,
         text="Loading the packaged runtime and UI modules.",
-        style="Meta.TLabel",
+        style="AppMeta.TLabel",
         justify="center",
         anchor="center",
     ).grid(row=1, column=0)

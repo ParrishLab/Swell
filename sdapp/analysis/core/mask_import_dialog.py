@@ -46,8 +46,8 @@ class MaskImportDialogService:
 
         shell = ttk.Frame(top, padding=SPACING.outer, style="AppShell.TFrame")
         shell.pack(fill="both", expand=True)
-        ttk.Label(shell, text="Choose import source", style="SectionTitle.TLabel").pack(anchor="w")
-        ttk.Label(shell, text="Select a folder sequence or a set of individual mask images.", style="Meta.TLabel").pack(
+        ttk.Label(shell, text="Choose import source", style="AppSectionTitle.TLabel").pack(anchor="w")
+        ttk.Label(shell, text="Select a folder sequence or a set of individual mask images.", style="AppMeta.TLabel").pack(
             anchor="w", pady=(SPACING.gap, SPACING.inner)
         )
 
@@ -134,38 +134,38 @@ class MaskImportDialogService:
         shell = ttk.Frame(top, padding=SPACING.outer, style="AppShell.TFrame")
         shell.pack(fill="both", expand=True)
 
-        control = ttk.Frame(shell, padding=SPACING.card, style="Surface.TFrame")
+        control = ttk.Frame(shell, padding=SPACING.card, style="AppSurface.TFrame")
         control.pack(fill="x")
-        row_a = ttk.Frame(control, style="Surface.TFrame")
+        row_a = ttk.Frame(control, style="AppSurface.TFrame")
         row_a.pack(fill="x", pady=(0, 4))
-        row_b = ttk.Frame(control, style="Surface.TFrame")
+        row_b = ttk.Frame(control, style="AppSurface.TFrame")
         row_b.pack(fill="x")
-        ttk.Label(row_a, text="Mask Preview", style="SectionTitle.TLabel").pack(side="left")
+        ttk.Label(row_a, text="Mask Preview", style="AppSectionTitle.TLabel").pack(side="left")
         scrub = ttk.Scale(
             row_a,
             from_=1,
             to=max(1, len(masks)),
             orient="horizontal",
             variable=mask_idx_var,
-            style="Flat.Horizontal.TScale",
+            style="AppFlat.Horizontal.TScale",
         )
         scrub.pack(side="left", fill="x", expand=True, padx=(SPACING.inner, SPACING.inner))
-        ttk.Label(row_a, textvariable=mask_idx_var, style="Meta.TLabel", width=4).pack(side="left")
+        ttk.Label(row_a, textvariable=mask_idx_var, style="AppMeta.TLabel", width=4).pack(side="left")
 
-        ttk.Label(row_b, text="Start Frame", style="Meta.TLabel").pack(side="left")
+        ttk.Label(row_b, text="Start Frame", style="AppMeta.TLabel").pack(side="left")
         align = ttk.Scale(
             row_b,
             from_=1,
             to=max(1, int(frame_count)),
             orient="horizontal",
             variable=offset_var,
-            style="Flat.Horizontal.TScale",
+            style="AppFlat.Horizontal.TScale",
         )
         align.pack(side="left", fill="x", expand=True, padx=(SPACING.inner, SPACING.inner))
-        ttk.Label(row_b, textvariable=offset_var, style="Meta.TLabel", width=6).pack(side="left")
-        ttk.Label(control, textvariable=info_var, style="Meta.TLabel").pack(anchor="w", pady=(SPACING.gap, 0))
+        ttk.Label(row_b, textvariable=offset_var, style="AppMeta.TLabel", width=6).pack(side="left")
+        ttk.Label(control, textvariable=info_var, style="AppMeta.TLabel").pack(anchor="w", pady=(SPACING.gap, 0))
 
-        canvas_shell = ttk.Frame(shell, padding=SPACING.card, style="Inset.TFrame")
+        canvas_shell = ttk.Frame(shell, padding=SPACING.card, style="AppInset.TFrame")
         canvas_shell.pack(fill="both", expand=True, pady=(SPACING.inner, SPACING.inner))
         canvas = tk.Canvas(canvas_shell, width=760, height=460, bg="#1f2023", highlightthickness=0)
         canvas.pack(fill="both", expand=True)

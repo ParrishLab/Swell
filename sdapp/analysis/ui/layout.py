@@ -48,21 +48,21 @@ class LayoutBuilder:
         status_row.columnconfigure(0, weight=1)
         status_row.columnconfigure(1, weight=1)
 
-        self.lbl_status = ttk.Label(status_row, text="Status: Idle", style="Meta.TLabel", justify="left", wraplength=480)
+        self.lbl_status = ttk.Label(status_row, text="Status: Idle", style="AppMeta.TLabel", justify="left", wraplength=480)
         self.lbl_status.grid(row=0, column=0, sticky="w")
 
         self.loading_status_var = tk.StringVar(value="Idle")
         self.loading_status_label = ttk.Label(
             status_row,
             textvariable=self.loading_status_var,
-            style="Meta.TLabel",
+            style="AppMeta.TLabel",
             justify="right",
             anchor="e",
             wraplength=420,
         )
         self.loading_status_label.grid(row=0, column=1, sticky="e")
 
-        self.loading_bar = ttk.Progressbar(status_row, mode="indeterminate", style="Loading.Horizontal.TProgressbar")
+        self.loading_bar = ttk.Progressbar(status_row, mode="indeterminate", style="AppLoading.Horizontal.TProgressbar")
         self.loading_bar.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(SPACING.gap, 0))
         self.loading_bar.grid_remove()
 
@@ -126,13 +126,13 @@ class LayoutBuilder:
         self._build_control_strip(parent)
 
     def _build_timeline_band(self, parent):
-        timeline = ttk.Frame(parent, padding=(SPACING.card, SPACING.card, SPACING.card, SPACING.card), style="Strip.TFrame")
+        timeline = ttk.Frame(parent, padding=(SPACING.card, SPACING.card, SPACING.card, SPACING.card), style="AppStrip.TFrame")
         timeline.grid(row=0, column=0, sticky="ew")
         timeline.columnconfigure(0, weight=1)
 
-        ttk.Label(timeline, text="Timeline", style="StripTitle.TLabel").grid(row=0, column=0, sticky="w")
+        ttk.Label(timeline, text="Timeline", style="AppStripTitle.TLabel").grid(row=0, column=0, sticky="w")
 
-        slider_row = ttk.Frame(timeline, style="Strip.TFrame")
+        slider_row = ttk.Frame(timeline, style="AppStrip.TFrame")
         slider_row.grid(row=1, column=0, sticky="ew", pady=(SPACING.inner, 0))
         slider_row.columnconfigure(0, weight=1)
 
@@ -148,11 +148,11 @@ class LayoutBuilder:
         self.slider_overlay.bind("<Button-1>", self._on_slider_overlay_click)
         self.slider_overlay.bind("<Configure>", lambda _event: self._redraw_slider_overlay())
 
-        self.slider = ttk.Scale(slider_row, from_=0, to=100, orient="horizontal", command=self.on_slider_move, style="Flat.Horizontal.TScale")
+        self.slider = ttk.Scale(slider_row, from_=0, to=100, orient="horizontal", command=self.on_slider_move, style="AppFlat.Horizontal.TScale")
         self.slider.grid(row=1, column=0, sticky="ew")
 
     def _build_control_strip(self, parent):
-        strip = ttk.Frame(parent, padding=(SPACING.card, SPACING.inner, SPACING.card, SPACING.card), style="Strip.TFrame")
+        strip = ttk.Frame(parent, padding=(SPACING.card, SPACING.inner, SPACING.card, SPACING.card), style="AppStrip.TFrame")
         strip.grid(row=1, column=0, sticky="ew", pady=(SPACING.gap, 0))
         for column, weight in enumerate((5, 4, 3)):
             strip.columnconfigure(column * 2, weight=weight)
@@ -163,7 +163,7 @@ class LayoutBuilder:
         self.right_controls = self._build_metrics_masks_group(strip, 4)
 
     def _build_tools_group(self, parent, column):
-        frame = ttk.Frame(parent, padding=(SPACING.card, SPACING.gap, SPACING.card, SPACING.card), style="Subpanel.TFrame")
+        frame = ttk.Frame(parent, padding=(SPACING.card, SPACING.gap, SPACING.card, SPACING.card), style="AppSubpanel.TFrame")
         frame.grid(row=0, column=column, sticky="nsew")
         frame.columnconfigure(0, weight=1)
         frame.columnconfigure(1, weight=1)
@@ -171,23 +171,23 @@ class LayoutBuilder:
         self.tool_mode = tk.StringVar(value="select")
         self.tool_mode.trace_add("write", lambda *_args: self._sync_tool_mode_buttons())
 
-        ttk.Label(frame, text="Tools", style="SubpanelTitle.TLabel").grid(row=0, column=0, columnspan=3, sticky="w", pady=(0, SPACING.gap))
-        segmented = ttk.Frame(frame, style="Subpanel.TFrame")
+        ttk.Label(frame, text="Tools", style="AppSubpanelTitle.TLabel").grid(row=0, column=0, columnspan=3, sticky="w", pady=(0, SPACING.gap))
+        segmented = ttk.Frame(frame, style="AppSubpanel.TFrame")
         segmented.grid(row=1, column=0, columnspan=3, sticky="ew")
         for seg_col in range(3):
             segmented.columnconfigure(seg_col, weight=1)
-        self.btn_tool_select = ttk.Button(segmented, text="Select", command=lambda: self._set_tool_mode("select"), style="SegmentedActive.TButton")
+        self.btn_tool_select = ttk.Button(segmented, text="Select", command=lambda: self._set_tool_mode("select"), style="AppSegmentedActive.TButton")
         self.btn_tool_select.grid(row=0, column=0, sticky="ew")
-        self.btn_tool_point_pos = ttk.Button(segmented, text="Point (+)", command=lambda: self._set_tool_mode("point_pos"), style="Segmented.TButton")
+        self.btn_tool_point_pos = ttk.Button(segmented, text="Point (+)", command=lambda: self._set_tool_mode("point_pos"), style="AppSegmented.TButton")
         self.btn_tool_point_pos.grid(row=0, column=1, sticky="ew", padx=(1, 1))
-        self.btn_tool_point_neg = ttk.Button(segmented, text="Point (-)", command=lambda: self._set_tool_mode("point_neg"), style="Segmented.TButton")
+        self.btn_tool_point_neg = ttk.Button(segmented, text="Point (-)", command=lambda: self._set_tool_mode("point_neg"), style="AppSegmented.TButton")
         self.btn_tool_point_neg.grid(row=0, column=2, sticky="ew")
 
-        sensitivity_row = ttk.Frame(frame, style="Subpanel.TFrame")
+        sensitivity_row = ttk.Frame(frame, style="AppSubpanel.TFrame")
         sensitivity_row.grid(row=2, column=0, columnspan=3, sticky="ew", pady=(SPACING.gap, 0))
         sensitivity_row.columnconfigure(1, weight=1)
 
-        ttk.Label(sensitivity_row, text="Sensitivity", style="SubpanelMeta.TLabel").grid(row=0, column=0, sticky="w")
+        ttk.Label(sensitivity_row, text="Sensitivity", style="AppSubpanelMeta.TLabel").grid(row=0, column=0, sticky="w")
         self.sensitivity = tk.DoubleVar(value=0.0)
         ttk.Scale(
             sensitivity_row,
@@ -196,25 +196,25 @@ class LayoutBuilder:
             variable=self.sensitivity,
             orient="horizontal",
             command=self.on_sensitivity_change,
-            style="Flat.Horizontal.TScale",
+            style="AppFlat.Horizontal.TScale",
         ).grid(row=0, column=1, sticky="ew", padx=(SPACING.gap, SPACING.gap))
-        self.lbl_sens = ttk.Label(sensitivity_row, text="0.0", style="SubpanelMeta.TLabel", width=5)
+        self.lbl_sens = ttk.Label(sensitivity_row, text="0.0", style="AppSubpanelMeta.TLabel", width=5)
         self.lbl_sens.grid(row=0, column=2, sticky="w")
 
-        brush_row = ttk.Frame(frame, style="Subpanel.TFrame")
+        brush_row = ttk.Frame(frame, style="AppSubpanel.TFrame")
         brush_row.grid(row=3, column=0, columnspan=3, sticky="ew", pady=(SPACING.inner, 0))
         brush_row.columnconfigure(0, weight=1)
         brush_row.columnconfigure(1, weight=1)
-        self.btn_tool_brush = ttk.Button(brush_row, text="Brush (+)", command=lambda: self._set_tool_mode("brush"), style="Segmented.TButton")
+        self.btn_tool_brush = ttk.Button(brush_row, text="Brush (+)", command=lambda: self._set_tool_mode("brush"), style="AppSegmented.TButton")
         self.btn_tool_brush.grid(row=0, column=0, sticky="ew", padx=(0, 1))
-        self.btn_tool_eraser = ttk.Button(brush_row, text="Eraser (-)", command=lambda: self._set_tool_mode("eraser"), style="Segmented.TButton")
+        self.btn_tool_eraser = ttk.Button(brush_row, text="Eraser (-)", command=lambda: self._set_tool_mode("eraser"), style="AppSegmented.TButton")
         self.btn_tool_eraser.grid(row=0, column=1, sticky="ew")
 
-        brush_size_row = ttk.Frame(frame, style="Subpanel.TFrame")
+        brush_size_row = ttk.Frame(frame, style="AppSubpanel.TFrame")
         brush_size_row.grid(row=4, column=0, columnspan=3, sticky="ew", pady=(SPACING.inner, 0))
         brush_size_row.columnconfigure(1, weight=1)
 
-        ttk.Label(brush_size_row, text="Brush", style="SubpanelMeta.TLabel").grid(row=0, column=0, sticky="w")
+        ttk.Label(brush_size_row, text="Brush", style="AppSubpanelMeta.TLabel").grid(row=0, column=0, sticky="w")
         self.brush_size = tk.DoubleVar(value=10.0)
         self.scale_brush = ttk.Scale(
             brush_size_row,
@@ -223,10 +223,10 @@ class LayoutBuilder:
             variable=self.brush_size,
             orient="horizontal",
             command=self.on_brush_size_change,
-            style="Flat.Horizontal.TScale",
+            style="AppFlat.Horizontal.TScale",
         )
         self.scale_brush.grid(row=0, column=1, sticky="ew", padx=(SPACING.gap, SPACING.gap))
-        self.lbl_brush_val = ttk.Label(brush_size_row, text="10 px", style="SubpanelMeta.TLabel", width=7)
+        self.lbl_brush_val = ttk.Label(brush_size_row, text="10 px", style="AppSubpanelMeta.TLabel", width=7)
         self.lbl_brush_val.grid(row=0, column=2, sticky="w")
 
         ttk.Button(frame, text="Clear Frame", command=self.clear_current_frame_data, **semantic_button_options("secondary")).grid(
@@ -239,23 +239,23 @@ class LayoutBuilder:
         return frame
 
     def _build_propagation_group(self, parent, column):
-        frame = ttk.Frame(parent, padding=(SPACING.card, SPACING.gap, SPACING.card, SPACING.card), style="Subpanel.TFrame")
+        frame = ttk.Frame(parent, padding=(SPACING.card, SPACING.gap, SPACING.card, SPACING.card), style="AppSubpanel.TFrame")
         frame.grid(row=0, column=column, sticky="nsew")
         frame.columnconfigure(1, weight=1)
         frame.columnconfigure(3, weight=1)
 
-        ttk.Label(frame, text="Propagation", style="SubpanelTitle.TLabel").grid(row=0, column=0, columnspan=4, sticky="w", pady=(0, SPACING.gap))
+        ttk.Label(frame, text="Propagation", style="AppSubpanelTitle.TLabel").grid(row=0, column=0, columnspan=4, sticky="w", pady=(0, SPACING.gap))
         self.propagation_range_canvas = tk.Canvas(frame, height=16, bg=SLIDER_OVERLAY_BACKGROUND, highlightthickness=0, bd=0)
         self.propagation_range_canvas.grid(row=1, column=0, columnspan=4, sticky="ew", pady=(0, SPACING.gap))
-        ttk.Label(frame, text="Start", style="SubpanelMeta.TLabel").grid(row=2, column=0, sticky="w")
-        self.spin_prop_start = ttk.Entry(frame, width=5, style="Compact.TEntry")
+        ttk.Label(frame, text="Start", style="AppSubpanelMeta.TLabel").grid(row=2, column=0, sticky="w")
+        self.spin_prop_start = ttk.Entry(frame, width=5, style="AppCompact.TEntry")
         self.spin_prop_start.grid(row=2, column=1, sticky="ew", padx=(SPACING.gap, SPACING.inner))
         self._set_spinbox_value(self.spin_prop_start, 1)
         self.spin_prop_start.bind("<KeyRelease>", lambda _event: self._redraw_propagation_range_bar(), add="+")
         self.spin_prop_start.bind("<FocusOut>", lambda _event: self._redraw_propagation_range_bar(), add="+")
 
-        ttk.Label(frame, text="End", style="SubpanelMeta.TLabel").grid(row=2, column=2, sticky="w")
-        self.spin_prop_end = ttk.Entry(frame, width=5, style="Compact.TEntry")
+        ttk.Label(frame, text="End", style="AppSubpanelMeta.TLabel").grid(row=2, column=2, sticky="w")
+        self.spin_prop_end = ttk.Entry(frame, width=5, style="AppCompact.TEntry")
         self.spin_prop_end.grid(row=2, column=3, sticky="ew", padx=(SPACING.gap, 0))
         self._set_spinbox_value(self.spin_prop_end, 100)
         self.spin_prop_end.bind("<KeyRelease>", lambda _event: self._redraw_propagation_range_bar(), add="+")
@@ -274,25 +274,25 @@ class LayoutBuilder:
         return frame
 
     def _build_metrics_group(self, parent, column):
-        frame = ttk.Frame(parent, style="Subpanel.TFrame")
+        frame = ttk.Frame(parent, style="AppSubpanel.TFrame")
         frame.grid(row=0, column=column, sticky="nsew")
         frame.columnconfigure(0, weight=1)
         self.frame_metrics = frame
 
-        ttk.Label(frame, text="Metrics", style="SubpanelTitle.TLabel").grid(row=0, column=0, sticky="w")
+        ttk.Label(frame, text="Metrics", style="AppSubpanelTitle.TLabel").grid(row=0, column=0, sticky="w")
         self.btn_analysis_toggle = ttk.Button(frame, text="Adjust Metrics", width=18, command=self._toggle_analysis_panel, **semantic_button_options("secondary"))
         self.btn_analysis_toggle.grid(row=1, column=0, sticky="ew", pady=(SPACING.gap, 0))
 
-        self.frame_analysis_body = ttk.Frame(frame, style="Subpanel.TFrame")
+        self.frame_analysis_body = ttk.Frame(frame, style="AppSubpanel.TFrame")
         self.frame_analysis_body.grid(row=2, column=0, sticky="ew", pady=(SPACING.inner, 0))
         self.frame_analysis_body.columnconfigure(1, weight=1)
 
-        ttk.Label(self.frame_analysis_body, text="Frames/sec", style="SubpanelMeta.TLabel").grid(row=0, column=0, sticky="w")
+        ttk.Label(self.frame_analysis_body, text="Frames/sec", style="AppSubpanelMeta.TLabel").grid(row=0, column=0, sticky="w")
         self.frames_per_sec_var = tk.DoubleVar(value=1.0)
-        self.entry_frames_per_sec = ttk.Entry(self.frame_analysis_body, textvariable=self.frames_per_sec_var, width=7, style="Compact.TEntry")
+        self.entry_frames_per_sec = ttk.Entry(self.frame_analysis_body, textvariable=self.frames_per_sec_var, width=7, style="AppCompact.TEntry")
         self.entry_frames_per_sec.grid(row=0, column=1, sticky="ew", padx=(SPACING.gap, 0))
 
-        metrics_actions = ttk.Frame(self.frame_analysis_body, style="Subpanel.TFrame")
+        metrics_actions = ttk.Frame(self.frame_analysis_body, style="AppSubpanel.TFrame")
         metrics_actions.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(SPACING.inner, 0))
         metrics_actions.columnconfigure(0, weight=1)
         metrics_actions.columnconfigure(1, weight=1)
@@ -319,15 +319,15 @@ class LayoutBuilder:
             return
 
     def _build_masks_group(self, parent, column):
-        frame = ttk.Frame(parent, style="Subpanel.TFrame")
+        frame = ttk.Frame(parent, style="AppSubpanel.TFrame")
         frame.grid(row=0, column=column, sticky="ne", padx=(SPACING.inner * 2, 0))
 
-        ttk.Label(frame, text="Masks", style="SubpanelTitle.TLabel").grid(row=0, column=0, sticky="w")
+        ttk.Label(frame, text="Masks", style="AppSubpanelTitle.TLabel").grid(row=0, column=0, sticky="w")
         self.btn_save_masks = ttk.Button(frame, text="Save Current Masks", command=self.save_current_masks, **semantic_button_options("secondary"))
         self.btn_save_masks.grid(row=1, column=0, sticky="w", pady=(SPACING.gap, 0))
 
     def _build_metrics_masks_group(self, parent, column):
-        frame = ttk.Frame(parent, padding=(SPACING.card, SPACING.gap, SPACING.card, SPACING.card), style="Subpanel.TFrame")
+        frame = ttk.Frame(parent, padding=(SPACING.card, SPACING.gap, SPACING.card, SPACING.card), style="AppSubpanel.TFrame")
         frame.grid(row=0, column=column, sticky="nsew")
         frame.columnconfigure(0, weight=1)
         frame.columnconfigure(1, weight=0)
@@ -337,25 +337,25 @@ class LayoutBuilder:
         return frame
 
     def _create_view_panel(self, parent, *, row, column, title, padx=(0, 0)):
-        panel = ttk.Frame(parent, padding=(SPACING.card, SPACING.card, SPACING.card, SPACING.card), style="Surface.TFrame")
+        panel = ttk.Frame(parent, padding=(SPACING.card, SPACING.card, SPACING.card, SPACING.card), style="AppSurface.TFrame")
         panel.grid(row=row, column=column, sticky="nsew", padx=padx)
         panel.columnconfigure(0, weight=1)
         panel.rowconfigure(1, weight=1)
 
-        ttk.Label(panel, text=title, style="SectionTitle.TLabel").grid(row=0, column=0, sticky="w", pady=(0, SPACING.inner))
+        ttk.Label(panel, text=title, style="AppSectionTitle.TLabel").grid(row=0, column=0, sticky="w", pady=(0, SPACING.inner))
 
-        body = ttk.Frame(panel, style="Inset.TFrame")
+        body = ttk.Frame(panel, style="AppInset.TFrame")
         body.grid(row=1, column=0, sticky="nsew")
         body.columnconfigure(0, weight=1)
         body.rowconfigure(0, weight=1)
         return panel, body
 
     def _create_frame_overlay(self, parent):
-        overlay = ttk.Frame(parent, padding=(8, 6), style="OverlayFrame.TFrame")
+        overlay = ttk.Frame(parent, padding=(8, 6), style="AppOverlay.TFrame")
         overlay.place(relx=0.0, rely=1.0, anchor="sw", x=10, y=-10)
         overlay.columnconfigure(0, weight=1)
-        ttk.Label(overlay, textvariable=self.frame_status_var, style="OverlayValue.TLabel").grid(row=0, column=0, sticky="w")
-        ttk.Label(overlay, textvariable=self.frame_meta_var, style="OverlayMeta.TLabel").grid(row=1, column=0, sticky="w")
+        ttk.Label(overlay, textvariable=self.frame_status_var, style="AppOverlayValue.TLabel").grid(row=0, column=0, sticky="w")
+        ttk.Label(overlay, textvariable=self.frame_meta_var, style="AppOverlayMeta.TLabel").grid(row=1, column=0, sticky="w")
         return overlay
 
     def _set_tool_mode(self, mode):
@@ -373,7 +373,7 @@ class LayoutBuilder:
         for button, mode in mapping.items():
             if button is None:
                 continue
-            button.configure(style="SegmentedActive.TButton" if current == mode else "Segmented.TButton")
+            button.configure(style="AppSegmentedActive.TButton" if current == mode else "AppSegmented.TButton")
 
     def _parse_entry_frame_range(self):
         total = int(self._get_frame_count()) if hasattr(self, "_get_frame_count") else 0
@@ -417,9 +417,9 @@ class LayoutBuilder:
         tip = tk.Toplevel(self.root)
         tip.withdraw()
         tip.overrideredirect(True)
-        frame = ttk.Frame(tip, padding=(8, 5), style="OverlayFrame.TFrame")
+        frame = ttk.Frame(tip, padding=(8, 5), style="AppOverlay.TFrame")
         frame.grid(row=0, column=0, sticky="nsew")
-        label = ttk.Label(frame, text="", style="OverlayMeta.TLabel")
+        label = ttk.Label(frame, text="", style="AppOverlayMeta.TLabel")
         label.grid(row=0, column=0, sticky="w")
         self._overlay_tooltip = tip
         self._overlay_tooltip_label = label

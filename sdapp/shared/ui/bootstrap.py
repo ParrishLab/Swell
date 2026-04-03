@@ -46,9 +46,9 @@ def center_window_on_screen(window, *, width: int | None = None, height: int | N
 def semantic_button_options(kind: str) -> dict[str, str]:
     normalized = str(kind or "secondary").strip().lower() or "secondary"
     mapping = {
-        "primary": "Accent.TButton",
-        "success": "Accent.TButton",
-        "secondary": "Quiet.TButton",
-        "danger": "Danger.TButton",
+        "primary": "AppAccent.TButton",
+        "success": "AppAccent.TButton",
+        "secondary": "AppQuiet.TButton",
+        "danger": "AppDanger.TButton",
     }
-    return {"style": mapping.get(normalized, "Quiet.TButton")}
+    return {"style": mapping.get(normalized, "AppQuiet.TButton")}

@@ -8,7 +8,7 @@ from sdapp.shared.ui.bootstrap import ttk
 def build_preview_overlay(parent, on_start, on_drag, on_stop, *, dark_theme: bool = True):
     del dark_theme
 
-    preview_frame = ttk.Frame(parent, width=148, height=148, style="Preview.TFrame")
+    preview_frame = ttk.Frame(parent, width=148, height=148, style="AppPreview.TFrame")
     preview_frame.grid_propagate(False)
     preview_frame.place(relx=1.0, rely=0.0, anchor="ne", x=-8, y=8)
     preview_frame.columnconfigure(0, weight=1)
@@ -27,7 +27,7 @@ def build_preview_overlay(parent, on_start, on_drag, on_stop, *, dark_theme: boo
     lbl_grip = ttk.Label(
         preview_frame,
         text="\u2199",
-        style="PreviewGrip.TLabel",
+        style="AppPreviewGrip.TLabel",
         cursor="fleur",
         width=2,
     )

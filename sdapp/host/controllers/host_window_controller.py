@@ -205,12 +205,12 @@ class HostWindowController:
 
         shell = ttk.Frame(dialog, padding=SPACING.outer, style="AppShell.TFrame")
         shell.pack(fill="both", expand=True)
-        ttk.Label(shell, text=f"Choose export items for {len(event_ids)} event(s)", style="SectionTitle.TLabel").pack(anchor="w")
+        ttk.Label(shell, text=f"Choose export items for {len(event_ids)} event(s)", style="AppSectionTitle.TLabel").pack(anchor="w")
 
-        output_row = ttk.Frame(shell, padding=SPACING.card, style="Surface.TFrame")
+        output_row = ttk.Frame(shell, padding=SPACING.card, style="AppSurface.TFrame")
         output_row.pack(fill="x", pady=(6, 10))
-        ttk.Label(output_row, text="Output Folder", style="Meta.TLabel").pack(side="left")
-        output_entry = ttk.Entry(output_row, textvariable=output_dir_var, style="Compact.TEntry")
+        ttk.Label(output_row, text="Output Folder", style="AppMeta.TLabel").pack(side="left")
+        output_entry = ttk.Entry(output_row, textvariable=output_dir_var, style="AppCompact.TEntry")
         output_entry.pack(side="left", fill="x", expand=True, padx=(8, 8))
 
         def _browse_output_dir() -> None:
@@ -221,9 +221,9 @@ class HostWindowController:
 
         ttk.Button(output_row, text="Browse...", command=_browse_output_dir, **semantic_button_options("secondary")).pack(side="left")
 
-        checks = ttk.Frame(shell, padding=SPACING.card, style="Surface.TFrame")
+        checks = ttk.Frame(shell, padding=SPACING.card, style="AppSurface.TFrame")
         checks.pack(fill="x", pady=(0, 10))
-        ttk.Label(checks, text="Include", style="SectionTitle.TLabel").pack(anchor="w", pady=(0, SPACING.gap))
+        ttk.Label(checks, text="Include", style="AppSectionTitle.TLabel").pack(anchor="w", pady=(0, SPACING.gap))
         ttk.Checkbutton(checks, text="Event Images", variable=include_event_var).pack(anchor="w")
         ttk.Checkbutton(checks, text="Baseline Images", variable=include_baseline_var).pack(anchor="w")
         ttk.Checkbutton(checks, text="Analysis Images", variable=include_analysis_var).pack(anchor="w")
@@ -240,7 +240,7 @@ class HostWindowController:
             self.attach_disabled_tooltip(dialog, overlay_check, "No binary masks exist for the selected events.")
 
         ttk.Separator(checks, orient="horizontal").pack(fill="x", pady=(6, 4))
-        ttk.Label(checks, text="Metrics", style="Meta.TLabel").pack(anchor="w")
+        ttk.Label(checks, text="Metrics", style="AppMeta.TLabel").pack(anchor="w")
         metric_speed_check = ttk.Checkbutton(checks, text="Propagation Speed", variable=include_metric_speed_var)
         metric_speed_check.pack(anchor="w")
         metric_area_check = ttk.Checkbutton(checks, text="Area Recruited", variable=include_metric_area_var)
@@ -372,13 +372,13 @@ class HostWindowController:
                 f"Frames: {run_labels or 'unknown'}"
             ),
             justify="left",
-            style="SectionTitle.TLabel",
+            style="AppSectionTitle.TLabel",
         ).pack(anchor="w")
         ttk.Label(
             shell,
             text="Choose how export should handle those propagation-speed gaps for this export run.",
             justify="left",
-            style="Meta.TLabel",
+            style="AppMeta.TLabel",
         ).pack(anchor="w", pady=(8, 10))
 
         def _finish(action: str) -> None:
@@ -433,14 +433,14 @@ class HostWindowController:
         ttk.Label(
             shell,
             text="Configure global Frames/sec, Scale, and ROI defaults for this project.",
-            style="Meta.TLabel",
+            style="AppMeta.TLabel",
         ).pack(anchor="w")
 
-        fps_row = ttk.Frame(shell, padding=SPACING.card, style="Surface.TFrame")
+        fps_row = ttk.Frame(shell, padding=SPACING.card, style="AppSurface.TFrame")
         fps_row.pack(fill="x", pady=(10, 6))
-        ttk.Label(fps_row, text="Frames/sec", style="SectionTitle.TLabel").pack(side="left")
+        ttk.Label(fps_row, text="Frames/sec", style="AppSectionTitle.TLabel").pack(side="left")
         fps_var = tk.StringVar(value=f"{fps_initial:.6g}")
-        ttk.Entry(fps_row, textvariable=fps_var, width=10, style="Compact.TEntry").pack(side="left", padx=(8, 0))
+        ttk.Entry(fps_row, textvariable=fps_var, width=10, style="AppCompact.TEntry").pack(side="left", padx=(8, 0))
 
         scale_status_var = tk.StringVar()
         roi_status_var = tk.StringVar()
@@ -523,8 +523,8 @@ class HostWindowController:
         ttk.Button(controls, text="Set Scale", command=_set_scale, **semantic_button_options("secondary")).pack(side="left")
         ttk.Button(controls, text="Draw ROI", command=_set_roi, **semantic_button_options("secondary")).pack(side="left", padx=(8, 0))
 
-        ttk.Label(shell, textvariable=scale_status_var, style="Meta.TLabel").pack(anchor="w", pady=(2, 2))
-        ttk.Label(shell, textvariable=roi_status_var, style="Meta.TLabel").pack(anchor="w", pady=(0, 8))
+        ttk.Label(shell, textvariable=scale_status_var, style="AppMeta.TLabel").pack(anchor="w", pady=(2, 2))
+        ttk.Label(shell, textvariable=roi_status_var, style="AppMeta.TLabel").pack(anchor="w", pady=(0, 8))
         _refresh_labels()
 
         actions = ttk.Frame(shell, style="AppShell.TFrame")

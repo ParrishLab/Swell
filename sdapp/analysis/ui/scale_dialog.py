@@ -30,7 +30,7 @@ def open_scale_dialog(root, img_u8, snap_scale_points_axis, refine_scale_bar_poi
     max_w, max_h = 900, 700
     initial_fit_ratio = min(max_w / img_w, max_h / img_h, 1.0)
 
-    canvas_shell = ttk.Frame(shell, padding=SPACING.card, style="Inset.TFrame")
+    canvas_shell = ttk.Frame(shell, padding=SPACING.card, style="AppInset.TFrame")
     canvas_shell.grid(row=0, column=0, sticky="nsew")
     x_scroll = ttk.Scrollbar(canvas_shell, orient="horizontal")
     y_scroll = ttk.Scrollbar(canvas_shell, orient="vertical")
@@ -381,7 +381,7 @@ def open_scale_dialog(root, img_u8, snap_scale_points_axis, refine_scale_bar_poi
     popup.focus_set()
     render_background()
     redraw()
-    controls = ttk.Frame(shell, padding=(0, SPACING.inner, 0, 0), style="Surface.TFrame")
+    controls = ttk.Frame(shell, padding=(0, SPACING.inner, 0, 0), style="AppSurface.TFrame")
     controls.grid(row=1, column=0, sticky="ew")
     controls.columnconfigure(0, weight=1)
     controls.columnconfigure(1, weight=1)
@@ -391,20 +391,20 @@ def open_scale_dialog(root, img_u8, snap_scale_points_axis, refine_scale_bar_poi
     def sync_tool_buttons(*_args):
         active_mode = tool_mode_var.get()
         for mode_name, button in tool_buttons.items():
-            button.configure(style="SegmentedActive.TButton" if mode_name == active_mode else "Segmented.TButton")
+            button.configure(style="AppSegmentedActive.TButton" if mode_name == active_mode else "AppSegmented.TButton")
 
-    left_controls = ttk.Frame(controls, style="Surface.TFrame")
+    left_controls = ttk.Frame(controls, style="AppSurface.TFrame")
     left_controls.grid(row=0, column=0, sticky="w")
     ttk.Button(left_controls, text="Undo", command=on_undo, **semantic_button_options("secondary")).pack(side="left", padx=(0, SPACING.gap))
     ttk.Button(left_controls, text="Clear", command=on_clear, **semantic_button_options("secondary")).pack(side="left", padx=(0, SPACING.gap))
-    tool_strip = ttk.Frame(left_controls, style="Surface.TFrame")
+    tool_strip = ttk.Frame(left_controls, style="AppSurface.TFrame")
     tool_strip.pack(side="left", padx=(SPACING.inner, SPACING.gap))
     for index, (mode_name, label) in enumerate((("edit", "Edit"), ("pan", "Pan"), ("zoom_in", "Zoom In"), ("zoom_out", "Zoom Out"))):
         button = ttk.Button(
             tool_strip,
             text=label,
             command=lambda value=mode_name: tool_mode_var.set(value),
-            style="Segmented.TButton",
+            style="AppSegmented.TButton",
         )
         button.pack(side="left", padx=(0 if index == 0 else 1, 0))
         tool_buttons[mode_name] = button
@@ -412,7 +412,7 @@ def open_scale_dialog(root, img_u8, snap_scale_points_axis, refine_scale_bar_poi
     tool_mode_var.trace_add("write", sync_tool_buttons)
     sync_tool_buttons()
 
-    right_controls = ttk.Frame(controls, style="Surface.TFrame")
+    right_controls = ttk.Frame(controls, style="AppSurface.TFrame")
     right_controls.grid(row=0, column=1, sticky="e")
     ttk.Button(right_controls, text="Cancel", command=popup.destroy, **semantic_button_options("secondary")).pack(side="right")
     ttk.Button(right_controls, text="Set Local Scale", command=lambda: on_set_scale("local"), **semantic_button_options("secondary")).pack(

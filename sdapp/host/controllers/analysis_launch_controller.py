@@ -203,50 +203,50 @@ class AnalysisLaunchController:
         shell.pack(fill="both", expand=True)
         shell.columnconfigure(0, weight=1)
 
-        summary = ttk.Frame(shell, padding=SPACING.card, style="Surface.TFrame")
+        summary = ttk.Frame(shell, padding=SPACING.card, style="AppSurface.TFrame")
         summary.pack(fill="x", pady=(0, SPACING.inner))
         summary.columnconfigure(0, weight=1)
         summary.columnconfigure(1, weight=0)
-        ttk.Label(summary, text=f"Event range: {event_start + 1} - {event_end + 1}", style="Meta.TLabel").grid(row=0, column=0, sticky="w")
+        ttk.Label(summary, text=f"Event range: {event_start + 1} - {event_end + 1}", style="AppMeta.TLabel").grid(row=0, column=0, sticky="w")
 
-        baseline_row = ttk.Frame(summary, style="Surface.TFrame")
+        baseline_row = ttk.Frame(summary, style="AppSurface.TFrame")
         baseline_row.grid(row=0, column=1, sticky="e", padx=(SPACING.inner, 0))
         baseline_var = tk.StringVar(value=str(max(1, int(self.app.baseline_pre_frames))))
-        ttk.Label(baseline_row, text="Baseline Frames", style="Meta.TLabel").pack(side="left")
-        baseline_entry = ttk.Entry(baseline_row, textvariable=baseline_var, width=6, style="Compact.TEntry")
+        ttk.Label(baseline_row, text="Baseline Frames", style="AppMeta.TLabel").pack(side="left")
+        baseline_entry = ttk.Entry(baseline_row, textvariable=baseline_var, width=6, style="AppCompact.TEntry")
         baseline_entry.pack(side="left", padx=(SPACING.gap, 0))
 
-        checks = ttk.Frame(shell, padding=SPACING.card, style="Surface.TFrame")
+        checks = ttk.Frame(shell, padding=SPACING.card, style="AppSurface.TFrame")
         checks.pack(fill="x", pady=(0, SPACING.inner))
         checks.columnconfigure(0, weight=1)
         checks.columnconfigure(1, weight=1)
-        ttk.Label(checks, text="Preprocessing", style="SectionTitle.TLabel").pack(anchor="w", pady=(0, SPACING.gap))
+        ttk.Label(checks, text="Preprocessing", style="AppSectionTitle.TLabel").pack(anchor="w", pady=(0, SPACING.gap))
         bar_denoise_var = tk.BooleanVar(value=False)
         smoothing_var = tk.BooleanVar(value=True)
         subtract_var = tk.BooleanVar(value=True)
         normalize_var = tk.BooleanVar(value=True)
-        checks_grid = ttk.Frame(checks, style="Surface.TFrame")
+        checks_grid = ttk.Frame(checks, style="AppSurface.TFrame")
         checks_grid.pack(fill="x")
         checks_grid.columnconfigure(0, weight=1)
         checks_grid.columnconfigure(1, weight=1)
-        ttk.Checkbutton(checks_grid, text="Horizontal Bar Denoise", variable=bar_denoise_var, style="Surface.TCheckbutton").grid(
+        ttk.Checkbutton(checks_grid, text="Horizontal Bar Denoise", variable=bar_denoise_var, style="AppSurface.TCheckbutton").grid(
             row=0, column=0, sticky="w", pady=(0, 2), padx=(0, SPACING.inner)
         )
-        ttk.Checkbutton(checks_grid, text="Smoothing", variable=smoothing_var, style="Surface.TCheckbutton").grid(
+        ttk.Checkbutton(checks_grid, text="Smoothing", variable=smoothing_var, style="AppSurface.TCheckbutton").grid(
             row=0, column=1, sticky="w", pady=(0, 2)
         )
-        ttk.Checkbutton(checks_grid, text="Baseline Subtraction", variable=subtract_var, style="Surface.TCheckbutton").grid(
+        ttk.Checkbutton(checks_grid, text="Baseline Subtraction", variable=subtract_var, style="AppSurface.TCheckbutton").grid(
             row=1, column=0, sticky="w", pady=(2, 0), padx=(0, SPACING.inner)
         )
-        ttk.Checkbutton(checks_grid, text="Global Normalization", variable=normalize_var, style="Surface.TCheckbutton").grid(
+        ttk.Checkbutton(checks_grid, text="Global Normalization", variable=normalize_var, style="AppSurface.TCheckbutton").grid(
             row=1, column=1, sticky="w", pady=(2, 0)
         )
 
-        preview_frame = ttk.Frame(shell, padding=SPACING.card, style="Surface.TFrame", width=460, height=260)
+        preview_frame = ttk.Frame(shell, padding=SPACING.card, style="AppSurface.TFrame", width=460, height=260)
         preview_frame.pack(fill="x", pady=(0, SPACING.gap))
         preview_frame.pack_propagate(False)
-        ttk.Label(preview_frame, text="Preview", style="SectionTitle.TLabel").pack(anchor="w", pady=(0, SPACING.gap))
-        preview_body = ttk.Frame(preview_frame, padding=SPACING.gap, style="Inset.TFrame")
+        ttk.Label(preview_frame, text="Preview", style="AppSectionTitle.TLabel").pack(anchor="w", pady=(0, SPACING.gap))
+        preview_body = ttk.Frame(preview_frame, padding=SPACING.gap, style="AppInset.TFrame")
         preview_body.pack(fill="both", expand=True)
         preview_label = ttk.Label(preview_body, anchor="center", style="Card.TLabel")
         preview_label.pack(fill="both", expand=True)
@@ -255,7 +255,7 @@ class AnalysisLaunchController:
         footer = ttk.Frame(shell, style="AppShell.TFrame")
         footer.pack(fill="x", pady=(8, 0))
         status_var = tk.StringVar(value="Preparing exact preview...")
-        ttk.Label(footer, textvariable=status_var, style="Meta.TLabel").pack(side="left")
+        ttk.Label(footer, textvariable=status_var, style="AppMeta.TLabel").pack(side="left")
 
         result: dict[str, object] = {"ok": False}
         state: dict[str, object] = {
