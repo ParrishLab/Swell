@@ -45,9 +45,12 @@ def _pgrep_exact(name: str) -> set[int]:
 
 def _terminate_pids(pids: set[int], shutdown_seconds: float) -> None:
     pending = {int(pid) for pid in pids if int(pid) > 0}
+    terminate_signal = getattr(signal, "SIGTERM", None)
+    kill_signal = getattr(signal, "SIGKILL", terminate_signal)
     for pid in list(pending):
         try:
-            os.kill(pid, signal.SIGTERM)
+            if terminate_signal is not None:
+                os.kill(pid, terminate_signal)
         except ProcessLookupError:
             pending.discard(pid)
     deadline = time.monotonic() + shutdown_seconds
@@ -60,7 +63,8 @@ def _terminate_pids(pids: set[int], shutdown_seconds: float) -> None:
         time.sleep(0.1)
     for pid in list(pending):
         try:
-            os.kill(pid, signal.SIGKILL)
+            if kill_signal is not None:
+                os.kill(pid, kill_signal)
         except ProcessLookupError:
             pass
 
