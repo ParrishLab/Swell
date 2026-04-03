@@ -324,6 +324,7 @@ def test_launch_probe_bundle_mode_uses_open_semantics(monkeypatch, tmp_path: Pat
     monkeypatch.setattr(module.time, "sleep", lambda _secs: None)
     monkeypatch.setattr(module.time, "monotonic", lambda: next(monotonic_values))
     monkeypatch.setattr(module.os, "kill", lambda pid, sig: kill_calls.append((pid, sig)))
+    monkeypatch.setattr(module.sys, "platform", "darwin")
 
     rc = module.main(["--bundle-path", str(bundle), "--probe-seconds", "1"])
 
