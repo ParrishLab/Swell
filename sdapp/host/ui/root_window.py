@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from sdapp.shared.app_metadata import format_window_title
+
 if TYPE_CHECKING:
     from sdapp.shared.services import SingleInstanceBridge
 
@@ -16,7 +18,7 @@ def run_host_app(
 
     root = create_root_window(themename="darkly")
     apply_theme(root)
-    root.title("SDApp")
+    root.title(format_window_title("SDApp"))
     root.geometry("480x220")
     center_window_on_screen(root, width=480, height=220)
     root.columnconfigure(0, weight=1)

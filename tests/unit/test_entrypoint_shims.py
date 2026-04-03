@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib
 import sys
+import types
 
 
 def _clear_modules(*names: str) -> None:
@@ -25,6 +26,81 @@ def test_root_window_import_does_not_eagerly_load_host_app() -> None:
 
     assert callable(root_window.run_host_app)
     assert "sdapp.host.app" not in sys.modules
+
+
+def test_run_host_app_sets_versioned_root_title(monkeypatch) -> None:
+    _clear_modules("sdapp.host.ui.root_window", "sdapp.host.app")
+
+    fake_theme = types.ModuleType("sdapp.analysis.ui.theme")
+    fake_theme.apply_theme = lambda root: None
+
+    title_calls: list[str] = []
+
+    class _FakeRoot:
+        def title(self, value: str) -> None:
+            title_calls.append(value)
+
+        def geometry(self, _value: str) -> None:
+            return None
+
+        def columnconfigure(self, *_args, **_kwargs) -> None:
+            return None
+
+        def rowconfigure(self, *_args, **_kwargs) -> None:
+            return None
+
+        def update_idletasks(self) -> None:
+            return None
+
+        def update(self) -> None:
+            return None
+
+        def mainloop(self) -> None:
+            return None
+
+    class _FakeFrame:
+        def __init__(self, *_args, **_kwargs) -> None:
+            return None
+
+        def grid(self, *_args, **_kwargs) -> None:
+            return None
+
+        def columnconfigure(self, *_args, **_kwargs) -> None:
+            return None
+
+        def rowconfigure(self, *_args, **_kwargs) -> None:
+            return None
+
+        def destroy(self) -> None:
+            return None
+
+    class _FakeLabel(_FakeFrame):
+        pass
+
+    fake_bootstrap = types.ModuleType("sdapp.shared.ui.bootstrap")
+    fake_bootstrap.create_root_window = lambda **_kwargs: _FakeRoot()
+    fake_bootstrap.center_window_on_screen = lambda *_args, **_kwargs: None
+    fake_bootstrap.ttk = types.SimpleNamespace(Frame=_FakeFrame, Label=_FakeLabel)
+
+    created_apps: list[object] = []
+
+    class _FakeApp:
+        def __init__(self, root, **_kwargs) -> None:
+            created_apps.append(root)
+
+    fake_host_app = types.ModuleType("sdapp.host.app")
+    fake_host_app.SDAnalyzerApp = _FakeApp
+
+    monkeypatch.setitem(sys.modules, "sdapp.analysis.ui.theme", fake_theme)
+    monkeypatch.setitem(sys.modules, "sdapp.shared.ui.bootstrap", fake_bootstrap)
+    monkeypatch.setitem(sys.modules, "sdapp.host.app", fake_host_app)
+
+    root_window = importlib.import_module("sdapp.host.ui.root_window")
+    root_window.run_host_app()
+
+    assert title_calls
+    assert title_calls[0].startswith("SDApp v")
+    assert created_apps
 
 
 def test_shared_services_package_import_is_lazy() -> None:

@@ -45,7 +45,6 @@ def validate_installer_metadata(*, repo_root: Path, installer_path: Path, pyproj
     for required in (
         'IfFileExists "$INSTDIR\\\\${APP_EXE}"',
         'IfFileExists "$INSTDIR\\\\sdproj_doc_icon.ico"',
-        '!define WINSPARKLE_APPCAST_URL "https://github.com/ClayDunford/Combined-tool-test/releases/latest/download/appcast-windows.xml"',
     ):
         if required not in script:
             raise RuntimeError(f"Windows installer runtime payload guard is missing: {required}")

@@ -2,14 +2,9 @@
   "default_output": "output",
   "default_model": "managed://sam2.1_hiera_base_plus",
   "default_baseline": 30,
-  "auto_check_enabled": true,
+  "auto_check_enabled": false,
   "release_channel": "stable",
   "last_update_check_at": null,
   "ignored_version": null,
-  "update_channels": {
-    "stable": {
-      "windows": "https://github.com/ClayDunford/Combined-tool-test/releases/latest/download/appcast-windows.xml",
-      "macos": "https://github.com/ClayDunford/Combined-tool-test/releases/latest/download/appcast-macos.xml"
-    }
-  }
+  "update_channels": {}
 }

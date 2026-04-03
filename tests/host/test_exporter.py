@@ -520,6 +520,49 @@ def test_export_metrics_combined_workbook_is_not_written_when_option_is_disabled
     assert not (tmp_path / "event_0001" / "metrics" / "metrics_combined.xlsx").exists()
 
 
+def test_export_metrics_combined_workbook_reports_missing_openpyxl(monkeypatch, tmp_path: Path) -> None:
+    frames = [np.full((8, 8), i, dtype=np.uint8) for i in range(8)]
+    reader = FakeReader(frames)
+    events = [_event("event_0001", 1, 3)]
+    masks = np.zeros((8, 8, 8), dtype=np.uint8)
+    masks[1, 2:4, 2:4] = 1
+    masks[2, 2:5, 2:5] = 1
+    masks[3, 1:5, 1:5] = 1
+
+    real_import = __import__
+
+    def _raising_import(name, globals=None, locals=None, fromlist=(), level=0):
+        if name == "openpyxl":
+            raise ModuleNotFoundError("No module named 'openpyxl'")
+        return real_import(name, globals, locals, fromlist, level)
+
+    monkeypatch.setattr("builtins.__import__", _raising_import)
+
+    with pytest.raises(RuntimeError, match="requires openpyxl"):
+        export_analysis(
+            reader=reader,
+            events=events,
+            output_dir=tmp_path,
+            baseline_pre_frames=2,
+            include_event_images=False,
+            include_baseline_images=False,
+            include_metric_propagation_speed=True,
+            include_metric_area_recruited=True,
+            include_metric_relative_area_recruited=False,
+            include_metric_combined_spreadsheet=True,
+            analysis_sidecar={
+                "event_0001": {
+                    "masks_committed": masks,
+                    "metrics_settings": {
+                        "frames_per_sec": 1.0,
+                        "scale_px_per_mm": 3.0,
+                        "roi_mask": np.ones((8, 8), dtype=bool),
+                    },
+                }
+            },
+        )
+
+
 def test_export_metrics_respects_selection_flags(tmp_path: Path) -> None:
     frames = [np.full((8, 8), i, dtype=np.uint8) for i in range(8)]
     reader = FakeReader(frames)

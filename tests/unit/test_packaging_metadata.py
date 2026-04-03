@@ -17,9 +17,10 @@ def test_macos_spec_registers_sdproj_document_type() -> None:
     assert 'datas.append((str(doc_icon_icns), "."))' in spec
     assert "public.filename-extension" in spec
     assert "sdproj" in spec
-    assert "SUFeedURL" in spec
-    assert "SUPublicEDKey" in spec
-    assert 'updater/macos/Sparkle.framework' in spec
+    assert '"CFBundleShortVersionString": APP_VERSION' in spec
+    assert '"CFBundleVersion": APP_VERSION' in spec
+    assert '"openpyxl"' in spec
+    assert '"resources/updater/" not in entry[0]' in spec
 
 
 def test_repo_contains_sparkle_signing_tool_and_public_key() -> None:
@@ -46,14 +47,15 @@ def test_windows_installer_metadata_matches_project_version_and_includes_payload
     assert '; File /r "dist\\\\windows-x64\\\\SDApp\\\\*.*"' not in script
     assert 'IfFileExists "$INSTDIR\\\\${APP_EXE}"' in script
     assert 'IfFileExists "$INSTDIR\\\\sdproj_doc_icon.ico"' in script
-    assert '!define WINSPARKLE_APPCAST_URL "https://github.com/ClayDunford/Combined-tool-test/releases/latest/download/appcast-windows.xml"' in script
+    assert "WINSPARKLE_APPCAST_URL" not in script
 
 
 def test_windows_spec_bundles_winsparkle_runtime() -> None:
     spec = (ROOT / "packaging" / "windows" / "sdapp_windows.spec").read_text(encoding="utf-8")
-    assert 'WinSparkle.dll' in spec
-    assert 'binaries.append((str(winsparkle_dll), "."))' in spec
     assert 'datas.append((str(doc_icon_ico), "."))' in spec
+    assert '"openpyxl"' in spec
+    assert 'collect_data_files("sdapp")' in spec
+    assert '"resources/updater/" not in entry[0]' in spec
 
 
 def test_dev_registration_script_builds_source_backed_macos_bundle() -> None:

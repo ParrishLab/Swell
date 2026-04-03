@@ -10,12 +10,7 @@ from sdapp.analysis.utils.paths import get_app_root, get_resources_root, resolve
 from sdapp.shared.services.checkpoint_runtime_service import is_managed_uri
 
 
-DEFAULT_UPDATE_CHANNELS = {
-    "stable": {
-        "windows": "https://github.com/ClayDunford/Combined-tool-test/releases/latest/download/appcast-windows.xml",
-        "macos": "https://github.com/ClayDunford/Combined-tool-test/releases/latest/download/appcast-macos.xml",
-    }
-}
+DEFAULT_UPDATE_CHANNELS: dict[str, dict[str, str]] = {}
 
 
 def _default_update_channels() -> dict[str, dict[str, str]]:
@@ -27,7 +22,7 @@ def _default_config_values() -> dict[str, Any]:
         "default_output": "output",
         "default_model": "managed://sam2.1_hiera_base_plus",
         "default_baseline": 30,
-        "auto_check_enabled": True,
+        "auto_check_enabled": False,
         "release_channel": "stable",
         "last_update_check_at": None,
         "ignored_version": None,

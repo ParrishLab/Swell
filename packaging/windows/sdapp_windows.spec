@@ -8,7 +8,11 @@ _spec_path = Path(globals().get("__file__", "packaging/windows/sdapp_windows.spe
 ROOT = _spec_path.parents[2]
 doc_icon_ico = ROOT / "sdapp" / "resources" / "assets" / "sdproj_doc_icon.ico"
 
-datas = collect_data_files("sdapp")
+datas = [
+    entry
+    for entry in collect_data_files("sdapp")
+    if "resources/updater/" not in entry[0]
+]
 binaries = []
 hiddenimports = []
 
@@ -25,17 +29,13 @@ hiddenimports += collect_submodules("PIL")
 binaries += collect_dynamic_libs("imagecodecs")
 binaries += collect_dynamic_libs("PIL")
 
-for pkg in ("sam2", "hydra", "hydra_plugins", "omegaconf"):
+for pkg in ("sam2", "hydra", "hydra_plugins", "omegaconf", "openpyxl"):
     hiddenimports += collect_submodules(pkg)
 
-for pkg in ("sam2", "hydra", "omegaconf"):
+for pkg in ("sam2", "hydra", "omegaconf", "openpyxl"):
     datas += collect_data_files(pkg)
 
 binaries += collect_dynamic_libs("torch")
-
-winsparkle_dll = ROOT / "sdapp" / "resources" / "updater" / "windows" / "WinSparkle.dll"
-if winsparkle_dll.exists():
-    binaries.append((str(winsparkle_dll), "."))
 
 a = Analysis(
     [str(ROOT / "sdapp" / "main.py")],

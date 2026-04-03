@@ -432,7 +432,12 @@ def _write_metrics_combined_workbook(
     summary: dict[str, object],
     metric_tables: list[dict[str, object]],
 ) -> None:
-    from openpyxl import Workbook
+    try:
+        from openpyxl import Workbook
+    except ModuleNotFoundError as exc:
+        raise RuntimeError(
+            "Combined spreadsheet export requires openpyxl. Install openpyxl or disable spreadsheet export."
+        ) from exc
 
     workbook = Workbook()
     summary_sheet = workbook.active

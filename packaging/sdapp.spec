@@ -1,14 +1,20 @@
 # -*- mode: python ; coding: utf-8 -*-
 
 from pathlib import Path
+import tomllib
 
 from PyInstaller.utils.hooks import collect_data_files, collect_dynamic_libs, collect_submodules
 
 _spec_path = Path(globals().get("__file__", "packaging/sdapp.spec")).resolve()
 ROOT = _spec_path.parents[1]
 doc_icon_icns = ROOT / "sdapp" / "resources" / "assets" / "sdproj_doc_icon.icns"
+APP_VERSION = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"]["version"]
 
-datas = collect_data_files("sdapp")
+datas = [
+    entry
+    for entry in collect_data_files("sdapp")
+    if "resources/updater/" not in entry[0]
+]
 binaries = []
 hiddenimports = []
 
@@ -18,19 +24,15 @@ if not doc_icon_icns.exists():
 # Finder resolves document icons from the bundle resources root.
 datas.append((str(doc_icon_icns), "."))
 
-for pkg in ("sam2", "hydra", "hydra_plugins", "omegaconf"):
+for pkg in ("sam2", "hydra", "hydra_plugins", "omegaconf", "openpyxl"):
     hiddenimports += collect_submodules(pkg)
 
 # SAM2/Hydra resolution in frozen apps can require package data files.
-for pkg in ("sam2", "hydra", "omegaconf"):
+for pkg in ("sam2", "hydra", "omegaconf", "openpyxl"):
     datas += collect_data_files(pkg)
 
 # Torch runtime libraries are needed for model-backed segmentation.
 binaries += collect_dynamic_libs("torch")
-
-sparkle_framework = ROOT / "sdapp" / "resources" / "updater" / "macos" / "Sparkle.framework"
-if sparkle_framework.exists():
-    datas.append((str(sparkle_framework), "updater/macos/Sparkle.framework"))
 
 a = Analysis(
     [str(ROOT / "sdapp" / "main.py")],
@@ -49,9 +51,8 @@ pyz = PYZ(a.pure)
 exe = EXE(
     pyz,
     a.scripts,
-    a.binaries,
-    a.datas,
     [],
+    exclude_binaries=True,
     name="SDApp",
     debug=False,
     bootloader_ignore_signals=False,
@@ -63,16 +64,24 @@ exe = EXE(
     icon=str(ROOT / "sdapp" / "resources" / "assets" / "app_icon.icns"),
 )
 
-app = BUNDLE(
+coll = COLLECT(
     exe,
+    a.binaries,
+    a.datas,
+    strip=False,
+    upx=False,
+    upx_exclude=[],
+    name="SDApp",
+)
+
+app = BUNDLE(
+    coll,
     name="SDApp.app",
     icon=str(ROOT / "sdapp" / "resources" / "assets" / "app_icon.icns"),
     bundle_identifier="com.sdapp.desktop",
     info_plist={
-        "SUFeedURL": "https://github.com/ClayDunford/Combined-tool-test/releases/latest/download/appcast-macos.xml",
-        "SUPublicEDKey": "FuPzG0WpV5ajjd1Po8ycim/o/aWs74j0wrGTd9+MrY4=",
-        "SUEnableAutomaticChecks": True,
-        "SUAllowsAutomaticUpdates": True,
+        "CFBundleShortVersionString": APP_VERSION,
+        "CFBundleVersion": APP_VERSION,
         "CFBundleDocumentTypes": [
             {
                 "CFBundleTypeName": "SDApp Project",

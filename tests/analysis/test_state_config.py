@@ -17,9 +17,9 @@ class AppConfigTests(unittest.TestCase):
                 cfg = AppConfig.load()
             self.assertEqual(cfg.default_output, "output")
             self.assertEqual(cfg.default_baseline, 30)
-            self.assertTrue(cfg.auto_check_enabled)
+            self.assertFalse(cfg.auto_check_enabled)
             self.assertEqual(cfg.release_channel, "stable")
-            self.assertIsNotNone(cfg.appcast_url_for_platform("windows"))
+            self.assertIsNone(cfg.appcast_url_for_platform("windows"))
 
     def test_load_from_runtime_config(self):
         with tempfile.TemporaryDirectory() as tmp:

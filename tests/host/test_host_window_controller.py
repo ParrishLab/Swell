@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections import OrderedDict
 from types import SimpleNamespace
+import importlib.util
 
 from sdapp.host.config import EventCandidate
 from sdapp.host.controllers.host_window_controller import HostWindowController
@@ -66,4 +67,17 @@ def test_combined_metric_spreadsheet_requires_at_least_one_metric_selection() ->
             include_metric_relative_area_recruited=False,
         )
         is True
+    )
+
+
+def test_combined_metric_spreadsheet_requires_openpyxl(monkeypatch) -> None:
+    monkeypatch.setattr(importlib.util, "find_spec", lambda name: None if name == "openpyxl" else object())
+
+    assert (
+        HostWindowController._can_export_combined_metric_spreadsheet(
+            include_metric_propagation_speed=True,
+            include_metric_area_recruited=False,
+            include_metric_relative_area_recruited=False,
+        )
+        is False
     )

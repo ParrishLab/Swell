@@ -22,7 +22,6 @@ from .controllers import (
     HostDCTraceController,
     HostModelSetupController,
     HostProjectLifecycleController,
-    HostUpdateController,
     HostWindowController,
 )
 from .mark_popup_controller import MarkPopupController
@@ -67,7 +66,6 @@ class SDAnalyzerApp:
         self.window_controller = HostWindowController(self)
         self.project_controller = HostProjectLifecycleController(self)
         self.analysis_launch_controller = AnalysisLaunchController(self)
-        self.update_controller = HostUpdateController(self)
         self.checkpoint_runtime = CheckpointRuntimeService()
         self.model_setup_controller = HostModelSetupController(self)
         self.dc_trace_controller = HostDCTraceController(self)
@@ -176,7 +174,6 @@ class SDAnalyzerApp:
             self.root.after(0, lambda p=str(initial_project_path): self.open_project_request(p))
         self._schedule_periodic_cache_gc()
         self.root.after(0, self._run_model_startup_preflight)
-        self.update_controller.schedule_startup_check()
 
     def _resource_root(self) -> Path:
         return Path(__file__).resolve().parents[1] / "resources"
@@ -415,9 +412,6 @@ class SDAnalyzerApp:
 
     def _build_menu(self) -> None:
         build_shared_menu(self.root, self, mode="host", host_mode=False)
-
-    def check_for_updates(self) -> None:
-        self.update_controller.check_for_updates()
 
     def _register_platform_open_handlers(self) -> None:
         if sys.platform != "darwin":

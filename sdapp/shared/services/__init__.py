@@ -18,7 +18,6 @@ if TYPE_CHECKING:
     from sdapp.shared.services.instance_bridge import SingleInstanceBridge
     from sdapp.shared.services.metrics_settings_resolver import MetricsSettingsResolver
     from sdapp.shared.services.unified_project_service import UnifiedProjectService
-    from sdapp.shared.services.update_service import ReleaseInfo, UpdateCheckResult, UpdateService
 
 _EXPORTS = {
     "AnalysisWindowCloseResult": ("sdapp.shared.services.analysis_window_manager", "AnalysisWindowCloseResult"),
@@ -32,9 +31,6 @@ _EXPORTS = {
     "SingleInstanceBridge": ("sdapp.shared.services.instance_bridge", "SingleInstanceBridge"),
     "MetricsSettingsResolver": ("sdapp.shared.services.metrics_settings_resolver", "MetricsSettingsResolver"),
     "UnifiedProjectService": ("sdapp.shared.services.unified_project_service", "UnifiedProjectService"),
-    "ReleaseInfo": ("sdapp.shared.services.update_service", "ReleaseInfo"),
-    "UpdateCheckResult": ("sdapp.shared.services.update_service", "UpdateCheckResult"),
-    "UpdateService": ("sdapp.shared.services.update_service", "UpdateService"),
 }
 
 __all__ = [
@@ -49,9 +45,6 @@ __all__ = [
     "CheckpointRuntimeService",
     "MODEL_CHECKPOINT_METADATA_KEY",
     "managed_models_dir",
-    "ReleaseInfo",
-    "UpdateCheckResult",
-    "UpdateService",
 ]
 
 

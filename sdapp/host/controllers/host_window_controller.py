@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import OrderedDict
+import importlib.util
 from pathlib import Path
 import threading
 import tkinter as tk
@@ -171,9 +172,12 @@ class HostWindowController:
         include_metric_relative_area_recruited: bool,
     ) -> bool:
         return bool(
-            include_metric_propagation_speed
-            or include_metric_area_recruited
-            or include_metric_relative_area_recruited
+            importlib.util.find_spec("openpyxl") is not None
+            and (
+                include_metric_propagation_speed
+                or include_metric_area_recruited
+                or include_metric_relative_area_recruited
+            )
         )
 
     def prompt_export_options(self, event_ids: list[str]) -> dict[str, bool] | None:
@@ -251,6 +255,14 @@ class HostWindowController:
             variable=include_metric_combined_spreadsheet_var,
         )
         metric_combined_spreadsheet_check.pack(anchor="w", pady=(2, 0))
+        if importlib.util.find_spec("openpyxl") is None:
+            include_metric_combined_spreadsheet_var.set(False)
+            metric_combined_spreadsheet_check.configure(state="disabled")
+            self.attach_disabled_tooltip(
+                dialog,
+                metric_combined_spreadsheet_check,
+                "Install openpyxl to enable combined spreadsheet export.",
+            )
 
         if not bool(metric_ready["propagation_speed"]["enabled"]):
             include_metric_speed_var.set(False)

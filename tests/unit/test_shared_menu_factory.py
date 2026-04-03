@@ -139,13 +139,13 @@ def test_host_menu_exposes_checkpoint_manager_action():
     assert model_states["Manage Models..."] == "normal"
 
 
-def test_host_menu_exposes_check_for_updates_action():
+def test_host_menu_omits_help_menu_update_action():
     root = _FakeRoot()
     app = _App()
     with patch("sdapp.shared.menu.factory.tk.Menu", _FakeMenu):
         menu = build_shared_menu(root, app, mode="host", host_mode=False)
-    help_states = _state_by_label(_help_menu(menu))
-    assert help_states["Check for Updates..."] == "normal"
+    labels = {item["label"] for item in menu.cascades}
+    assert "Help" not in labels
 
 
 def test_analysis_menu_omits_help_menu_update_action():
