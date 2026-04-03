@@ -1,0 +1,19 @@
+# Release build constraints for GitHub Actions and local release packaging.
+# Keep this in sync with the known-good release environment.
+numpy==2.4.2
+scipy==1.17.1
+matplotlib==3.10.8
+h5py==3.16.0
+pillow==12.1.1
+tifffile==2026.3.3
+imagecodecs==2026.1.14
+opencv-python==4.13.0.92
+scikit-image==0.26.0
+pandas==3.0.1
+openpyxl==3.1.5
+ttkbootstrap==1.20.2
+pyinstaller==6.19.0
+torch==2.10.0
+hydra-core==1.3.2
+omegaconf==2.3.0
+sam-2 @ git+https://github.com/facebookresearch/sam2.git@2b90b9f5ceec907a1c18123530e92e794ad901a4

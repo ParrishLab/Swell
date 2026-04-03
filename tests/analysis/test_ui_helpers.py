@@ -10,15 +10,23 @@ class _FakeStyle:
         self.theme_calls = []
         self.config_calls = []
         self.map_calls = []
+        self.registered = []
+        self.fail_scrollbar_once = False
 
     def theme_use(self, name):
         self.theme_calls.append(name)
 
     def configure(self, style_name, **kwargs):
+        if self.fail_scrollbar_once and style_name == "TScrollbar":
+            self.fail_scrollbar_once = False
+            raise RuntimeError("duplicate style builder")
         self.config_calls.append((style_name, kwargs))
 
     def map(self, style_name, **kwargs):
         self.map_calls.append((style_name, kwargs))
+
+    def _register_ttkstyle(self, style_name):
+        self.registered.append(style_name)
 
 
 class _FakeFrame:
@@ -75,6 +83,23 @@ class UiHelpersTests(unittest.TestCase):
         self.assertIn("Preview.TFrame", configured)
         self.assertIn("Loading.Horizontal.TProgressbar", configured)
         self.assertTrue(fake.map_calls)
+
+    def test_apply_theme_falls_back_when_bootstrap_scrollbar_builder_fails(self):
+        fake = _FakeStyle(None)
+        fake.fail_scrollbar_once = True
+        fallback_calls = []
+        with (
+            patch("sdapp.analysis.ui.theme.Style", return_value=fake),
+            patch("sdapp.analysis.ui.theme.BOOTSTRAP_AVAILABLE", True),
+            patch(
+                "sdapp.analysis.ui.theme.tk_ttk.Style.configure",
+                autospec=True,
+                side_effect=lambda style_obj, style_name, **kwargs: fallback_calls.append((style_obj, style_name, kwargs)),
+            ),
+        ):
+            apply_theme(root=None)
+        self.assertTrue(any(style_name == "TScrollbar" for _, style_name, _ in fallback_calls))
+        self.assertIn("TScrollbar", fake.registered)
 
     def test_build_preview_overlay_binds_drag_handlers(self):
         with patch("sdapp.analysis.ui.widgets.ttk.Frame", _FakeFrame), patch("sdapp.analysis.ui.widgets.tk.Canvas", _FakeCanvas), patch(

@@ -256,3 +256,77 @@ def test_open_request_smoke_script_passes_for_python_entrypoint() -> None:
         pytest.skip("localhost bind is unavailable in environment.")
     assert proc.returncode == 0
     assert "OPEN_REQUEST_SMOKE:PASS" in proc.stdout
+
+
+def test_launch_probe_script_passes_for_short_lived_gui_like_process(tmp_path: Path) -> None:
+    sleeper = tmp_path / "sleep_app.py"
+    sleeper.write_text(
+        "import time\n"
+        "time.sleep(10)\n",
+        encoding="utf-8",
+    )
+    script = ROOT / "scripts" / "release" / "run_launch_probe.py"
+    proc = subprocess.run(
+        [
+            sys.executable,
+            str(script),
+            "--probe-seconds",
+            "0.5",
+            "--app-cmd",
+            sys.executable,
+            str(sleeper),
+        ],
+        cwd=str(ROOT),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert proc.returncode == 0
+    assert "LAUNCH_PROBE:PASS" in proc.stdout
+
+
+def test_launch_probe_bundle_mode_uses_open_semantics(monkeypatch, tmp_path: Path) -> None:
+    import importlib.util
+    import plistlib
+
+    bundle = tmp_path / "SDApp.app"
+    info = bundle / "Contents" / "Info.plist"
+    info.parent.mkdir(parents=True)
+    info.write_bytes(plistlib.dumps({"CFBundleExecutable": "SDApp"}))
+
+    run_calls = []
+    pgrep_calls = iter(
+        [
+            subprocess.CompletedProcess(args=["pgrep"], returncode=1, stdout="", stderr=""),
+            subprocess.CompletedProcess(args=["pgrep"], returncode=0, stdout="123\n", stderr=""),
+            subprocess.CompletedProcess(args=["pgrep"], returncode=0, stdout="123\n", stderr=""),
+            subprocess.CompletedProcess(args=["pgrep"], returncode=1, stdout="", stderr=""),
+        ]
+    )
+    kill_calls = []
+    monotonic_values = iter([0.0, 0.1, 0.2, 1.2, 1.3, 1.4, 1.5, 1.6, 6.3])
+
+    def _fake_run(args, **kwargs):
+        run_calls.append(list(args))
+        if list(args[:2]) == ["open", "-n"]:
+            return subprocess.CompletedProcess(args=args, returncode=0, stdout="", stderr="")
+        if list(args[:2]) == ["pgrep", "-x"]:
+            return next(pgrep_calls)
+        raise AssertionError(f"unexpected run args: {args}")
+
+    script = ROOT / "scripts" / "release" / "run_launch_probe.py"
+    spec = importlib.util.spec_from_file_location("test_run_launch_probe", script)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    monkeypatch.setattr(subprocess, "run", _fake_run)
+    monkeypatch.setattr(module.time, "sleep", lambda _secs: None)
+    monkeypatch.setattr(module.time, "monotonic", lambda: next(monotonic_values))
+    monkeypatch.setattr(module.os, "kill", lambda pid, sig: kill_calls.append((pid, sig)))
+
+    rc = module.main(["--bundle-path", str(bundle), "--probe-seconds", "1"])
+
+    assert rc == 0
+    assert ["open", "-n", str(bundle.resolve())] in run_calls
+    assert any(pid == 123 for pid, _sig in kill_calls)

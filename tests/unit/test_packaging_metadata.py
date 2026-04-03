@@ -76,3 +76,18 @@ def test_release_workflow_disables_updater_artifacts_by_default() -> None:
     assert "if: env.SDAPP_ENABLE_UPDATER_ARTIFACTS == 'true'" in workflow
     assert "dist/sdapp-macos-arm64.zip" in workflow
     assert "dist/sdapp-windows-x64.zip" in workflow
+    assert "run_launch_probe.py" in workflow
+    assert "requirements/release-py312-constraints.txt" in workflow
+    assert "--bundle-path dist/macos-arm64/SDApp.app" in workflow
+
+
+def test_validation_workflows_disable_optional_installer_and_updater_outputs() -> None:
+    phase2 = (ROOT / ".github" / "workflows" / "release_phase2_pr.yml").read_text(encoding="utf-8")
+    quick = (ROOT / ".github" / "workflows" / "windows_quick_package.yml").read_text(encoding="utf-8")
+    assert "SDAPP_SIGN_UPDATES=false" in phase2
+    assert '$env:SDAPP_BUILD_INSTALLER="false"' in phase2
+    assert '$env:SDAPP_BUILD_INSTALLER="false"' in quick
+    assert "run_launch_probe.py" in phase2
+    assert "requirements/release-py312-constraints.txt" in phase2
+    assert "requirements/release-py312-constraints.txt" in quick
+    assert "--bundle-path dist/macos-arm64/SDApp.app" in phase2

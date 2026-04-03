@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from tkinter import ttk as tk_ttk
 
 from sdapp.shared.ui.bootstrap import BOOTSTRAP_AVAILABLE, Style
 
@@ -58,14 +59,21 @@ def _theme_palette(style) -> dict[str, str]:
 
 
 def apply_theme(root, *, themename: str = "darkly"):
-    style = Style(root) if not BOOTSTRAP_AVAILABLE else Style()
+    bootstrap_style = Style(root) if not BOOTSTRAP_AVAILABLE else getattr(root, "style", None) or Style()
     try:
         if BOOTSTRAP_AVAILABLE:
-            style.theme_use(themename)
+            current_theme = bootstrap_style.theme_use()
+            if current_theme != themename:
+                bootstrap_style.theme_use(themename)
         else:
-            style.theme_use("clam")
+            bootstrap_style.theme_use("clam")
     except Exception:
         pass
+
+    # ttkbootstrap's Style.configure()/map() auto-builder is fragile for
+    # built-in ttk styles in frozen macOS apps. After the theme is selected,
+    # switch to plain ttk styling against the same themed root.
+    style = tk_ttk.Style(root) if BOOTSTRAP_AVAILABLE and root is not None else bootstrap_style
 
     palette = _theme_palette(style)
     base_font = ("TkDefaultFont", 10)
@@ -375,6 +383,31 @@ def apply_theme(root, *, themename: str = "darkly"):
     style.configure("Treeview", font=("TkDefaultFont", 9), background=palette["inset_bg"], fieldbackground=palette["inset_bg"], foreground=palette["text"], borderwidth=0)
     style.map("Treeview", background=[("selected", "#31597c")], foreground=[("selected", palette["text"])])
     style.configure("Treeview.Heading", background=palette["surface_bg"], foreground=palette["muted"], font=("TkDefaultFont", 8, "bold"), borderwidth=0)
-    style.configure("TScrollbar", background=palette["surface_bg"], troughcolor=palette["inset_bg"], borderwidth=0, arrowsize=10)
+    _configure_scrollbar_style(
+        style,
+        background=palette["surface_bg"],
+        troughcolor=palette["inset_bg"],
+        borderwidth=0,
+        arrowsize=10,
+    )
 
     return style
+
+
+def _configure_scrollbar_style(style, **kwargs) -> None:
+    try:
+        style.configure("TScrollbar", **kwargs)
+        return
+    except Exception:
+        if not BOOTSTRAP_AVAILABLE:
+            raise
+
+    # ttkbootstrap's auto-style builder can choke on the built-in scrollbar
+    # style when the theme has already created the underlying elements.
+    tk_ttk.Style.configure(style, "TScrollbar", **kwargs)
+    register = getattr(style, "_register_ttkstyle", None)
+    if callable(register):
+        try:
+            register("TScrollbar")
+        except Exception:
+            pass
