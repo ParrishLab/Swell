@@ -33,6 +33,7 @@ def _build_app() -> SDSegmentationApp:
     app.save_project = lambda: None
     app.save_project_as = lambda: None
     app._collect_nonempty_final_mask_frames = lambda: set()
+    app.inference_manager = type("IM", (), {"wait_until_idle": staticmethod(lambda timeout_s=1.5: True)})()
     app.event_records = {}
     return app
 
@@ -48,6 +49,25 @@ def test_save_current_masks_warns_when_no_masks(monkeypatch):
     app.save_current_masks()
 
     assert warned == [("No Masks", "Please generate masks first.")]
+
+
+def test_save_current_masks_blocks_while_inference_is_busy(monkeypatch):
+    app = _build_app()
+    app.current_project_path = "/tmp/test.sdproj"
+    app._collect_nonempty_final_mask_frames = lambda: {1}
+    app.inference_manager = type("IM", (), {"wait_until_idle": staticmethod(lambda timeout_s=1.5: False)})()
+    warned: list[tuple[str, str]] = []
+    save_calls: list[str] = []
+    app.save_project = lambda: save_calls.append("save")
+    monkeypatch.setattr(
+        "sdapp.analysis.app.messagebox.showwarning",
+        lambda title, text, **_kwargs: warned.append((str(title), str(text))),
+    )
+
+    app.save_current_masks()
+
+    assert save_calls == []
+    assert warned and warned[0][0] == "Save Current Masks"
 
 
 def test_save_current_masks_declines_overwrite_when_saved_masks_exist(monkeypatch):

@@ -115,6 +115,32 @@ class InferenceManager:
         except Exception:
             return 0
 
+    def is_busy(self) -> bool:
+        with self._infer_state_lock:
+            has_pending_frames = bool(self._infer_pending_frames)
+            has_pending_marker_batch = bool(self._pending_marker_batch_frames)
+        has_queued_jobs = bool(self._inference_queue_depth() > 0)
+        has_debounced_sensitivity = self._sensitivity_debounce_job is not None
+        with self._prop_thread_lock:
+            propagation_alive = self.propagate_thread is not None and self.propagate_thread.is_alive()
+        has_retry_job = self._prop_start_retry_job is not None
+        return bool(
+            has_pending_frames
+            or has_pending_marker_batch
+            or has_queued_jobs
+            or has_debounced_sensitivity
+            or propagation_alive
+            or has_retry_job
+        )
+
+    def wait_until_idle(self, timeout_s: float = 1.5, poll_s: float = 0.02) -> bool:
+        deadline = time.perf_counter() + max(0.05, float(timeout_s))
+        while time.perf_counter() < deadline:
+            if not self.is_busy():
+                return True
+            time.sleep(max(0.005, float(poll_s)))
+        return not self.is_busy()
+
     def _is_propagation_cancelled(self, generation):
         return self._prop_stop_event.is_set() or generation != self._active_propagation_generation
 

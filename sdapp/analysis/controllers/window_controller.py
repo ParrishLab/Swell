@@ -360,6 +360,24 @@ class AnalysisWindowController:
         if not self._has_masks_ready_to_save():
             messagebox.showwarning("No Masks", "Please generate masks first.", parent=self._dialog_parent())
             return
+        inference_manager = getattr(self.app, "inference_manager", None)
+        wait_until_idle = getattr(inference_manager, "wait_until_idle", None)
+        if callable(wait_until_idle):
+            settled = False
+            try:
+                settled = bool(wait_until_idle(timeout_s=1.5))
+            except Exception:
+                settled = True
+            if not settled:
+                messagebox.showwarning(
+                    "Save Current Masks",
+                    (
+                        "Save blocked while propagation or inference is still updating masks.\n\n"
+                        "Wait for processing to finish, then save again."
+                    ),
+                    parent=self._dialog_parent(),
+                )
+                return
         if bool(getattr(self.app, "_host_mode", False)):
             try:
                 self.app._emit_host_sync("save_current_masks")

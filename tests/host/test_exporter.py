@@ -808,6 +808,241 @@ def test_export_metrics_uses_legacy_event_local_mask_arrays(tmp_path: Path) -> N
     assert [float(row["area_mm2"]) for row in area_rows] == [0.25, 1.0, 2.25, 4.0]
 
 
+def test_export_lineage_metrics_write_object_tracking_artifacts(tmp_path: Path) -> None:
+    frames = [np.full((12, 12), i, dtype=np.uint8) for i in range(8)]
+    reader = FakeReader(frames)
+    events = [_event("event_0001", 1, 3)]
+    masks = np.zeros((8, 12, 12), dtype=np.uint8)
+    masks[1, 2:5, 2:5] = 1
+    masks[1, 7:10, 7:10] = 1
+    masks[2, 2:6, 2:6] = 1
+    masks[2, 6:10, 6:10] = 1
+    masks[3, 2:10, 2:10] = 1
+
+    result = export_analysis(
+        reader=reader,
+        events=events,
+        output_dir=tmp_path,
+        baseline_pre_frames=0,
+        include_event_images=False,
+        include_baseline_images=False,
+        include_metric_lineage_object_metrics=True,
+        include_metric_lineage_track_tables=True,
+        include_metric_combined_spreadsheet=True,
+        analysis_sidecar={
+            "event_0001": {
+                "masks_committed": masks,
+                "metrics_settings": {
+                    "frames_per_sec": 2.0,
+                    "scale_px_per_mm": 4.0,
+                    "roi_mask": np.ones((12, 12), dtype=bool),
+                },
+            }
+        },
+    )
+
+    metrics_dir = tmp_path / "event_0001" / "metrics"
+    assert int(result["metrics_files_exported"]) >= 6
+    assert (metrics_dir / "track_area_recruited.csv").exists()
+    assert (metrics_dir / "track_relative_area_recruited.csv").exists()
+    assert (metrics_dir / "track_propagation_speed.csv").exists()
+    assert (metrics_dir / "lineage_weighted_propagation_speed.csv").exists()
+    assert (metrics_dir / "object_lineage_overview.png").exists()
+    assert (metrics_dir / "object_lineage_frames").is_dir()
+    assert (metrics_dir / "object_tracks.csv").exists()
+    assert (metrics_dir / "object_lineage.csv").exists()
+    assert (metrics_dir / "object_lineage_summary.json").exists()
+    assert (metrics_dir / "metrics_combined.xlsx").exists()
+
+    lineage_summary = json.loads((metrics_dir / "object_lineage_summary.json").read_text(encoding="utf-8"))
+    assert int(lineage_summary["merge_event_count"]) == 1
+    assert lineage_summary["area_weighted_avg_speed_um_per_sec"] is not None
+    assert lineage_summary["area_weighted_max_speed_um_per_sec"] is not None
+
+    lineage_rows = list(csv.DictReader((metrics_dir / "object_lineage.csv").open("r", newline="", encoding="utf-8")))
+    assert len(lineage_rows) == 3
+    merged_rows = [row for row in lineage_rows if row["terminal_status"] == "merged"]
+    assert len(merged_rows) == 2
+
+    relative_rows = list(
+        csv.DictReader((metrics_dir / "track_relative_area_recruited.csv").open("r", newline="", encoding="utf-8"))
+    )
+    assert relative_rows
+    assert {"track_id", "root_track_id", "frame_index", "relative_area_pct"} <= set(relative_rows[0].keys())
+    speed_rows = list(csv.DictReader((metrics_dir / "track_propagation_speed.csv").open("r", newline="", encoding="utf-8")))
+    assert speed_rows
+    weighted_rows = list(
+        csv.DictReader((metrics_dir / "lineage_weighted_propagation_speed.csv").open("r", newline="", encoding="utf-8"))
+    )
+    assert weighted_rows
+    assert {"frame_index", "active_track_count", "area_weighted_speed_um_per_sec"} <= set(weighted_rows[0].keys())
+    overlay_frames = sorted((metrics_dir / "object_lineage_frames").glob("*.png"))
+    assert overlay_frames
+    assert len(overlay_frames) == 3
+
+    workbook = load_workbook(metrics_dir / "metrics_combined.xlsx", data_only=True)
+    assert "Track Speed" in workbook.sheetnames
+    assert "Weighted Track Speed" in workbook.sheetnames
+    assert "Track Area" in workbook.sheetnames
+    assert "Track Relative Area" in workbook.sheetnames
+    summary_sheet = workbook["Summary"]
+    summary_rows = {
+        str(row[0]): row[1]
+        for row in summary_sheet.iter_rows(min_row=2, values_only=True)
+        if row and row[0] is not None
+    }
+    assert summary_rows["Lineage weighted average speed (um/sec)"] is not None
+    assert summary_rows["Lineage weighted max speed (um/sec)"] is not None
+
+
+def test_export_lineage_metrics_do_not_change_legacy_relative_area_outputs(tmp_path: Path) -> None:
+    frames = [np.full((12, 12), i, dtype=np.uint8) for i in range(8)]
+    reader = FakeReader(frames)
+    events = [_event("event_0001", 1, 3)]
+    masks = np.zeros((8, 12, 12), dtype=np.uint8)
+    masks[1, 2:5, 2:5] = 1
+    masks[1, 7:10, 7:10] = 1
+    masks[2, 2:6, 2:6] = 1
+    masks[2, 6:10, 6:10] = 1
+    masks[3, 2:10, 2:10] = 1
+
+    legacy_dir = tmp_path / "legacy"
+    lineage_dir = tmp_path / "lineage"
+
+    export_analysis(
+        reader=reader,
+        events=events,
+        output_dir=legacy_dir,
+        baseline_pre_frames=0,
+        include_event_images=False,
+        include_baseline_images=False,
+        include_metric_area_recruited=True,
+        include_metric_relative_area_recruited=True,
+        analysis_sidecar={
+            "event_0001": {
+                "masks_committed": masks,
+                "metrics_settings": {
+                    "frames_per_sec": 1.0,
+                    "scale_px_per_mm": 2.0,
+                    "roi_mask": np.ones((12, 12), dtype=bool),
+                },
+            }
+        },
+    )
+
+    export_analysis(
+        reader=reader,
+        events=events,
+        output_dir=lineage_dir,
+        baseline_pre_frames=0,
+        include_event_images=False,
+        include_baseline_images=False,
+        include_metric_area_recruited=True,
+        include_metric_relative_area_recruited=True,
+        include_metric_lineage_object_metrics=True,
+        analysis_sidecar={
+            "event_0001": {
+                "masks_committed": masks,
+                "metrics_settings": {
+                    "frames_per_sec": 1.0,
+                    "scale_px_per_mm": 2.0,
+                    "roi_mask": np.ones((12, 12), dtype=bool),
+                },
+            }
+        },
+    )
+
+    legacy_metrics_dir = legacy_dir / "event_0001" / "metrics"
+    lineage_metrics_dir = lineage_dir / "event_0001" / "metrics"
+    legacy_relative = (legacy_metrics_dir / "relative_area_recruited.csv").read_text(encoding="utf-8")
+    lineage_relative = (lineage_metrics_dir / "relative_area_recruited.csv").read_text(encoding="utf-8")
+
+    assert legacy_relative == lineage_relative
+    assert not (legacy_metrics_dir / "track_relative_area_recruited.csv").exists()
+    assert (lineage_metrics_dir / "track_relative_area_recruited.csv").exists()
+
+
+def test_export_lineage_metrics_preserve_original_track_masks_while_clipping_metric_area_to_roi(tmp_path: Path) -> None:
+    frames = [np.full((12, 12), i, dtype=np.uint8) for i in range(6)]
+    reader = FakeReader(frames)
+    events = [_event("event_0001", 1, 2)]
+    masks = np.zeros((6, 12, 12), dtype=np.uint8)
+    masks[1, 2:8, 2:8] = 1
+    masks[2, 2:8, 2:8] = 1
+    roi_mask = np.zeros((12, 12), dtype=bool)
+    roi_mask[4:8, 4:8] = True
+
+    export_analysis(
+        reader=reader,
+        events=events,
+        output_dir=tmp_path,
+        baseline_pre_frames=0,
+        include_event_images=False,
+        include_baseline_images=False,
+        include_metric_lineage_object_metrics=True,
+        include_metric_lineage_track_tables=True,
+        analysis_sidecar={
+            "event_0001": {
+                "masks_committed": masks,
+                "metrics_settings": {
+                    "frames_per_sec": 1.0,
+                    "scale_px_per_mm": 2.0,
+                    "roi_mask": roi_mask,
+                },
+            }
+        },
+    )
+
+    metrics_dir = tmp_path / "event_0001" / "metrics"
+    object_rows = list(csv.DictReader((metrics_dir / "object_tracks.csv").open("r", newline="", encoding="utf-8")))
+    area_rows = list(csv.DictReader((metrics_dir / "track_area_recruited.csv").open("r", newline="", encoding="utf-8")))
+
+    assert object_rows
+    assert area_rows
+    original_area_px = max(int(float(row["area_px"])) for row in object_rows)
+    clipped_area_mm2 = max(float(row["area_mm2"]) for row in area_rows if row["area_mm2"] != "")
+    clipped_area_px = int(round(clipped_area_mm2 * 4.0))
+    assert original_area_px == 36
+    assert clipped_area_px == 16
+    assert original_area_px > clipped_area_px
+
+
+def test_export_lineage_metrics_do_not_mutate_source_masks_payload(tmp_path: Path) -> None:
+    frames = [np.full((12, 12), i, dtype=np.uint8) for i in range(6)]
+    reader = FakeReader(frames)
+    events = [_event("event_0001", 1, 2)]
+    masks = np.zeros((6, 12, 12), dtype=np.uint8)
+    masks[1, 2:8, 2:8] = 1
+    masks[2, 2:8, 2:8] = 1
+    original = np.asarray(masks, copy=True)
+    roi_mask = np.zeros((12, 12), dtype=bool)
+    roi_mask[4:8, 4:8] = True
+    sidecar = {
+        "event_0001": {
+            "masks_committed": masks,
+            "metrics_settings": {
+                "frames_per_sec": 1.0,
+                "scale_px_per_mm": 2.0,
+                "roi_mask": roi_mask,
+            },
+        }
+    }
+
+    export_analysis(
+        reader=reader,
+        events=events,
+        output_dir=tmp_path,
+        baseline_pre_frames=0,
+        include_event_images=False,
+        include_baseline_images=False,
+        include_metric_lineage_object_metrics=True,
+        include_metric_lineage_track_tables=True,
+        analysis_sidecar=sidecar,
+    )
+
+    assert np.array_equal(np.asarray(sidecar["event_0001"]["masks_committed"]), original)
+
+
 def test_export_metrics_gap_warning_can_ignore(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     frames = [np.full((8, 8), i, dtype=np.uint8) for i in range(20)]
     reader = FakeReader(frames)
