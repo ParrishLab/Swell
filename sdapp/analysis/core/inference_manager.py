@@ -38,6 +38,7 @@ class InferenceManager:
         on_propagation_status: Callable[[str, int, int], None] | None,
         log: Callable[[str, str, str], None],
         is_ui_alive: Callable[[], bool],
+        on_device_oom: Callable[[str], bool] | None = None,
     ):
         self.state = state
         self.root = root
@@ -56,6 +57,7 @@ class InferenceManager:
         self.prop_log_tick = prop_log_tick
         self.prop_log_finish = prop_log_finish
         self.on_propagation_status = on_propagation_status
+        self.on_device_oom = on_device_oom
         self.log = log
         self.is_ui_alive = is_ui_alive
 
@@ -124,6 +126,36 @@ class InferenceManager:
         if len(frame_shape) != 2 or frame_shape[0] <= 0 or frame_shape[1] <= 0:
             return None
         return frame_shape
+
+    def _clear_accelerator_cache(self):
+        gc.collect()
+        if torch is not None:
+            if torch.backends.mps.is_available():
+                torch.mps.empty_cache()
+            elif torch.cuda.is_available():
+                torch.cuda.empty_cache()
+
+    def _is_accelerator_oom(self, exc: Exception) -> bool:
+        message = str(exc or "").lower()
+        if "out of memory" not in message:
+            return False
+        return any(token in message for token in ("mps", "cuda", "private pool"))
+
+    def _recover_from_accelerator_oom(self, context: str, exc: Exception) -> bool:
+        if not self._is_accelerator_oom(exc):
+            return False
+        message = str(exc).strip()
+        self._log_warn(context, f"Accelerator OOM detected: {message}")
+        try:
+            self._clear_accelerator_cache()
+        except Exception as cache_exc:
+            self._log_debug(context, f"Accelerator cache clear skipped after OOM: {cache_exc}")
+        if callable(self.on_device_oom):
+            try:
+                return bool(self.on_device_oom(message))
+            except Exception as callback_exc:
+                self._log_error(context, f"OOM recovery callback failed: {callback_exc}")
+        return False
 
     def _has_nonempty_cached_mask(self, frame_idx: int) -> bool:
         try:
@@ -389,6 +421,9 @@ class InferenceManager:
                 defer_markers = int(frame_idx) in self._pending_marker_batch_frames
             self._notify_mask_updated(recompute_markers=not defer_markers)
         except Exception as e:
+            if self._recover_from_accelerator_oom("Model", e):
+                self._log_warn("Model", f"Inference stopped on frame {frame_idx + 1}; CPU fallback is now active.")
+                return
             self._log_error("Model", f"Inference failed on frame {frame_idx + 1}: {e}")
 
     def trigger_propagation(self, prop_start, prop_end, anchor_frame):
@@ -633,16 +668,23 @@ class InferenceManager:
                     self.root.after(0, lambda: self.set_status("Propagation Complete", "green"))
 
         except Exception as e:
+            handled_oom = self._recover_from_accelerator_oom("Propagation", e)
             self.prop_log_finish("failed", run_id=prop_log_run_id)
             if self.on_propagation_status is not None:
                 self.on_propagation_status("failed", int(prop_start), int(prop_end))
             if self.is_ui_alive():
                 self.root.after(0, self.recompute_markers)
-                self.root.after(0, lambda: self.set_status("Propagation Error", "red"))
-            self._log_error("Propagation", f"Propagation failed: {e}")
-            import traceback
+                if handled_oom:
+                    self.root.after(0, lambda: self.set_status("Switched to CPU Fallback", "orange"))
+                else:
+                    self.root.after(0, lambda: self.set_status("Propagation Error", "red"))
+            if handled_oom:
+                self._log_warn("Propagation", "Propagation stopped after accelerator OOM; CPU fallback is now active.")
+            else:
+                self._log_error("Propagation", f"Propagation failed: {e}")
+                import traceback
 
-            traceback.print_exc()
+                traceback.print_exc()
         finally:
             elapsed_ms = (time.perf_counter() - start_ts) * 1000.0
             self._log_debug(

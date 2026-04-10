@@ -4,6 +4,8 @@ from collections import OrderedDict
 from types import SimpleNamespace
 import importlib.util
 
+import numpy as np
+
 from sdapp.host.config import EventCandidate
 from sdapp.host.controllers.host_window_controller import HostWindowController
 from sdapp.host.exporter import analysis_image_cache_key
@@ -81,3 +83,36 @@ def test_combined_metric_spreadsheet_requires_openpyxl(monkeypatch) -> None:
         )
         is False
     )
+
+
+def test_propagation_gap_event_name_prefers_label_from_payload() -> None:
+    app = SimpleNamespace(browser_controller=SimpleNamespace(get_event=lambda _event_id: None))
+    controller = HostWindowController(app)
+
+    assert controller._propagation_gap_event_name({"event_id": "event_0001", "event_label": "Halo(Light Off) 1"}) == "Halo(Light Off) 1"
+
+
+def test_propagation_gap_event_name_falls_back_to_browser_event_label() -> None:
+    app = SimpleNamespace(browser_controller=SimpleNamespace(get_event=lambda _event_id: SimpleNamespace(label="Halo(Light Off) 1")))
+    controller = HostWindowController(app)
+
+    assert controller._propagation_gap_event_name({"event_id": "event_0001"}) == "Halo(Light Off) 1"
+
+
+def test_propagation_action_specs_clarify_end_trace_here() -> None:
+    specs = HostWindowController._propagation_action_specs("gap")
+
+    assert [spec["label"] for spec in specs] == ["Leave Blank", "End Trace Here", "Average Between Frames"]
+    assert "first affected frame onward" in specs[1]["description"]
+
+
+def test_apply_preview_action_zero_and_stop() -> None:
+    values = np.asarray([np.nan, 6.0, np.nan, 10.0], dtype=np.float64)
+    runs = [(2, 2)]
+
+    zeroed = HostWindowController._apply_preview_action(values, runs, "zero")
+    stopped = HostWindowController._apply_preview_action(values, runs, "stop")
+
+    assert float(zeroed[2]) == 0.0
+    assert np.isnan(stopped[2])
+    assert np.isnan(stopped[3])

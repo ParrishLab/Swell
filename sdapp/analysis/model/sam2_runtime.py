@@ -4,10 +4,15 @@ from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
 from typing import Any, Callable
+import gc
 import shutil
 import tempfile
 
 import numpy as np
+try:
+    import torch
+except Exception:
+    torch = None
 
 
 class ModelState(StrEnum):
@@ -48,6 +53,15 @@ class SAM2RuntimeService:
             except Exception:
                 pass
         self.temp_dir = None
+        try:
+            gc.collect()
+            if torch is not None:
+                if torch.backends.mps.is_available():
+                    torch.mps.empty_cache()
+                elif torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+        except Exception:
+            pass
         if self.status.state != ModelState.DISABLED:
             self.status = RuntimeStatus(ModelState.UNINITIALIZED, None)
 

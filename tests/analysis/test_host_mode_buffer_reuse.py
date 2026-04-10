@@ -39,10 +39,17 @@ def _build_host_context(*, baseline_pre_frames: int = 2, smoothing: bool = True)
                     "smoothing": smoothing,
                     "baseline_subtraction": True,
                     "global_normalization": True,
+                    "stabilization": False,
                 },
             },
         }
     }
+
+
+def _build_host_context_with_stabilization(*, stabilization: bool) -> dict:
+    context = _build_host_context()
+    context["event"]["flags"]["analysis_processing"]["stabilization"] = bool(stabilization)
+    return context
 
 
 def _build_app(host_context: dict, launch_preparation: dict | None) -> tuple[SimpleNamespace, list[int], list[list[int]]]:
@@ -60,6 +67,7 @@ def _build_app(host_context: dict, launch_preparation: dict | None) -> tuple[Sim
             "apply_smoothing": True,
             "apply_baseline_subtraction": True,
             "apply_global_normalization": True,
+            "apply_stabilization": False,
         },
         _host_launch_preparation=launch_preparation,
         _host_buffer_cache_key=None,
@@ -90,6 +98,7 @@ def test_prepare_host_mode_buffers_reuses_compatible_launch_preparation() -> Non
             apply_smoothing=True,
             apply_baseline_subtraction=True,
             apply_global_normalization=True,
+            apply_stabilization=False,
         ),
         "prepared_source": prepared_source,
         "stats": prepared_source.stats(),
@@ -122,6 +131,7 @@ def test_prepare_host_mode_buffers_rebuilds_when_processing_flags_change() -> No
             apply_smoothing=False,
             apply_baseline_subtraction=True,
             apply_global_normalization=True,
+            apply_stabilization=False,
         ),
         "prepared_source": prepared_source,
         "stats": prepared_source.stats(),
@@ -154,11 +164,46 @@ def test_prepare_host_mode_buffers_rebuilds_when_baseline_count_changes() -> Non
             apply_smoothing=True,
             apply_baseline_subtraction=True,
             apply_global_normalization=True,
+            apply_stabilization=False,
         ),
         "prepared_source": prepared_source,
         "stats": prepared_source.stats(),
     }
     app, scheduled, _prewarm_windows = _build_app(_build_host_context(baseline_pre_frames=3), launch_preparation)
+    controller = AnalysisHostModeController(app)
+
+    ready = controller.prepare_host_mode_buffers(scoped_source)
+
+    assert ready is True
+    assert app.frame_source is not prepared_source
+    assert isinstance(app.frame_source, PreparedFrameSource)
+    assert scheduled == [1]
+    assert candidate_prewarm_calls == []
+
+
+def test_prepare_host_mode_buffers_rebuilds_when_stabilization_flag_changes() -> None:
+    scoped_source = _build_scoped_source()
+    prepared_source = PreparedFrameSource(scoped_source, baseline_frames=2, apply_stabilization=False)
+    prepared_source.prepare()
+    candidate_prewarm_calls: list[list[int]] = []
+    prepared_source.prewarm = lambda indices, generation=None: candidate_prewarm_calls.append(list(indices))  # type: ignore[method-assign]
+    launch_preparation = {
+        "cache_key": build_launch_preparation_cache_key(
+            event_id="event_0042",
+            scope_start=2,
+            scope_end=6,
+            baseline_pre_frames=2,
+            apply_horizontal_bar_denoise=False,
+            apply_smoothing=True,
+            apply_baseline_subtraction=True,
+            apply_global_normalization=True,
+            apply_stabilization=False,
+        ),
+        "prepared_source": prepared_source,
+        "stats": prepared_source.stats(),
+    }
+    app, scheduled, _prewarm_windows = _build_app(_build_host_context_with_stabilization(stabilization=True), launch_preparation)
+    app._host_processing_options["apply_stabilization"] = True
     controller = AnalysisHostModeController(app)
 
     ready = controller.prepare_host_mode_buffers(scoped_source)

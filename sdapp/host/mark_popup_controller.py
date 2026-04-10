@@ -4,6 +4,7 @@ import tkinter as tk
 from tkinter import messagebox
 
 from sdapp.analysis.ui.theme import SPACING, apply_theme
+from sdapp.host.analysis_payload_mapper import apply_analysis_scope_flags
 from sdapp.host.ui_logic import clamp_popup_range
 from sdapp.shared.ui.bootstrap import center_window_on_screen as center_window, semantic_button_options, ttk
 
@@ -67,6 +68,16 @@ class MarkPopupController:
             show_errors=False,
             loading_text="Computing selected range...",
         )
+
+    def _resolve_initial_baseline_state(self, *, mode: str, event, start_default: int) -> tuple[int, int]:
+        fallback_count = max(1, int(getattr(self.app, "baseline_pre_frames", 30) or 30))
+        flags = dict(getattr(event, "flags", {}) or {}) if mode == "edit" and event is not None else {}
+        try:
+            baseline_count = max(1, int(flags.get("baseline_pre_frames", fallback_count)))
+        except Exception:
+            baseline_count = fallback_count
+        baseline_end = max(0, int(start_default) - 1)
+        return baseline_count, baseline_end
 
     def open_popup(self, mode: str, event_id: str | None) -> None:
         if self.app.reader is None or self.app.stack_info is None:
@@ -197,8 +208,11 @@ class MarkPopupController:
         baseline_row = ttk.Frame(content, padding=SPACING.card, style="AppSurface.TFrame")
         baseline_row.pack(fill="x", pady=(6, 0))
         ttk.Label(baseline_row, text="Baseline Count", style="AppSurfaceMeta.TLabel").pack(side="left")
-        baseline_count_default = 30
-        baseline_end_default = max(0, int(start_default) - 1)
+        baseline_count_default, baseline_end_default = self._resolve_initial_baseline_state(
+            mode=mode,
+            event=event,
+            start_default=int(start_default),
+        )
         self.app._mark_baseline_count_var = tk.StringVar(value=str(baseline_count_default))
         baseline_count_entry = ttk.Entry(baseline_row, textvariable=self.app._mark_baseline_count_var, width=8, style="AppCompact.TEntry")
         baseline_count_entry.pack(side="left", padx=(6, 14))
@@ -340,6 +354,7 @@ class MarkPopupController:
 
         duration_frames = end - start + 1
         _duration_sec = self.app._duration_sec(duration_frames)
+        baseline_count, _baseline_end = self.app._popup_parse_baseline_controls()
 
         if self.app._mark_popup_mode == "edit":
             event = self.app._get_event_by_id(self.app._mark_popup_event_id)
@@ -349,12 +364,19 @@ class MarkPopupController:
                 return
             old_start = event.start_idx
             old_end = event.end_idx
+            updated_flags = apply_analysis_scope_flags(
+                dict(getattr(event, "flags", {}) or {}),
+                event_start=int(start),
+                event_end=int(end),
+                baseline_pre_frames=int(baseline_count),
+            )
             event = self.app.browser_controller.update_event(
                 event.event_id,
                 start_idx=start,
                 end_idx=end,
                 label=event.label,
                 frame_count=int(self.app.stack_info.frame_count),
+                flags=updated_flags,
             )
             self.app._sync_event_projections()
             self.app.tree.selection_set(event.event_id)
@@ -362,10 +384,17 @@ class MarkPopupController:
             self.app._set_status(f"Updated {event.event_id} boundaries.")
             self.app._log_info(f"Updated {event.event_id}: [{old_start}, {old_end}] -> [{start}, {end}].")
         else:
+            new_flags = apply_analysis_scope_flags(
+                {},
+                event_start=int(start),
+                event_end=int(end),
+                baseline_pre_frames=int(baseline_count),
+            )
             event = self.app.browser_controller.create_event(
                 start_idx=start,
                 end_idx=end,
                 frame_count=int(self.app.stack_info.frame_count),
+                flags=new_flags,
             )
             self.app._sync_event_projections()
             self.app.tree.selection_set(event.event_id)
@@ -391,6 +420,27 @@ class MarkPopupController:
         if not ids:
             self.app._log_warn("Delete blocked: no events selected.")
             messagebox.showwarning("SD Event", "Select one or more events first.", parent=self.app.root)
+            return
+
+        labels: list[str] = []
+        for event_id in ids:
+            try:
+                event = self.app.browser_controller.get_event(str(event_id))
+            except Exception:
+                event = None
+            label = str(getattr(event, "label", "") or "").strip() if event is not None else ""
+            labels.append(label or str(event_id))
+        preview = ", ".join(labels[:3])
+        if len(labels) > 3:
+            preview = f"{preview}, +{len(labels) - 3} more"
+        message = (
+            f"Delete {len(ids)} event(s)?\n\n"
+            f"This will remove the selected event metadata and saved analysis data.\n"
+            f"Selected: {preview}"
+        )
+        should_delete = messagebox.askyesno("Delete Event", message, parent=self.app.root)
+        if not should_delete:
+            self.app._log_info("Delete canceled.")
             return
 
         selected = set(ids)

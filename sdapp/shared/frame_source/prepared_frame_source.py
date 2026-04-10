@@ -25,6 +25,7 @@ class PreparedFrameSource:
         apply_smoothing: bool = True,
         apply_baseline_subtraction: bool = True,
         apply_global_normalization: bool = True,
+        apply_stabilization: bool = False,
         stats: VisualizationStats | None = None,
         frame_cache_max: int = 24,
     ) -> None:
@@ -34,6 +35,7 @@ class PreparedFrameSource:
         self._apply_smoothing = bool(apply_smoothing)
         self._apply_baseline_subtraction = bool(apply_baseline_subtraction)
         self._apply_global_normalization = bool(apply_global_normalization)
+        self._apply_stabilization = bool(apply_stabilization)
         self._frame_cache_max = max(4, int(frame_cache_max))
         self._stats = stats
         self._frame_cache: OrderedDict[int, tuple[np.ndarray, np.ndarray, np.ndarray]] = OrderedDict()
@@ -76,6 +78,7 @@ class PreparedFrameSource:
             apply_smoothing=self._apply_smoothing,
             apply_baseline_subtraction=self._apply_baseline_subtraction,
             apply_global_normalization=self._apply_global_normalization,
+            apply_stabilization=self._apply_stabilization,
             should_cancel=should_cancel,
             progress_callback=progress_callback,
         )
@@ -109,6 +112,7 @@ class PreparedFrameSource:
             apply_smoothing=self._apply_smoothing,
             apply_baseline_subtraction=self._apply_baseline_subtraction,
             apply_global_normalization=self._apply_global_normalization,
+            apply_stabilization=self._apply_stabilization,
         )
         with self._lock:
             cached = self._frame_cache.get(idx)

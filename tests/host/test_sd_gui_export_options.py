@@ -149,6 +149,7 @@ def test_on_export_progress_updates_status_for_analysis_prepare() -> None:
         {
             "phase": "analysis_prepare",
             "event_id": "event_0001",
+            "event_label": "Halo(Light Off) 1",
             "current": 6,
             "total": 15,
             "stage": "preprocess",
@@ -156,6 +157,6 @@ def test_on_export_progress_updates_status_for_analysis_prepare() -> None:
     )
 
     assert status
-    assert "Preparing analysis images for event_0001" in status[-1]
+    assert "Preparing analysis images for Halo(Light Off) 1" in status[-1]
     assert "(40%)" in status[-1]
     assert logs

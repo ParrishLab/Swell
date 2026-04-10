@@ -39,6 +39,8 @@ class AnalysisWindowController:
             if len(clean_scale_points) == 2:
                 metrics["scale_points"] = clean_scale_points
         if bool(getattr(self.app, "_scale_is_local_override", False)):
+            metrics["scale_axis_lock"] = bool(getattr(self.app, "scale_axis_lock", True))
+        if bool(getattr(self.app, "_scale_is_local_override", False)):
             scale_image_path = str(getattr(self.app, "_last_scale_image_path", "") or "").strip()
             if scale_image_path:
                 metrics["scale_image_path"] = scale_image_path
@@ -105,6 +107,10 @@ class AnalysisWindowController:
                 self.app.scale_points = cleaned_scale_points if len(cleaned_scale_points) == 2 else []
             elif not self.app._scale_is_local_override:
                 self.app.scale_points = []
+            if "scale_axis_lock" in normalized:
+                self.app.scale_axis_lock = bool(normalized.get("scale_axis_lock"))
+            elif not self.app._scale_is_local_override:
+                self.app.scale_axis_lock = True
             if "scale_image_path" in normalized:
                 self.app._last_scale_image_path = str(normalized.get("scale_image_path", "") or "").strip()
             elif not self.app._scale_is_local_override:
@@ -182,6 +188,34 @@ class AnalysisWindowController:
             code = str(result.get("code", "PAYLOAD_INVALID"))
             message = str(result.get("message", "Host rejected global metrics update."))
             self.app.log_warn("HostSync", f"Host rejected global metrics update [{code}]: {message}")
+        return result if isinstance(result, dict) else {"ok": True}
+
+    def clear_local_metrics_override(self, reason: str, keys: list[str]) -> dict[str, object] | None:
+        if bool(getattr(self.app, "_suppress_metrics_emit", False)):
+            return None
+        if not bool(getattr(self.app, "_host_mode", False)):
+            return {"ok": True, "changed": False}
+        updater = getattr(self.app, "_host_metrics_updater", None)
+        if not callable(updater):
+            return {"ok": False, "code": "PAYLOAD_INVALID", "message": "Host metrics updater is unavailable."}
+        event_id = str(getattr(self.app, "active_event_id", "") or "")
+        if not event_id:
+            return {"ok": False, "code": "PAYLOAD_INVALID", "message": "No active event is selected."}
+        payload = {
+            "event_id": event_id,
+            "metrics_settings": {},
+            "clear_local_metric_keys": [str(key) for key in list(keys or []) if str(key).strip()],
+            "reason": str(reason or ""),
+        }
+        try:
+            result = updater(payload)
+        except Exception as exc:
+            self.app.log_warn("HostSync", f"Direct host metric-reset failed: {exc}")
+            return {"ok": False, "code": "PAYLOAD_INVALID", "message": str(exc)}
+        if isinstance(result, dict) and not bool(result.get("ok", False)):
+            code = str(result.get("code", "PAYLOAD_INVALID"))
+            message = str(result.get("message", "Host rejected metric reset."))
+            self.app.log_warn("HostSync", f"Host rejected metric reset [{code}]: {message}")
         return result if isinstance(result, dict) else {"ok": True}
 
     def on_metrics_settings_changed(self, reason: str) -> None:

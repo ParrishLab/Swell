@@ -30,6 +30,8 @@ class AnalysisController:
         set_scale_px_per_mm,
         get_scale_points,
         set_scale_points,
+        get_scale_axis_lock,
+        set_scale_axis_lock,
         get_last_scale_image_path,
         set_last_scale_image_path,
         get_roi_mask,
@@ -39,6 +41,8 @@ class AnalysisController:
         update_display,
         log_info,
         log_success,
+        apply_host_metrics_settings=None,
+        clear_local_metrics_override=None,
         get_current_image_source_paths=None,
         on_metrics_settings_changed=None,
         emit_host_global_metrics_update=None,
@@ -67,6 +71,8 @@ class AnalysisController:
         self.set_scale_px_per_mm = set_scale_px_per_mm
         self.get_scale_points = get_scale_points
         self.set_scale_points = set_scale_points
+        self.get_scale_axis_lock = get_scale_axis_lock
+        self.set_scale_axis_lock = set_scale_axis_lock
         self.get_last_scale_image_path = get_last_scale_image_path
         self.set_last_scale_image_path = set_last_scale_image_path
         self.get_roi_mask = get_roi_mask
@@ -74,6 +80,8 @@ class AnalysisController:
         self.get_roi_points = get_roi_points
         self.set_roi_points = set_roi_points
         self.update_display = update_display
+        self.apply_host_metrics_settings = apply_host_metrics_settings
+        self.clear_local_metrics_override = clear_local_metrics_override
         self.log_info = log_info
         self.log_success = log_success
         self.on_metrics_settings_changed = on_metrics_settings_changed
@@ -403,6 +411,8 @@ class AnalysisController:
             refine_scale_bar_points=self._refine_scale_bar_points,
             compute_scale=compute_scale,
             initial_scale_points=initial_scale_points,
+            initial_axis_lock=self.get_scale_axis_lock(),
+            allow_reset_local=bool(self.get_scale_is_local_override()),
         )
         if result is None:
             return None
@@ -412,6 +422,7 @@ class AnalysisController:
     def _apply_local_scale_selection(self, result) -> None:
         self.set_scale_px_per_mm(result["px_per_mm"])
         self.set_scale_points(result["scale_points"])
+        self.set_scale_axis_lock(bool(result.get("axis_lock", True)))
         self.set_last_scale_image_path(result.get("image_path", ""))
         self.set_scale_is_local_override(True)
         if callable(self.on_metrics_settings_changed):
@@ -470,6 +481,7 @@ class AnalysisController:
             root=self.root,
             img_u8=img_u8,
             initial_roi_points=self.get_roi_points(),
+            allow_reset_local=bool(self.get_roi_is_local_override()),
         )
         if result is None:
             return None
@@ -492,9 +504,58 @@ class AnalysisController:
             return
         messagebox.showinfo("ROI Set", "ROI polygon saved.", parent=self.root)
 
+    def _reset_local_metric_override(self, *, override_kind: str, keys: list[str], title: str, success_message: str) -> None:
+        if not callable(self.clear_local_metrics_override):
+            messagebox.showwarning(title, "Local override reset is unavailable in this context.", parent=self.root)
+            return
+        result = self.clear_local_metrics_override(
+            f"reset_local_{override_kind}",
+            [str(key) for key in keys],
+        )
+        if isinstance(result, dict) and not bool(result.get("ok", False)):
+            message = str(result.get("message", f"Unable to reset local {override_kind} override."))
+            messagebox.showwarning(title, message, parent=self.root)
+            return
+        if isinstance(result, dict):
+            metrics_settings = result.get("metrics_settings")
+            local_metrics_settings = result.get("local_metrics_settings")
+            if callable(getattr(self, "apply_host_metrics_settings", None)):
+                try:
+                    self.apply_host_metrics_settings(
+                        metrics_settings if isinstance(metrics_settings, dict) else None,
+                        local_metrics_settings if isinstance(local_metrics_settings, dict) else None,
+                    )
+                except Exception:
+                    pass
+        autosave_result = self.autosave_project_after_metrics_commit(f"reset_local_{override_kind}")
+        if isinstance(autosave_result, dict) and not bool(autosave_result.get("ok", False)):
+            message = str(autosave_result.get("message", "Project autosave did not complete."))
+            messagebox.showwarning(title, message, parent=self.root)
+            return
+        messagebox.showinfo(title, success_message, parent=self.root)
+
+    def reset_local_scale_override(self) -> None:
+        self._reset_local_metric_override(
+            override_kind="scale",
+            keys=["scale_px_per_mm", "scale_points", "scale_axis_lock", "scale_image_path"],
+            title="Scale Reset",
+            success_message="Local scale override cleared. This event now uses the global scale.",
+        )
+
+    def reset_local_roi_override(self) -> None:
+        self._reset_local_metric_override(
+            override_kind="roi",
+            keys=["roi_points", "roi_mask"],
+            title="ROI Reset",
+            success_message="Local ROI override cleared. This event now uses the global ROI.",
+        )
+
     def start_local_scale_selection(self):
         result = self._capture_scale_selection()
         if result is None:
+            return
+        if str(result.get("target_scope", "")).lower() == "reset_local_scale":
+            self.reset_local_scale_override()
             return
         self._apply_local_scale_selection(result)
 
@@ -502,6 +563,7 @@ class AnalysisController:
         payload = {
             "scale_px_per_mm": float(result["px_per_mm"]),
             "scale_points": [[float(pt[0]), float(pt[1])] for pt in list(result.get("scale_points", []))],
+            "scale_axis_lock": bool(result.get("axis_lock", True)),
         }
         scale_image_path = str(result.get("image_path", "") or "").strip()
         if scale_image_path:
@@ -514,6 +576,7 @@ class AnalysisController:
         if not bool(self.get_scale_is_local_override()):
             self.set_scale_px_per_mm(result["px_per_mm"])
             self.set_scale_points(result["scale_points"])
+            self.set_scale_axis_lock(bool(result.get("axis_lock", True)))
             self.set_last_scale_image_path(scale_image_path)
             self.set_scale_is_local_override(False)
         autosave_result = self.autosave_project_after_metrics_commit("global_scale")
@@ -533,11 +596,17 @@ class AnalysisController:
         result = self._capture_scale_selection()
         if result is None:
             return
+        if str(result.get("target_scope", "")).lower() == "reset_local_scale":
+            self.reset_local_scale_override()
+            return
         self._apply_global_scale_selection(result)
 
     def start_local_roi_selection(self):
         result = self._capture_roi_selection()
         if result is None:
+            return
+        if str(result.get("target_scope", "")).lower() == "reset_local_roi":
+            self.reset_local_roi_override()
             return
         self._apply_local_roi_selection(result)
 
@@ -567,11 +636,17 @@ class AnalysisController:
         result = self._capture_roi_selection()
         if result is None:
             return
+        if str(result.get("target_scope", "")).lower() == "reset_local_roi":
+            self.reset_local_roi_override()
+            return
         self._apply_global_roi_selection(result)
 
     def start_scale_selection(self):
         result = self._capture_scale_selection()
         if result is None:
+            return
+        if str(result.get("target_scope", "")).lower() == "reset_local_scale":
+            self.reset_local_scale_override()
             return
         if str(result.get("target_scope", "local")).lower() == "global":
             self._apply_global_scale_selection(result)
@@ -581,6 +656,9 @@ class AnalysisController:
     def start_roi_selection(self):
         result = self._capture_roi_selection()
         if result is None:
+            return
+        if str(result.get("target_scope", "")).lower() == "reset_local_roi":
+            self.reset_local_roi_override()
             return
         if str(result.get("target_scope", "local")).lower() == "global":
             self._apply_global_roi_selection(result)

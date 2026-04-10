@@ -4,11 +4,13 @@ import csv
 import json
 from pathlib import Path
 
+import cv2
 import numpy as np
 from openpyxl import load_workbook
 import pytest
 import tifffile
 
+from sdapp.analysis.core.metrics import roi_mask_from_points
 from sdapp.host.config import EventCandidate, FrameRef, TraceResult
 from sdapp.host.exporter import _build_event_global_mask_map, analysis_image_cache_key, export_analysis
 from sdapp.shared.frame_source import EventScopedFrameSource, SDStackFrameSource, build_visualization_stack
@@ -600,6 +602,52 @@ def test_export_metrics_respects_selection_flags(tmp_path: Path) -> None:
     assert not (metrics_dir / "relative_area_recruited.csv").exists()
 
 
+def test_export_metrics_prefers_local_roi_over_global_roi_defaults(tmp_path: Path) -> None:
+    frames = [np.full((8, 8), i, dtype=np.uint8) for i in range(8)]
+    reader = FakeReader(frames)
+    events = [_event("event_0001", 1, 3)]
+    masks = np.zeros((8, 8, 8), dtype=np.uint8)
+    masks[1, 1:6, 1:6] = 1
+    masks[2, 1:6, 1:6] = 1
+    masks[3, 1:6, 1:6] = 1
+    local_roi_points = [[2.0, 2.0], [4.0, 2.0], [4.0, 4.0], [2.0, 4.0]]
+    expected_roi = roi_mask_from_points(local_roi_points, (8, 8))
+
+    export_analysis(
+        reader=reader,
+        events=events,
+        output_dir=tmp_path,
+        baseline_pre_frames=2,
+        include_event_images=False,
+        include_baseline_images=False,
+        include_metric_propagation_speed=False,
+        include_metric_area_recruited=True,
+        include_metric_relative_area_recruited=True,
+        project_metadata={
+            "global_metrics_defaults": {
+                "frames_per_sec": 1.0,
+                "scale_px_per_mm": 2.0,
+                "roi_mask": np.ones((8, 8), dtype=bool),
+                "roi_points": [[0.0, 0.0], [7.0, 0.0], [7.0, 7.0], [0.0, 7.0]],
+            }
+        },
+        analysis_sidecar={
+            "event_0001": {
+                "masks_committed": masks,
+                "metrics_settings": {
+                    "frames_per_sec": 1.0,
+                    "scale_px_per_mm": 2.0,
+                    "roi_points": local_roi_points,
+                },
+            }
+        },
+    )
+
+    summary = json.loads((tmp_path / "event_0001" / "metrics" / "metrics_summary.json").read_text(encoding="utf-8"))
+    assert summary["has_roi"] is True
+    assert int(summary["roi_pixels"]) == int(np.count_nonzero(expected_roi))
+
+
 def test_build_event_global_mask_map_uses_analysis_scope_for_local_arrays() -> None:
     event = _event(
         "event_0001",
@@ -772,6 +820,7 @@ def test_export_metrics_gap_warning_can_ignore(tmp_path: Path, monkeypatch: pyte
         lambda _boundaries, min_dist_px=2.0: {  # noqa: ARG005
             "avg_dist_px": np.asarray([np.nan, 6.0, np.nan, 10.0], dtype=np.float64),
             "areas_px": np.asarray([1.0, 1.0, 1.0, 1.0], dtype=np.float64),
+            "transition_valid": np.asarray([False, True, False, True], dtype=bool),
         },
     )
 
@@ -800,7 +849,15 @@ def test_export_metrics_gap_warning_can_ignore(tmp_path: Path, monkeypatch: pyte
     rows = list(csv.DictReader((metrics_dir / "propagation_speed.csv").open("r", newline="", encoding="utf-8")))
     warning = json.loads((metrics_dir / "propagation_speed_warning.json").read_text(encoding="utf-8"))
 
-    assert decisions == [{"event_id": "event_0001", "gap_frame_runs": [[14, 14]], "metric": "propagation_speed"}]
+    assert len(decisions) == 1
+    assert decisions[0]["event_id"] == "event_0001"
+    assert decisions[0]["event_label"] == ""
+    assert decisions[0]["gap_frame_runs"] == [[14, 14]]
+    assert decisions[0]["metric"] == "propagation_speed"
+    assert decisions[0]["warning_kind"] == "gap"
+    assert decisions[0]["supported_actions"] == ["ignore", "interpolate", "stop"]
+    assert decisions[0]["preview_frame_indices"] == [12, 13, 14, 15]
+    assert decisions[0]["preview_speed_values"][0] is None
     assert rows[2]["frame_index"] == "14"
     assert rows[2]["speed_um_per_sec"] == ""
     assert warning["action"] == "ignore"
@@ -820,6 +877,7 @@ def test_export_metrics_gap_warning_can_stop_at_gap(tmp_path: Path, monkeypatch:
         lambda _boundaries, min_dist_px=2.0: {  # noqa: ARG005
             "avg_dist_px": np.asarray([np.nan, 6.0, np.nan, 10.0], dtype=np.float64),
             "areas_px": np.asarray([1.0, 1.0, 1.0, 1.0], dtype=np.float64),
+            "transition_valid": np.asarray([False, True, False, True], dtype=bool),
         },
     )
 
@@ -863,6 +921,7 @@ def test_export_metrics_gap_warning_can_interpolate(tmp_path: Path, monkeypatch:
         lambda _boundaries, min_dist_px=2.0: {  # noqa: ARG005
             "avg_dist_px": np.asarray([np.nan, 6.0, np.nan, 10.0], dtype=np.float64),
             "areas_px": np.asarray([1.0, 1.0, 1.0, 1.0], dtype=np.float64),
+            "transition_valid": np.asarray([False, True, False, True], dtype=bool),
         },
     )
 
@@ -897,6 +956,61 @@ def test_export_metrics_gap_warning_can_interpolate(tmp_path: Path, monkeypatch:
     assert values[3] != ""
     assert float(values[2]) > 0.0
     assert warning["action"] == "interpolate"
+
+
+def test_export_metrics_zero_growth_warning_can_set_zero(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    frames = [np.full((8, 8), i, dtype=np.uint8) for i in range(20)]
+    reader = FakeReader(frames)
+    event = _event("event_0001", 12, 15, label="Halo(Light Off) 1")
+    masks = np.zeros((20, 8, 8), dtype=np.uint8)
+    masks[12:16, 1:7, 1:7] = 1
+    decisions: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        "sdapp.host.exporter.compute_frame_metrics",
+        lambda _boundaries, min_dist_px=2.0: {  # noqa: ARG005
+            "avg_dist_px": np.asarray([np.nan, 6.0, np.nan, 10.0], dtype=np.float64),
+            "areas_px": np.asarray([1.0, 1.0, 1.0, 1.0], dtype=np.float64),
+            "transition_valid": np.asarray([False, True, True, True], dtype=bool),
+        },
+    )
+
+    export_analysis(
+        reader=reader,
+        events=[event],
+        output_dir=tmp_path,
+        baseline_pre_frames=0,
+        include_event_images=False,
+        include_baseline_images=False,
+        include_metric_propagation_speed=True,
+        analysis_sidecar={
+            "event_0001": {
+                "masks_committed": masks,
+                "metrics_settings": {
+                    "frames_per_sec": 1.0,
+                    "scale_px_per_mm": 2.0,
+                    "roi_mask": np.ones((8, 8), dtype=bool),
+                },
+            }
+        },
+        propagation_gap_decision=lambda payload: decisions.append(dict(payload)) or "zero",
+    )
+
+    metrics_dir = tmp_path / allocate_event_path_segment("Halo(Light Off) 1", set()) / "metrics"
+    rows = list(csv.DictReader((metrics_dir / "propagation_speed.csv").open("r", newline="", encoding="utf-8")))
+    warning = json.loads((metrics_dir / "propagation_speed_warning.json").read_text(encoding="utf-8"))
+
+    assert len(decisions) == 1
+    assert decisions[0]["event_id"] == "event_0001"
+    assert decisions[0]["event_label"] == "Halo(Light Off) 1"
+    assert decisions[0]["gap_frame_runs"] == [[14, 14]]
+    assert decisions[0]["metric"] == "propagation_speed"
+    assert decisions[0]["warning_kind"] == "zero_growth"
+    assert decisions[0]["supported_actions"] == ["zero", "interpolate", "stop"]
+    assert decisions[0]["preview_frame_indices"] == [12, 13, 14, 15]
+    assert decisions[0]["preview_speed_values"][2] is None
+    assert rows[2]["speed_um_per_sec"] == "0.0"
+    assert warning["kind"] == "zero_growth"
+    assert warning["action"] == "zero"
 
 
 def test_export_binary_masks_writes_mask_images_when_available(tmp_path: Path) -> None:
@@ -1044,6 +1158,60 @@ def test_export_analysis_images_reuse_cache_when_available(tmp_path: Path) -> No
     analysis_dir = tmp_path / "event_0001" / "analysis_images"
     arr = tifffile.imread(str(analysis_dir / "000002_event_frame_0002.tif"))
     assert np.array_equal(arr, cached_stack[2])
+
+
+def test_export_analysis_images_honors_stabilization_processing_flag(tmp_path: Path) -> None:
+    base = np.zeros((16, 16), dtype=np.uint8)
+    base[5:9, 4:8] = 200
+    shifted = cv2.warpAffine(
+        np.asarray(base, dtype=np.float32),
+        np.array([[1.0, 0.0, 2.0], [0.0, 1.0, -1.0]], dtype=np.float32),
+        (16, 16),
+        flags=cv2.INTER_LINEAR,
+        borderMode=cv2.BORDER_CONSTANT,
+    ).astype(np.uint8)
+    frames = [base, shifted, shifted]
+    reader = FakeReader(frames)
+    event = _event(
+        "event_0001",
+        1,
+        2,
+        flags={
+            "baseline_pre_frames": 1,
+            "analysis_processing": {
+                "horizontal_bar_denoise": False,
+                "smoothing": False,
+                "baseline_subtraction": False,
+                "global_normalization": False,
+                "stabilization": True,
+            },
+            "analysis_scope_start_idx": 0,
+            "analysis_scope_end_idx": 2,
+        },
+    )
+
+    export_analysis(
+        reader=reader,
+        events=[event],
+        output_dir=tmp_path,
+        baseline_pre_frames=30,
+        include_event_images=False,
+        include_baseline_images=False,
+        include_analysis_images=True,
+    )
+
+    analysis_dir = tmp_path / "event_0001" / "analysis_images"
+    scoped_source = EventScopedFrameSource(SDStackFrameSource(reader=reader), 0, 2)
+    _raw, _sub, expected_viz = build_visualization_stack(
+        scoped_source,
+        baseline_frames=1,
+        apply_smoothing=False,
+        apply_baseline_subtraction=False,
+        apply_global_normalization=False,
+        apply_stabilization=True,
+    )
+    exported = tifffile.imread(str(analysis_dir / "000002_event_frame_0002.tif"))
+    assert np.array_equal(exported, np.asarray(expected_viz[1], dtype=np.uint8))
 
 
 def test_export_analysis_images_reuse_cached_sequence_when_available(tmp_path: Path) -> None:

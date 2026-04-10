@@ -11,7 +11,8 @@ def build_launch_preparation_cache_key(
     apply_smoothing: bool,
     apply_baseline_subtraction: bool,
     apply_global_normalization: bool,
-) -> tuple[str, int, int, int, bool, bool, bool, bool]:
+    apply_stabilization: bool,
+) -> tuple[str, int, int, int, bool, bool, bool, bool, bool]:
     return (
         str(event_id or ""),
         int(scope_start),
@@ -21,4 +22,5 @@ def build_launch_preparation_cache_key(
         bool(apply_smoothing),
         bool(apply_baseline_subtraction),
         bool(apply_global_normalization),
+        bool(apply_stabilization),
     )

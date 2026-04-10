@@ -86,6 +86,32 @@ class InteractionController:
         self.prune_empty_point_frames = prune_empty_point_frames
         self._pending_dirty = False
 
+    @staticmethod
+    def _paint_payloads_equal(before, after) -> bool:
+        if before is after:
+            return True
+        if before is None or after is None:
+            return before is None and after is None
+        if not isinstance(before, dict) or not isinstance(after, dict):
+            return before == after
+        before_keys = set(before.keys())
+        after_keys = set(after.keys())
+        if before_keys != after_keys:
+            return False
+        for key in before_keys:
+            left = before.get(key)
+            right = after.get(key)
+            if isinstance(left, np.ndarray) or isinstance(right, np.ndarray):
+                if left is None or right is None:
+                    if left is not None or right is not None:
+                        return False
+                    continue
+                if not np.array_equal(np.asarray(left), np.asarray(right)):
+                    return False
+            elif left != right:
+                return False
+        return True
+
     def on_mouse_move(self, event):
         self.set_last_mouse_x(event.x)
         self.set_last_mouse_y(event.y)
@@ -102,20 +128,22 @@ class InteractionController:
     def on_nav_left(self, _event=None):
         frame_count = int(self.get_frame_count())
         if frame_count <= 0:
-            return
+            return "break"
         current_idx = self.get_current_frame_idx()
         new_idx = max(0, current_idx - 1)
         if new_idx != current_idx:
             self.slider.set(new_idx)
+        return "break"
 
     def on_nav_right(self, _event=None):
         frame_count = int(self.get_frame_count())
         if frame_count <= 0:
-            return
+            return "break"
         current_idx = self.get_current_frame_idx()
         new_idx = min(frame_count - 1, current_idx + 1)
         if new_idx != current_idx:
             self.slider.set(new_idx)
+        return "break"
 
     def on_mouse_down(self, event):
         mode = self.tool_mode.get()
@@ -175,7 +203,7 @@ class InteractionController:
             self.set_paint_snapshot_before(None)
             self.update_display(update_preview=True)
             self.recompute_slider_jump_markers()
-            if data_after != paint_before:
+            if not self._paint_payloads_equal(paint_before, data_after):
                 self._pending_dirty = True
 
         selected_point = self.get_selected_point()

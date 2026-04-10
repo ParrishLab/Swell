@@ -122,6 +122,38 @@ def _candidate_model_config_names(model_path: str, checkpoint_id: str | None) ->
 
 
 class SegmentationActions:
+    def _collect_visualization_frames(self) -> np.ndarray:
+        frame_count = int(self._get_frame_count()) if hasattr(self, "_get_frame_count") else 0
+        if frame_count <= 0:
+            raise RuntimeError("No frames loaded. Import images first.")
+        frames_viz = np.asarray([np.asarray(self._get_visual_frame(idx), dtype=np.uint8) for idx in range(frame_count)])
+        if frames_viz.ndim != 3 or int(frames_viz.shape[0]) <= 0:
+            raise RuntimeError("No valid visualization frames are available. Import images first.")
+        return frames_viz
+
+    def _handle_accelerator_oom(self, detail: str) -> bool:
+        message = str(detail or "").strip() or "Accelerator out of memory."
+        self.log_warn("Model", f"{message} Releasing accelerator runtime and switching to CPU fallback.")
+        runtime = getattr(self, "sam2_runtime", None)
+        if runtime is not None:
+            try:
+                runtime.shutdown()
+            except Exception as exc:
+                self.log_debug("Model", f"Runtime shutdown after OOM skipped: {exc}")
+        self.predictor = None
+        self.inference_state = None
+        self.model_ready = False
+        self.inference_manager.on_model_unloaded()
+        try:
+            frames_viz = self._collect_visualization_frames()
+            self._initialize_cpu_fallback(frames_viz, reason="accelerator out of memory")
+            return True
+        except Exception as exc:
+            self.log_error("Model", f"CPU fallback initialization after OOM failed: {exc}")
+            if self._ui_alive():
+                self.root.after(0, lambda: self._set_activity_message(STATUS_MODEL_ERROR))
+            return False
+
     def _apply_mps_sam2_dtype_guard(self):
         torch = _torch_module()
         if torch is None:
@@ -139,7 +171,7 @@ class SegmentationActions:
                     compact_out, pred_masks = out
                     maskmem = compact_out.get("maskmem_features") if isinstance(compact_out, dict) else None
                     if maskmem is not None and getattr(maskmem, "dtype", None) == torch.bfloat16:
-                        compact_out["maskmem_features"] = maskmem.to(torch.float32)
+                        compact_out["maskmem_features"] = maskmem.to(torch.float16)
                     return compact_out, pred_masks
                 except Exception:
                     return out
@@ -153,7 +185,7 @@ class SegmentationActions:
                 try:
                     maskmem_features, maskmem_pos_enc = out
                     if maskmem_features is not None and getattr(maskmem_features, "dtype", None) == torch.bfloat16:
-                        maskmem_features = maskmem_features.to(torch.float32)
+                        maskmem_features = maskmem_features.to(torch.float16)
                     return maskmem_features, maskmem_pos_enc
                 except Exception:
                     return out
@@ -161,7 +193,7 @@ class SegmentationActions:
             self.predictor._run_memory_encoder = MethodType(wrapped_mem, self.predictor)
 
         self.predictor._ios_mps_dtype_guard_applied = True
-        self.log_info("Model", "Applied MPS dtype guard for SAM2 memory features.")
+        self.log_info("Model", "Applied MPS dtype guard for SAM2 memory features (bfloat16 -> float16).")
 
     def _has_nonempty_paint(self, frame_idx):
         return self.seg_state.has_nonempty_paint(frame_idx)
@@ -441,12 +473,7 @@ class SegmentationActions:
     def init_runtime_background(self, preflight: CheckpointOnboardingResult):
         try:
             torch = _torch_module()
-            frame_count = int(self._get_frame_count()) if hasattr(self, "_get_frame_count") else 0
-            if frame_count <= 0:
-                raise RuntimeError("No frames loaded. Import images first.")
-            frames_viz = np.asarray([np.asarray(self._get_visual_frame(idx), dtype=np.uint8) for idx in range(frame_count)])
-            if frames_viz.ndim != 3 or int(frames_viz.shape[0]) <= 0:
-                raise RuntimeError("No valid visualization frames are available. Import images first.")
+            frames_viz = self._collect_visualization_frames()
 
             if str(preflight.mode) == "cpu_fallback":
                 self._initialize_cpu_fallback(frames_viz, reason=str(preflight.message or "fallback"))
@@ -482,6 +509,7 @@ class SegmentationActions:
                 apply_smoothing = bool(processing_opts.get("apply_smoothing", True))
                 apply_baseline_subtraction = bool(processing_opts.get("apply_baseline_subtraction", True))
                 apply_global_normalization = bool(processing_opts.get("apply_global_normalization", True))
+                apply_stabilization = bool(processing_opts.get("apply_stabilization", False))
                 stats = None
                 if frame_source is not None and callable(getattr(frame_source, "stats", None)):
                     try:
@@ -497,6 +525,7 @@ class SegmentationActions:
                     apply_smoothing=apply_smoothing,
                     apply_baseline_subtraction=apply_baseline_subtraction,
                     apply_global_normalization=apply_global_normalization,
+                    apply_stabilization=apply_stabilization,
                     stats=stats,
                 )
                 frame_cache = getattr(self, "sam2_frame_cache", None)

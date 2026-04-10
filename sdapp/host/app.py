@@ -977,9 +977,10 @@ class SDAnalyzerApp:
         self._get_project_controller().on_load_progress(current, total)
 
     def _on_export_progress(self, payload: dict) -> None:
+        event_name = str(payload.get("event_label", "") or payload.get("event_id", "?"))
         phase = payload.get("phase")
         if phase == "event":
-            event_text = f"Export event {payload.get('current', 0)}/{payload.get('total', 0)}: {payload.get('event_id', '?')}."
+            event_text = f"Export event {payload.get('current', 0)}/{payload.get('total', 0)}: {event_name}."
             self._set_status(event_text)
             self._log_info(event_text)
             return
@@ -991,19 +992,19 @@ class SDAnalyzerApp:
             stage = str(payload.get("stage", "prepare") or "prepare").replace("_", " ")
             percent = max(0, min(100, int((current * 100) / total)))
             self._set_status(
-                f"Preparing analysis images for {payload.get('event_id', '?')}: {current}/{total} ({percent}%) [{stage}]"
+                f"Preparing analysis images for {event_name}: {current}/{total} ({percent}%) [{stage}]"
             )
             bucket = percent // 10
             key = (
                 "analysis_prepare",
-                str(payload.get("event_id", "?")),
+                str(event_name),
                 str(payload.get("stage", "prepare")),
                 int(bucket),
             )
             if key != getattr(self, "_last_export_analysis_prepare_key", None):
                 self._last_export_analysis_prepare_key = key
                 self._log_info(
-                    f"Preparing analysis images for {payload.get('event_id', '?')}: {current}/{total} ({percent}%) [{stage}]."
+                    f"Preparing analysis images for {event_name}: {current}/{total} ({percent}%) [{stage}]."
                 )
             return
         if phase == "frame":

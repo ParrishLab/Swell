@@ -56,7 +56,7 @@ def _clamp_roi_viewport(state, *, canvas_width: int, canvas_height: int, image_w
     return state["viewport_state"]
 
 
-def open_roi_dialog(root, img_u8, initial_roi_points=None):
+def open_roi_dialog(root, img_u8, initial_roi_points=None, allow_reset_local=False):
     popup = tk.Toplevel(root)
     popup.withdraw()
     popup.title("Draw ROI - First Original Frame")
@@ -508,6 +508,14 @@ def open_roi_dialog(root, img_u8, initial_roi_points=None):
     right_controls = ttk.Frame(controls, style="AppSurface.TFrame")
     right_controls.pack(side="right")
     ttk.Button(right_controls, text="Cancel", command=popup.destroy, **button_opts, **semantic_button_options("secondary")).pack(side="right")
+    if bool(allow_reset_local):
+        ttk.Button(
+            right_controls,
+            text="Use Global ROI",
+            command=lambda: (result.__setitem__("value", {"target_scope": "reset_local_roi"}), popup.destroy()),
+            **button_opts,
+            **semantic_button_options("secondary"),
+        ).pack(side="right", padx=(0, SPACING.gap))
     ttk.Button(right_controls, text="Save Local ROI", command=lambda: on_finish("local"), **button_opts, **semantic_button_options("secondary")).pack(side="right", padx=(0, SPACING.gap))
     ttk.Button(right_controls, text="Save Global ROI", command=lambda: on_finish("global"), **button_opts, **semantic_button_options("primary")).pack(side="right", padx=(0, SPACING.gap))
     popup.bind("<KeyPress-space>", set_space_pan_active, add="+")

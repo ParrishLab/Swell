@@ -9,7 +9,16 @@ from sdapp.analysis.ui.theme import SPACING, apply_theme
 from sdapp.shared.ui.bootstrap import center_window_on_screen, semantic_button_options, ttk
 
 
-def open_scale_dialog(root, img_u8, snap_scale_points_axis, refine_scale_bar_points, compute_scale, initial_scale_points=None):
+def open_scale_dialog(
+    root,
+    img_u8,
+    snap_scale_points_axis,
+    refine_scale_bar_points,
+    compute_scale,
+    initial_scale_points=None,
+    initial_axis_lock=None,
+    allow_reset_local=False,
+):
     popup = tk.Toplevel(root)
     popup.withdraw()
     popup.title("Set Scale - First Original Frame")
@@ -57,7 +66,7 @@ def open_scale_dialog(root, img_u8, snap_scale_points_axis, refine_scale_bar_poi
     zoom_max = 12.0
 
     tool_mode_var = tk.StringVar(value="edit")
-    axis_lock_var = tk.BooleanVar(value=True)
+    axis_lock_var = tk.BooleanVar(value=bool(True if initial_axis_lock is None else initial_axis_lock))
     points_seed = []
     if isinstance(initial_scale_points, list) and len(initial_scale_points) >= 2:
         for pt in list(initial_scale_points)[:2]:
@@ -369,6 +378,7 @@ def open_scale_dialog(root, img_u8, snap_scale_points_axis, refine_scale_bar_poi
             "px_per_mm": scale_data["px_per_mm"],
             "scale_points": [tuple(map(float, scale_points_used[0])), tuple(map(float, scale_points_used[1]))],
             "axis_mode": axis_mode,
+            "axis_lock": bool(axis_lock_var.get()),
             "refined_ok": refined_ok,
             "fallback": fallback,
         }
@@ -415,6 +425,13 @@ def open_scale_dialog(root, img_u8, snap_scale_points_axis, refine_scale_bar_poi
     right_controls = ttk.Frame(controls, style="AppSurface.TFrame")
     right_controls.grid(row=0, column=1, sticky="e")
     ttk.Button(right_controls, text="Cancel", command=popup.destroy, **semantic_button_options("secondary")).pack(side="right")
+    if bool(allow_reset_local):
+        ttk.Button(
+            right_controls,
+            text="Use Global Scale",
+            command=lambda: (result.__setitem__("value", {"target_scope": "reset_local_scale"}), popup.destroy()),
+            **semantic_button_options("secondary"),
+        ).pack(side="right", padx=(0, SPACING.gap))
     ttk.Button(right_controls, text="Set Local Scale", command=lambda: on_set_scale("local"), **semantic_button_options("secondary")).pack(
         side="right", padx=(0, SPACING.gap)
     )

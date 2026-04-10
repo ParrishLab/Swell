@@ -6,7 +6,8 @@ import numpy as np
 
 
 class MetricsSettingsResolver:
-    METRIC_KEYS = ("frames_per_sec", "scale_px_per_mm", "scale_points", "scale_image_path", "roi_points", "roi_mask")
+    METRIC_KEYS = ("frames_per_sec", "scale_px_per_mm", "scale_points", "scale_axis_lock", "scale_image_path", "roi_points", "roi_mask")
+    ROI_KEYS = ("roi_points", "roi_mask")
 
     @staticmethod
     def normalize(settings: dict | None) -> dict[str, object]:
@@ -39,6 +40,8 @@ class MetricsSettingsResolver:
                     continue
             if len(clean_scale_points) == 2:
                 out["scale_points"] = clean_scale_points
+        if "scale_axis_lock" in settings:
+            out["scale_axis_lock"] = bool(settings.get("scale_axis_lock"))
         scale_image_path = str(settings.get("scale_image_path", "") or "").strip()
         if scale_image_path:
             out["scale_image_path"] = scale_image_path
@@ -75,6 +78,8 @@ class MetricsSettingsResolver:
                 return False
         if key == "scale_points":
             return isinstance(value, list) and len(value) >= 2
+        if key == "scale_axis_lock":
+            return isinstance(value, bool)
         if key == "scale_image_path":
             return isinstance(value, str) and bool(value.strip())
         if key == "roi_points":
@@ -107,6 +112,15 @@ class MetricsSettingsResolver:
         merged = cls.normalize(existing)
         normalized_incoming = cls.normalize(incoming)
         changed = False
+        incoming_has_roi = any(key in normalized_incoming for key in cls.ROI_KEYS)
+        if incoming_has_roi:
+            if merge_missing_only and cls.has_valid_roi(merged):
+                normalized_incoming = {key: value for key, value in normalized_incoming.items() if key not in cls.ROI_KEYS}
+            elif not merge_missing_only:
+                for key in cls.ROI_KEYS:
+                    if key in merged:
+                        merged.pop(key, None)
+                        changed = True
         for key, value in normalized_incoming.items():
             if merge_missing_only and cls.has_value(merged, key):
                 continue

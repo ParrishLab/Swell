@@ -22,7 +22,7 @@ class HostWindowController:
     def __init__(self, app) -> None:
         self.app = app
 
-    def _global_metrics_defaults_state(self) -> tuple[float, float | None, list[list[float]], list[list[float]], np.ndarray | None]:
+    def _global_metrics_defaults_state(self) -> tuple[float, float | None, list[list[float]], bool, list[list[float]], np.ndarray | None]:
         defaults = dict(self.app.browser_controller.get_global_metrics_defaults() or {})
         fps_initial = defaults.get("frames_per_sec", 1.0)
         try:
@@ -40,6 +40,7 @@ class HostWindowController:
         except (TypeError, ValueError):
             scale_value = None
         scale_points = list(defaults.get("scale_points", [])) if isinstance(defaults.get("scale_points"), list) else []
+        scale_axis_lock = bool(defaults.get("scale_axis_lock", True))
         roi_points = list(defaults.get("roi_points", [])) if isinstance(defaults.get("roi_points"), list) else []
         roi_mask = defaults.get("roi_mask")
         if roi_mask is not None:
@@ -49,7 +50,7 @@ class HostWindowController:
                     roi_mask = None
             except Exception:
                 roi_mask = None
-        return float(fps_initial), scale_value, scale_points, roi_points, roi_mask
+        return float(fps_initial), scale_value, scale_points, scale_axis_lock, roi_points, roi_mask
 
     def refresh_open_metrics_popup(self) -> None:
         dialog = getattr(self.app, "_open_metrics_dialog", None)
@@ -63,6 +64,191 @@ class HostWindowController:
             return
         if callable(refresher):
             refresher()
+
+    def _propagation_gap_event_name(self, payload: dict[str, object]) -> str:
+        event_label = str(payload.get("event_label", "") or "").strip()
+        if event_label:
+            return event_label
+        event_id = str(payload.get("event_id", "") or "").strip()
+        if not event_id:
+            return "the current event"
+        try:
+            event = self.app.browser_controller.get_event(event_id)
+        except Exception:
+            event = None
+        label = str(getattr(event, "label", "") or "").strip() if event is not None else ""
+        return label or event_id
+
+    @staticmethod
+    def _propagation_action_specs(warning_kind: str) -> list[dict[str, str]]:
+        if str(warning_kind or "").strip().lower() == "zero_growth":
+            return [
+                {
+                    "label": "Set To 0",
+                    "action": "zero",
+                    "semantic": "secondary",
+                    "description": "Write zero speed for the affected frames.",
+                },
+                {
+                    "label": "End Trace Here",
+                    "action": "stop",
+                    "semantic": "secondary",
+                    "description": "Drop propagation-speed values from the first affected frame onward.",
+                },
+                {
+                    "label": "Average Between Frames",
+                    "action": "interpolate",
+                    "semantic": "primary",
+                    "description": "Linearly fill between the nearest valid frames on either side.",
+                },
+            ]
+        return [
+            {
+                "label": "Leave Blank",
+                "action": "ignore",
+                "semantic": "secondary",
+                "description": "Keep the affected frames undefined in the propagation-speed trace.",
+            },
+            {
+                "label": "End Trace Here",
+                "action": "stop",
+                "semantic": "secondary",
+                "description": "Drop propagation-speed values from the first affected frame onward.",
+            },
+            {
+                "label": "Average Between Frames",
+                "action": "interpolate",
+                "semantic": "primary",
+                "description": "Linearly fill between the nearest valid frames on either side.",
+            },
+        ]
+
+    @staticmethod
+    def _preview_series_from_payload(payload: dict[str, object]) -> tuple[list[int], np.ndarray]:
+        frame_indices_raw = list(payload.get("preview_frame_indices", []) or [])
+        values_raw = list(payload.get("preview_speed_values", []) or [])
+        frame_indices: list[int] = []
+        for raw in frame_indices_raw:
+            try:
+                frame_indices.append(int(raw))
+            except Exception:
+                continue
+        if not frame_indices or len(frame_indices) != len(values_raw):
+            return [], np.asarray([], dtype=np.float64)
+        values = np.full(len(values_raw), np.nan, dtype=np.float64)
+        for idx, raw in enumerate(values_raw):
+            try:
+                if raw is None:
+                    continue
+                values[idx] = float(raw)
+            except Exception:
+                continue
+        return frame_indices, values
+
+    @staticmethod
+    def _preview_local_runs(frame_indices: list[int], payload: dict[str, object]) -> list[tuple[int, int]]:
+        if not frame_indices:
+            return []
+        lookup = {int(frame_idx): pos for pos, frame_idx in enumerate(frame_indices)}
+        runs: list[tuple[int, int]] = []
+        for raw in list(payload.get("gap_frame_runs", []) or []):
+            if not isinstance(raw, (list, tuple)) or len(raw) < 2:
+                continue
+            try:
+                start_global = int(raw[0])
+                end_global = int(raw[1])
+            except Exception:
+                continue
+            start = lookup.get(start_global)
+            end = lookup.get(end_global)
+            if start is None or end is None or end < start:
+                continue
+            runs.append((start, end))
+        return runs
+
+    @staticmethod
+    def _apply_preview_action(values: np.ndarray, runs: list[tuple[int, int]], action: str) -> np.ndarray:
+        arr = np.asarray(values, dtype=np.float64).copy()
+        if arr.size == 0 or not runs:
+            return arr
+        normalized = str(action or "").strip().lower()
+        if normalized == "stop":
+            arr[runs[0][0] :] = np.nan
+            return arr
+        if normalized == "zero":
+            for start, end in runs:
+                arr[start : end + 1] = 0.0
+            return arr
+        if normalized == "interpolate":
+            for start, end in runs:
+                left_idx = start - 1
+                right_idx = end + 1
+                if left_idx < 0 or right_idx >= arr.size:
+                    continue
+                left_val = float(arr[left_idx])
+                right_val = float(arr[right_idx])
+                if not np.isfinite(left_val) or not np.isfinite(right_val):
+                    continue
+                span = right_idx - left_idx
+                for idx in range(start, end + 1):
+                    arr[idx] = left_val + ((right_val - left_val) * ((idx - left_idx) / float(span)))
+            return arr
+        return arr
+
+    @staticmethod
+    def _draw_propagation_preview(
+        canvas: tk.Canvas,
+        *,
+        frame_indices: list[int],
+        values: np.ndarray,
+        affected_runs: list[tuple[int, int]],
+        color: str,
+    ) -> None:
+        width = int(float(canvas.cget("width")))
+        height = int(float(canvas.cget("height")))
+        canvas.delete("all")
+        canvas.create_rectangle(0, 0, width, height, fill="#11161d", outline="")
+        if not frame_indices or values.size == 0:
+            canvas.create_text(width / 2, height / 2, text="No preview", fill="#7e8794")
+            return
+        for start, end in affected_runs:
+            x0 = 10 if len(frame_indices) <= 1 else 10 + ((width - 20) * (start / float(len(frame_indices) - 1)))
+            x1 = 10 if len(frame_indices) <= 1 else 10 + ((width - 20) * (end / float(len(frame_indices) - 1)))
+            canvas.create_rectangle(x0 - 3, 8, x1 + 3, height - 18, fill="#2b3c52", outline="")
+        finite = np.isfinite(values)
+        if not np.any(finite):
+            canvas.create_text(width / 2, height / 2, text="No speed values", fill="#7e8794")
+            return
+        finite_values = values[finite]
+        y_min = min(0.0, float(np.nanmin(finite_values)))
+        y_max = float(np.nanmax(finite_values))
+        if y_max <= y_min:
+            y_max = y_min + 1.0
+
+        def _x(pos: int) -> float:
+            if len(frame_indices) <= 1:
+                return width / 2
+            return 10 + ((width - 20) * (pos / float(len(frame_indices) - 1)))
+
+        def _y(val: float) -> float:
+            return 10 + ((height - 30) * (1.0 - ((val - y_min) / (y_max - y_min))))
+
+        zero_y = _y(0.0)
+        canvas.create_line(10, zero_y, width - 10, zero_y, fill="#39424f", dash=(3, 3))
+
+        segment: list[float] = []
+        for pos, val in enumerate(values):
+            if not np.isfinite(val):
+                if len(segment) >= 4:
+                    canvas.create_line(*segment, fill=color, width=2, smooth=True)
+                segment = []
+                continue
+            segment.extend([_x(pos), _y(float(val))])
+        if len(segment) >= 4:
+            canvas.create_line(*segment, fill=color, width=2, smooth=True)
+
+        canvas.create_text(10, height - 8, text=str(frame_indices[0]), fill="#7e8794", anchor="sw")
+        canvas.create_text(width - 10, height - 8, text=str(frame_indices[-1]), fill="#7e8794", anchor="se")
 
     def has_binary_masks_for_events(self, event_ids: list[str]) -> bool:
         try:
@@ -347,28 +533,47 @@ class HostWindowController:
         return result
 
     def prompt_propagation_gap_action(self, payload: dict[str, object]) -> str:
-        result = {"action": "ignore"}
+        warning_kind = str(payload.get("warning_kind", "gap") or "gap").strip().lower()
+        default_action = "zero" if warning_kind == "zero_growth" else "ignore"
+        result = {"action": default_action}
         dialog = tk.Toplevel(self.app.root)
         dialog.withdraw()
         dialog.title("Propagation Speed Warning")
         dialog.transient(self.app.root)
         dialog.resizable(False, False)
-        dialog.geometry("600x220")
+        dialog.geometry("860x520")
         apply_theme(dialog)
 
         shell = ttk.Frame(dialog, padding=SPACING.outer, style="AppShell.TFrame")
         shell.pack(fill="both", expand=True)
-        event_id = str(payload.get("event_id", "") or "")
+        event_name = self._propagation_gap_event_name(payload)
+        action_specs = self._propagation_action_specs(warning_kind)
+        preview_frame_indices, preview_values = self._preview_series_from_payload(payload)
+        preview_runs = self._preview_local_runs(preview_frame_indices, payload)
         runs = list(payload.get("gap_frame_runs", []) or [])
         run_labels = ", ".join(
             f"{int(run[0])}" if int(run[0]) == int(run[1]) else f"{int(run[0])}-{int(run[1])}"
             for run in runs
             if isinstance(run, (list, tuple)) and len(run) >= 2
         )
+        if warning_kind == "zero_growth":
+            heading = f"No outward propagation above threshold was detected for {event_name}."
+            detail = (
+                "These frames have valid masks, but the propagation-speed metric found no outward expansion above threshold. "
+                "Choose whether to write zero speed, smooth across them, or end the speed trace at the first affected frame."
+            )
+        else:
+            heading = f"Undefined propagation-speed values were detected for {event_name}."
+            detail = (
+                "These frames do not have enough valid information to compute propagation speed directly. "
+                "Choose whether to leave them blank, smooth across them, or end the speed trace at the first affected frame."
+            )
+        summary = ttk.Frame(shell, padding=SPACING.card, style="AppInset.TFrame")
+        summary.pack(fill="x", pady=(0, SPACING.gap))
         ttk.Label(
-            shell,
+            summary,
             text=(
-                f"Propagation speed gaps were detected for {event_id or 'the current event'}.\n"
+                f"{heading}\n"
                 f"Frames: {run_labels or 'unknown'}"
             ),
             justify="left",
@@ -376,10 +581,36 @@ class HostWindowController:
         ).pack(anchor="w")
         ttk.Label(
             shell,
-            text="Choose how export should handle those propagation-speed gaps for this export run.",
+            text=detail,
             justify="left",
             style="AppMeta.TLabel",
-        ).pack(anchor="w", pady=(8, 10))
+            wraplength=620,
+        ).pack(anchor="w", pady=(0, SPACING.card))
+
+        ttk.Label(shell, text="Preview", style="AppSectionTitle.TLabel").pack(anchor="w", pady=(0, SPACING.gap))
+        previews = ttk.Frame(shell, style="AppShell.TFrame")
+        previews.pack(fill="x", pady=(0, SPACING.card))
+        preview_colors = {
+            "ignore": "#c58cff",
+            "zero": "#f5c451",
+            "stop": "#ef7d57",
+            "interpolate": "#4db3ff",
+        }
+        for index, spec in enumerate(action_specs):
+            card = ttk.Frame(previews, padding=SPACING.card, style="AppInset.TFrame")
+            card.pack(side="left", fill="both", expand=True, padx=(SPACING.gap if index else 0, 0))
+            ttk.Label(card, text=str(spec["label"]), style="AppSectionTitle.TLabel").pack(anchor="w")
+            canvas = tk.Canvas(card, width=240, height=120, bg="#11161d", highlightthickness=0, bd=0)
+            canvas.pack(fill="x", pady=(SPACING.inner, SPACING.inner))
+            preview_series = self._apply_preview_action(preview_values, preview_runs, str(spec["action"]))
+            self._draw_propagation_preview(
+                canvas,
+                frame_indices=preview_frame_indices,
+                values=preview_series,
+                affected_runs=preview_runs,
+                color=preview_colors.get(str(spec["action"]), "#4db3ff"),
+            )
+            ttk.Label(card, text=str(spec["description"]), style="AppMeta.TLabel", wraplength=220, justify="left").pack(anchor="w")
 
         def _finish(action: str) -> None:
             result["action"] = str(action)
@@ -387,13 +618,17 @@ class HostWindowController:
 
         buttons = ttk.Frame(shell, style="AppShell.TFrame")
         buttons.pack(fill="x")
-        ttk.Button(buttons, text="Ignore", command=lambda: _finish("ignore"), **semantic_button_options("secondary")).pack(side="left")
-        ttk.Button(buttons, text="Stop There", command=lambda: _finish("stop"), **semantic_button_options("secondary")).pack(side="left", padx=(8, 0))
-        ttk.Button(buttons, text="Average Between Frames", command=lambda: _finish("interpolate"), **semantic_button_options("primary")).pack(
-            side="left", padx=(8, 0)
-        )
-        dialog.protocol("WM_DELETE_WINDOW", lambda: _finish("ignore"))
-        self.center_window_on_screen(dialog, width=600, height=220)
+        for index, spec in enumerate(action_specs):
+            ttk.Button(
+                buttons,
+                text=str(spec["label"]),
+                command=lambda value=str(spec["action"]): _finish(value),
+                **semantic_button_options(str(spec["semantic"])),
+            ).pack(
+                side="left", padx=(SPACING.gap if index else 0, 0)
+            )
+        dialog.protocol("WM_DELETE_WINDOW", lambda: _finish(default_action))
+        self.center_window_on_screen(dialog, width=860, height=520)
         dialog.deiconify()
         dialog.grab_set()
         dialog.wait_window()
@@ -417,7 +652,7 @@ class HostWindowController:
         except Exception:
             pass
 
-        fps_initial, scale_value, scale_points, roi_points, roi_mask = self._global_metrics_defaults_state()
+        fps_initial, scale_value, scale_points, scale_axis_lock, roi_points, roi_mask = self._global_metrics_defaults_state()
 
         dialog = tk.Toplevel(self.app.root)
         dialog.withdraw()
@@ -458,8 +693,8 @@ class HostWindowController:
                 roi_status_var.set("ROI: Not set")
 
         def _refresh_from_host() -> None:
-            nonlocal scale_value, scale_points, roi_points, roi_mask
-            _fps_value, scale_value, scale_points, roi_points, roi_mask = self._global_metrics_defaults_state()
+            nonlocal scale_value, scale_points, scale_axis_lock, roi_points, roi_mask
+            _fps_value, scale_value, scale_points, scale_axis_lock, roi_points, roi_mask = self._global_metrics_defaults_state()
             _refresh_labels()
 
         self.app._refresh_open_metrics_dialog = _refresh_from_host
@@ -468,7 +703,7 @@ class HostWindowController:
         controls.pack(fill="x", pady=(6, 6))
 
         def _set_scale() -> None:
-            nonlocal scale_value, scale_points
+            nonlocal scale_value, scale_points, scale_axis_lock
             img_u8 = self.app._pick_metrics_reference_image_u8(parent=dialog, purpose="Scale")
             if img_u8 is None:
                 return
@@ -479,6 +714,7 @@ class HostWindowController:
                 refine_scale_bar_points=self.app._refine_scale_bar_points,
                 compute_scale=compute_scale,
                 initial_scale_points=scale_points,
+                initial_axis_lock=scale_axis_lock,
             )
             if not isinstance(result, dict):
                 return
@@ -493,6 +729,7 @@ class HostWindowController:
                 for pt in list(result.get("scale_points", []))[:2]
                 if isinstance(pt, (list, tuple)) and len(pt) >= 2
             ]
+            scale_axis_lock = bool(result.get("axis_lock", True))
             _refresh_labels()
 
         def _set_roi() -> None:
@@ -547,6 +784,7 @@ class HostWindowController:
                 payload["scale_px_per_mm"] = float(scale_value)
             if len(scale_points) == 2:
                 payload["scale_points"] = [[float(pt[0]), float(pt[1])] for pt in scale_points]
+                payload["scale_axis_lock"] = bool(scale_axis_lock)
             if roi_points:
                 payload["roi_points"] = [[float(pt[0]), float(pt[1])] for pt in roi_points]
             if roi_mask is not None:
@@ -555,10 +793,13 @@ class HostWindowController:
             self.app.browser_controller.set_global_metrics_defaults(payload)
             materialized = self.app.browser_controller.materialize_metrics_defaults_to_events()
             self.app._set_status("Global metrics defaults updated.")
-            self.app._log_info(
-                "Updated global metrics defaults and applied missing values to "
-                f"{materialized} event(s)."
-            )
+            if materialized > 0:
+                self.app._log_info(
+                    "Updated global metrics defaults and applied missing values to "
+                    f"{materialized} event(s)."
+                )
+            else:
+                self.app._log_info("Updated global metrics defaults.")
             dialog.destroy()
 
         ttk.Button(actions, text="Cancel", command=_cancel, **semantic_button_options("secondary")).pack(side="right")
@@ -605,8 +846,6 @@ class HostWindowController:
             f"metric_relative_area_recruited={bool(options.get('include_metric_relative_area_recruited'))}, "
             f"metric_combined_spreadsheet={bool(options.get('include_metric_combined_spreadsheet'))}."
         )
-        gap_policy_cache: dict[str, str] = {}
-
         def worker() -> None:
             try:
                 assert self.app.reader is not None
@@ -625,24 +864,23 @@ class HostWindowController:
                     self.app.root.after(0, lambda p=progress_payload: self.app._on_export_progress(p))
 
                 def _resolve_gap_decision(payload: dict[str, object]) -> str:
-                    cached = gap_policy_cache.get("action")
-                    if cached:
-                        return str(cached)
-                    response: dict[str, str] = {"action": "ignore"}
+                    warning_kind = str(payload.get("warning_kind", "gap") or "gap")
+                    default_action = "zero" if warning_kind == "zero_growth" else "ignore"
+                    response: dict[str, str] = {"action": default_action}
                     wait_event = threading.Event()
 
                     def _ask() -> None:
                         try:
-                            response["action"] = str(self.prompt_propagation_gap_action(dict(payload or {})) or "ignore")
+                            response["action"] = str(self.prompt_propagation_gap_action(dict(payload or {})) or default_action)
                         finally:
                             wait_event.set()
 
                     self.app.root.after(0, _ask)
                     wait_event.wait()
-                    action = str(response.get("action", "ignore") or "ignore")
-                    gap_policy_cache["action"] = action
+                    action = str(response.get("action", default_action) or default_action)
+                    event_name = str(payload.get("event_label", "") or payload.get("event_id", "?"))
                     self.app._log_warn(
-                        f"Propagation speed gap detected during export; applying action='{action}' for remaining exports."
+                        f"Propagation speed warning kind='{warning_kind}' resolved for {event_name} with action='{action}'."
                     )
                     return action
 

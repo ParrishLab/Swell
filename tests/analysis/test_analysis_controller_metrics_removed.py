@@ -22,6 +22,8 @@ class AnalysisControllerMetricsRemovedTests(unittest.TestCase):
             set_scale_px_per_mm=lambda _v: None,
             get_scale_points=lambda: [],
             set_scale_points=lambda _v: None,
+            get_scale_axis_lock=lambda: True,
+            set_scale_axis_lock=lambda _v: None,
             get_last_scale_image_path=lambda: "",
             set_last_scale_image_path=lambda _v: None,
             get_roi_mask=lambda: None,
@@ -29,6 +31,7 @@ class AnalysisControllerMetricsRemovedTests(unittest.TestCase):
             get_roi_points=lambda: [],
             set_roi_points=lambda _v: None,
             update_display=lambda: None,
+            clear_local_metrics_override=lambda _reason, _keys: {"ok": True},
             log_info=lambda *_args: None,
             log_success=lambda *_args: None,
         )

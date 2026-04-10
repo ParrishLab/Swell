@@ -289,6 +289,7 @@ def test_apply_host_metrics_settings_prefills_values() -> None:
             "frames_per_sec": 2.5,
             "scale_px_per_mm": 9.0,
             "scale_points": [[10.0, 12.0], [30.0, 12.0]],
+            "scale_axis_lock": False,
             "roi_points": [[1.0, 1.0], [2.0, 1.0], [2.0, 2.0], [1.0, 2.0]],
             "roi_mask": mask,
         }
@@ -297,6 +298,7 @@ def test_apply_host_metrics_settings_prefills_values() -> None:
     assert float(app.frames_per_sec_var.get()) == 2.5
     assert float(app.scale_px_per_mm) == 9.0
     assert app.scale_points == [[10.0, 12.0], [30.0, 12.0]]
+    assert app.scale_axis_lock is False
     assert len(app.roi_points) == 4
     assert np.array_equal(np.asarray(app.roi_mask, dtype=bool), mask)
     assert app._scale_is_local_override is False

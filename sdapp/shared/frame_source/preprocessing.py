@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable
 
+import cv2
 import numpy as np
 from scipy.ndimage import gaussian_filter
 
@@ -16,6 +17,9 @@ class VisualizationStats:
     apply_smoothing: bool
     apply_baseline_subtraction: bool
     apply_global_normalization: bool
+    apply_stabilization: bool = False
+    stabilization_reference_index: int = 0
+    stabilization_offsets_px: np.ndarray | None = None
     baseline: np.ndarray | None = None
     p1: float | None = None
     p99: float | None = None
@@ -94,6 +98,88 @@ def _processed_source_frame(
     )
 
 
+def _stabilize_frame(raw: np.ndarray, offset_xy: np.ndarray | tuple[float, float] | None) -> np.ndarray:
+    arr = np.asarray(raw, dtype=np.float32, copy=False)
+    if arr.ndim != 2 or arr.size == 0:
+        return arr.astype(np.float32, copy=False)
+    dx = 0.0
+    dy = 0.0
+    if offset_xy is not None:
+        try:
+            dx = float(offset_xy[0])
+            dy = float(offset_xy[1])
+        except Exception:
+            dx = 0.0
+            dy = 0.0
+    if abs(dx) < 1e-6 and abs(dy) < 1e-6:
+        return arr.astype(np.float32, copy=False)
+    h, w = arr.shape[:2]
+    matrix = np.array([[1.0, 0.0, -dx], [0.0, 1.0, -dy]], dtype=np.float32)
+    stabilized = cv2.warpAffine(
+        arr,
+        matrix,
+        (int(w), int(h)),
+        flags=cv2.INTER_LINEAR,
+        borderMode=cv2.BORDER_REPLICATE,
+    )
+    return np.asarray(stabilized, dtype=np.float32)
+
+
+def _compute_stabilization_offsets(
+    frame_source,
+    *,
+    frame_count: int,
+    apply_horizontal_bar_denoise: bool,
+    apply_smoothing: bool,
+    should_cancel: Callable[[], bool] | None = None,
+    progress_callback=None,
+) -> np.ndarray:
+    offsets = np.zeros((max(0, int(frame_count)), 2), dtype=np.float32)
+    if int(frame_count) <= 1:
+        return offsets
+    reference = _processed_source_frame(
+        frame_source,
+        0,
+        apply_horizontal_bar_denoise=bool(apply_horizontal_bar_denoise),
+        apply_smoothing=bool(apply_smoothing),
+    )
+    last_valid = np.zeros((2,), dtype=np.float32)
+    total = max(1, int(frame_count) - 1)
+    for idx in range(1, int(frame_count)):
+        _raise_if_cancelled(should_cancel)
+        frame = _processed_source_frame(
+            frame_source,
+            idx,
+            apply_horizontal_bar_denoise=bool(apply_horizontal_bar_denoise),
+            apply_smoothing=bool(apply_smoothing),
+        )
+        candidate = None
+        try:
+            if (
+                reference.shape == frame.shape
+                and reference.size > 0
+                and float(np.std(reference)) > 1e-6
+                and float(np.std(frame)) > 1e-6
+            ):
+                shift, response = cv2.phaseCorrelate(
+                    np.asarray(reference, dtype=np.float32),
+                    np.asarray(frame, dtype=np.float32),
+                )
+                dx = float(shift[0])
+                dy = float(shift[1])
+                if np.isfinite(dx) and np.isfinite(dy) and np.isfinite(float(response)) and float(response) > 1e-3:
+                    candidate = np.array([dx, dy], dtype=np.float32)
+        except Exception:
+            candidate = None
+        if candidate is None:
+            candidate = last_valid.copy()
+        else:
+            last_valid = candidate
+        offsets[idx] = candidate
+        _emit_stats_progress(progress_callback, stage="stabilize", current=idx, total=total)
+    return offsets
+
+
 def _raise_if_cancelled(should_cancel: Callable[[], bool] | None) -> None:
     if callable(should_cancel) and bool(should_cancel()):
         raise VisualizationCancelled("Visualization preparation canceled.")
@@ -131,6 +217,7 @@ def _prepare_stats_frame_cache(
     first_frame: np.ndarray,
     apply_baseline_subtraction: bool,
     apply_global_normalization: bool,
+    stabilization_offsets: np.ndarray | None = None,
     should_cancel: Callable[[], bool] | None = None,
     progress_callback=None,
 ) -> tuple[dict[int, np.ndarray], list[int]]:
@@ -156,7 +243,10 @@ def _prepare_stats_frame_cache(
             raw = _read_frame_float32(frame_source, idx)
             raw_cache[int(idx)] = raw
         processed_cache[int(idx)] = _processed_frame(
-            raw,
+            _stabilize_frame(
+                raw,
+                stabilization_offsets[int(idx)] if stabilization_offsets is not None and int(idx) < len(stabilization_offsets) else None,
+            ),
             apply_horizontal_bar_denoise=bool(apply_horizontal_bar_denoise),
             apply_smoothing=bool(apply_smoothing),
         )
@@ -172,6 +262,7 @@ def compute_visualization_stats(
     apply_smoothing: bool = True,
     apply_baseline_subtraction: bool = True,
     apply_global_normalization: bool = True,
+    apply_stabilization: bool = False,
     should_cancel: Callable[[], bool] | None = None,
     progress_callback=None,
 ) -> VisualizationStats:
@@ -185,11 +276,22 @@ def compute_visualization_stats(
             apply_smoothing=bool(apply_smoothing),
             apply_baseline_subtraction=bool(apply_baseline_subtraction),
             apply_global_normalization=bool(apply_global_normalization),
+            apply_stabilization=bool(apply_stabilization),
         )
 
     first_frame = _read_frame_float32(frame_source, 0)
     frame_shape = tuple(int(v) for v in first_frame.shape[:2])
     baseline_count = max(1, min(int(baseline_frames), frame_count))
+    stabilization_offsets = None
+    if bool(apply_stabilization):
+        stabilization_offsets = _compute_stabilization_offsets(
+            frame_source,
+            frame_count=frame_count,
+            apply_horizontal_bar_denoise=bool(apply_horizontal_bar_denoise),
+            apply_smoothing=bool(apply_smoothing),
+            should_cancel=should_cancel,
+            progress_callback=progress_callback,
+        )
     processed_cache, sample_indices = _prepare_stats_frame_cache(
         frame_source,
         frame_count=frame_count,
@@ -199,6 +301,7 @@ def compute_visualization_stats(
         first_frame=first_frame,
         apply_baseline_subtraction=bool(apply_baseline_subtraction),
         apply_global_normalization=bool(apply_global_normalization),
+        stabilization_offsets=stabilization_offsets,
         should_cancel=should_cancel,
         progress_callback=progress_callback,
     )
@@ -230,6 +333,9 @@ def compute_visualization_stats(
         apply_smoothing=bool(apply_smoothing),
         apply_baseline_subtraction=bool(apply_baseline_subtraction),
         apply_global_normalization=bool(apply_global_normalization),
+        apply_stabilization=bool(apply_stabilization),
+        stabilization_reference_index=0,
+        stabilization_offsets_px=None if stabilization_offsets is None else np.asarray(stabilization_offsets, dtype=np.float32),
         baseline=baseline,
         p1=p1,
         p99=p99,
@@ -246,6 +352,7 @@ def render_visualization_frame(
     apply_smoothing: bool = True,
     apply_baseline_subtraction: bool = True,
     apply_global_normalization: bool = True,
+    apply_stabilization: bool = False,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     resolved_stats = stats
     if resolved_stats is None:
@@ -256,11 +363,17 @@ def render_visualization_frame(
             apply_smoothing=apply_smoothing,
             apply_baseline_subtraction=apply_baseline_subtraction,
             apply_global_normalization=apply_global_normalization,
+            apply_stabilization=apply_stabilization,
         )
     idx = max(0, min(int(frame_idx), max(0, int(resolved_stats.frame_count) - 1)))
     raw = _read_frame_float32(frame_source, idx)
-    source = _processed_frame(
+    offsets = getattr(resolved_stats, "stabilization_offsets_px", None)
+    stabilized_raw = _stabilize_frame(
         raw,
+        offsets[idx] if bool(getattr(resolved_stats, "apply_stabilization", False)) and offsets is not None and idx < len(offsets) else None,
+    )
+    source = _processed_frame(
+        stabilized_raw,
         apply_horizontal_bar_denoise=bool(getattr(resolved_stats, "apply_horizontal_bar_denoise", False)),
         apply_smoothing=bool(resolved_stats.apply_smoothing),
     )
@@ -277,7 +390,7 @@ def render_visualization_frame(
         )
     else:
         visual = normalize_visual_frame(subtracted)
-    return raw.astype(np.float32, copy=False), subtracted, visual
+    return stabilized_raw.astype(np.float32, copy=False), subtracted, visual
 
 
 def build_visualization_stack(
@@ -288,6 +401,7 @@ def build_visualization_stack(
     apply_smoothing: bool = True,
     apply_baseline_subtraction: bool = True,
     apply_global_normalization: bool = True,
+    apply_stabilization: bool = False,
     stats: VisualizationStats | None = None,
     progress_callback=None,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -313,11 +427,29 @@ def build_visualization_stack(
                 }
             )
 
+    resolved_stats = stats
+    if resolved_stats is None:
+        resolved_stats = compute_visualization_stats(
+            frame_source,
+            baseline_frames=baseline_frames,
+            apply_horizontal_bar_denoise=apply_horizontal_bar_denoise,
+            apply_smoothing=apply_smoothing,
+            apply_baseline_subtraction=apply_baseline_subtraction,
+            apply_global_normalization=apply_global_normalization,
+            apply_stabilization=apply_stabilization,
+        )
+    offsets = getattr(resolved_stats, "stabilization_offsets_px", None)
+    stabilized_raw_frames: list[np.ndarray] = []
     source_frames: list[np.ndarray] = []
     for i, frame in enumerate(raw_frames):
+        stabilized = _stabilize_frame(
+            frame,
+            offsets[i] if bool(getattr(resolved_stats, "apply_stabilization", False)) and offsets is not None and i < len(offsets) else None,
+        )
+        stabilized_raw_frames.append(stabilized)
         source_frames.append(
             _processed_frame(
-                frame,
+                stabilized,
                 apply_horizontal_bar_denoise=bool(apply_horizontal_bar_denoise),
                 apply_smoothing=bool(apply_smoothing),
             )
@@ -336,12 +468,12 @@ def build_visualization_stack(
     if bool(apply_baseline_subtraction):
         baseline_count = max(1, min(int(baseline_frames), int(source_for_sub.shape[0])))
         if (
-            stats is not None
-            and bool(stats.apply_baseline_subtraction)
-            and stats.baseline is not None
-            and tuple(int(v) for v in stats.frame_shape[:2]) == tuple(int(v) for v in source_for_sub.shape[1:3])
+            resolved_stats is not None
+            and bool(resolved_stats.apply_baseline_subtraction)
+            and resolved_stats.baseline is not None
+            and tuple(int(v) for v in resolved_stats.frame_shape[:2]) == tuple(int(v) for v in source_for_sub.shape[1:3])
         ):
-            baseline = np.asarray(stats.baseline, dtype=np.float32)
+            baseline = np.asarray(resolved_stats.baseline, dtype=np.float32)
         else:
             baseline = np.median(source_for_sub[:baseline_count], axis=0).astype(np.float32, copy=False)
         frames_sub = source_for_sub - baseline
@@ -351,9 +483,9 @@ def build_visualization_stack(
     frames_viz: list[np.ndarray] = []
     if bool(apply_global_normalization):
         subsample = frames_sub[::5] if frames_sub.shape[0] > 0 else frames_sub
-        if stats is not None and bool(stats.apply_global_normalization):
-            p1 = float(stats.p1 if stats.p1 is not None else 0.0)
-            p99 = float(stats.p99 if stats.p99 is not None else 1.0)
+        if resolved_stats is not None and bool(resolved_stats.apply_global_normalization):
+            p1 = float(resolved_stats.p1 if resolved_stats.p1 is not None else 0.0)
+            p99 = float(resolved_stats.p99 if resolved_stats.p99 is not None else 1.0)
         else:
             p1 = float(np.percentile(subsample, 1)) if subsample.size > 0 else 0.0
             p99 = float(np.percentile(subsample, 99)) if subsample.size > 0 else 1.0
@@ -384,4 +516,8 @@ def build_visualization_stack(
                     }
                 )
 
-    return np.asarray(raw_frames, dtype=np.float32), np.asarray(frames_sub, dtype=np.float32), np.asarray(frames_viz, dtype=np.uint8)
+    return (
+        np.asarray(stabilized_raw_frames, dtype=np.float32),
+        np.asarray(frames_sub, dtype=np.float32),
+        np.asarray(frames_viz, dtype=np.uint8),
+    )

@@ -32,6 +32,8 @@ def _make_controller(
         set_scale_px_per_mm=lambda _v: None,
         get_scale_points=lambda: list(scale_points or []),
         set_scale_points=lambda _v: None,
+        get_scale_axis_lock=lambda: True,
+        set_scale_axis_lock=lambda _v: None,
         get_last_scale_image_path=lambda: last_scale_path,
         set_last_scale_image_path=lambda _v: None,
         get_roi_mask=lambda: None,
@@ -39,6 +41,7 @@ def _make_controller(
         get_roi_points=lambda: [],
         set_roi_points=lambda _v: None,
         update_display=lambda: None,
+        clear_local_metrics_override=lambda _reason, _keys: {"ok": True},
         log_info=lambda *_args: None,
         log_success=lambda *_args: None,
     )
@@ -114,6 +117,54 @@ def test_capture_scale_selection_passes_existing_scale_points_to_dialog(tmp_path
             controller._capture_scale_selection()
 
     assert dialog_mock.call_args.kwargs["initial_scale_points"] == [(10.0, 12.0), (30.0, 12.0)]
+    assert dialog_mock.call_args.kwargs["initial_axis_lock"] is True
+
+
+def test_capture_scale_selection_passes_saved_axis_lock_to_dialog(tmp_path):
+    app_root = tmp_path / "app"
+    app_root.mkdir()
+    image_path = tmp_path / "scale_ref.png"
+    image_path.write_bytes(b"not-an-image")
+
+    axis_lock_state = {"value": False}
+    controller = AnalysisController(
+        root=None,
+        app_root=str(app_root),
+        get_frame_count=lambda: 1,
+        get_raw_frame=lambda _idx: np.zeros((8, 8), dtype=np.uint8),
+        get_masks_cache=lambda: {},
+        get_paint_layers=lambda: {},
+        get_points=lambda: {},
+        get_frame_names=lambda: [],
+        get_import_source_hint=lambda: "",
+        get_current_image_source_paths=lambda: [],
+        get_compose_final_mask_for_frame=lambda _idx: None,
+        get_nonempty_final_mask_frames=lambda: set(),
+        get_frames_per_sec=lambda: 1.0,
+        get_scale_px_per_mm=lambda: None,
+        set_scale_px_per_mm=lambda _v: None,
+        get_scale_points=lambda: [(10.0, 12.0), (30.0, 12.0)],
+        set_scale_points=lambda _v: None,
+        get_scale_axis_lock=lambda: bool(axis_lock_state["value"]),
+        set_scale_axis_lock=lambda v: axis_lock_state.__setitem__("value", bool(v)),
+        get_last_scale_image_path=lambda: "",
+        set_last_scale_image_path=lambda _v: None,
+        get_roi_mask=lambda: None,
+        set_roi_mask=lambda _v: None,
+        get_roi_points=lambda: [],
+        set_roi_points=lambda _v: None,
+        update_display=lambda: None,
+        clear_local_metrics_override=lambda _reason, _keys: {"ok": True},
+        log_info=lambda *_args: None,
+        log_success=lambda *_args: None,
+    )
+    controller._load_image_u8_from_path = lambda _path: np.zeros((40, 50), dtype=np.uint8)
+
+    with patch("sdapp.analysis.core.analysis_controller.filedialog.askopenfilename", return_value=str(image_path)):
+        with patch("sdapp.analysis.core.analysis_controller.open_scale_dialog", return_value=None) as dialog_mock:
+            controller._capture_scale_selection()
+
+    assert dialog_mock.call_args.kwargs["initial_axis_lock"] is False
 
 
 def test_capture_scale_selection_returns_selected_image_path(tmp_path):

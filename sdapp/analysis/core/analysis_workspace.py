@@ -30,6 +30,7 @@ class WorkspaceUiState:
     baseline_frame_count: int
     scale_px_per_mm: object
     scale_points: list
+    scale_axis_lock: bool
     scale_image_path: str
     roi_points: list
     roi_mask: object
@@ -605,6 +606,7 @@ class AnalysisWorkspaceController:
             baseline_frame_count=int(ui_state.baseline_frame_count),
             scale_px_per_mm=ui_state.scale_px_per_mm,
             scale_points=list(ui_state.scale_points) if ui_state.scale_points else [],
+            scale_axis_lock=bool(ui_state.scale_axis_lock),
             scale_image_path=str(ui_state.scale_image_path or ""),
             roi_points=list(ui_state.roi_points) if ui_state.roi_points else [],
             roi_mask=ui_state.roi_mask,

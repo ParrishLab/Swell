@@ -44,6 +44,7 @@ def build_sam2_frame_cache_key(
     apply_smoothing: bool,
     apply_baseline_subtraction: bool,
     apply_global_normalization: bool,
+    apply_stabilization: bool,
     stats,
 ) -> str:
     baseline_shape = None
@@ -58,6 +59,7 @@ def build_sam2_frame_cache_key(
         "apply_smoothing": bool(apply_smoothing),
         "apply_baseline_subtraction": bool(apply_baseline_subtraction),
         "apply_global_normalization": bool(apply_global_normalization),
+        "apply_stabilization": bool(apply_stabilization),
         "stats": {
             "frame_count": int(getattr(stats, "frame_count", 0) or 0),
             "frame_shape": list(_safe_tuple(getattr(stats, "frame_shape", ()))),
@@ -71,6 +73,9 @@ def build_sam2_frame_cache_key(
             ),
             "apply_global_normalization": bool(
                 getattr(stats, "apply_global_normalization", apply_global_normalization)
+            ),
+            "apply_stabilization": bool(
+                getattr(stats, "apply_stabilization", apply_stabilization)
             ),
             "p1": None if getattr(stats, "p1", None) is None else round(float(stats.p1), 6),
             "p99": None if getattr(stats, "p99", None) is None else round(float(stats.p99), 6),
