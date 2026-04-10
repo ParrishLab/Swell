@@ -212,6 +212,7 @@ def export_analysis(
                     payload = {
                         "phase": "analysis_prepare",
                         "event_id": str(event_id),
+                        "event_label": str(getattr(event, "label", "") or ""),
                         "current": int(progress.get("current", 0) or 0),
                         "total": int(progress.get("total", 0) or 0),
                         "stage": str(progress.get("stage", "prepare") or "prepare"),
@@ -384,34 +385,50 @@ def _write_metric_plot(path: Path, time_sec: list[float], values: np.ndarray, ti
     plt.close()
 
 
-def _find_interior_nan_runs(values: np.ndarray) -> list[tuple[int, int]]:
-    arr = np.asarray(values, dtype=np.float64)
-    finite = np.isfinite(arr)
+def _find_interior_false_runs(mask: np.ndarray) -> list[tuple[int, int]]:
+    arr = np.asarray(mask, dtype=bool)
     runs: list[tuple[int, int]] = []
     idx = 0
     n = int(arr.size)
     while idx < n:
-        if finite[idx]:
+        if arr[idx]:
             idx += 1
             continue
         start = idx
-        while idx < n and not finite[idx]:
+        while idx < n and not arr[idx]:
             idx += 1
         end = idx - 1
-        if start > 0 and idx < n and finite[start - 1] and finite[idx]:
+        if start > 0 and idx < n and arr[start - 1] and arr[idx]:
             runs.append((start, end))
     return runs
 
 
-def _apply_propagation_gap_policy(values: np.ndarray, action: str) -> np.ndarray:
+def _find_interior_nan_runs(values: np.ndarray) -> list[tuple[int, int]]:
+    arr = np.asarray(values, dtype=np.float64)
+    return _find_interior_false_runs(np.isfinite(arr))
+
+
+def _propagation_warning_entries(warning: dict[str, object] | None) -> list[dict[str, object]]:
+    if not isinstance(warning, dict) or not warning:
+        return []
+    nested = warning.get("warnings")
+    if isinstance(nested, list):
+        return [dict(entry) for entry in nested if isinstance(entry, dict)]
+    return [dict(warning)]
+
+
+def _apply_propagation_gap_policy(values: np.ndarray, runs: list[tuple[int, int]], action: str) -> np.ndarray:
     arr = np.asarray(values, dtype=np.float64).copy()
-    runs = _find_interior_nan_runs(arr)
     if not runs:
         return arr
     normalized = str(action or "ignore").strip().lower()
     if normalized == "stop":
         first_gap = runs[0][0]
         arr[first_gap:] = np.nan
+        return arr
+    if normalized == "zero":
+        for start, end in runs:
+            arr[start : end + 1] = 0.0
         return arr
     if normalized == "interpolate":
         for start, end in runs:
@@ -459,11 +476,13 @@ def _write_metrics_combined_workbook(
         ("Written files", summary.get("written_files")),
     ]
     warning = summary.get("propagation_gap_warning")
-    if isinstance(warning, dict) and warning:
+    for index, entry in enumerate(_propagation_warning_entries(warning), start=1):
+        prefix = "Propagation warning" if index == 1 else f"Propagation warning {index}"
         summary_rows.extend(
             [
-                ("Propagation gap action", warning.get("action")),
-                ("Propagation gap frame runs", warning.get("frame_runs")),
+                (f"{prefix} type", entry.get("kind", "gap")),
+                (f"{prefix} action", entry.get("action")),
+                (f"{prefix} frame runs", entry.get("frame_runs")),
             ]
         )
     for label, value in summary_rows:
@@ -577,8 +596,53 @@ def _export_event_metrics(
     written: list[str] = []
     metric_tables: list[dict[str, object]] = []
     propagation_gap_warning: dict[str, object] | None = None
+    transition_valid = np.asarray(frame_metrics_full.get("transition_valid", np.zeros_like(avg_dist_px, dtype=bool)), dtype=bool)
+    all_nan_runs = _find_interior_nan_runs(speed_um_per_sec) if bool(include_metric_propagation_speed and has_scale) else []
+    zero_runs: list[tuple[int, int]] = []
+    gap_runs: list[tuple[int, int]] = []
+    for start, end in all_nan_runs:
+        if bool(np.all(transition_valid[start : end + 1])):
+            zero_runs.append((start, end))
+        else:
+            gap_runs.append((start, end))
 
-    gap_runs = _find_interior_nan_runs(speed_um_per_sec) if bool(include_metric_propagation_speed and has_scale) else []
+    warning_entries: list[dict[str, object]] = []
+
+    if zero_runs:
+        zero_frame_runs = [[int(frame_indices[start]), int(frame_indices[end])] for start, end in zero_runs]
+        requested_action = "zero"
+        if callable(propagation_gap_decision):
+            try:
+                decision_payload = {
+                    "event_id": str(event.event_id),
+                    "event_label": str(getattr(event, "label", "") or ""),
+                    "gap_frame_runs": zero_frame_runs,
+                    "metric": "propagation_speed",
+                    "warning_kind": "zero_growth",
+                    "supported_actions": ["zero", "interpolate", "stop"],
+                    "preview_frame_indices": [int(idx) for idx in frame_indices],
+                    "preview_speed_values": [None if not np.isfinite(val) else float(val) for val in speed_um_per_sec],
+                }
+                requested_action = str(propagation_gap_decision(decision_payload) or "zero")
+            except Exception:
+                requested_action = "zero"
+        normalized_action = requested_action.strip().lower()
+        if normalized_action not in {"zero", "stop", "interpolate"}:
+            normalized_action = "zero"
+        speed_um_per_sec = _apply_propagation_gap_policy(speed_um_per_sec, zero_runs, normalized_action)
+        warning_entries.append(
+            {
+                "metric": "propagation_speed",
+                "kind": "zero_growth",
+                "event_id": str(event.event_id),
+                "event_label": str(getattr(event, "label", "") or ""),
+                "frame_runs": zero_frame_runs,
+                "action": normalized_action,
+            }
+        )
+        if normalized_action == "stop":
+            gap_runs = []
+
     if gap_runs:
         gap_frame_runs = [[int(frame_indices[start]), int(frame_indices[end])] for start, end in gap_runs]
         requested_action = "ignore"
@@ -586,8 +650,13 @@ def _export_event_metrics(
             try:
                 decision_payload = {
                     "event_id": str(event.event_id),
+                    "event_label": str(getattr(event, "label", "") or ""),
                     "gap_frame_runs": gap_frame_runs,
                     "metric": "propagation_speed",
+                    "warning_kind": "gap",
+                    "supported_actions": ["ignore", "interpolate", "stop"],
+                    "preview_frame_indices": [int(idx) for idx in frame_indices],
+                    "preview_speed_values": [None if not np.isfinite(val) else float(val) for val in speed_um_per_sec],
                 }
                 requested_action = str(propagation_gap_decision(decision_payload) or "ignore")
             except Exception:
@@ -595,13 +664,28 @@ def _export_event_metrics(
         normalized_action = requested_action.strip().lower()
         if normalized_action not in {"ignore", "stop", "interpolate"}:
             normalized_action = "ignore"
-        speed_um_per_sec = _apply_propagation_gap_policy(speed_um_per_sec, normalized_action)
-        propagation_gap_warning = {
-            "metric": "propagation_speed",
-            "event_id": str(event.event_id),
-            "frame_runs": gap_frame_runs,
-            "action": normalized_action,
-        }
+        speed_um_per_sec = _apply_propagation_gap_policy(speed_um_per_sec, gap_runs, normalized_action)
+        warning_entries.append(
+            {
+                "metric": "propagation_speed",
+                "kind": "gap",
+                "event_id": str(event.event_id),
+                "event_label": str(getattr(event, "label", "") or ""),
+                "frame_runs": gap_frame_runs,
+                "action": normalized_action,
+            }
+        )
+
+    if warning_entries:
+        if len(warning_entries) == 1:
+            propagation_gap_warning = dict(warning_entries[0])
+        else:
+            propagation_gap_warning = {
+                "metric": "propagation_speed",
+                "event_id": str(event.event_id),
+                "event_label": str(getattr(event, "label", "") or ""),
+                "warnings": warning_entries,
+            }
         warning_json_path = metrics_dir / "propagation_speed_warning.json"
         warning_json_path.write_text(
             json.dumps(propagation_gap_warning, indent=2),
@@ -876,6 +960,7 @@ def analysis_image_export_plan(event: EventCandidate, *, default_baseline_pre_fr
         "smoothing": bool(processing_raw.get("smoothing", True)),
         "baseline_subtraction": bool(processing_raw.get("baseline_subtraction", True)),
         "global_normalization": bool(processing_raw.get("global_normalization", True)),
+        "stabilization": bool(processing_raw.get("stabilization", False)),
     }
     scope_start = int(flags.get("analysis_scope_start_idx", max(0, int(event.start_idx) - baseline_pre)))
     scope_end = int(flags.get("analysis_scope_end_idx", int(event.end_idx)))
@@ -898,6 +983,7 @@ def analysis_image_cache_key(event: EventCandidate, *, default_baseline_pre_fram
         bool(processing["smoothing"]),
         bool(processing["baseline_subtraction"]),
         bool(processing["global_normalization"]),
+        bool(processing["stabilization"]),
     )
 
 
@@ -946,6 +1032,7 @@ def resolve_analysis_image_stack(
         apply_smoothing=bool(processing["smoothing"]),
         apply_baseline_subtraction=bool(processing["baseline_subtraction"]),
         apply_global_normalization=bool(processing["global_normalization"]),
+        apply_stabilization=bool(processing["stabilization"]),
     )
     prepared_source.prepare(progress_callback=progress_callback)
     frames_viz = _PreparedVisualSequence(prepared_source)
@@ -1221,25 +1308,43 @@ def _write_metrics_summary_markdown(path: Path, summary: dict[str, object]) -> N
         _markdown_bullet("Max relative area (%)", summary.get("max_relative_area_pct")),
         _markdown_bullet("Written files", summary.get("written_files")),
     ]
-    warning = summary.get("propagation_gap_warning")
-    if isinstance(warning, dict) and warning:
+    warning_entries = _propagation_warning_entries(summary.get("propagation_gap_warning"))
+    if warning_entries:
         lines.extend(
             [
                 "",
                 "## Propagation Gap Warning",
-                _markdown_bullet("Action", warning.get("action")),
-                _markdown_bullet("Frame runs", warning.get("frame_runs")),
             ]
         )
+        for index, entry in enumerate(warning_entries, start=1):
+            prefix = "Warning" if len(warning_entries) == 1 else f"Warning {index}"
+            lines.extend(
+                [
+                    _markdown_bullet(f"{prefix} type", entry.get("kind", "gap")),
+                    _markdown_bullet(f"{prefix} action", entry.get("action")),
+                    _markdown_bullet(f"{prefix} frame runs", entry.get("frame_runs")),
+                ]
+            )
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
 def _write_metrics_warning_markdown(path: Path, warning: dict[str, object]) -> None:
+    event_label = str(warning.get("event_label", "") or "").strip()
+    event_id = str(warning.get("event_id", "unknown") or "unknown")
+    warning_entries = _propagation_warning_entries(warning)
     lines = [
-        f"# Propagation Speed Warning: {warning.get('event_id', 'unknown')}",
+        f"# Propagation Speed Warning: {event_label or event_id}",
         "",
+        _markdown_bullet("Event ID", event_id),
         _markdown_bullet("Metric", warning.get("metric")),
-        _markdown_bullet("Action applied", warning.get("action")),
-        _markdown_bullet("Frame runs", warning.get("frame_runs")),
     ]
+    for index, entry in enumerate(warning_entries, start=1):
+        prefix = "Warning" if len(warning_entries) == 1 else f"Warning {index}"
+        lines.extend(
+            [
+                _markdown_bullet(f"{prefix} type", entry.get("kind", "gap")),
+                _markdown_bullet(f"{prefix} action applied", entry.get("action")),
+                _markdown_bullet(f"{prefix} frame runs", entry.get("frame_runs")),
+            ]
+        )
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")

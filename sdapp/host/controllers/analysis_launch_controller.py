@@ -9,6 +9,7 @@ import numpy as np
 from PIL import Image, ImageTk
 
 from sdapp.analysis.ui.theme import SPACING, apply_theme
+from sdapp.host.analysis_payload_mapper import apply_analysis_scope_flags
 from sdapp.shared.frame_source import (
     EventScopedFrameSource,
     PreparedFrameSource,
@@ -23,6 +24,14 @@ from sdapp.shared.ui.bootstrap import center_window_on_screen as center_window, 
 class AnalysisLaunchController:
     def __init__(self, app) -> None:
         self.app = app
+
+    def _event_display_name(self, event_id: str) -> str:
+        try:
+            event = self.app.browser_controller.get_event(str(event_id))
+        except Exception:
+            event = None
+        label = str(getattr(event, "label", "") or "").strip() if event is not None else ""
+        return label or str(event_id)
 
     def load_analysis_app_class(self):
         cached = getattr(self.app, "_analysis_app_class_cache", None)
@@ -77,6 +86,22 @@ class AnalysisLaunchController:
         local_frame_idx = max(0, int(event_start) - scope_start)
         return int(scope_start), int(scope_end), int(local_frame_idx)
 
+    def _default_baseline_pre_frames_for_event(self, event_id: str) -> int:
+        fallback = max(1, int(getattr(self.app, "baseline_pre_frames", 30) or 30))
+        browser = getattr(self.app, "browser_controller", None)
+        getter = getattr(browser, "get_event", None)
+        if not callable(getter):
+            return fallback
+        try:
+            event = getter(str(event_id))
+        except Exception:
+            return fallback
+        flags = dict(getattr(event, "flags", {}) or {}) if event is not None else {}
+        try:
+            return max(1, int(flags.get("baseline_pre_frames", fallback)))
+        except Exception:
+            return fallback
+
     @staticmethod
     def _launch_processing_options(
         *,
@@ -84,12 +109,14 @@ class AnalysisLaunchController:
         apply_smoothing: bool,
         apply_baseline_subtraction: bool,
         apply_global_normalization: bool,
+        apply_stabilization: bool,
     ) -> dict[str, bool]:
         return {
             "horizontal_bar_denoise": bool(apply_horizontal_bar_denoise),
             "smoothing": bool(apply_smoothing),
             "baseline_subtraction": bool(apply_baseline_subtraction),
             "global_normalization": bool(apply_global_normalization),
+            "stabilization": bool(apply_stabilization),
         }
 
     def _launch_preparation_cache_key(
@@ -103,7 +130,8 @@ class AnalysisLaunchController:
         apply_smoothing: bool,
         apply_baseline_subtraction: bool,
         apply_global_normalization: bool,
-    ) -> tuple[str, int, int, int, bool, bool, bool, bool]:
+        apply_stabilization: bool,
+    ) -> tuple[str, int, int, int, bool, bool, bool, bool, bool]:
         scope_start, scope_end, _local_frame_idx = self._event_scope(event_start, event_end, baseline_pre_frames)
         return build_launch_preparation_cache_key(
             event_id=str(event_id or ""),
@@ -114,6 +142,7 @@ class AnalysisLaunchController:
             apply_smoothing=apply_smoothing,
             apply_baseline_subtraction=apply_baseline_subtraction,
             apply_global_normalization=apply_global_normalization,
+            apply_stabilization=apply_stabilization,
         )
 
     def _prepare_analysis_launch_preview(
@@ -127,6 +156,7 @@ class AnalysisLaunchController:
         apply_smoothing: bool,
         apply_baseline_subtraction: bool,
         apply_global_normalization: bool,
+        apply_stabilization: bool,
         should_cancel=None,
     ) -> dict[str, object]:
         started = time.perf_counter()
@@ -140,6 +170,7 @@ class AnalysisLaunchController:
             apply_smoothing=apply_smoothing,
             apply_baseline_subtraction=apply_baseline_subtraction,
             apply_global_normalization=apply_global_normalization,
+            apply_stabilization=apply_stabilization,
         )
         launch_cache_key = self._launch_preparation_cache_key(
             event_id=str(event_id or ""),
@@ -150,6 +181,7 @@ class AnalysisLaunchController:
             apply_smoothing=apply_smoothing,
             apply_baseline_subtraction=apply_baseline_subtraction,
             apply_global_normalization=apply_global_normalization,
+            apply_stabilization=apply_stabilization,
         )
         prepared_source = PreparedFrameSource(
             scoped_source,
@@ -158,6 +190,7 @@ class AnalysisLaunchController:
             apply_smoothing=bool(apply_smoothing),
             apply_baseline_subtraction=bool(apply_baseline_subtraction),
             apply_global_normalization=bool(apply_global_normalization),
+            apply_stabilization=bool(apply_stabilization),
         )
         stats = prepared_source.prepare(should_cancel=should_cancel)
         raw_frame = prepared_source.get_raw_frame(local_frame_idx)
@@ -193,7 +226,7 @@ class AnalysisLaunchController:
     def prompt_analysis_open_options(self, *, event_id: str, event_start: int, event_end: int) -> dict[str, object] | None:
         dialog = tk.Toplevel(self.app.root)
         dialog.withdraw()
-        dialog.title(f"Open Analysis Options - {event_id}")
+        dialog.title(f"Open Analysis Options - {self._event_display_name(str(event_id))}")
         dialog.transient(self.app.root)
         dialog.resizable(False, False)
         dialog.geometry("760x560")
@@ -209,9 +242,11 @@ class AnalysisLaunchController:
         summary.columnconfigure(1, weight=0)
         ttk.Label(summary, text=f"Event range: {event_start + 1} - {event_end + 1}", style="AppMeta.TLabel").grid(row=0, column=0, sticky="w")
 
+        default_baseline_pre_frames = self._default_baseline_pre_frames_for_event(str(event_id))
+
         baseline_row = ttk.Frame(summary, style="AppSurface.TFrame")
         baseline_row.grid(row=0, column=1, sticky="e", padx=(SPACING.inner, 0))
-        baseline_var = tk.StringVar(value=str(max(1, int(self.app.baseline_pre_frames))))
+        baseline_var = tk.StringVar(value=str(int(default_baseline_pre_frames)))
         ttk.Label(baseline_row, text="Baseline Frames", style="AppMeta.TLabel").pack(side="left")
         baseline_entry = ttk.Entry(baseline_row, textvariable=baseline_var, width=6, style="AppCompact.TEntry")
         baseline_entry.pack(side="left", padx=(SPACING.gap, 0))
@@ -225,6 +260,7 @@ class AnalysisLaunchController:
         smoothing_var = tk.BooleanVar(value=True)
         subtract_var = tk.BooleanVar(value=True)
         normalize_var = tk.BooleanVar(value=True)
+        stabilize_var = tk.BooleanVar(value=False)
         checks_grid = ttk.Frame(checks, style="AppSurface.TFrame")
         checks_grid.pack(fill="x")
         checks_grid.columnconfigure(0, weight=1)
@@ -240,6 +276,9 @@ class AnalysisLaunchController:
         )
         ttk.Checkbutton(checks_grid, text="Global Normalization", variable=normalize_var, style="AppSurface.TCheckbutton").grid(
             row=1, column=1, sticky="w", pady=(2, 0)
+        )
+        ttk.Checkbutton(checks_grid, text="Stabilize", variable=stabilize_var, style="AppSurface.TCheckbutton").grid(
+            row=2, column=0, sticky="w", pady=(2, 0), padx=(0, SPACING.inner)
         )
 
         preview_frame = ttk.Frame(shell, padding=SPACING.card, style="AppSurface.TFrame", width=460, height=260)
@@ -269,7 +308,7 @@ class AnalysisLaunchController:
             try:
                 return max(1, int(float(str(baseline_var.get()).strip() or "1")))
             except Exception:
-                return max(1, int(self.app.baseline_pre_frames))
+                return int(default_baseline_pre_frames)
 
         def _preview_cache_key() -> tuple:
             return self._launch_preparation_cache_key(
@@ -281,6 +320,7 @@ class AnalysisLaunchController:
                 apply_smoothing=bool(smoothing_var.get()),
                 apply_baseline_subtraction=bool(subtract_var.get()),
                 apply_global_normalization=bool(normalize_var.get()),
+                apply_stabilization=bool(stabilize_var.get()),
             )
 
         def _apply_preview(payload: dict[str, object], generation: int) -> None:
@@ -326,6 +366,7 @@ class AnalysisLaunchController:
             apply_smoothing = bool(smoothing_var.get())
             apply_subtraction = bool(subtract_var.get())
             apply_normalization = bool(normalize_var.get())
+            apply_stabilization = bool(stabilize_var.get())
 
             def _worker() -> dict[str, object] | None:
                 try:
@@ -338,6 +379,7 @@ class AnalysisLaunchController:
                         apply_smoothing=apply_smoothing,
                         apply_baseline_subtraction=apply_subtraction,
                         apply_global_normalization=apply_normalization,
+                        apply_stabilization=apply_stabilization,
                         should_cancel=lambda g=generation: bool(state.get("closed")) or int(state.get("generation", 0)) != int(g),
                     )
                 except VisualizationCancelled:
@@ -364,7 +406,7 @@ class AnalysisLaunchController:
                     pass
             state["debounce_after_id"] = dialog.after(80, _refresh_preview)
 
-        for var in (bar_denoise_var, smoothing_var, subtract_var, normalize_var):
+        for var in (bar_denoise_var, smoothing_var, subtract_var, normalize_var, stabilize_var):
             var.trace_add("write", lambda *_args: _schedule_preview_refresh())
         for evt in ("<KeyRelease>", "<FocusOut>", "<Return>", "<MouseWheel>", "<ButtonRelease-1>"):
             baseline_entry.bind(evt, lambda _e: _schedule_preview_refresh())
@@ -403,6 +445,7 @@ class AnalysisLaunchController:
                         "smoothing": bool(smoothing_var.get()),
                         "baseline_subtraction": bool(subtract_var.get()),
                         "global_normalization": bool(normalize_var.get()),
+                        "stabilization": bool(stabilize_var.get()),
                     },
                     "launch_preparation": state.get("launch_preparation")
                     or (cached_payload.get("launch_preparation") if isinstance(cached_payload, dict) else None),
@@ -506,14 +549,13 @@ class AnalysisLaunchController:
             return
         baseline_pre = int(max(1, int(options.get("baseline_pre_frames", self.app.baseline_pre_frames))))
         self.app.baseline_pre_frames = baseline_pre
-        scope_start = max(0, event_start - baseline_pre)
-        scope_end = max(scope_start, event_end)
-        flags["baseline_pre_frames"] = baseline_pre
+        flags = apply_analysis_scope_flags(
+            flags,
+            event_start=event_start,
+            event_end=event_end,
+            baseline_pre_frames=baseline_pre,
+        )
         flags["analysis_processing"] = dict(options.get("processing", {}))
-        flags["analysis_scope_start_idx"] = scope_start
-        flags["analysis_scope_end_idx"] = scope_end
-        flags["analysis_local_event_start_idx"] = event_start - scope_start
-        flags["analysis_local_event_end_idx"] = event_end - scope_start
         event_payload["flags"] = flags
         context["event"] = event_payload
         try:
@@ -538,6 +580,7 @@ class AnalysisLaunchController:
             open_result = analysis_app.open_from_host_context(
                 context,
                 frame_source=frame_source,
+                host_context_for_event=self.app.browser_controller.host_context_for_event,
                 on_analysis_update=self.app._on_analysis_state_update,
                 on_project_saved=self.app._on_analysis_project_saved,
                 on_sync_result=self.app._on_analysis_sync_result,
@@ -595,6 +638,7 @@ class AnalysisLaunchController:
         apply_smoothing: bool,
         apply_baseline_subtraction: bool,
         apply_global_normalization: bool,
+        apply_stabilization: bool,
     ) -> np.ndarray:
         frame_source = self.app.browser_controller.get_frame_source()
         if frame_source is None:
@@ -607,5 +651,6 @@ class AnalysisLaunchController:
             apply_smoothing=bool(apply_smoothing),
             apply_baseline_subtraction=bool(apply_baseline_subtraction),
             apply_global_normalization=bool(apply_global_normalization),
+            apply_stabilization=bool(apply_stabilization),
         )
         return np.asarray(payload.get("frame_u8"), dtype=np.uint8)

@@ -148,8 +148,18 @@ class LayoutBuilder:
         self.slider_overlay.bind("<Button-1>", self._on_slider_overlay_click)
         self.slider_overlay.bind("<Configure>", lambda _event: self._redraw_slider_overlay())
 
-        self.slider = ttk.Scale(slider_row, from_=0, to=100, orient="horizontal", command=self.on_slider_move, style="AppFlat.Horizontal.TScale")
+        self.slider = ttk.Scale(
+            slider_row,
+            from_=0,
+            to=100,
+            orient="horizontal",
+            command=self.on_slider_move,
+            style="AppFlat.Horizontal.TScale",
+            takefocus=False,
+        )
         self.slider.grid(row=1, column=0, sticky="ew")
+        self.slider.bind("<Left>", self.on_nav_left)
+        self.slider.bind("<Right>", self.on_nav_right)
 
     def _build_control_strip(self, parent):
         strip = ttk.Frame(parent, padding=(SPACING.card, SPACING.inner, SPACING.card, SPACING.card), style="AppStrip.TFrame")

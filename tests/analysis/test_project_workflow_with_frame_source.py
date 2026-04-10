@@ -47,6 +47,7 @@ class ProjectWorkflowFrameSourceTests(unittest.TestCase):
         app.frame_names = []
         app.scale_px_per_mm = None
         app.scale_points = []
+        app.scale_axis_lock = True
         app._last_scale_image_path = ""
         app.roi_points = []
         app.roi_mask = None
@@ -94,6 +95,7 @@ class ProjectWorkflowFrameSourceTests(unittest.TestCase):
             event_records=records,
             active_event_id="sd_event_001",
             scale_points=[[10.0, 12.0], [30.0, 12.0]],
+            scale_axis_lock=False,
             scale_image_path="/tmp/scale-ref.png",
             roi_points=[],
             roi_mask=None,
@@ -105,6 +107,7 @@ class ProjectWorkflowFrameSourceTests(unittest.TestCase):
         self.assertIn(1, app.seg_state.masks_cache)
         self.assertEqual(app.active_event_id, "sd_event_001")
         self.assertEqual(app.scale_points, [[10.0, 12.0], [30.0, 12.0]])
+        self.assertIs(app.scale_axis_lock, False)
         self.assertEqual(app._last_scale_image_path, "/tmp/scale-ref.png")
         self.assertEqual(app.reset_viewport_calls, 1)
 

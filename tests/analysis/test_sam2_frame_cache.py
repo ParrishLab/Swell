@@ -24,6 +24,7 @@ def test_frame_cache_key_changes_with_processing_flags():
         apply_smoothing=True,
         apply_baseline_subtraction=True,
         apply_global_normalization=True,
+        apply_stabilization=False,
         baseline=np.zeros((4, 5), dtype=np.float32),
         p1=1.0,
         p99=9.0,
@@ -38,9 +39,11 @@ def test_frame_cache_key_changes_with_processing_flags():
         apply_global_normalization=True,
         stats=stats,
     )
-    key_a = build_sam2_frame_cache_key(apply_smoothing=True, **common)
-    key_b = build_sam2_frame_cache_key(apply_smoothing=False, **common)
+    key_a = build_sam2_frame_cache_key(apply_smoothing=True, apply_stabilization=False, **common)
+    key_b = build_sam2_frame_cache_key(apply_smoothing=False, apply_stabilization=False, **common)
+    key_c = build_sam2_frame_cache_key(apply_smoothing=True, apply_stabilization=True, **common)
     assert key_a != key_b
+    assert key_a != key_c
 
 
 def test_frame_cache_reuses_complete_dir(tmp_path: Path):
@@ -56,6 +59,7 @@ def test_frame_cache_reuses_complete_dir(tmp_path: Path):
         apply_smoothing=True,
         apply_baseline_subtraction=True,
         apply_global_normalization=True,
+        apply_stabilization=False,
         stats=None,
     )
     logs: list[tuple[str, str]] = []
@@ -91,6 +95,7 @@ def test_frame_cache_completes_partial_dir(tmp_path: Path):
         apply_smoothing=True,
         apply_baseline_subtraction=True,
         apply_global_normalization=True,
+        apply_stabilization=False,
         stats=None,
     )
     first = cache.export_frames(

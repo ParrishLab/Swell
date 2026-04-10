@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import cv2
 import numpy as np
 
 from sdapp.analysis.core.frame_source import EagerFrameSource
@@ -22,3 +23,36 @@ def test_prepared_frame_source_prewarm_populates_cache_without_changing_values()
 
     assert {0, 2, 4}.issubset(set(prepared._frame_cache.keys()))
     np.testing.assert_array_equal(prepared.get_visual_frame(2), expected)
+
+
+def test_prepared_frame_source_stabilization_keeps_outputs_in_same_coordinate_space():
+    base = np.zeros((24, 24), dtype=np.float32)
+    base[8:13, 9:14] = 8.0
+    matrix = np.array([[1.0, 0.0, 3.0], [0.0, 1.0, -2.0]], dtype=np.float32)
+    shifted = cv2.warpAffine(base, matrix, (24, 24), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT)
+    source = EagerFrameSource(
+        raw_frames=[base, shifted],
+        subtracted_frames=[base, shifted],
+        visual_frames=[np.asarray(base, dtype=np.uint8), np.asarray(shifted, dtype=np.uint8)],
+        frame_names=["f0.tif", "f1.tif"],
+        source_paths=["/tmp/stack", "/tmp/stack"],
+    )
+    prepared = PreparedFrameSource(
+        source,
+        baseline_frames=1,
+        apply_smoothing=False,
+        apply_baseline_subtraction=False,
+        apply_global_normalization=False,
+        apply_stabilization=True,
+    )
+
+    raw0 = prepared.get_raw_frame(0)
+    raw1 = prepared.get_raw_frame(1)
+    sub1 = prepared.get_subtracted_frame(1)
+    viz1 = prepared.get_visual_frame(1)
+
+    assert float(np.abs(raw1 - raw0).sum()) < float(np.abs(np.asarray(shifted, dtype=np.float32) - np.asarray(base, dtype=np.float32)).sum())
+    np.testing.assert_allclose(sub1, raw1)
+    assert viz1.shape == raw1.shape
+    assert viz1.dtype == np.uint8
+    np.testing.assert_array_equal(viz1 > 0, raw1 > 0)

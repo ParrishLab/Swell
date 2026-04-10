@@ -338,6 +338,23 @@ class HostProjectLifecycleController:
                 "code": "EVENT_NOT_FOUND",
                 "message": f"event_id not found in host event catalog: {event_id}",
             }
+        clear_local_metric_keys = [str(key) for key in list(dict(payload or {}).get("clear_local_metric_keys") or []) if str(key).strip()]
+        if clear_local_metric_keys:
+            changed = self.app.browser_controller.clear_event_metrics_settings_keys(event_id, clear_local_metric_keys)
+            resolved = self.app.browser_controller.resolve_event_metrics_settings(event_id)
+            local = self.app.browser_controller.load_event_metrics_settings(event_id)
+            if changed:
+                self.app._set_status(f"Local metrics override cleared: {event_id}")
+                self.app._log_info(
+                    f"Cleared local metrics override keys for event {event_id}: {', '.join(clear_local_metric_keys)}."
+                )
+            return {
+                "ok": True,
+                "event_id": event_id,
+                "changed": bool(changed),
+                "metrics_settings": dict(resolved or {}),
+                "local_metrics_settings": dict(local or {}) if isinstance(local, dict) else None,
+            }
         metrics_settings = dict(payload or {}).get("metrics_settings")
         changed = self.app.browser_controller.upsert_event_metrics_settings(
             event_id,
@@ -358,16 +375,19 @@ class HostProjectLifecycleController:
                 "message": "Missing metrics_settings in global metrics update payload.",
             }
         existing = dict(self.app.browser_controller.get_global_metrics_defaults() or {})
-        for key in ("scale_px_per_mm", "scale_points", "roi_points", "roi_mask"):
+        for key in ("scale_px_per_mm", "scale_points", "scale_axis_lock", "roi_points", "roi_mask"):
             if key in metrics_settings:
                 existing[key] = metrics_settings[key]
         updated = self.app.browser_controller.set_global_metrics_defaults(existing)
         materialized = int(self.app.browser_controller.materialize_metrics_defaults_to_events())
         self.app._set_status("Global metrics defaults updated.")
-        self.app._log_info(
-            "Updated global metrics defaults from analysis window and applied missing values to "
-            f"{materialized} event(s)."
-        )
+        if materialized > 0:
+            self.app._log_info(
+                "Updated global metrics defaults from analysis window and applied missing values to "
+                f"{materialized} event(s)."
+            )
+        else:
+            self.app._log_info("Updated global metrics defaults from analysis window.")
         try:
             get_window_controller = getattr(self.app, "_get_window_controller", None)
             if callable(get_window_controller):

@@ -124,7 +124,8 @@ class AnalysisHostModeController:
         apply_smoothing: bool,
         apply_baseline_subtraction: bool,
         apply_global_normalization: bool,
-    ) -> tuple[str, int, int, int, bool, bool, bool, bool] | None:
+        apply_stabilization: bool,
+    ) -> tuple[str, int, int, int, bool, bool, bool, bool, bool] | None:
         event_id, scope_start, scope_end, _local_frame_idx = self._scope_metadata_from_host_context(host_ctx)
         if scope_start is None or scope_end is None:
             return None
@@ -137,6 +138,7 @@ class AnalysisHostModeController:
             apply_smoothing=apply_smoothing,
             apply_baseline_subtraction=apply_baseline_subtraction,
             apply_global_normalization=apply_global_normalization,
+            apply_stabilization=apply_stabilization,
         )
 
     def _prewarm_initial_window(self, prepared_source: PreparedFrameSource, current_idx: int | None) -> None:
@@ -219,6 +221,7 @@ class AnalysisHostModeController:
         self,
         context: dict,
         frame_source=None,
+        host_context_for_event=None,
         on_analysis_update=None,
         on_metrics_update=None,
         on_global_metrics_update=None,
@@ -237,6 +240,7 @@ class AnalysisHostModeController:
         self.app._host_post_open_ui_initialized = False
         self.app._host_pending_model_init_reason = None
         self.app._host_analysis_updater = on_analysis_update
+        self.app._host_context_provider = host_context_for_event if callable(host_context_for_event) else None
         self.app._host_project_saved_notifier = on_project_saved
         self.app._host_sync_result_notifier = on_sync_result
         self.app._host_log_notifier = on_log_message
@@ -308,6 +312,7 @@ class AnalysisHostModeController:
                 "apply_smoothing": bool(processing.get("smoothing", True)),
                 "apply_baseline_subtraction": bool(processing.get("baseline_subtraction", True)),
                 "apply_global_normalization": bool(processing.get("global_normalization", True)),
+                "apply_stabilization": bool(processing.get("stabilization", False)),
             }
         self.app._host_launch_preparation = launch_preparation if isinstance(launch_preparation, dict) else None
         scoped_source = frame_source
@@ -369,6 +374,7 @@ class AnalysisHostModeController:
     def open_from_host_handoff(self, payload: dict, frame_source=None, sync_emitter=None):
         self.app._ensure_analysis_workspace()
         self.app._host_mode = True
+        self.app._host_context_provider = None
         self.app._host_analysis_updater = None
         self.app._host_project_saved_notifier = None
         self.app._host_sync_result_notifier = None
@@ -409,6 +415,7 @@ class AnalysisHostModeController:
                 "apply_smoothing": bool(processing.get("smoothing", True)),
                 "apply_baseline_subtraction": bool(processing.get("baseline_subtraction", True)),
                 "apply_global_normalization": bool(processing.get("global_normalization", True)),
+                "apply_stabilization": bool(processing.get("stabilization", False)),
             }
         self._debug_frame_source("open_from_host_handoff.bound_source", self.app.frame_source)
         if self.app.frame_source is not None:
@@ -514,6 +521,7 @@ class AnalysisHostModeController:
         apply_smoothing = bool(processing_opts.get("apply_smoothing", True))
         apply_baseline_subtraction = bool(processing_opts.get("apply_baseline_subtraction", True))
         apply_global_normalization = bool(processing_opts.get("apply_global_normalization", True))
+        apply_stabilization = bool(processing_opts.get("apply_stabilization", False))
         launch_preparation = (
             dict(getattr(self.app, "_host_launch_preparation", {}) or {})
             if isinstance(getattr(self.app, "_host_launch_preparation", None), dict)
@@ -526,6 +534,7 @@ class AnalysisHostModeController:
             apply_smoothing=apply_smoothing,
             apply_baseline_subtraction=apply_baseline_subtraction,
             apply_global_normalization=apply_global_normalization,
+            apply_stabilization=apply_stabilization,
         )
         _event_id, _scope_start, _scope_end, local_frame_idx = self._scope_metadata_from_host_context(
             host_ctx if isinstance(host_ctx, dict) else None
@@ -543,6 +552,7 @@ class AnalysisHostModeController:
                 bool(apply_smoothing),
                 bool(apply_baseline_subtraction),
                 bool(apply_global_normalization),
+                bool(apply_stabilization),
             )
         )
         if self.app._host_buffer_cache_key == cache_key and self._visual_frames_ready():
@@ -578,6 +588,7 @@ class AnalysisHostModeController:
                 apply_smoothing=apply_smoothing,
                 apply_baseline_subtraction=apply_baseline_subtraction,
                 apply_global_normalization=apply_global_normalization,
+                apply_stabilization=apply_stabilization,
                 stats=prepared_stats if prepared_stats is not None else None,
             )
             prepared_source.prepare()

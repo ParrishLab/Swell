@@ -129,6 +129,16 @@ class UnifiedProjectService:
         self._state.dirty = True
         self._notify("event_analysis_updated", {"event_id": key})
 
+    def replace_event_analysis(self, event_id: str, payload: dict[str, Any] | None) -> None:
+        key = str(event_id)
+        normalized = clone_analysis_payload(dict(payload or {}))
+        if normalized:
+            self._state.analysis_sidecar[key] = normalized
+        else:
+            self._state.analysis_sidecar.pop(key, None)
+        self._state.dirty = True
+        self._notify("event_analysis_updated", {"event_id": key})
+
     def open_project(self, path: str) -> UnifiedProjectState:
         loaded = self.store.load(path)
         self._state = clone_project_state(loaded)

@@ -45,6 +45,7 @@ def test_prepare_analysis_launch_preview_builds_reusable_prepared_source() -> No
         apply_smoothing=True,
         apply_baseline_subtraction=True,
         apply_global_normalization=True,
+        apply_stabilization=False,
     )
 
     launch_preparation = payload["launch_preparation"]
@@ -56,6 +57,7 @@ def test_prepare_analysis_launch_preview_builds_reusable_prepared_source() -> No
         "smoothing": True,
         "baseline_subtraction": True,
         "global_normalization": True,
+        "stabilization": False,
     }
     assert launch_preparation["cache_key"] == build_launch_preparation_cache_key(
         event_id="event_0042",
@@ -66,6 +68,7 @@ def test_prepare_analysis_launch_preview_builds_reusable_prepared_source() -> No
         apply_smoothing=True,
         apply_baseline_subtraction=True,
         apply_global_normalization=True,
+        apply_stabilization=False,
     )
     np.testing.assert_array_equal(payload["frame_u8"], launch_preparation["preview_frame_u8"])
     np.testing.assert_array_equal(
@@ -88,6 +91,7 @@ def test_analysis_launch_preview_cache_stores_full_launch_preparation_and_evicts
         apply_smoothing=True,
         apply_baseline_subtraction=True,
         apply_global_normalization=True,
+        apply_stabilization=False,
     )
     initial_key = initial_payload["launch_preparation"]["cache_key"]
     controller._cache_preview_entry(initial_key, initial_payload)
@@ -105,9 +109,39 @@ def test_analysis_launch_preview_cache_stores_full_launch_preparation_and_evicts
             apply_smoothing=True,
             apply_baseline_subtraction=True,
             apply_global_normalization=True,
+            apply_stabilization=False,
         )
         controller._cache_preview_entry(payload["launch_preparation"]["cache_key"], payload)
 
     cache = controller._preview_cache()
     assert len(cache) == 16
     assert initial_key not in cache
+
+
+def test_default_baseline_pre_frames_for_event_prefers_event_flags() -> None:
+    frame_source = _build_frame_source()
+    app = _build_app(frame_source)
+    app.baseline_pre_frames = 30
+    app.browser_controller.get_event = lambda event_id: SimpleNamespace(event_id=str(event_id), flags={"baseline_pre_frames": 7})
+    controller = AnalysisLaunchController(app)
+
+    assert controller._default_baseline_pre_frames_for_event("event_0042") == 7
+
+
+def test_default_baseline_pre_frames_for_event_falls_back_to_app_default() -> None:
+    frame_source = _build_frame_source()
+    app = _build_app(frame_source)
+    app.baseline_pre_frames = 11
+    app.browser_controller.get_event = lambda _event_id: SimpleNamespace(flags={})
+    controller = AnalysisLaunchController(app)
+
+    assert controller._default_baseline_pre_frames_for_event("event_0042") == 11
+
+
+def test_event_display_name_prefers_event_label() -> None:
+    frame_source = _build_frame_source()
+    app = _build_app(frame_source)
+    app.browser_controller.get_event = lambda event_id: SimpleNamespace(event_id=str(event_id), label="Halo(Light Off) 1")
+    controller = AnalysisLaunchController(app)
+
+    assert controller._event_display_name("event_0042") == "Halo(Light Off) 1"

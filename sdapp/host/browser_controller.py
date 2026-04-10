@@ -80,13 +80,6 @@ class BrowserController:
             flags=flags,
         )
         self._sync_session()
-        defaults = self.session.get_global_metrics_defaults()
-        if defaults:
-            self.session.upsert_event_metrics_settings(
-                str(event.event_id),
-                defaults,
-                merge_missing_only=True,
-        )
         return event
 
     def ensure_full_stack_analysis_event(self, *, frame_count: int) -> EventMeta:
@@ -331,6 +324,9 @@ class BrowserController:
                 merge_missing_only=bool(merge_missing_only),
             )
         )
+
+    def clear_event_metrics_settings_keys(self, event_id: str, keys: list[str]) -> bool:
+        return bool(self.session.clear_event_metrics_settings_keys(str(event_id), list(keys or [])))
 
     def load_event_metrics_settings(self, event_id: str) -> dict | None:
         return self.session.load_event_metrics_settings(str(event_id))

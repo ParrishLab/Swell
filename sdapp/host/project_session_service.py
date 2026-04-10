@@ -149,6 +149,9 @@ class ProjectSessionService:
     def upsert_analysis_sidecar(self, event_id: str, payload: dict[str, Any]) -> None:
         self._service.update_event_analysis(str(event_id), dict(payload or {}))
 
+    def replace_analysis_sidecar(self, event_id: str, payload: dict[str, Any] | None) -> None:
+        self._service.replace_event_analysis(str(event_id), dict(payload or {}) if isinstance(payload, dict) else None)
+
     def load_analysis_sidecar(self, event_id: str) -> dict[str, Any] | None:
         payload = self._service.get_event_analysis_payload(str(event_id))
         if payload is None:
@@ -222,6 +225,30 @@ class ProjectSessionService:
         self.upsert_analysis_sidecar(event_key, sidecar)
         return True
 
+    def clear_event_metrics_settings_keys(self, event_id: str, keys: list[str]) -> bool:
+        event_key = str(event_id or "")
+        if not event_key:
+            return False
+        if self.load_event_meta(event_key) is None:
+            return False
+        sidecar = dict(self.load_analysis_sidecar(event_key) or {})
+        metrics_settings = dict(sidecar.get("metrics_settings") or {})
+        if not metrics_settings:
+            return False
+        changed = False
+        for key in [str(v) for v in list(keys or [])]:
+            if key in metrics_settings:
+                metrics_settings.pop(key, None)
+                changed = True
+        if not changed:
+            return False
+        if metrics_settings:
+            sidecar["metrics_settings"] = self._normalize_metrics_settings(metrics_settings)
+        else:
+            sidecar.pop("metrics_settings", None)
+        self.replace_analysis_sidecar(event_key, sidecar)
+        return True
+
     def load_event_metrics_settings(self, event_id: str) -> dict[str, Any] | None:
         sidecar = self.load_analysis_sidecar(str(event_id))
         if not isinstance(sidecar, dict):
@@ -238,16 +265,8 @@ class ProjectSessionService:
         return merged
 
     def materialize_metrics_defaults_to_events(self) -> int:
-        defaults = self.get_global_metrics_defaults()
-        if not defaults:
-            return 0
-        applied = 0
-        for event in self.state().events:
-            changed = self.upsert_event_metrics_settings(
-                str(event.event_id),
-                defaults,
-                merge_missing_only=True,
-            )
-            if changed:
-                applied += 1
-        return applied
+        # Global metrics defaults are resolved at read/export/open time and should
+        # not be copied into per-event local metrics. Persisting them locally
+        # collapses the distinction between global defaults and true event-level
+        # overrides, which causes ROI/scale precedence bugs.
+        return 0

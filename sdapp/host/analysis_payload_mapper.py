@@ -61,14 +61,30 @@ def recompute_scope_flags(
     updated = dict(flags or {})
     old_scope = scope_metadata(old_bounds)
     baseline_pre = int(updated.get("baseline_pre_frames", max(0, int(old_bounds.start_idx) - old_scope.scope_start)))
-    baseline_pre = max(0, baseline_pre)
-    scope_start_idx = max(0, int(new_start) - baseline_pre)
-    scope_end_idx = max(scope_start_idx, int(new_end))
+    return apply_analysis_scope_flags(
+        updated,
+        event_start=int(new_start),
+        event_end=int(new_end),
+        baseline_pre_frames=baseline_pre,
+    )
+
+
+def apply_analysis_scope_flags(
+    flags: dict[str, Any] | None,
+    *,
+    event_start: int,
+    event_end: int,
+    baseline_pre_frames: int,
+) -> dict[str, Any]:
+    updated = dict(flags or {})
+    baseline_pre = max(0, int(baseline_pre_frames))
+    scope_start_idx = max(0, int(event_start) - baseline_pre)
+    scope_end_idx = max(scope_start_idx, int(event_end))
     updated["baseline_pre_frames"] = baseline_pre
     updated["analysis_scope_start_idx"] = scope_start_idx
     updated["analysis_scope_end_idx"] = scope_end_idx
-    updated["analysis_local_event_start_idx"] = int(new_start) - scope_start_idx
-    updated["analysis_local_event_end_idx"] = int(new_end) - scope_start_idx
+    updated["analysis_local_event_start_idx"] = int(event_start) - scope_start_idx
+    updated["analysis_local_event_end_idx"] = int(event_end) - scope_start_idx
     return updated
 
 

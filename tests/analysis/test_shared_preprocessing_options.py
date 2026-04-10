@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import cv2
 import numpy as np
 
 from sdapp.shared.frame_source.preprocessing import (
@@ -17,6 +18,16 @@ class _Source:
 
     def get_raw_frame(self, idx: int) -> np.ndarray:
         return self._frames[int(idx)]
+
+
+def _shift(frame: np.ndarray, dx: float, dy: float) -> np.ndarray:
+    arr = np.asarray(frame, dtype=np.float32)
+    h, w = arr.shape[:2]
+    matrix = np.array([[1.0, 0.0, float(dx)], [0.0, 1.0, float(dy)]], dtype=np.float32)
+    return np.asarray(
+        cv2.warpAffine(arr, matrix, (int(w), int(h)), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT),
+        dtype=np.float32,
+    )
 
 
 def test_preprocessing_options_disable_all_stages() -> None:
@@ -155,3 +166,54 @@ def test_compute_visualization_stats_reuses_processed_frames_across_baseline_and
 
     assert stats.frame_count == 12
     assert source.calls == [0, 1, 2, 5, 10]
+
+
+def test_stabilization_recovers_translation_offsets_and_reduces_motion() -> None:
+    base = np.zeros((32, 32), dtype=np.float32)
+    base[10:16, 12:18] = 10.0
+    frames = [base, _shift(base, 3, -2), _shift(base, -4, 1)]
+    source = _Source(frames)
+
+    stats = compute_visualization_stats(
+        source,
+        baseline_frames=1,
+        apply_smoothing=False,
+        apply_baseline_subtraction=False,
+        apply_global_normalization=False,
+        apply_stabilization=True,
+    )
+    raw, _sub, _viz = build_visualization_stack(
+        source,
+        baseline_frames=1,
+        apply_smoothing=False,
+        apply_baseline_subtraction=False,
+        apply_global_normalization=False,
+        apply_stabilization=True,
+        stats=stats,
+    )
+
+    assert stats.stabilization_offsets_px is not None
+    np.testing.assert_allclose(stats.stabilization_offsets_px[1], np.array([3.0, -2.0], dtype=np.float32), atol=0.35)
+    np.testing.assert_allclose(stats.stabilization_offsets_px[2], np.array([-4.0, 1.0], dtype=np.float32), atol=0.35)
+    assert float(np.abs(raw[1] - raw[0]).sum()) < float(np.abs(frames[1] - frames[0]).sum())
+    assert float(np.abs(raw[2] - raw[0]).sum()) < float(np.abs(frames[2] - frames[0]).sum())
+
+
+def test_stabilization_falls_back_on_blank_frames() -> None:
+    base = np.zeros((24, 24), dtype=np.float32)
+    base[8:12, 8:12] = 5.0
+    blank = np.zeros((24, 24), dtype=np.float32)
+    frames = [base, _shift(base, 2, 1), blank]
+    source = _Source(frames)
+
+    stats = compute_visualization_stats(
+        source,
+        baseline_frames=1,
+        apply_smoothing=False,
+        apply_baseline_subtraction=False,
+        apply_global_normalization=False,
+        apply_stabilization=True,
+    )
+
+    assert stats.stabilization_offsets_px is not None
+    np.testing.assert_allclose(stats.stabilization_offsets_px[2], stats.stabilization_offsets_px[1], atol=1e-4)

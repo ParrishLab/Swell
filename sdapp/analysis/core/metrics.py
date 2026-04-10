@@ -69,6 +69,7 @@ def compute_frame_metrics(boundaries: List[Optional[np.ndarray]], min_dist_px: f
     n = len(boundaries)
     areas_px = np.full(n, np.nan, dtype=np.float64)
     avg_dist_px = np.full(n, np.nan, dtype=np.float64)
+    transition_valid = np.zeros(n, dtype=bool)
 
     for i, b in enumerate(boundaries):
         if b is None or len(b) < 3:
@@ -83,6 +84,7 @@ def compute_frame_metrics(boundaries: List[Optional[np.ndarray]], min_dist_px: f
         outer_b = boundaries[q]
         if inner_b is None or outer_b is None:
             continue
+        transition_valid[q] = True
         outer_xy = outer_b[:, [1, 0]].astype(np.float64)
         if len(inner_b) < 3 or len(outer_xy) == 0:
             continue
@@ -101,6 +103,7 @@ def compute_frame_metrics(boundaries: List[Optional[np.ndarray]], min_dist_px: f
     return {
         "areas_px": areas_px,
         "avg_dist_px": avg_dist_px,
+        "transition_valid": transition_valid,
     }
 
 

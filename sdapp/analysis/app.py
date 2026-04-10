@@ -148,6 +148,7 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         self.roi_mask = None
         self.roi_points = []
         self.scale_points = []
+        self.scale_axis_lock = True
         self._scale_is_local_override = False
         self._roi_is_local_override = False
         self.analysis_mode = None
@@ -243,6 +244,7 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
             prop_log_tick=self._prop_log_tick,
             prop_log_finish=self._prop_log_finish,
             on_propagation_status=self._on_propagation_status,
+            on_device_oom=self._handle_accelerator_oom,
             log=self.log,
             is_ui_alive=self._ui_alive,
         )
@@ -268,6 +270,8 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
             set_scale_px_per_mm=lambda v: setattr(self, "scale_px_per_mm", v),
             get_scale_points=lambda: self.scale_points,
             set_scale_points=lambda v: setattr(self, "scale_points", v),
+            get_scale_axis_lock=lambda: bool(self.scale_axis_lock),
+            set_scale_axis_lock=lambda v: setattr(self, "scale_axis_lock", bool(v)),
             get_last_scale_image_path=lambda: self._last_scale_image_path,
             set_last_scale_image_path=lambda v: setattr(self, "_last_scale_image_path", v or ""),
             get_roi_mask=lambda: self.roi_mask,
@@ -275,6 +279,8 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
             get_roi_points=lambda: self.roi_points,
             set_roi_points=lambda v: setattr(self, "roi_points", v),
             update_display=self.update_display,
+            apply_host_metrics_settings=self._apply_host_metrics_settings,
+            clear_local_metrics_override=self._clear_local_metrics_override,
             log_info=self.log_info,
             log_success=self.log_success,
             on_metrics_settings_changed=self._on_metrics_settings_changed,
@@ -1901,6 +1907,7 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
                 baseline_frame_count=self.get_baseline_frame_count(),
                 scale_px_per_mm=self.scale_px_per_mm,
                 scale_points=list(self.scale_points) if self.scale_points else [],
+                scale_axis_lock=bool(self.scale_axis_lock),
                 scale_image_path=str(getattr(self, "_last_scale_image_path", "") or ""),
                 roi_points=list(self.roi_points) if self.roi_points else [],
                 roi_mask=self.roi_mask,
@@ -1973,6 +1980,7 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         self,
         context: dict,
         frame_source=None,
+        host_context_for_event=None,
         on_analysis_update=None,
         on_metrics_update=None,
         on_global_metrics_update=None,
@@ -1989,6 +1997,7 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         return self._get_host_mode_controller().open_from_host_context(
             context=context,
             frame_source=frame_source,
+            host_context_for_event=host_context_for_event,
             on_analysis_update=on_analysis_update,
             on_metrics_update=on_metrics_update,
             on_global_metrics_update=on_global_metrics_update,
@@ -2118,10 +2127,10 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         self.interaction_controller.on_brush_size_change(val)
 
     def on_nav_left(self, event=None):
-        self.interaction_controller.on_nav_left(event)
+        return self.interaction_controller.on_nav_left(event)
 
     def on_nav_right(self, event=None):
-        self.interaction_controller.on_nav_right(event)
+        return self.interaction_controller.on_nav_right(event)
 
     def on_browse_model(self):
         self._get_model_controller().browse_model()
@@ -2237,6 +2246,7 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
             return
 
     def _on_workspace_event_opened(self, _event_id: str) -> None:
+        self._refresh_host_metrics_for_active_event(_event_id)
         # Propagation overlay state is event-local in host mode; clear stale history
         # and rebuild from the newly opened event's saved masks.
         self.log_debug(
@@ -2249,6 +2259,26 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         self._recompute_slider_jump_markers()
         self._sync_saved_mask_overlay_state(reset_history=False)
 
+    def _refresh_host_metrics_for_active_event(self, event_id: str) -> None:
+        if not bool(getattr(self, "_host_mode", False)):
+            return
+        context_provider = getattr(self, "_host_context_provider", None)
+        if not callable(context_provider):
+            return
+        try:
+            context = context_provider(str(event_id or ""))
+        except Exception as exc:
+            self.log_warn("HostMode", f"Failed to refresh metrics for event {event_id}: {exc}")
+            return
+        if not isinstance(context, dict):
+            return
+        metrics_settings = context.get("metrics_settings")
+        local_metrics_settings = context.get("local_metrics_settings")
+        self._apply_host_metrics_settings(
+            metrics_settings if isinstance(metrics_settings, dict) else None,
+            local_metrics_settings if isinstance(local_metrics_settings, dict) else None,
+        )
+
     def _collect_current_metrics_settings(self) -> dict[str, object]:
         return self._get_window_controller().collect_current_metrics_settings()
 
@@ -2257,6 +2287,9 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
 
     def _emit_host_metrics_update(self, reason: str) -> dict[str, object] | None:
         return self._get_window_controller().emit_host_metrics_update(reason)
+
+    def _clear_local_metrics_override(self, reason: str, keys: list[str]) -> dict[str, object] | None:
+        return self._get_window_controller().clear_local_metrics_override(reason, keys)
 
     def _emit_host_global_metrics_update(self, reason: str, metrics_settings: dict[str, object]) -> dict[str, object] | None:
         return self._get_window_controller().emit_host_global_metrics_update(reason, metrics_settings)

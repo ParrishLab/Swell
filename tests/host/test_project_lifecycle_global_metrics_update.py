@@ -78,11 +78,50 @@ def test_global_metrics_update_sets_defaults_and_preserves_existing_local_overri
     )
 
     assert result["ok"] is True
+    assert int(result["materialized_events"]) == 0
     defaults = browser.get_global_metrics_defaults()
     assert float(defaults["scale_px_per_mm"]) == 7.5
     event_1_metrics = browser.load_event_metrics_settings(event_1.event_id)
     event_2_metrics = browser.load_event_metrics_settings(event_2.event_id)
     assert event_1_metrics is not None and float(event_1_metrics["scale_px_per_mm"]) == 12.0
-    assert event_2_metrics is not None and float(event_2_metrics["scale_px_per_mm"]) == 7.5
-    assert np.array_equal(np.asarray(event_2_metrics["roi_mask"], dtype=bool), roi_mask)
+    assert event_2_metrics is None
+    resolved_event_2 = browser.resolve_event_metrics_settings(event_2.event_id)
+    assert float(resolved_event_2["scale_px_per_mm"]) == 7.5
+    assert np.array_equal(np.asarray(resolved_event_2["roi_mask"], dtype=bool), roi_mask)
     assert refresh_calls == ["refresh"]
+
+
+def test_analysis_metrics_update_can_clear_local_roi_override() -> None:
+    browser = BrowserController()
+    browser.on_stack_loaded(_FakeReader(), _FakeStackInfo())
+    event = browser.create_event(start_idx=0, end_idx=1, frame_count=6)
+    browser.set_global_metrics_defaults({"roi_points": [[1.0, 1.0], [3.0, 1.0], [3.0, 3.0]]})
+    browser.upsert_event_metrics_settings(
+        event.event_id,
+        {"roi_points": [[2.0, 2.0], [4.0, 2.0], [4.0, 4.0]]},
+        merge_missing_only=False,
+    )
+
+    logs: list[str] = []
+    statuses: list[str] = []
+    app = SimpleNamespace(
+        browser_controller=browser,
+        _set_status=lambda text: statuses.append(str(text)),
+        _log_info=lambda text: logs.append(str(text)),
+    )
+    controller = HostProjectLifecycleController(app)
+
+    result = controller.on_analysis_metrics_update(
+        {
+            "event_id": event.event_id,
+            "metrics_settings": {},
+            "clear_local_metric_keys": ["roi_points", "roi_mask"],
+            "reason": "reset_local_roi",
+        }
+    )
+
+    assert result["ok"] is True
+    assert result["changed"] is True
+    assert result["local_metrics_settings"] is None
+    assert browser.load_event_metrics_settings(event.event_id) is None
+    assert browser.resolve_event_metrics_settings(event.event_id)["roi_points"] == [[1.0, 1.0], [3.0, 1.0], [3.0, 3.0]]

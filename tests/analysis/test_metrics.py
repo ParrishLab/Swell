@@ -32,7 +32,15 @@ class MetricsTests(unittest.TestCase):
         metrics = compute_frame_metrics([b1, b2], min_dist_px=0.1)
         self.assertEqual(metrics["areas_px"].shape[0], 2)
         self.assertEqual(metrics["avg_dist_px"].shape[0], 2)
+        self.assertEqual(metrics["transition_valid"].shape[0], 2)
         self.assertTrue(np.isfinite(metrics["areas_px"][0]))
+
+    def test_compute_frame_metrics_marks_valid_non_growth_without_faking_speed(self):
+        b1 = np.array([[1, 1], [1, 3], [3, 3], [3, 1]], dtype=np.float64)
+        metrics = compute_frame_metrics([b1, b1.copy()], min_dist_px=0.1)
+
+        self.assertTrue(bool(metrics["transition_valid"][1]))
+        self.assertTrue(np.isnan(metrics["avg_dist_px"][1]))
 
     def test_compute_roi_metrics(self):
         roi = np.zeros((4, 4), dtype=bool)

@@ -7,8 +7,8 @@ from time import perf_counter
 from typing import Callable
 
 import numpy as np
-from scipy.ndimage import gaussian_filter
 
+from sdapp.shared.frame_source.preprocessing import _processed_frame
 from .stack_reader import StackReader
 
 
@@ -205,7 +205,11 @@ class PopupProcessingEngine:
 
         reader = self._require_reader()
         raw = reader.read_frame(frame_idx, use_cache=True).astype(np.float32, copy=False)
-        smoothed = gaussian_filter(raw, sigma=0.5)
+        smoothed = _processed_frame(
+            raw,
+            apply_horizontal_bar_denoise=False,
+            apply_smoothing=True,
+        )
 
         with self._lock:
             self._cache_put(self._smoothed_cache, frame_idx, smoothed, self._smoothed_cache_max)

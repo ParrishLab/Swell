@@ -161,7 +161,7 @@ def test_global_metrics_defaults_roundtrip_and_materialization(tmp_path: Path) -
     }
     svc.set_global_metrics_defaults(defaults)
     applied = svc.materialize_metrics_defaults_to_events()
-    assert applied == 2
+    assert applied == 0
 
     out = tmp_path / "metrics_defaults.sdproj"
     svc.save_project(out)
@@ -173,9 +173,10 @@ def test_global_metrics_defaults_roundtrip_and_materialization(tmp_path: Path) -
     assert float(loaded_defaults["scale_px_per_mm"]) == 6.0
     assert np.array_equal(np.asarray(loaded_defaults["roi_mask"], dtype=bool), roi_mask)
     event_metrics = reopened.load_event_metrics_settings("event_0001")
-    assert event_metrics is not None
-    assert float(event_metrics["frames_per_sec"]) == 2.5
-    assert np.array_equal(np.asarray(event_metrics["roi_mask"], dtype=bool), roi_mask)
+    assert event_metrics is None
+    resolved = reopened.resolve_event_metrics_settings("event_0001")
+    assert float(resolved["frames_per_sec"]) == 2.5
+    assert np.array_equal(np.asarray(resolved["roi_mask"], dtype=bool), roi_mask)
 
 
 def test_materialization_does_not_overwrite_existing_local_metrics() -> None:
@@ -211,12 +212,72 @@ def test_materialization_does_not_overwrite_existing_local_metrics() -> None:
     )
 
     applied = svc.materialize_metrics_defaults_to_events()
-    assert applied >= 1
+    assert applied == 0
     event_1_metrics = svc.load_event_metrics_settings("event_0001")
     assert event_1_metrics is not None
     assert float(event_1_metrics["scale_px_per_mm"]) == 12.0
-    assert float(event_1_metrics["frames_per_sec"]) == 3.0
     assert np.array_equal(np.asarray(event_1_metrics["roi_mask"], dtype=bool), local_roi)
+    resolved = svc.resolve_event_metrics_settings("event_0001")
+    assert float(resolved["frames_per_sec"]) == 3.0
+    assert float(resolved["scale_px_per_mm"]) == 12.0
+    assert np.array_equal(np.asarray(resolved["roi_mask"], dtype=bool), local_roi)
+
+
+def test_resolved_event_metrics_treats_local_roi_as_full_override() -> None:
+    svc = ProjectSessionService()
+    svc.new_project(_stack_ref("/tmp/in_a", frame_count=10))
+    svc.set_events(
+        [
+            EventMeta(event_id="event_0001", label="E1", start_idx=1, end_idx=3, flags={}),
+        ],
+        "event_0001",
+    )
+    global_roi = np.zeros((6, 6), dtype=bool)
+    global_roi[0:4, 0:4] = True
+    svc.set_global_metrics_defaults(
+        {
+            "frames_per_sec": 3.0,
+            "roi_points": [[0.0, 0.0], [3.0, 0.0], [3.0, 3.0], [0.0, 3.0]],
+            "roi_mask": global_roi,
+        }
+    )
+    svc.upsert_event_metrics_settings(
+        "event_0001",
+        {
+            "roi_points": [[2.0, 2.0], [4.0, 2.0], [4.0, 4.0], [2.0, 4.0]],
+        },
+        merge_missing_only=False,
+    )
+
+    resolved = svc.resolve_event_metrics_settings("event_0001")
+
+    assert "roi_points" in resolved
+    assert resolved["roi_points"] == [[2.0, 2.0], [4.0, 2.0], [4.0, 4.0], [2.0, 4.0]]
+    assert "roi_mask" not in resolved
+
+
+def test_clear_event_metrics_settings_keys_removes_local_override() -> None:
+    svc = ProjectSessionService()
+    svc.new_project(_stack_ref("/tmp/in_a", frame_count=10))
+    svc.set_events(
+        [
+            EventMeta(event_id="event_0001", label="E1", start_idx=1, end_idx=3, flags={}),
+        ],
+        "event_0001",
+    )
+    svc.set_global_metrics_defaults({"frames_per_sec": 2.0, "scale_px_per_mm": 5.0})
+    svc.upsert_event_metrics_settings(
+        "event_0001",
+        {"scale_px_per_mm": 9.0, "scale_points": [[1.0, 1.0], [5.0, 1.0]]},
+        merge_missing_only=False,
+    )
+
+    changed = svc.clear_event_metrics_settings_keys("event_0001", ["scale_px_per_mm", "scale_points"])
+
+    assert changed is True
+    assert svc.load_event_metrics_settings("event_0001") is None
+    resolved = svc.resolve_event_metrics_settings("event_0001")
+    assert float(resolved["scale_px_per_mm"]) == 5.0
 
 
 def test_dc_trace_attachment_roundtrip(tmp_path: Path) -> None:

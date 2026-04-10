@@ -3,6 +3,7 @@ from __future__ import annotations
 import numpy as np
 
 from sdapp.host.analysis_payload_mapper import (
+    apply_analysis_scope_flags,
     EventBounds,
     FRAME_ORIGIN_EVENT_LOCAL,
     FRAME_ORIGIN_GLOBAL,
@@ -110,3 +111,19 @@ def test_remap_payload_preserves_global_origin_noop_update() -> None:
     masks = np.asarray(updated["masks_committed"])
     assert masks.shape == (4, 4, 5)
     assert bool(np.any(masks[2]))
+
+
+def test_apply_analysis_scope_flags_sets_baseline_and_scope_fields() -> None:
+    flags = apply_analysis_scope_flags(
+        {"keep": True},
+        event_start=12,
+        event_end=16,
+        baseline_pre_frames=3,
+    )
+
+    assert flags["keep"] is True
+    assert int(flags["baseline_pre_frames"]) == 3
+    assert int(flags["analysis_scope_start_idx"]) == 9
+    assert int(flags["analysis_scope_end_idx"]) == 16
+    assert int(flags["analysis_local_event_start_idx"]) == 3
+    assert int(flags["analysis_local_event_end_idx"]) == 7

@@ -191,7 +191,7 @@ def test_update_event_remaps_legacy_event_local_sidecar_to_new_scope() -> None:
     assert "1" in dict(sidecar["prompts"]["frames"])
 
 
-def test_create_event_materializes_global_metrics_defaults() -> None:
+def test_create_event_resolves_global_metrics_defaults_without_persisting_local_metrics() -> None:
     host = BrowserController()
     host.on_stack_loaded(_FakeReader(), _FakeStackInfo())
     host.set_global_metrics_defaults(
@@ -204,11 +204,12 @@ def test_create_event_materializes_global_metrics_defaults() -> None:
 
     event = host.create_event(start_idx=0, end_idx=1, frame_count=6)
     local = host.load_event_metrics_settings(event.event_id)
+    resolved = host.resolve_event_metrics_settings(event.event_id)
 
-    assert local is not None
-    assert float(local["frames_per_sec"]) == 2.0
-    assert float(local["scale_px_per_mm"]) == 5.0
-    assert len(local["roi_points"]) == 4
+    assert local is None
+    assert float(resolved["frames_per_sec"]) == 2.0
+    assert float(resolved["scale_px_per_mm"]) == 5.0
+    assert len(resolved["roi_points"]) == 4
 
 
 def test_host_context_for_event_prefers_local_metrics_over_global_defaults() -> None:

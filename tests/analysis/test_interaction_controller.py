@@ -130,8 +130,15 @@ class InteractionControllerTests(unittest.TestCase):
 
     def test_nav_right_moves_slider(self):
         controller, holder, _mode, _lbl = self._make_controller()
-        controller.on_nav_right()
+        result = controller.on_nav_right()
         self.assertEqual(holder["current_idx"], 1)
+        self.assertEqual(result, "break")
+
+    def test_nav_left_returns_break_without_moving_past_zero(self):
+        controller, holder, _mode, _lbl = self._make_controller()
+        result = controller.on_nav_left()
+        self.assertEqual(holder["current_idx"], 0)
+        self.assertEqual(result, "break")
 
     def test_on_brush_size_change_updates_label(self):
         controller, _holder, _mode, lbl = self._make_controller()
@@ -173,6 +180,27 @@ class InteractionControllerTests(unittest.TestCase):
         self.assertEqual(holder["updates"], 2)
         self.assertEqual(len(holder["records"]), 1)
         self.assertTrue(changed)
+
+    def test_mouse_up_compares_paint_payloads_without_numpy_truthiness_error(self):
+        controller, holder, mode, _lbl = self._make_controller()
+        mode.set("brush")
+        layer = {
+            "plus": np.zeros((6, 6), dtype=bool),
+            "minus": np.zeros((6, 6), dtype=bool),
+        }
+        layer["plus"][2, 3] = True
+        controller.paint_layers[0] = {
+            "plus": layer["plus"].copy(),
+            "minus": layer["minus"].copy(),
+        }
+        holder["paint_snapshot_before"] = {
+            "plus": layer["plus"].copy(),
+            "minus": layer["minus"].copy(),
+        }
+
+        changed = controller.on_mouse_up(_Event(0, 0))
+
+        self.assertFalse(changed)
 
     def test_point_click_maps_canvas_coordinates_through_zoomed_transform(self):
         controller, holder, mode, _lbl = self._make_controller(display_transform=(2.0, 10.0, 20.0))
