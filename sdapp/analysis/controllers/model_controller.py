@@ -17,6 +17,37 @@ class AnalysisModelController:
     def __init__(self, app) -> None:
         self.app = app
 
+    def update_project_model_to_active(self) -> None:
+        if bool(getattr(self.app, "_host_mode", False)):
+            host_updater = getattr(self.app, "_host_checkpoint_updater", None)
+            if callable(host_updater):
+                active_meta = dict(getattr(self.app, "_active_checkpoint_metadata", {}) or {})
+                if not active_meta:
+                    self.app.log_warn("Model", "No active model metadata available to record.")
+                    messagebox.showwarning("Models", "No active model metadata available to record.", parent=self.app.root)
+                    return
+                self.app.log_info("Model", "Requesting host to update project model to active...")
+                try:
+                    host_updater({"model_checkpoint": dict(active_meta)})
+                    self.app.log_success("Model", "Host project model updated.")
+                except Exception as exc:
+                    self.app.log_error("Model", f"Failed to request host model update: {exc}")
+                    messagebox.showwarning("Models", f"Failed to update host model:\n{exc}", parent=self.app.root)
+                return
+
+        # Fallback for standalone (if it were ever restored) or minimal host integration
+        active_meta = dict(getattr(self.app, "_active_checkpoint_metadata", {}) or {})
+        if not active_meta:
+            self.app.log_warn("Model", "No active model metadata available to record.")
+            messagebox.showwarning("Models", "No active model metadata available to record.", parent=self.app.root)
+            return
+        
+        # In analysis window, project metadata usually comes from host.
+        # This will at least update local state.
+        setattr(self.app, "_host_project_metadata", dict(active_meta))
+        self.app.project_dirty = True
+        self.app.log_info("Model", f"Updated local project model metadata to: {active_meta.get('filename') or 'unknown'}")
+
     def browse_model(self):
         resource_root = Path(getattr(self.app, "resource_root", self.app.app_root))
         initialdir = str((resource_root / "models").resolve())

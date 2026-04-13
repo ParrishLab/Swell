@@ -654,3 +654,19 @@ class AnalysisLaunchController:
             apply_stabilization=bool(apply_stabilization),
         )
         return np.asarray(payload.get("frame_u8"), dtype=np.uint8)
+
+    def broadcast_checkpoint_update(self, metadata: dict) -> None:
+        """Update all open analysis windows with new checkpoint metadata."""
+        windows = getattr(self.app, "_analysis_windows", [])
+        if not windows:
+            return
+
+        self.app._log_debug(f"Broadcasting checkpoint update to {len(windows)} analysis window(s).")
+        for _win, analysis_app in windows:
+            try:
+                # Analysis apps have _set_active_checkpoint_metadata
+                setter = getattr(analysis_app, "_set_active_checkpoint_metadata", None)
+                if callable(setter):
+                    setter(dict(metadata), notify_host=False, reason="host_broadcast")
+            except Exception as exc:
+                self.app._log_warn(f"Failed to broadcast checkpoint update to analysis window: {exc}")

@@ -7,8 +7,10 @@ import tkinter as tk
 from tkinter import messagebox, ttk
 from typing import Any
 
+from sdapp.analysis.ui.theme import SPACING, apply_theme
 from sdapp.shared.model_copy import TITLE_MODEL_DOWNLOAD_FAILED, TITLE_MODEL_FILE_MISSING
 from sdapp.shared.ui.background_task_runner import BackgroundTaskRunner
+from sdapp.shared.ui.bootstrap import semantic_button_options
 
 
 @dataclass(frozen=True)
@@ -62,7 +64,7 @@ class ManagedModelWorkflow:
         if not callable(center_window):
             return
         try:
-            center_window(dialog, width=760, height=320)
+            center_window(dialog, width=760, height=400)
         except TypeError:
             center_window(dialog)
 
@@ -87,43 +89,55 @@ class ManagedModelWorkflow:
         self._call_dialog_method(dialog, "withdraw")
         dialog.title(self._options.title)
         dialog.transient(self._root)
-        dialog.resizable(True, False)
-        self._call_dialog_method(dialog, "geometry", "760x320")
+        dialog.resizable(True, True)
+        dialog.geometry("760x400")
+        apply_theme(dialog)
 
-        shell = ttk.Frame(dialog, padding=10)
+        shell = ttk.Frame(dialog, padding=SPACING.outer, style="AppShell.TFrame")
         shell.pack(fill="both", expand=True)
         managed_dir = service.managed_models_dir()
-        ttk.Label(shell, text=f"Managed folder: {managed_dir}").pack(anchor="w", pady=(0, 6))
+        ttk.Label(shell, text=f"Managed folder: {managed_dir}", style="AppMeta.TLabel").pack(anchor="w", pady=(0, SPACING.inner))
+
+        tree_container = ttk.Frame(shell, style="AppInset.TFrame", padding=1)
+        tree_container.pack(fill="both", expand=True)
 
         tree = ttk.Treeview(
-            shell,
+            tree_container,
             columns=("filename", "status"),
             show="headings",
-            height=min(6, max(3, len(descriptors))),
+            height=min(8, max(4, len(descriptors))),
         )
-        tree.heading("filename", text="Filename")
-        tree.heading("status", text="Status")
+        tree.heading("filename", text="FILENAME")
+        tree.heading("status", text="STATUS")
         tree.column("filename", width=320, anchor="w")
         tree.column("status", width=140, anchor="center")
-        tree.pack(fill="x")
+        tree.pack(fill="both", expand=True)
 
         status_var = tk.StringVar(value=self._options.selection_prompt)
-        ttk.Label(shell, textvariable=status_var).pack(anchor="w", pady=(6, 0))
+        ttk.Label(shell, textvariable=status_var, style="AppMeta.TLabel").pack(anchor="w", pady=(SPACING.inner, 0))
 
-        btn_row = ttk.Frame(shell)
-        btn_row.pack(fill="x", pady=(8, 0))
-        download_btn = ttk.Button(btn_row, text="Download Selected")
-        use_btn = ttk.Button(btn_row, text="Use Selected")
-        local_btn = ttk.Button(btn_row, text="Select Local...")
-        close_btn = ttk.Button(btn_row, text="Close", command=dialog.destroy)
+        btn_row = ttk.Frame(shell, style="AppShell.TFrame")
+        btn_row.pack(fill="x", pady=(SPACING.inner, 0))
+        
+        download_btn = ttk.Button(btn_row, text="Download Selected", **semantic_button_options("secondary"))
+        use_btn = ttk.Button(btn_row, text="Use Selected", **semantic_button_options("primary"))
+        local_btn = ttk.Button(btn_row, text="Select Local...", **semantic_button_options("secondary"))
+        close_btn = ttk.Button(btn_row, text="Close", command=dialog.destroy, **semantic_button_options("secondary"))
+        
         download_btn.pack(side="left")
-        use_btn.pack(side="left", padx=(6, 0))
-        local_btn.pack(side="left", padx=(6, 0))
+        use_btn.pack(side="left", padx=(SPACING.gap, 0))
+        local_btn.pack(side="left", padx=(SPACING.gap, 0))
         close_btn.pack(side="right")
+        
         review_btn = None
         if required and self._options.review_only_label and callable(self._options.on_review_only):
-            review_btn = ttk.Button(btn_row, text=self._options.review_only_label, command=self._options.on_review_only)
-            review_btn.pack(side="left", padx=(6, 0))
+            review_btn = ttk.Button(
+                btn_row, 
+                text=self._options.review_only_label, 
+                command=self._options.on_review_only,
+                **semantic_button_options("secondary")
+            )
+            review_btn.pack(side="left", padx=(SPACING.gap, 0))
 
         descriptor_by_id = {d.checkpoint_id: d for d in descriptors}
         result: dict[str, object] = {"ok": False}

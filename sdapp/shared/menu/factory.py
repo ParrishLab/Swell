@@ -46,6 +46,7 @@ def build_shared_menu(root, app, *, mode: str, host_mode: bool = False) -> tk.Me
         (MENU_MANAGE_MODELS, ("open_model_manager", "open_checkpoint_manager")),
         ("Set Model Path...", ("on_browse_model",)),
         ("Load Model", ("load_model_from_menu",)),
+        ("Update Project Model", ("update_project_model_to_active",)),
         ("Validate Assets", ("validate_assets_from_menu", "_validate_assets")),
     ]
     mode_allow = {
@@ -77,9 +78,10 @@ def build_shared_menu(root, app, *, mode: str, host_mode: bool = False) -> tk.Me
 
     config_allow = {
         MENU_MANAGE_MODELS: {"analysis", "host"},
-        "Set Model Path...": {"analysis"},
-        "Load Model": {"analysis"},
-        "Validate Assets": {"analysis"},
+        "Set Model Path...": {"analysis", "host"},
+        "Load Model": {"analysis", "host"},
+        "Update Project Model": {"analysis", "host"},
+        "Validate Assets": {"analysis", "host"},
     }
     for label, names in config_items:
         allowed = config_allow.get(label, {"analysis"})

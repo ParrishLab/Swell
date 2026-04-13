@@ -645,6 +645,18 @@ class SDAnalyzerApp:
     def _save_project_as(self) -> None:
         self._get_project_controller().save_project_as()
 
+    def update_project_model_to_active(self) -> None:
+        self.model_setup_controller.update_project_model_to_active()
+
+    def on_browse_model(self) -> None:
+        self.model_setup_controller.on_browse_model()
+
+    def load_model_from_menu(self) -> None:
+        self.model_setup_controller.load_model()
+
+    def validate_assets_from_menu(self) -> None:
+        self.model_setup_controller.validate_assets()
+
     def _open_project_dialog(self) -> None:
         self._get_project_controller().open_project_dialog()
 

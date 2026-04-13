@@ -186,6 +186,77 @@ class HostModelSetupController:
             manual_override=str(getattr(self.app, "_manual_model_override", "") or ""),
         )
 
+    def on_browse_model(self) -> None:
+        selected = self._prompt_select_local_file(parent=self.app.root, title="Select SAM2 Model File")
+        if not selected:
+            return
+        if self._activate_local_path(selected, source="manual_override"):
+            self.app._log_info(f"Model path set to: {Path(selected).name}. Model tools ready.")
+        else:
+            self.app._log_error(f"Failed to activate selected model file: {selected}")
+
+    def load_model(self) -> None:
+        # For host, we just re-run the preflight or resolution logic
+        self.app._log_info("Reloading model configuration...")
+        resolution = self._resolve_active_model(project_metadata=self.app.browser_controller.get_model_checkpoint_metadata())
+        if self._apply_resolution(resolution, reason="menu_load"):
+            self.app._set_status("Model loaded.")
+        else:
+            self.app._set_status("Model load failed.")
+
+    def validate_assets(self) -> None:
+        resource_root = Path(getattr(self.app, "resource_root", getattr(self.app, "app_root", ".")))
+        model_token = str(getattr(self.app, "_active_model_token", "") or "")
+        missing = []
+        if model_token:
+            if model_token.startswith("managed://"):
+                descriptor_id = model_token.split("managed://", 1)[-1].strip()
+                descriptor = self.app.checkpoint_runtime.find_descriptor(descriptor_id)
+                if descriptor is None:
+                    missing.append("managed model catalog entry")
+                else:
+                    managed_path = self.app.checkpoint_runtime.descriptor_path(descriptor)
+                    if not managed_path.exists():
+                        missing.append("managed model file")
+            else:
+                model_path = Path(model_token)
+                if not model_path.is_absolute():
+                    model_path = resource_root / model_path
+                if not model_path.exists():
+                    missing.append("model file")
+        else:
+            missing.append("model file")
+
+        configs_root = resource_root / "resources" / "configs"
+        if not configs_root.exists():
+            configs_root = resource_root / "configs"
+        if not configs_root.exists():
+            missing.append("configs folder")
+
+        if missing:
+            msg = "Missing " + ", ".join(missing) + ". Place assets in sdapp/resources/models and sdapp/resources/configs."
+            self.app._log_warn(msg)
+            messagebox.showwarning("Validate Assets", msg, parent=self.app.root)
+        else:
+            self.app._log_info("All required model assets are present.")
+            messagebox.showinfo("Validate Assets", "All required model assets are present.", parent=self.app.root)
+
+    def update_project_model_to_active(self) -> dict[str, object]:
+        active_meta = dict(getattr(self.app, "_active_model_metadata", {}) or {})
+        if not active_meta:
+            self.app._log_warn("Update Project Model blocked: no active model metadata available.")
+            messagebox.showwarning("Models", "No active model metadata available to record.", parent=self.app.root)
+            return {"ok": False, "action": "missing_active_model"}
+
+        self.app.browser_controller.set_model_checkpoint_metadata(dict(active_meta))
+        self.app._log_info(f"Updated project model metadata to active: {active_meta.get('filename') or 'unknown'}")
+        self.app._set_status("Project model updated.")
+
+        # Sync any open analysis windows
+        self.app.analysis_launch_controller.broadcast_checkpoint_update(dict(active_meta))
+
+        return {"ok": True, "metadata": dict(active_meta)}
+
     def _activate_managed_descriptor(self, descriptor, *, source: str) -> bool:
         managed_path = self.app.checkpoint_runtime.descriptor_path(descriptor)
         if not managed_path.exists():
