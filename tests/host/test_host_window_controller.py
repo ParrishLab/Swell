@@ -9,6 +9,7 @@ import numpy as np
 from sdapp.host.config import EventCandidate
 from sdapp.host.controllers.host_window_controller import HostWindowController
 from sdapp.host.exporter import analysis_image_cache_key
+from sdapp.shared.models import clone_analysis_payload
 
 
 class _NonMaterializedFrames:
@@ -116,3 +117,60 @@ def test_apply_preview_action_zero_and_stop() -> None:
     assert float(zeroed[2]) == 0.0
     assert np.isnan(stopped[2])
     assert np.isnan(stopped[3])
+
+
+def test_restore_snapshot_if_masks_changed_restores_event_sidecar() -> None:
+    initial_payload = {
+        "masks_committed": np.zeros((3, 6, 6), dtype=np.uint8),
+        "metrics_settings": {"frames_per_sec": 1.0},
+    }
+    initial_payload["masks_committed"][1, 2:4, 2:4] = 1
+    drifted_payload = clone_analysis_payload(initial_payload)
+    drifted_payload["masks_committed"][2, 1:5, 1:5] = 1
+    store = {"event_0001": drifted_payload}
+
+    class _Session:
+        def load_analysis_sidecar(self, event_id: str):
+            payload = store.get(str(event_id))
+            return clone_analysis_payload(payload) if isinstance(payload, dict) else None
+
+        def replace_analysis_sidecar(self, event_id: str, payload: dict | None):
+            store[str(event_id)] = clone_analysis_payload(payload)
+
+    app = SimpleNamespace(browser_controller=SimpleNamespace(session=_Session()))
+    controller = HostWindowController(app)
+    snapshot = {"event_0001": clone_analysis_payload(initial_payload)}
+
+    restored = controller._restore_snapshot_if_masks_changed(snapshot)
+
+    assert restored == 1
+    current = store["event_0001"]
+    assert np.array_equal(np.asarray(current["masks_committed"]), np.asarray(initial_payload["masks_committed"]))
+
+
+def test_restore_snapshot_if_masks_unchanged_is_noop_for_dict_masks() -> None:
+    mask_a = np.zeros((4, 4), dtype=np.uint8)
+    mask_a[1:3, 1:3] = 1
+    mask_b = np.zeros((4, 4), dtype=np.uint8)
+    mask_b[2:4, 2:4] = 1
+    payload = {
+        "masks_committed": {"5": mask_a, "6": mask_b},
+        "metrics_settings": {"frames_per_sec": 1.0},
+    }
+    store = {"event_0001": clone_analysis_payload(payload)}
+
+    class _Session:
+        def load_analysis_sidecar(self, event_id: str):
+            loaded = store.get(str(event_id))
+            return clone_analysis_payload(loaded) if isinstance(loaded, dict) else None
+
+        def replace_analysis_sidecar(self, event_id: str, payload: dict | None):
+            store[str(event_id)] = clone_analysis_payload(payload)
+
+    app = SimpleNamespace(browser_controller=SimpleNamespace(session=_Session()))
+    controller = HostWindowController(app)
+    snapshot = {"event_0001": clone_analysis_payload(payload)}
+
+    restored = controller._restore_snapshot_if_masks_changed(snapshot)
+
+    assert restored == 0

@@ -565,7 +565,7 @@ class SegmentationActions:
                     from hydra.core.global_hydra import GlobalHydra
 
                     GlobalHydra.instance().clear()
-                    initialize_config_dir(config_dir=base_dir, job_name="sam2_app")
+                    initialize_config_dir(config_dir=base_dir, job_name="sam2_app", version_base=None)
                 except Exception as e:
                     self.log_warn("Model", f"Failed to initialize Hydra config dir: {e}")
 

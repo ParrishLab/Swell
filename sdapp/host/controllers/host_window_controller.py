@@ -14,6 +14,7 @@ from sdapp.analysis.ui.roi_dialog import open_roi_dialog
 from sdapp.analysis.ui.scale_dialog import open_scale_dialog
 from sdapp.analysis.ui.theme import SPACING, apply_theme
 from sdapp.host.exporter import analysis_image_cache_key, export_analysis
+from sdapp.shared.models import clone_analysis_payload
 from sdapp.shared.services import MetricsSettingsResolver
 from sdapp.shared.ui.bootstrap import center_window_on_screen as center_window, semantic_button_options, ttk
 
@@ -21,6 +22,52 @@ from sdapp.shared.ui.bootstrap import center_window_on_screen as center_window, 
 class HostWindowController:
     def __init__(self, app) -> None:
         self.app = app
+
+    @staticmethod
+    def _masks_payload_equal(lhs, rhs) -> bool:
+        if lhs is None and rhs is None:
+            return True
+        if isinstance(lhs, dict) and isinstance(rhs, dict):
+            lhs_keys = {str(k) for k in lhs.keys()}
+            rhs_keys = {str(k) for k in rhs.keys()}
+            if lhs_keys != rhs_keys:
+                return False
+            for key in sorted(lhs_keys):
+                left = np.asarray(lhs.get(key), dtype=bool)
+                right = np.asarray(rhs.get(key), dtype=bool)
+                if left.ndim != right.ndim or not np.array_equal(left, right):
+                    return False
+            return True
+        left = np.asarray(lhs)
+        right = np.asarray(rhs)
+        if left.ndim != right.ndim:
+            return False
+        if left.ndim == 0 and right.ndim == 0:
+            return bool(left == right)
+        if left.ndim >= 1:
+            return bool(np.array_equal(left, right))
+        return False
+
+    def _capture_export_sidecar_snapshot(self, event_ids: list[str]) -> dict[str, dict[str, object]]:
+        snapshot: dict[str, dict[str, object]] = {}
+        for event_id in [str(v) for v in list(event_ids or [])]:
+            payload = self.app.browser_controller.session.load_analysis_sidecar(event_id)
+            if not isinstance(payload, dict):
+                continue
+            snapshot[event_id] = clone_analysis_payload(payload)
+        return snapshot
+
+    def _restore_snapshot_if_masks_changed(self, snapshot: dict[str, dict[str, object]]) -> int:
+        restored = 0
+        for event_id, before_payload in dict(snapshot or {}).items():
+            before_masks = dict(before_payload or {}).get("masks_committed")
+            current_payload = self.app.browser_controller.session.load_analysis_sidecar(str(event_id)) or {}
+            current_masks = dict(current_payload or {}).get("masks_committed")
+            if self._masks_payload_equal(before_masks, current_masks):
+                continue
+            self.app.browser_controller.session.replace_analysis_sidecar(str(event_id), clone_analysis_payload(before_payload))
+            restored += 1
+        return int(restored)
 
     def _global_metrics_defaults_state(self) -> tuple[float, float | None, list[list[float]], bool, list[list[float]], np.ndarray | None]:
         defaults = dict(self.app.browser_controller.get_global_metrics_defaults() or {})
@@ -356,6 +403,7 @@ class HostWindowController:
         include_metric_propagation_speed: bool,
         include_metric_area_recruited: bool,
         include_metric_relative_area_recruited: bool,
+        include_metric_lineage_object_metrics: bool = False,
     ) -> bool:
         return bool(
             importlib.util.find_spec("openpyxl") is not None
@@ -363,6 +411,7 @@ class HostWindowController:
                 include_metric_propagation_speed
                 or include_metric_area_recruited
                 or include_metric_relative_area_recruited
+                or include_metric_lineage_object_metrics
             )
         )
 
@@ -383,6 +432,8 @@ class HostWindowController:
         include_metric_speed_var = tk.BooleanVar(value=True)
         include_metric_area_var = tk.BooleanVar(value=True)
         include_metric_rel_area_var = tk.BooleanVar(value=True)
+        include_metric_lineage_var = tk.BooleanVar(value=False)
+        include_metric_lineage_tables_var = tk.BooleanVar(value=False)
         include_metric_combined_spreadsheet_var = tk.BooleanVar(value=False)
         output_dir_var = tk.StringVar(value=self.app.output_var.get().strip())
         result: dict[str, str | bool] | None = None
@@ -435,6 +486,18 @@ class HostWindowController:
             checks, text="Relative Area Recruited", variable=include_metric_rel_area_var
         )
         metric_rel_area_check.pack(anchor="w")
+        metric_lineage_check = ttk.Checkbutton(
+            checks,
+            text="Lineage-aware Object Metrics",
+            variable=include_metric_lineage_var,
+        )
+        metric_lineage_check.pack(anchor="w")
+        metric_lineage_tables_check = ttk.Checkbutton(
+            checks,
+            text="Export per-object track tables",
+            variable=include_metric_lineage_tables_var,
+        )
+        metric_lineage_tables_check.pack(anchor="w")
         metric_combined_spreadsheet_check = ttk.Checkbutton(
             checks,
             text="Export combined selected as a spreadsheet",
@@ -466,12 +529,26 @@ class HostWindowController:
                 metric_rel_area_check,
                 str(metric_ready["relative_area_recruited"]["reason"]),
             )
+        lineage_reason = ""
+        lineage_enabled = bool(has_masks and metric_ready["relative_area_recruited"]["enabled"])
+        if not has_masks:
+            lineage_reason = "No binary masks exist for the selected events."
+        elif not bool(metric_ready["relative_area_recruited"]["enabled"]):
+            lineage_reason = str(metric_ready["relative_area_recruited"]["reason"])
+        if not lineage_enabled:
+            include_metric_lineage_var.set(False)
+            include_metric_lineage_tables_var.set(False)
+            metric_lineage_check.configure(state="disabled")
+            metric_lineage_tables_check.configure(state="disabled")
+            self.attach_disabled_tooltip(dialog, metric_lineage_check, lineage_reason)
+            self.attach_disabled_tooltip(dialog, metric_lineage_tables_check, lineage_reason)
 
         def _refresh_combined_metrics_spreadsheet_state(*_args) -> None:
             enabled = self._can_export_combined_metric_spreadsheet(
                 include_metric_propagation_speed=bool(include_metric_speed_var.get()),
                 include_metric_area_recruited=bool(include_metric_area_var.get()),
                 include_metric_relative_area_recruited=bool(include_metric_rel_area_var.get()),
+                include_metric_lineage_object_metrics=bool(include_metric_lineage_var.get()),
             )
             if enabled:
                 metric_combined_spreadsheet_check.configure(state="normal")
@@ -479,10 +556,21 @@ class HostWindowController:
                 include_metric_combined_spreadsheet_var.set(False)
                 metric_combined_spreadsheet_check.configure(state="disabled")
 
+        def _refresh_lineage_tables_state(*_args) -> None:
+            enabled = bool(lineage_enabled and include_metric_lineage_var.get())
+            if enabled:
+                metric_lineage_tables_check.configure(state="normal")
+            else:
+                include_metric_lineage_tables_var.set(False)
+                metric_lineage_tables_check.configure(state="disabled")
+
         include_metric_speed_var.trace_add("write", _refresh_combined_metrics_spreadsheet_state)
         include_metric_area_var.trace_add("write", _refresh_combined_metrics_spreadsheet_state)
         include_metric_rel_area_var.trace_add("write", _refresh_combined_metrics_spreadsheet_state)
+        include_metric_lineage_var.trace_add("write", _refresh_combined_metrics_spreadsheet_state)
+        include_metric_lineage_var.trace_add("write", _refresh_lineage_tables_state)
         _refresh_combined_metrics_spreadsheet_state()
+        _refresh_lineage_tables_state()
 
         buttons = ttk.Frame(shell, style="AppShell.TFrame")
         buttons.pack(fill="x")
@@ -501,6 +589,7 @@ class HostWindowController:
                 or bool(include_metric_speed_var.get())
                 or bool(include_metric_area_var.get())
                 or bool(include_metric_rel_area_var.get())
+                or bool(include_metric_lineage_var.get())
             )
             if not include_any:
                 messagebox.showwarning("Export Options", "Select at least one export target.", parent=dialog)
@@ -519,6 +608,8 @@ class HostWindowController:
                 "include_metric_propagation_speed": bool(include_metric_speed_var.get()),
                 "include_metric_area_recruited": bool(include_metric_area_var.get()),
                 "include_metric_relative_area_recruited": bool(include_metric_rel_area_var.get()),
+                "include_metric_lineage_object_metrics": bool(include_metric_lineage_var.get()),
+                "include_metric_lineage_track_tables": bool(include_metric_lineage_tables_var.get()),
                 "include_metric_combined_spreadsheet": bool(include_metric_combined_spreadsheet_var.get()),
             }
             dialog.destroy()
@@ -844,8 +935,12 @@ class HostWindowController:
             f"metric_propagation_speed={bool(options.get('include_metric_propagation_speed'))}, "
             f"metric_area_recruited={bool(options.get('include_metric_area_recruited'))}, "
             f"metric_relative_area_recruited={bool(options.get('include_metric_relative_area_recruited'))}, "
+            f"metric_lineage_object_metrics={bool(options.get('include_metric_lineage_object_metrics'))}, "
+            f"metric_lineage_track_tables={bool(options.get('include_metric_lineage_track_tables'))}, "
             f"metric_combined_spreadsheet={bool(options.get('include_metric_combined_spreadsheet'))}."
         )
+        sidecar_snapshot = self._capture_export_sidecar_snapshot(event_ids)
+
         def worker() -> None:
             try:
                 assert self.app.reader is not None
@@ -902,10 +997,18 @@ class HostWindowController:
                     include_metric_propagation_speed=bool(options.get("include_metric_propagation_speed")),
                     include_metric_area_recruited=bool(options.get("include_metric_area_recruited")),
                     include_metric_relative_area_recruited=bool(options.get("include_metric_relative_area_recruited")),
+                    include_metric_lineage_object_metrics=bool(options.get("include_metric_lineage_object_metrics")),
+                    include_metric_lineage_track_tables=bool(options.get("include_metric_lineage_track_tables")),
                     include_metric_combined_spreadsheet=bool(options.get("include_metric_combined_spreadsheet")),
                     project_metadata=metadata,
                     propagation_gap_decision=_resolve_gap_decision,
                 )
+                restored_count = self._restore_snapshot_if_masks_changed(sidecar_snapshot)
+                if restored_count > 0:
+                    self.app._log_warn(
+                        "Detected analysis mask drift during export and restored "
+                        f"{restored_count} event(s) from pre-export snapshots."
+                    )
                 self.app.root.after(0, lambda: self.app._on_export_done(result))
             except Exception as exc:
                 self.app.root.after(0, lambda: self.app._set_status(f"Export failed: {exc}"))

@@ -2,14 +2,16 @@ from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import csv
+from collections import defaultdict
 import json
 from dataclasses import asdict
 from pathlib import Path
 from threading import Lock
 from typing import Callable, Iterable, Optional
 
+import cv2
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageDraw
 import tifffile
 from sdapp.analysis.core.metrics import (
     compute_frame_metrics,
@@ -17,8 +19,10 @@ from sdapp.analysis.core.metrics import (
     roi_mask_from_points,
     smooth_boundary_fft,
 )
+from sdapp.analysis.core.object_tracking import TrackingConfig, build_object_lineage
 from sdapp.shared.frame_source import EventScopedFrameSource, PreparedFrameSource, SDStackFrameSource
 from sdapp.shared.image_overlay import apply_mask_overlay
+from sdapp.shared.models import clone_analysis_payload
 from sdapp.shared.persistence.event_path import allocate_event_path_segment
 from sdapp.shared.services import MetricsSettingsResolver
 
@@ -71,14 +75,24 @@ def export_analysis(
     include_metric_propagation_speed: bool = False,
     include_metric_area_recruited: bool = False,
     include_metric_relative_area_recruited: bool = False,
+    include_metric_lineage_object_metrics: bool = False,
+    include_metric_lineage_track_tables: bool = False,
     include_metric_combined_spreadsheet: bool = False,
     project_metadata: Optional[dict[str, object]] = None,
     propagation_gap_decision: Optional[Callable[[dict[str, object]], str]] = None,
 ) -> dict:
+    analysis_sidecar_snapshot: dict[str, dict[str, object]] = {}
+    if isinstance(analysis_sidecar, dict):
+        for event_id, payload in dict(analysis_sidecar).items():
+            if not isinstance(payload, dict):
+                continue
+            analysis_sidecar_snapshot[str(event_id)] = clone_analysis_payload(payload)
+
     include_any_metrics = (
         bool(include_metric_propagation_speed)
         or bool(include_metric_area_recruited)
         or bool(include_metric_relative_area_recruited)
+        or bool(include_metric_lineage_object_metrics)
     )
     include_any_mask_exports = bool(include_binary_masks) or bool(include_mask_overlay_images)
     include_any_image_exports = bool(include_event_images) or bool(include_baseline_images) or bool(include_analysis_images)
@@ -199,7 +213,7 @@ def export_analysis(
             event_records.sort(key=lambda x: (0 if x[1] == "baseline" else 1, x[0]))
             manifest_records.extend([rec for _idx, _role, rec in event_records])
 
-            event_sidecar = dict((analysis_sidecar or {}).get(str(event.event_id), {}) or {})
+            event_sidecar = dict(analysis_sidecar_snapshot.get(str(event.event_id), {}) or {})
             if analysis_dir is not None and stack_frame_source is not None:
                 analysis_scope_start, analysis_scope_end, analysis_baseline_pre, processing = analysis_image_export_plan(
                     event,
@@ -284,6 +298,8 @@ def export_analysis(
                     include_metric_propagation_speed=bool(include_metric_propagation_speed),
                     include_metric_area_recruited=bool(include_metric_area_recruited),
                     include_metric_relative_area_recruited=bool(include_metric_relative_area_recruited),
+                    include_metric_lineage_object_metrics=bool(include_metric_lineage_object_metrics),
+                    include_metric_lineage_track_tables=bool(include_metric_lineage_track_tables),
                     include_metric_combined_spreadsheet=bool(include_metric_combined_spreadsheet),
                     propagation_gap_decision=propagation_gap_decision,
                     analysis_sidecar_payload=event_sidecar,
@@ -373,6 +389,23 @@ def _metric_table_rows(
     }
 
 
+def _write_rows_csv(path: Path, *, columns: list[str], rows: list[dict[str, object]]) -> None:
+    with path.open("w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=[str(v) for v in columns])
+        writer.writeheader()
+        for row in rows:
+            payload = {str(key): row.get(str(key), "") for key in columns}
+            writer.writerow(payload)
+
+
+def _rows_table(sheet_name: str, *, columns: list[str], rows: list[dict[str, object]]) -> dict[str, object]:
+    return {
+        "sheet_name": str(sheet_name),
+        "columns": [str(v) for v in columns],
+        "rows": [[row.get(str(key), "") for key in columns] for row in rows],
+    }
+
+
 def _write_metric_plot(path: Path, time_sec: list[float], values: np.ndarray, title: str, ylabel: str) -> None:
     plt = _load_pyplot()
     plt.figure()
@@ -383,6 +416,178 @@ def _write_metric_plot(path: Path, time_sec: list[float], values: np.ndarray, ti
     plt.tight_layout()
     plt.savefig(path, dpi=150)
     plt.close()
+
+
+def _track_color_rgb(track_id: int, root_track_id: int) -> tuple[int, int, int]:
+    seed = int(root_track_id or track_id)
+    palette = [
+        (255, 99, 71),
+        (65, 105, 225),
+        (60, 179, 113),
+        (255, 165, 0),
+        (186, 85, 211),
+        (255, 215, 0),
+        (70, 130, 180),
+        (220, 20, 60),
+    ]
+    return palette[(max(1, seed) - 1) % len(palette)]
+
+
+def _draw_lineage_overlay(
+    frame: np.ndarray,
+    rows_for_frame: list[dict[str, object]],
+    *,
+    mask_by_track_id: dict[int, np.ndarray],
+) -> np.ndarray:
+    base = np.asarray(apply_mask_overlay(frame, np.zeros(np.asarray(frame).shape[:2], dtype=bool)), dtype=np.uint8)
+    overlay = np.asarray(base, dtype=np.uint8).copy()
+    for row in list(rows_for_frame or []):
+        track_id = int(row.get("track_id", 0) or 0)
+        root_track_id = int(row.get("root_track_id", track_id) or track_id)
+        mask = np.asarray(mask_by_track_id.get(int(track_id)), dtype=bool)
+        if mask.ndim != 2 or not np.any(mask):
+            continue
+        color = _track_color_rgb(track_id, root_track_id)
+        tint = overlay.copy()
+        tint[mask] = color
+        overlay = cv2.addWeighted(overlay, 0.75, tint, 0.25, 0.0)
+        ys, xs = np.where(mask)
+        if ys.size <= 0 or xs.size <= 0:
+            continue
+        anchor_x = int(np.clip(np.min(xs), 0, max(0, overlay.shape[1] - 1)))
+        anchor_y = int(np.clip(np.min(ys), 12, max(12, overlay.shape[0] - 1)))
+        label = f"T{track_id}"
+        if int(root_track_id) != int(track_id):
+            label = f"T{track_id}/R{root_track_id}"
+        cv2.putText(
+            overlay,
+            label,
+            (anchor_x, anchor_y),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.4,
+            color,
+            1,
+            cv2.LINE_AA,
+        )
+    return overlay
+
+
+def _write_lineage_overview_montage(
+    path: Path,
+    *,
+    rendered_frames: list[tuple[int, np.ndarray]],
+) -> None:
+    if not rendered_frames:
+        return
+    cards: list[Image.Image] = []
+    card_width = 220
+    card_height = 220
+    for frame_index, frame_rgb in rendered_frames:
+        image = Image.fromarray(np.asarray(frame_rgb, dtype=np.uint8))
+        image.thumbnail((card_width - 16, card_height - 36))
+        card = Image.new("RGB", (card_width, card_height), color=(24, 28, 34))
+        draw = ImageDraw.Draw(card)
+        draw.text((10, 8), f"Frame {int(frame_index) + 1}", fill=(240, 240, 240))
+        paste_x = int((card_width - image.width) / 2)
+        paste_y = 28 + int((card_height - 36 - image.height) / 2)
+        card.paste(image, (paste_x, paste_y))
+        cards.append(card)
+    columns = min(3, max(1, len(cards)))
+    rows = int(np.ceil(len(cards) / float(columns)))
+    canvas = Image.new("RGB", (columns * card_width, rows * card_height), color=(16, 20, 26))
+    for idx, card in enumerate(cards):
+        x = (idx % columns) * card_width
+        y = (idx // columns) * card_height
+        canvas.paste(card, (x, y))
+    canvas.save(path)
+
+
+def _track_speed_rows(
+    *,
+    tracks: dict[int, object],
+    event_start_idx: int,
+    scale_px_per_mm: float | None,
+    sec_per_frame: float,
+    mask_by_track_frame: dict[tuple[int, int], np.ndarray] | None = None,
+) -> list[dict[str, object]]:
+    rows: list[dict[str, object]] = []
+    for track_id in sorted(tracks):
+        track = tracks[int(track_id)]
+        assignments = list(getattr(track, "frame_assignments", []) or [])
+        if not assignments:
+            continue
+        boundaries: list[np.ndarray | None] = []
+        for assignment in assignments:
+            mask = None
+            if isinstance(mask_by_track_frame, dict):
+                mask = mask_by_track_frame.get((int(track_id), int(getattr(assignment, "frame_index", 0))))
+            if mask is None:
+                mask = getattr(assignment, "mask", None)
+            boundary = extract_primary_boundary(np.asarray(mask, dtype=bool))
+            if boundary is not None:
+                boundary = smooth_boundary_fft(boundary, n_keep=25)
+            boundaries.append(boundary)
+        metrics = compute_frame_metrics(boundaries, min_dist_px=2.0)
+        avg_dist_px = np.asarray(metrics.get("avg_dist_px", []), dtype=np.float64)
+        if scale_px_per_mm is not None and scale_px_per_mm > 0:
+            speed_values = (avg_dist_px * (1000.0 / float(scale_px_per_mm))) / float(sec_per_frame)
+        else:
+            speed_values = np.full(len(assignments), np.nan, dtype=np.float64)
+        root_track_id = int(getattr(track, "root_track_id", None) or int(track_id))
+        for assignment, speed_value in zip(assignments, speed_values):
+            frame_index = int(getattr(assignment, "frame_index", 0))
+            rows.append(
+                {
+                    "track_id": int(track_id),
+                    "root_track_id": int(root_track_id),
+                    "frame_index": int(frame_index),
+                    "frame_display": int(frame_index) + 1,
+                    "time_sec": float(frame_index - int(event_start_idx)) * float(sec_per_frame),
+                    "area_px": int(getattr(assignment, "area_px", 0)),
+                    "speed_um_per_sec": "" if not np.isfinite(speed_value) else float(speed_value),
+                }
+            )
+    return rows
+
+
+def _weighted_track_speed_rows(
+    *,
+    frame_indices: list[int],
+    time_sec: list[float],
+    track_speed_rows: list[dict[str, object]],
+) -> list[dict[str, object]]:
+    grouped: dict[int, list[dict[str, object]]] = defaultdict(list)
+    for row in list(track_speed_rows or []):
+        grouped[int(row.get("frame_index", 0))].append(dict(row))
+    rows: list[dict[str, object]] = []
+    for frame_index, t_sec in zip(frame_indices, time_sec):
+        candidates = []
+        for row in grouped.get(int(frame_index), []):
+            try:
+                speed_value = float(row.get("speed_um_per_sec"))
+                area_px = float(row.get("area_px", 0))
+            except (TypeError, ValueError):
+                continue
+            if not np.isfinite(speed_value) or area_px <= 0:
+                continue
+            candidates.append((speed_value, area_px))
+        if candidates:
+            total_area = float(sum(area for _speed, area in candidates))
+            weighted_speed = float(sum(speed * (area / total_area) for speed, area in candidates))
+            active_track_count = int(len(candidates))
+        else:
+            weighted_speed = float("nan")
+            active_track_count = 0
+        rows.append(
+            {
+                "frame_index": int(frame_index),
+                "frame_display": int(frame_index) + 1,
+                "time_sec": float(t_sec),
+                "active_track_count": int(active_track_count),
+                "area_weighted_speed_um_per_sec": "" if not np.isfinite(weighted_speed) else float(weighted_speed),
+            }
+        )
+    return rows
 
 
 def _find_interior_false_runs(mask: np.ndarray) -> list[tuple[int, int]]:
@@ -475,6 +680,18 @@ def _write_metrics_combined_workbook(
         ("Max relative area (%)", summary.get("max_relative_area_pct")),
         ("Written files", summary.get("written_files")),
     ]
+    lineage_summary = summary.get("object_lineage_summary")
+    if isinstance(lineage_summary, dict) and lineage_summary:
+        summary_rows.extend(
+            [
+                ("Tracked objects kept", lineage_summary.get("kept_track_count")),
+                ("Noise-filtered objects", lineage_summary.get("noise_filtered_track_count")),
+                ("Merge events", lineage_summary.get("merge_event_count")),
+                ("Lineage weighted average speed (um/sec)", lineage_summary.get("area_weighted_avg_speed_um_per_sec")),
+                ("Lineage weighted max speed (um/sec)", lineage_summary.get("area_weighted_max_speed_um_per_sec")),
+                ("Tracks with speed", lineage_summary.get("tracks_with_speed_count")),
+            ]
+        )
     warning = summary.get("propagation_gap_warning")
     for index, entry in enumerate(_propagation_warning_entries(warning), start=1):
         prefix = "Propagation warning" if index == 1 else f"Propagation warning {index}"
@@ -509,6 +726,8 @@ def _export_event_metrics(
     include_metric_propagation_speed: bool,
     include_metric_area_recruited: bool,
     include_metric_relative_area_recruited: bool,
+    include_metric_lineage_object_metrics: bool,
+    include_metric_lineage_track_tables: bool,
     include_metric_combined_spreadsheet: bool,
     propagation_gap_decision: Optional[Callable[[dict[str, object]], str]] = None,
     analysis_sidecar_payload: Optional[dict[str, object]] = None,
@@ -754,6 +973,248 @@ def _export_event_metrics(
         files_written += 2
         written.extend(["relative_area_recruited.csv", "relative_area_recruited.png"])
 
+    lineage_summary: dict[str, object] | None = None
+    if include_metric_lineage_object_metrics and has_roi:
+        tracker_result = build_object_lineage(
+            frame_indices,
+            full_masks,
+            config=TrackingConfig(),
+        )
+        lineage_summary = dict(tracker_result.get("summary", {}) or {})
+        object_track_rows = list(tracker_result.get("object_track_rows", []) or [])
+        lineage_rows = list(tracker_result.get("lineage_rows", []) or [])
+        track_area_rows: list[dict[str, object]] = []
+        track_relative_rows: list[dict[str, object]] = []
+        lineage_visual_frames: list[tuple[int, np.ndarray]] = []
+        tracks = dict(tracker_result.get("tracks", {}) or {})
+        mask_rows_by_frame: dict[int, list[dict[str, object]]] = defaultdict(list)
+        mask_by_frame_track: dict[tuple[int, int], np.ndarray] = {}
+        export_mask_by_track_frame: dict[tuple[int, int], np.ndarray] = {}
+        for track_id in sorted(tracks):
+            track = tracks[int(track_id)]
+            root_track_id = int(getattr(track, "root_track_id", None) or int(track_id))
+            for assignment in list(getattr(track, "frame_assignments", []) or []):
+                frame_index = int(getattr(assignment, "frame_index", 0))
+                local_idx = frame_indices.index(frame_index)
+                original_mask = np.asarray(getattr(assignment, "mask", None), dtype=bool)
+                export_mask = (
+                    np.asarray(original_mask & roi_mask, dtype=bool).copy()
+                    if has_roi and roi_mask is not None
+                    else np.asarray(original_mask, dtype=bool).copy()
+                )
+                export_mask_by_track_frame[(int(track_id), int(frame_index))] = export_mask
+                area_px_value = float(np.count_nonzero(export_mask))
+                time_value = float(time_sec[local_idx])
+                area_mm2_value = (
+                    float(area_px_value * (1.0 / float(scale_px_per_mm)) ** 2)
+                    if has_scale and scale_px_per_mm is not None
+                    else float("nan")
+                )
+                relative_area_value = (
+                    float((area_px_value / float(roi_pixels)) * 100.0)
+                    if roi_pixels > 0
+                    else float("nan")
+                )
+                track_area_rows.append(
+                    {
+                        "track_id": int(track_id),
+                        "root_track_id": int(root_track_id),
+                        "frame_index": int(frame_index),
+                        "frame_display": int(frame_index) + 1,
+                        "time_sec": float(time_value),
+                        "area_mm2": "" if not np.isfinite(area_mm2_value) else float(area_mm2_value),
+                    }
+                )
+                track_relative_rows.append(
+                    {
+                        "track_id": int(track_id),
+                        "root_track_id": int(root_track_id),
+                        "frame_index": int(frame_index),
+                        "frame_display": int(frame_index) + 1,
+                        "time_sec": float(time_value),
+                        "relative_area_pct": "" if not np.isfinite(relative_area_value) else float(relative_area_value),
+                    }
+                )
+                mask_rows_by_frame[int(frame_index)].append(
+                    {
+                        "track_id": int(track_id),
+                        "root_track_id": int(root_track_id),
+                    }
+                )
+                mask_by_frame_track[(int(frame_index), int(track_id))] = np.asarray(original_mask, dtype=bool).copy()
+        track_speed_rows = _track_speed_rows(
+            tracks=tracks,
+            event_start_idx=int(event.start_idx),
+            scale_px_per_mm=scale_px_per_mm,
+            sec_per_frame=float(sec_per_frame),
+            mask_by_track_frame=export_mask_by_track_frame,
+        )
+        weighted_track_speed_rows = _weighted_track_speed_rows(
+            frame_indices=frame_indices,
+            time_sec=time_sec,
+            track_speed_rows=track_speed_rows,
+        )
+        weighted_track_speed_values = np.asarray(
+            [
+                float(row["area_weighted_speed_um_per_sec"])
+                for row in weighted_track_speed_rows
+                if str(row.get("area_weighted_speed_um_per_sec", "")) != ""
+            ],
+            dtype=np.float64,
+        )
+        lineage_summary["area_weighted_avg_speed_um_per_sec"] = (
+            float(np.nanmean(weighted_track_speed_values))
+            if weighted_track_speed_values.size > 0 and np.isfinite(weighted_track_speed_values).any()
+            else None
+        )
+        lineage_summary["area_weighted_max_speed_um_per_sec"] = (
+            float(np.nanmax(weighted_track_speed_values))
+            if weighted_track_speed_values.size > 0 and np.isfinite(weighted_track_speed_values).any()
+            else None
+        )
+        lineage_summary["tracks_with_speed_count"] = int(
+            len({int(row["track_id"]) for row in track_speed_rows if str(row.get("speed_um_per_sec", "")) != ""})
+        )
+        lineage_visual_dir = metrics_dir / "object_lineage_frames"
+        lineage_visual_dir.mkdir(parents=True, exist_ok=True)
+        for frame_index in frame_indices:
+            rows_for_frame = list(mask_rows_by_frame.get(int(frame_index), []))
+            if not rows_for_frame:
+                continue
+            mask_by_track_id = {
+                int(row["track_id"]): np.asarray(mask_by_frame_track[(int(frame_index), int(row["track_id"]))], dtype=bool)
+                for row in rows_for_frame
+                if (int(frame_index), int(row["track_id"])) in mask_by_frame_track
+            }
+            rendered = _draw_lineage_overlay(
+                reader.read_frame(int(frame_index), use_cache=True),
+                rows_for_frame,
+                mask_by_track_id=mask_by_track_id,
+            )
+            output_name = f"{int(frame_index):06d}_object_lineage.png"
+            _write_frame(lineage_visual_dir / output_name, rendered, ".png")
+            lineage_visual_frames.append((int(frame_index), np.asarray(rendered, dtype=np.uint8)))
+        _write_lineage_overview_montage(
+            metrics_dir / "object_lineage_overview.png",
+            rendered_frames=lineage_visual_frames,
+        )
+        _write_rows_csv(
+            metrics_dir / "track_area_recruited.csv",
+            columns=["track_id", "root_track_id", "frame_index", "frame_display", "time_sec", "area_mm2"],
+            rows=track_area_rows,
+        )
+        _write_rows_csv(
+            metrics_dir / "track_propagation_speed.csv",
+            columns=["track_id", "root_track_id", "frame_index", "frame_display", "time_sec", "area_px", "speed_um_per_sec"],
+            rows=track_speed_rows,
+        )
+        _write_rows_csv(
+            metrics_dir / "track_relative_area_recruited.csv",
+            columns=["track_id", "root_track_id", "frame_index", "frame_display", "time_sec", "relative_area_pct"],
+            rows=track_relative_rows,
+        )
+        _write_rows_csv(
+            metrics_dir / "lineage_weighted_propagation_speed.csv",
+            columns=["frame_index", "frame_display", "time_sec", "active_track_count", "area_weighted_speed_um_per_sec"],
+            rows=weighted_track_speed_rows,
+        )
+        (metrics_dir / "object_lineage_summary.json").write_text(
+            json.dumps(lineage_summary, indent=2),
+            encoding="utf-8",
+        )
+        metric_tables.append(
+            _rows_table(
+                "Track Speed",
+                columns=["track_id", "root_track_id", "frame_index", "frame_display", "time_sec", "area_px", "speed_um_per_sec"],
+                rows=track_speed_rows,
+            )
+        )
+        metric_tables.append(
+            _rows_table(
+                "Weighted Track Speed",
+                columns=["frame_index", "frame_display", "time_sec", "active_track_count", "area_weighted_speed_um_per_sec"],
+                rows=weighted_track_speed_rows,
+            )
+        )
+        metric_tables.append(
+            _rows_table(
+                "Track Area",
+                columns=["track_id", "root_track_id", "frame_index", "frame_display", "time_sec", "area_mm2"],
+                rows=track_area_rows,
+            )
+        )
+        metric_tables.append(
+            _rows_table(
+                "Track Relative Area",
+                columns=["track_id", "root_track_id", "frame_index", "frame_display", "time_sec", "relative_area_pct"],
+                rows=track_relative_rows,
+            )
+        )
+        lineage_visual_written = 1 + int(len(lineage_visual_frames))
+        files_written += 5 + int(lineage_visual_written)
+        written.extend(
+            [
+                "track_propagation_speed.csv",
+                "track_area_recruited.csv",
+                "track_relative_area_recruited.csv",
+                "lineage_weighted_propagation_speed.csv",
+                "object_lineage_summary.json",
+                "object_lineage_overview.png",
+                "object_lineage_frames/",
+            ]
+        )
+        if include_metric_lineage_track_tables:
+            _write_rows_csv(
+                metrics_dir / "object_tracks.csv",
+                columns=["track_id", "root_track_id", "frame_index", "area_px", "centroid_x", "centroid_y", "bbox_x", "bbox_y", "bbox_w", "bbox_h"],
+                rows=object_track_rows,
+            )
+            _write_rows_csv(
+                metrics_dir / "object_lineage.csv",
+                columns=[
+                    "track_id",
+                    "root_track_id",
+                    "parent_track_ids",
+                    "child_track_ids",
+                    "birth_frame",
+                    "end_frame",
+                    "merge_frame",
+                    "merged_into_track_id",
+                    "terminal_status",
+                    "persistence_frames",
+                    "max_area_px",
+                ],
+                rows=lineage_rows,
+            )
+            metric_tables.append(
+                _rows_table(
+                    "Object Tracks",
+                    columns=["track_id", "root_track_id", "frame_index", "area_px", "centroid_x", "centroid_y", "bbox_x", "bbox_y", "bbox_w", "bbox_h"],
+                    rows=object_track_rows,
+                )
+            )
+            metric_tables.append(
+                _rows_table(
+                    "Object Lineage",
+                    columns=[
+                        "track_id",
+                        "root_track_id",
+                        "parent_track_ids",
+                        "child_track_ids",
+                        "birth_frame",
+                        "end_frame",
+                        "merge_frame",
+                        "merged_into_track_id",
+                        "terminal_status",
+                        "persistence_frames",
+                        "max_area_px",
+                    ],
+                    rows=lineage_rows,
+                )
+            )
+            files_written += 2
+            written.extend(["object_tracks.csv", "object_lineage.csv"])
+
     summary = {
         "event_id": str(event.event_id),
         "frames_per_sec": float(fps),
@@ -766,8 +1227,10 @@ def _export_event_metrics(
             "propagation_speed": bool(include_metric_propagation_speed),
             "area_recruited": bool(include_metric_area_recruited),
             "relative_area_recruited": bool(include_metric_relative_area_recruited),
+            "lineage_object_metrics": bool(include_metric_lineage_object_metrics),
         },
         "propagation_gap_warning": dict(propagation_gap_warning) if propagation_gap_warning is not None else None,
+        "object_lineage_summary": dict(lineage_summary or {}),
         "written_files": list(written),
         "overall_avg_speed_um_per_sec": float(np.nanmean(speed_um_per_sec)) if np.isfinite(speed_um_per_sec).any() else None,
         "overall_max_speed_um_per_sec": float(np.nanmax(speed_um_per_sec)) if np.isfinite(speed_um_per_sec).any() else None,
@@ -881,7 +1344,7 @@ def _build_event_global_mask_map(
             global_idx = int(scope_start) + int(local_idx)
             mask = np.asarray(arr[local_idx], dtype=bool)
             if mask.ndim == 2:
-                out[int(global_idx)] = mask
+                out[int(global_idx)] = mask.copy()
         return out
 
     if origin_hint == "event_local" or (event_len > 0 and frame_count == event_len):
@@ -889,7 +1352,7 @@ def _build_event_global_mask_map(
             global_idx = int(event.start_idx) + int(local_idx)
             mask = np.asarray(arr[local_idx], dtype=bool)
             if mask.ndim == 2:
-                out[int(global_idx)] = mask
+                out[int(global_idx)] = mask.copy()
         return out
 
     # If payload looks global, keep indices as-is; otherwise treat it as event-scope local.
@@ -897,14 +1360,14 @@ def _build_event_global_mask_map(
         for idx in range(frame_count):
             mask = np.asarray(arr[idx], dtype=bool)
             if mask.ndim == 2:
-                out[int(idx)] = mask
+                out[int(idx)] = mask.copy()
         return out
 
     for local_idx in range(frame_count):
         global_idx = int(event.start_idx) + int(local_idx)
         mask = np.asarray(arr[local_idx], dtype=bool)
         if mask.ndim == 2:
-            out[int(global_idx)] = mask
+            out[int(global_idx)] = mask.copy()
     return out
 
 
@@ -1308,6 +1771,18 @@ def _write_metrics_summary_markdown(path: Path, summary: dict[str, object]) -> N
         _markdown_bullet("Max relative area (%)", summary.get("max_relative_area_pct")),
         _markdown_bullet("Written files", summary.get("written_files")),
     ]
+    lineage_summary = summary.get("object_lineage_summary")
+    if isinstance(lineage_summary, dict) and lineage_summary:
+        lines.extend(
+            [
+                _markdown_bullet("Tracked objects kept", lineage_summary.get("kept_track_count")),
+                _markdown_bullet("Noise-filtered objects", lineage_summary.get("noise_filtered_track_count")),
+                _markdown_bullet("Merge events", lineage_summary.get("merge_event_count")),
+                _markdown_bullet("Lineage weighted average speed (um/sec)", lineage_summary.get("area_weighted_avg_speed_um_per_sec")),
+                _markdown_bullet("Lineage weighted max speed (um/sec)", lineage_summary.get("area_weighted_max_speed_um_per_sec")),
+                _markdown_bullet("Tracks with speed", lineage_summary.get("tracks_with_speed_count")),
+            ]
+        )
     warning_entries = _propagation_warning_entries(summary.get("propagation_gap_warning"))
     if warning_entries:
         lines.extend(
