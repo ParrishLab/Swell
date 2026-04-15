@@ -138,6 +138,46 @@ def test_default_baseline_pre_frames_for_event_falls_back_to_app_default() -> No
     assert controller._default_baseline_pre_frames_for_event("event_0042") == 11
 
 
+def test_default_processing_options_for_event_prefers_event_flags() -> None:
+    frame_source = _build_frame_source()
+    app = _build_app(frame_source)
+    app.browser_controller.get_event = lambda _event_id: SimpleNamespace(
+        flags={
+            "analysis_processing": {
+                "horizontal_bar_denoise": True,
+                "smoothing": False,
+                "baseline_subtraction": False,
+                "global_normalization": False,
+                "stabilization": True,
+            }
+        }
+    )
+    controller = AnalysisLaunchController(app)
+
+    assert controller._default_processing_options_for_event("event_0042") == {
+        "horizontal_bar_denoise": True,
+        "smoothing": False,
+        "baseline_subtraction": False,
+        "global_normalization": False,
+        "stabilization": True,
+    }
+
+
+def test_default_processing_options_for_event_falls_back_to_defaults() -> None:
+    frame_source = _build_frame_source()
+    app = _build_app(frame_source)
+    app.browser_controller.get_event = lambda _event_id: SimpleNamespace(flags={})
+    controller = AnalysisLaunchController(app)
+
+    assert controller._default_processing_options_for_event("event_0042") == {
+        "horizontal_bar_denoise": False,
+        "smoothing": True,
+        "baseline_subtraction": True,
+        "global_normalization": True,
+        "stabilization": False,
+    }
+
+
 def test_event_display_name_prefers_event_label() -> None:
     frame_source = _build_frame_source()
     app = _build_app(frame_source)

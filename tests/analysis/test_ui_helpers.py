@@ -76,7 +76,7 @@ class _FakeLabel:
 class UiHelpersTests(unittest.TestCase):
     def test_apply_theme_configures_style(self):
         fake = _FakeStyle(None)
-        with patch("sdapp.analysis.ui.theme.Style", return_value=fake):
+        with patch("sdapp.shared.ui.theme.Style", return_value=fake):
             apply_theme(root=None)
         configured = {name for name, _ in fake.config_calls}
         self.assertIn("AppCard.TFrame", configured)
@@ -89,10 +89,10 @@ class UiHelpersTests(unittest.TestCase):
         fake.fail_scrollbar_once = True
         fallback_calls = []
         with (
-            patch("sdapp.analysis.ui.theme.Style", return_value=fake),
-            patch("sdapp.analysis.ui.theme.BOOTSTRAP_AVAILABLE", True),
+            patch("sdapp.shared.ui.theme.Style", return_value=fake),
+            patch("sdapp.shared.ui.theme.BOOTSTRAP_AVAILABLE", True),
             patch(
-                "sdapp.analysis.ui.theme.tk_ttk.Style.configure",
+                "sdapp.shared.ui.theme.tk_ttk.Style.configure",
                 autospec=True,
                 side_effect=lambda style_obj, style_name, **kwargs: fallback_calls.append((style_obj, style_name, kwargs)),
             ),

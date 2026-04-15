@@ -10,6 +10,8 @@ def _make_controller(
     *,
     app_root: str,
     source_paths: list[str],
+    frame_names: list[str] | None = None,
+    current_frame_idx: int = 0,
     last_scale_path: str = "",
     input_folder: str = "",
     scale_points: list[tuple[float, float]] | None = None,
@@ -22,9 +24,10 @@ def _make_controller(
         get_masks_cache=lambda: {},
         get_paint_layers=lambda: {},
         get_points=lambda: {},
-        get_frame_names=lambda: [],
+        get_frame_names=lambda: list(frame_names or []),
         get_import_source_hint=lambda: input_folder,
         get_current_image_source_paths=lambda: list(source_paths),
+        get_current_frame_idx=lambda: int(current_frame_idx),
         get_compose_final_mask_for_frame=lambda _idx: None,
         get_nonempty_final_mask_frames=lambda: set(),
         get_frames_per_sec=lambda: 1.0,
@@ -247,3 +250,35 @@ def test_capture_roi_selection_uses_image_picker_with_project_source_initialdir(
 
     assert Path(captured["initialdir"]).resolve() == stack_dir.resolve()
     assert captured["title"] == "Select Image for ROI"
+    assert captured["initialfile"] == "frame_001.tif"
+
+
+def test_capture_roi_selection_prefills_current_active_frame_name(tmp_path):
+    app_root = tmp_path / "app"
+    app_root.mkdir()
+    stack_dir = tmp_path / "stack"
+    stack_dir.mkdir()
+    frame_1 = stack_dir / "frame_001.tif"
+    frame_2 = stack_dir / "frame_002.tif"
+    frame_1.write_bytes(b"not-an-image")
+    frame_2.write_bytes(b"not-an-image")
+
+    controller = _make_controller(
+        app_root=str(app_root),
+        source_paths=[str(frame_1), str(frame_2)],
+        frame_names=["frame_001.tif", "frame_002.tif"],
+        current_frame_idx=1,
+    )
+    controller._load_image_u8_from_path = lambda _path: np.zeros((8, 8), dtype=np.uint8)
+
+    captured: dict = {}
+
+    def _fake_dialog(**kwargs):
+        captured.update(kwargs)
+        return ""
+
+    with patch("sdapp.analysis.core.analysis_controller.filedialog.askopenfilename", side_effect=_fake_dialog):
+        controller._capture_roi_selection()
+
+    assert Path(captured["initialdir"]).resolve() == stack_dir.resolve()
+    assert captured["initialfile"] == "frame_002.tif"

@@ -94,3 +94,50 @@ def test_collect_garbage_aggressive_clears_engine_caches() -> None:
     assert len(engine._baseline_cache) == 0  # type: ignore[attr-defined]
     assert len(engine._norm_cache) == 0  # type: ignore[attr-defined]
     assert len(engine._sampled_diff_cache) == 0  # type: ignore[attr-defined]
+
+
+def test_norm_range_override_uses_specified_frame_window() -> None:
+    frames = [np.full((16, 16), i * 3, dtype=np.uint8) for i in range(50)]
+    reader = CountingReader(frames)
+    engine = PopupProcessingEngine(smoothed_cache_max=128)
+    engine.set_reader(reader)  # type: ignore[arg-type]
+
+    baseline_count = 10
+    baseline_end = 12
+    target_idx = 25
+
+    default_result = engine.run_popup_sync(
+        PopupProcessRequest(
+            job_id=1,
+            range_start=15,
+            range_end=35,
+            baseline_count=baseline_count,
+            baseline_end=baseline_end,
+            current_idx=target_idx,
+        )
+    )
+    single_frame_result = engine.run_popup_sync(
+        PopupProcessRequest(
+            job_id=2,
+            range_start=15,
+            range_end=35,
+            baseline_count=baseline_count,
+            baseline_end=baseline_end,
+            current_idx=target_idx,
+            norm_range_start=target_idx,
+            norm_range_end=target_idx,
+        )
+    )
+    assert default_result is not None
+    assert single_frame_result is not None
+
+    baseline = engine._get_baseline(baseline_end, baseline_count, cancel_event=None)  # type: ignore[attr-defined]
+    target_diff = engine._get_smoothed_frame(target_idx, cancel_event=None) - baseline  # type: ignore[attr-defined]
+    expected_p1 = float(np.percentile(target_diff, 1))
+    expected_p99 = float(np.percentile(target_diff, 99))
+    if expected_p99 <= expected_p1:
+        expected_p99 = expected_p1 + 1e-8
+
+    assert abs(single_frame_result.p1 - expected_p1) <= 1e-5
+    assert abs(single_frame_result.p99 - expected_p99) <= 1e-5
+    assert (abs(default_result.p1 - single_frame_result.p1) + abs(default_result.p99 - single_frame_result.p99)) > 1e-6

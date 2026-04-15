@@ -811,6 +811,7 @@ def _export_event_metrics(
     time_sec = [(idx - frame_indices[0]) * sec_per_frame for idx in frame_indices]
     metrics_dir = event_dir / "metrics"
     metrics_dir.mkdir(parents=True, exist_ok=True)
+    suffix = f"_{event.event_id}"
     files_written = 0
     written: list[str] = []
     metric_tables: list[dict[str, object]] = []
@@ -917,7 +918,7 @@ def _export_event_metrics(
 
     if include_metric_propagation_speed and has_scale:
         speed_table = _metric_table_rows(frame_indices, time_sec, speed_um_per_sec, "speed_um_per_sec")
-        _write_metric_csv(metrics_dir / "propagation_speed.csv", frame_indices, time_sec, speed_um_per_sec, "speed_um_per_sec")
+        _write_metric_csv(metrics_dir / f"propagation_speed{suffix}.csv", frame_indices, time_sec, speed_um_per_sec, "speed_um_per_sec")
         _write_metric_plot(
             metrics_dir / "propagation_speed.png",
             time_sec,
@@ -933,10 +934,10 @@ def _export_event_metrics(
             }
         )
         files_written += 2
-        written.extend(["propagation_speed.csv", "propagation_speed.png"])
+        written.extend([f"propagation_speed{suffix}.csv", "propagation_speed.png"])
     if include_metric_area_recruited and has_scale and has_roi:
         area_table = _metric_table_rows(frame_indices, time_sec, area_mm2, "area_mm2")
-        _write_metric_csv(metrics_dir / "area_recruited.csv", frame_indices, time_sec, area_mm2, "area_mm2")
+        _write_metric_csv(metrics_dir / f"area_recruited{suffix}.csv", frame_indices, time_sec, area_mm2, "area_mm2")
         _write_metric_plot(metrics_dir / "area_recruited.png", time_sec, area_mm2, "Area Recruited", "Area (mm^2)")
         metric_tables.append(
             {
@@ -946,11 +947,11 @@ def _export_event_metrics(
             }
         )
         files_written += 2
-        written.extend(["area_recruited.csv", "area_recruited.png"])
+        written.extend([f"area_recruited{suffix}.csv", "area_recruited.png"])
     if include_metric_relative_area_recruited and has_roi:
         relative_area_table = _metric_table_rows(frame_indices, time_sec, relative_area_pct, "relative_area_pct")
         _write_metric_csv(
-            metrics_dir / "relative_area_recruited.csv",
+            metrics_dir / f"relative_area_recruited{suffix}.csv",
             frame_indices,
             time_sec,
             relative_area_pct,
@@ -971,7 +972,7 @@ def _export_event_metrics(
             }
         )
         files_written += 2
-        written.extend(["relative_area_recruited.csv", "relative_area_recruited.png"])
+        written.extend([f"relative_area_recruited{suffix}.csv", "relative_area_recruited.png"])
 
     lineage_summary: dict[str, object] | None = None
     if include_metric_lineage_object_metrics and has_roi:
@@ -1099,22 +1100,22 @@ def _export_event_metrics(
             rendered_frames=lineage_visual_frames,
         )
         _write_rows_csv(
-            metrics_dir / "track_area_recruited.csv",
+            metrics_dir / f"track_area_recruited{suffix}.csv",
             columns=["track_id", "root_track_id", "frame_index", "frame_display", "time_sec", "area_mm2"],
             rows=track_area_rows,
         )
         _write_rows_csv(
-            metrics_dir / "track_propagation_speed.csv",
+            metrics_dir / f"track_propagation_speed{suffix}.csv",
             columns=["track_id", "root_track_id", "frame_index", "frame_display", "time_sec", "area_px", "speed_um_per_sec"],
             rows=track_speed_rows,
         )
         _write_rows_csv(
-            metrics_dir / "track_relative_area_recruited.csv",
+            metrics_dir / f"track_relative_area_recruited{suffix}.csv",
             columns=["track_id", "root_track_id", "frame_index", "frame_display", "time_sec", "relative_area_pct"],
             rows=track_relative_rows,
         )
         _write_rows_csv(
-            metrics_dir / "lineage_weighted_propagation_speed.csv",
+            metrics_dir / f"lineage_weighted_propagation_speed{suffix}.csv",
             columns=["frame_index", "frame_display", "time_sec", "active_track_count", "area_weighted_speed_um_per_sec"],
             rows=weighted_track_speed_rows,
         )
@@ -1154,10 +1155,10 @@ def _export_event_metrics(
         files_written += 5 + int(lineage_visual_written)
         written.extend(
             [
-                "track_propagation_speed.csv",
-                "track_area_recruited.csv",
-                "track_relative_area_recruited.csv",
-                "lineage_weighted_propagation_speed.csv",
+                f"track_propagation_speed{suffix}.csv",
+                f"track_area_recruited{suffix}.csv",
+                f"track_relative_area_recruited{suffix}.csv",
+                f"lineage_weighted_propagation_speed{suffix}.csv",
                 "object_lineage_summary.json",
                 "object_lineage_overview.png",
                 "object_lineage_frames/",
@@ -1165,12 +1166,12 @@ def _export_event_metrics(
         )
         if include_metric_lineage_track_tables:
             _write_rows_csv(
-                metrics_dir / "object_tracks.csv",
+                metrics_dir / f"object_tracks{suffix}.csv",
                 columns=["track_id", "root_track_id", "frame_index", "area_px", "centroid_x", "centroid_y", "bbox_x", "bbox_y", "bbox_w", "bbox_h"],
                 rows=object_track_rows,
             )
             _write_rows_csv(
-                metrics_dir / "object_lineage.csv",
+                metrics_dir / f"object_lineage{suffix}.csv",
                 columns=[
                     "track_id",
                     "root_track_id",
@@ -1213,7 +1214,7 @@ def _export_event_metrics(
                 )
             )
             files_written += 2
-            written.extend(["object_tracks.csv", "object_lineage.csv"])
+            written.extend([f"object_tracks{suffix}.csv", f"object_lineage{suffix}.csv"])
 
     summary = {
         "event_id": str(event.event_id),
@@ -1238,10 +1239,11 @@ def _export_event_metrics(
         "max_relative_area_pct": float(np.nanmax(relative_area_pct)) if np.isfinite(relative_area_pct).any() else None,
     }
     if include_metric_combined_spreadsheet and metric_tables:
-        written.append("metrics_combined.xlsx")
+        xlsx_name = f"metrics_combined{suffix}.xlsx"
+        written.append(xlsx_name)
         summary["written_files"] = list(written)
         _write_metrics_combined_workbook(
-            metrics_dir / "metrics_combined.xlsx",
+            metrics_dir / xlsx_name,
             summary=summary,
             metric_tables=metric_tables,
         )

@@ -65,7 +65,6 @@ def open_scale_dialog(
     zoom_min = 1.0
     zoom_max = 12.0
 
-    tool_mode_var = tk.StringVar(value="edit")
     axis_lock_var = tk.BooleanVar(value=bool(True if initial_axis_lock is None else initial_axis_lock))
     points_seed = []
     if isinstance(initial_scale_points, list) and len(initial_scale_points) >= 2:
@@ -86,6 +85,7 @@ def open_scale_dialog(
         "preview": None,
         "dragging_idx": None,
         "is_panning": False,
+        "space_pan_requested": False,
         "hit_radius_canvas_px": 14.0,
         "zoom_factor": 1.0,
         "fit_ratio": initial_fit_ratio,
@@ -284,19 +284,10 @@ def open_scale_dialog(
                 )
 
     def on_click(event):
-        mode = tool_mode_var.get()
-        if mode == "pan":
+        if bool(int(getattr(event, "state", 0)) & 0x0001) or bool(state["space_pan_requested"]):
             state["is_panning"] = True
             canvas.scan_mark(event.x, event.y)
-            return
-        if mode in ("zoom_in", "zoom_out"):
-            current = float(state["zoom_factor"])
-            if mode == "zoom_in":
-                next_factor = current * zoom_step
-            else:
-                next_factor = current / zoom_step
-            apply_zoom(next_factor, canvas.canvasx(event.x), canvas.canvasy(event.y))
-            return
+            return "break"
         px, py = event_to_image_xy(event)
         if not (0 <= px < img_w and 0 <= py < img_h):
             return
@@ -313,7 +304,7 @@ def open_scale_dialog(
     def on_drag(event):
         if state["is_panning"]:
             pan_drag_to_pointer()
-            return
+            return "break"
         if state["dragging_idx"] is None:
             return
         px, py = event_to_image_xy(event)
@@ -333,6 +324,22 @@ def open_scale_dialog(
         state["dragging_idx"] = None
         if state["is_panning"]:
             state["is_panning"] = False
+            return "break"
+
+    def on_mouse_wheel(event):
+        delta = getattr(event, "delta", 0)
+        num = getattr(event, "num", None)
+        direction = 0
+        if delta:
+            direction = 1 if float(delta) > 0 else -1
+        elif num in (4, 5):
+            direction = 1 if int(num) == 4 else -1
+        if direction == 0:
+            return None
+        current = float(state["zoom_factor"])
+        next_factor = current * zoom_step if direction > 0 else current / zoom_step
+        apply_zoom(next_factor, canvas.canvasx(event.x), canvas.canvasy(event.y))
+        return "break"
 
     def on_undo():
         if state["points"]:
@@ -345,10 +352,49 @@ def open_scale_dialog(
         state["dragging_idx"] = None
         redraw()
 
+    def set_space_pan_active(_event=None):
+        state["space_pan_requested"] = True
+        try:
+            canvas.config(cursor="fleur")
+        except Exception:
+            pass
+        return "break"
+
+    def clear_space_pan_active(_event=None):
+        state["space_pan_requested"] = False
+        if not state["is_panning"]:
+            try:
+                canvas.config(cursor="cross")
+            except Exception:
+                pass
+        return "break"
+
     def pan_drag_to_pointer():
         px = popup.winfo_pointerx() - canvas.winfo_rootx()
         py = popup.winfo_pointery() - canvas.winfo_rooty()
         canvas.scan_dragto(int(px), int(py), gain=1)
+
+    def zoom_in():
+        width = max(1, int(canvas.winfo_width()))
+        height = max(1, int(canvas.winfo_height()))
+        apply_zoom(float(state["zoom_factor"]) * zoom_step, canvas.canvasx(width / 2.0), canvas.canvasy(height / 2.0))
+
+    def zoom_out():
+        width = max(1, int(canvas.winfo_width()))
+        height = max(1, int(canvas.winfo_height()))
+        apply_zoom(float(state["zoom_factor"]) / zoom_step, canvas.canvasx(width / 2.0), canvas.canvasy(height / 2.0))
+
+    def reset_view():
+        view_w = max(1, int(canvas.winfo_width()))
+        view_h = max(1, int(canvas.winfo_height()))
+        fit_ratio = max(1e-6, min(float(view_w) / float(img_w), float(view_h) / float(img_h)))
+        if fit_ratio <= 0:
+            return
+        state["zoom_factor"] = 1.0
+        render_background()
+        redraw()
+        canvas.xview_moveto(0.0)
+        canvas.yview_moveto(0.0)
 
     def on_set_scale(target_scope: str):
         if len(state["points"]) != 2:
@@ -388,6 +434,9 @@ def open_scale_dialog(
     canvas.bind("<B1-Motion>", on_drag)
     canvas.bind("<ButtonRelease-1>", on_release)
     canvas.bind("<Configure>", lambda _event: (render_background(), redraw()))
+    canvas.bind("<MouseWheel>", on_mouse_wheel)
+    canvas.bind("<Button-4>", on_mouse_wheel)
+    canvas.bind("<Button-5>", on_mouse_wheel)
     popup.focus_set()
     render_background()
     redraw()
@@ -396,31 +445,16 @@ def open_scale_dialog(
     controls.columnconfigure(0, weight=1)
     controls.columnconfigure(1, weight=1)
 
-    tool_buttons = {}
-
-    def sync_tool_buttons(*_args):
-        active_mode = tool_mode_var.get()
-        for mode_name, button in tool_buttons.items():
-            button.configure(style="AppSegmentedActive.TButton" if mode_name == active_mode else "AppSegmented.TButton")
-
     left_controls = ttk.Frame(controls, style="AppSurface.TFrame")
     left_controls.grid(row=0, column=0, sticky="w")
+    ttk.Label(
+        left_controls,
+        text="Click to add/select points. Drag to move. Wheel zooms. Shift-drag or Space-drag pans.",
+        style="AppMeta.TLabel",
+    ).pack(side="left", padx=(0, SPACING.inner))
     ttk.Button(left_controls, text="Undo", command=on_undo, **semantic_button_options("secondary")).pack(side="left", padx=(0, SPACING.gap))
     ttk.Button(left_controls, text="Clear", command=on_clear, **semantic_button_options("secondary")).pack(side="left", padx=(0, SPACING.gap))
-    tool_strip = ttk.Frame(left_controls, style="AppSurface.TFrame")
-    tool_strip.pack(side="left", padx=(SPACING.inner, SPACING.gap))
-    for index, (mode_name, label) in enumerate((("edit", "Edit"), ("pan", "Pan"), ("zoom_in", "Zoom In"), ("zoom_out", "Zoom Out"))):
-        button = ttk.Button(
-            tool_strip,
-            text=label,
-            command=lambda value=mode_name: tool_mode_var.set(value),
-            style="AppSegmented.TButton",
-        )
-        button.pack(side="left", padx=(0 if index == 0 else 1, 0))
-        tool_buttons[mode_name] = button
     ttk.Checkbutton(left_controls, text="Axis Lock", variable=axis_lock_var, command=redraw).pack(side="left", padx=(SPACING.inner, 0))
-    tool_mode_var.trace_add("write", sync_tool_buttons)
-    sync_tool_buttons()
 
     right_controls = ttk.Frame(controls, style="AppSurface.TFrame")
     right_controls.grid(row=0, column=1, sticky="e")
@@ -438,6 +472,21 @@ def open_scale_dialog(
     ttk.Button(right_controls, text="Set Global Scale", command=lambda: on_set_scale("global"), **semantic_button_options("primary")).pack(
         side="right", padx=(0, SPACING.gap)
     )
+    popup.bind("<KeyPress-space>", set_space_pan_active, add="+")
+    popup.bind("<space>", set_space_pan_active, add="+")
+    popup.bind("<KeyRelease-space>", clear_space_pan_active, add="+")
+    canvas.bind("<KeyPress-space>", set_space_pan_active, add="+")
+    canvas.bind("<space>", set_space_pan_active, add="+")
+    canvas.bind("<KeyRelease-space>", clear_space_pan_active, add="+")
+    popup.bind("<Key-plus>", lambda _e: (zoom_in(), "break")[1], add="+")
+    popup.bind("<Key-equal>", lambda _e: (zoom_in(), "break")[1], add="+")
+    popup.bind("<Key-minus>", lambda _e: (zoom_out(), "break")[1], add="+")
+    popup.bind("<Key-underscore>", lambda _e: (zoom_out(), "break")[1], add="+")
+    popup.bind("<Key-0>", lambda _e: (reset_view(), "break")[1], add="+")
+    try:
+        canvas.config(cursor="cross")
+    except Exception:
+        pass
 
     center_window_on_screen(popup, width=1080, height=860)
     popup.deiconify()

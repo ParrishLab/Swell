@@ -2,6 +2,8 @@ import os
 import importlib
 import importlib.util
 import sys
+import tempfile
+import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -133,7 +135,9 @@ class SegmentationActions:
 
     def _handle_accelerator_oom(self, detail: str) -> bool:
         message = str(detail or "").strip() or "Accelerator out of memory."
-        self.log_warn("Model", f"{message} Releasing accelerator runtime and switching to CPU fallback.")
+        self.log_warn("Model", f"{message} Releasing accelerator runtime and waiting for user OOM recovery choice.")
+
+        # Shut down the runtime immediately to free GPU/system RAM regardless of user choice.
         runtime = getattr(self, "sam2_runtime", None)
         if runtime is not None:
             try:
@@ -144,14 +148,40 @@ class SegmentationActions:
         self.inference_state = None
         self.model_ready = False
         self.inference_manager.on_model_unloaded()
-        try:
-            frames_viz = self._collect_visualization_frames()
-            self._initialize_cpu_fallback(frames_viz, reason="accelerator out of memory")
-            return True
-        except Exception as exc:
-            self.log_error("Model", f"CPU fallback initialization after OOM failed: {exc}")
+
+        if not self._ui_alive():
+            return False
+
+        # Ask the user how to proceed. The dialog runs on the UI thread; we block
+        # this background thread on an Event until the user responds.
+        response_event = threading.Event()
+        user_choice = [None]  # "fallback" or "wait"
+
+        def _show_oom_dialog():
+            try:
+                choice = self._show_oom_recovery_dialog(message)
+                user_choice[0] = choice
+            finally:
+                response_event.set()
+
+        self.root.after(0, _show_oom_dialog)
+        response_event.wait()
+
+        if user_choice[0] == "fallback":
+            try:
+                frames_viz = self._collect_visualization_frames()
+                self._initialize_transient_cpu_fallback(frames_viz)
+                return True
+            except Exception as exc:
+                self.log_error("Model", f"Transient CPU fallback initialization failed: {exc}")
+                if self._ui_alive():
+                    self.root.after(0, lambda: self._set_activity_message(STATUS_MODEL_ERROR))
+                return False
+        else:
+            # "wait" — model is already unloaded; start the RAM monitor on the UI thread.
+            prop_params = getattr(self.inference_manager, "_last_propagation_params", None)
             if self._ui_alive():
-                self.root.after(0, lambda: self._set_activity_message(STATUS_MODEL_ERROR))
+                self.root.after(0, lambda: self._start_ram_recovery_monitor(prop_params))
             return False
 
     def _apply_mps_sam2_dtype_guard(self):
@@ -427,6 +457,200 @@ class SegmentationActions:
             if hasattr(self, "btn_save_masks"):
                 self.root.after(0, lambda: self.btn_save_masks.configure(state="normal"))
             self.root.after(0, self._process_pending_points)
+
+    def _initialize_transient_cpu_fallback(self, frames_viz: np.ndarray):
+        """Like _initialize_cpu_fallback but does NOT update the project/host model metadata.
+
+        The CPU fallback is active only for the remainder of this analysis session.
+        When the analysis window is closed and reopened, the original SAM2 model is used.
+        """
+        runtime = getattr(self, "sam2_runtime", None)
+        if runtime is None:
+            ensure_runtime = getattr(self, "_ensure_sam2_runtime", None)
+            if callable(ensure_runtime):
+                runtime = ensure_runtime()
+        if runtime is None:
+            raise RuntimeError("SAM2 runtime service is unavailable.")
+        model_hint = None
+        try:
+            model_hint = self.checkpoint_runtime.managed_models_dir() / "cpu_fallback_model.pt"  # type: ignore[attr-defined]
+        except Exception:
+            model_hint = None
+        if model_hint is None:
+            model_hint = Path(tempfile.gettempdir()) / "sdapp_cpu_fallback_model.pt"
+        if not model_hint.exists():
+            model_hint.write_bytes(b"sdapp-cpu-fallback")
+
+        def _build_predictor(_normalized_model_path: str, _temp_dir: str):
+            predictor = _cpu_fallback_predictor_cls()(
+                frame_count=int(frames_viz.shape[0]),
+                frame_shape=(int(frames_viz.shape[1]), int(frames_viz.shape[2])),
+            )
+            return predictor, predictor.init_state(video_path=None)
+
+        status = runtime.ensure_initialized(
+            model_path=str(model_hint),
+            frames_viz=frames_viz,
+            build_predictor=_build_predictor,
+        )
+        if status.state != "READY":
+            raise RuntimeError(status.message or "Transient CPU fallback initialization failed.")
+        self.predictor = runtime.predictor
+        self.inference_state = runtime.inference_state
+        self.temp_dir = runtime.temp_dir
+        self.model_ready = True
+        self.inference_manager.on_model_ready(self.predictor, self.inference_state)
+        # notify_host=False: preserve the original project model assignment.
+        meta = {
+            "checkpoint_id": "cpu_fallback",
+            "filename": str(model_hint.name),
+            "path": str(model_hint),
+            "sha256": None,
+            "source": "cpu_fallback",
+        }
+        self._set_active_checkpoint_metadata(meta, notify_host=False, reason="transient_cpu_fallback")
+        self.log_warn("Model", "Using deterministic CPU fallback backend for this session only.")
+        if self._ui_alive():
+            self.root.after(0, lambda: self._set_activity_message("Model Ready (CPU Fallback \u2014 This Session Only)"))
+            if hasattr(self, "btn_save_masks"):
+                self.root.after(0, lambda: self.btn_save_masks.configure(state="normal"))
+            self.root.after(0, self._process_pending_points)
+
+    def _show_oom_recovery_dialog(self, detail: str) -> str:
+        """Show a native dialog asking how to recover from an OOM event.
+
+        Must be called on the UI thread. Returns "fallback" or "wait".
+        """
+        import tkinter as tk
+
+        title = "Out of Memory"
+        body = (
+            "The accelerator ran out of memory.\n\n"
+            "How would you like to continue?\n\n"
+            "\u2022  Use CPU Fallback \u2014 continue this session using the CPU predictor.\n"
+            "   The project\u2019s model setting will not be changed.\n\n"
+            "\u2022  Wait for RAM \u2014 unload the model and wait until memory frees up,\n"
+            "   then automatically re-initialize and resume propagation."
+        )
+
+        result = [None]
+        dialog = tk.Toplevel(self.root)
+        dialog.title(title)
+        dialog.resizable(False, False)
+        dialog.grab_set()
+        dialog.focus_set()
+
+        # Center over parent
+        dialog.update_idletasks()
+        pw = self.root.winfo_width()
+        ph = self.root.winfo_height()
+        px = self.root.winfo_rootx()
+        py = self.root.winfo_rooty()
+        dw, dh = 440, 230
+        dialog.geometry(f"{dw}x{dh}+{px + (pw - dw) // 2}+{py + (ph - dh) // 2}")
+
+        msg_label = tk.Label(dialog, text=body, justify="left", wraplength=400, anchor="w")
+        msg_label.pack(padx=16, pady=(16, 8), fill="both", expand=True)
+
+        btn_frame = tk.Frame(dialog)
+        btn_frame.pack(padx=16, pady=(0, 16), fill="x")
+
+        def _choose(choice):
+            result[0] = choice
+            dialog.grab_release()
+            dialog.destroy()
+
+        btn_wait = tk.Button(btn_frame, text="Wait for RAM", width=16,
+                             command=lambda: _choose("wait"))
+        btn_wait.pack(side="right", padx=(6, 0))
+
+        btn_fallback = tk.Button(btn_frame, text="Use CPU Fallback", width=18,
+                                 command=lambda: _choose("fallback"))
+        btn_fallback.pack(side="right")
+
+        dialog.protocol("WM_DELETE_WINDOW", lambda: _choose("wait"))
+        dialog.wait_window()
+
+        return result[0] or "wait"
+
+    # --- RAM recovery monitor (runs on UI thread via root.after) ---
+
+    _RAM_RECOVERY_POLL_MS = 2500
+    _RAM_RECOVERY_REINIT_POLL_MS = 500
+    _RAM_RECOVERY_REINIT_MAX_POLLS = 60  # ~30 s
+
+    def _start_ram_recovery_monitor(self, prop_params):
+        """Begin polling for available RAM after an OOM shutdown.
+
+        prop_params: tuple (prop_start, prop_end, anchor_frame) or None.
+        """
+        available_bytes = 0
+        available_mb = 0
+        try:
+            import psutil
+            available_bytes = psutil.virtual_memory().available
+            available_mb = available_bytes // (1024 * 1024)
+        except Exception:
+            pass
+
+        self._ram_recovery_prop_params = prop_params
+        # Target: 2× the available RAM recorded right after the model shutdown.
+        # If we cannot read RAM, set target to 0 so the first poll immediately
+        # offers re-initialization (graceful degradation).
+        self._ram_recovery_target_bytes = available_bytes * 2
+        self.log_info("Model", f"RAM recovery monitor started. Available now: {available_mb} MB. "
+                               f"Target: {available_mb * 2} MB.")
+        if self._ui_alive():
+            self._set_activity_message(f"Waiting for RAM\u2026 ({available_mb} MB free)")
+            self.root.after(self._RAM_RECOVERY_POLL_MS, self._check_ram_recovery)
+
+    def _check_ram_recovery(self):
+        """Periodic UI-thread callback: poll available RAM and trigger re-init when ready."""
+        if not self._ui_alive():
+            return
+        try:
+            import psutil
+            available = psutil.virtual_memory().available
+            available_mb = available // (1024 * 1024)
+        except Exception:
+            available = 0
+            available_mb = 0
+
+        target = getattr(self, "_ram_recovery_target_bytes", 0)
+        if available >= target:
+            self.log_info("Model", f"RAM recovery threshold met ({available_mb} MB free). Re-initializing model.")
+            self._set_activity_message("RAM available \u2014 re-initializing model\u2026")
+            start_init = getattr(self, "start_model_initialization", None)
+            if callable(start_init):
+                start_init(reason="ram_recovery")
+                self._ram_recovery_reinit_polls = 0
+                self.root.after(self._RAM_RECOVERY_REINIT_POLL_MS, self._resume_propagation_after_reinit)
+            else:
+                self._set_activity_message("RAM available \u2014 re-initialize the model to continue.")
+        else:
+            self._set_activity_message(f"Waiting for RAM\u2026 ({available_mb} MB free)")
+            self.root.after(self._RAM_RECOVERY_POLL_MS, self._check_ram_recovery)
+
+    def _resume_propagation_after_reinit(self):
+        """UI-thread callback: once the model is ready after RAM recovery, restart propagation."""
+        if not self._ui_alive():
+            return
+        polls = getattr(self, "_ram_recovery_reinit_polls", 0)
+        if polls >= self._RAM_RECOVERY_REINIT_MAX_POLLS:
+            self.log_warn("Model", "Timed out waiting for model ready after RAM recovery.")
+            return
+        self._ram_recovery_reinit_polls = polls + 1
+        if not getattr(self, "model_ready", False):
+            self.root.after(self._RAM_RECOVERY_REINIT_POLL_MS, self._resume_propagation_after_reinit)
+            return
+        prop_params = getattr(self, "_ram_recovery_prop_params", None)
+        self._ram_recovery_prop_params = None
+        if prop_params is not None:
+            try:
+                self.log_info("Model", "Model ready after RAM recovery. Restarting propagation.")
+                self.inference_manager.trigger_propagation(*prop_params)
+            except Exception as exc:
+                self.log_error("Model", f"Auto-restart propagation after RAM recovery failed: {exc}")
 
     def _resolve_mismatch_choice(self, model_path: str, checkpoint_id: str | None, source: str):
         if bool(getattr(self, "_host_mode", False)):

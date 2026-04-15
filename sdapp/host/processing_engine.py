@@ -22,6 +22,8 @@ class PopupProcessRequest:
     current_idx: int
     warm_radius: int = 10
     sample_stride: int = 5
+    norm_range_start: int | None = None
+    norm_range_end: int | None = None
 
 
 @dataclass
@@ -99,9 +101,14 @@ class PopupProcessingEngine:
             return None
         t1 = perf_counter()
 
+        norm_range_start = int(request.range_start if request.norm_range_start is None else request.norm_range_start)
+        norm_range_end = int(request.range_end if request.norm_range_end is None else request.norm_range_end)
+        if norm_range_end < norm_range_start:
+            norm_range_start, norm_range_end = norm_range_end, norm_range_start
+
         p1, p99 = self._get_norm_stats(
-            request.range_start,
-            request.range_end,
+            norm_range_start,
+            norm_range_end,
             request.baseline_end,
             request.baseline_count,
             request.sample_stride,

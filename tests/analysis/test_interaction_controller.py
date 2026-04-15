@@ -239,6 +239,33 @@ class InteractionControllerTests(unittest.TestCase):
 
         self.assertFalse(changed)
 
+    def test_clear_current_frame_data_records_undoable_clear_frame_snapshot(self):
+        controller, holder, _mode, _lbl = self._make_controller()
+        controller.seg_state.points = controller.points
+        controller.seg_state.paint_layers = controller.paint_layers
+        controller.seg_state.masks_cache = controller.masks_cache
+        controller.points[0] = [{"x": 2, "y": 2, "label": 1}]
+        controller.paint_layers[0] = {
+            "plus": np.ones((20, 20), dtype=bool),
+            "minus": np.zeros((20, 20), dtype=bool),
+        }
+        controller.masks_cache[0] = np.ones((20, 20), dtype=bool)
+
+        changed = controller.clear_current_frame_data()
+
+        self.assertTrue(changed)
+        self.assertEqual(len(holder["records"]), 1)
+        action_type, frame_idx, before_payload, after_payload = holder["records"][0]
+        self.assertEqual(action_type, "clear_frame")
+        self.assertEqual(frame_idx, 0)
+        self.assertIsInstance(before_payload, dict)
+        self.assertIn("points", before_payload)
+        self.assertIn("paint", before_payload)
+        self.assertIn("mask", before_payload)
+        self.assertIsNone(after_payload["points"])
+        self.assertIsNone(after_payload["paint"])
+        self.assertIsNone(after_payload["mask"])
+
 
 if __name__ == "__main__":
     unittest.main()

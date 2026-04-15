@@ -7,7 +7,6 @@ import tkinter as tk
 from tkinter import messagebox, ttk
 from typing import Any
 
-from sdapp.analysis.ui.theme import SPACING, apply_theme
 from sdapp.shared.model_copy import TITLE_MODEL_DOWNLOAD_FAILED, TITLE_MODEL_FILE_MISSING
 from sdapp.shared.ui.background_task_runner import BackgroundTaskRunner
 from sdapp.shared.ui.bootstrap import semantic_button_options
@@ -75,6 +74,8 @@ class ManagedModelWorkflow:
             method(*args)
 
     def open_dialog(self, *, required: bool = False) -> dict[str, object]:
+        from sdapp.shared.ui.theme import SPACING, apply_theme
+
         service = self._service
         if service is None:
             messagebox.showwarning("Models", self._options.unavailable_message, parent=self._root)
@@ -90,8 +91,11 @@ class ManagedModelWorkflow:
         dialog.title(self._options.title)
         dialog.transient(self._root)
         dialog.resizable(True, True)
-        dialog.geometry("760x400")
-        apply_theme(dialog)
+        self._call_dialog_method(dialog, "geometry", "760x400")
+        try:
+            apply_theme(dialog)
+        except Exception:
+            pass
 
         shell = ttk.Frame(dialog, padding=SPACING.outer, style="AppShell.TFrame")
         shell.pack(fill="both", expand=True)

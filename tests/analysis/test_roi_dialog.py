@@ -4,6 +4,7 @@ from PIL import Image
 
 from sdapp.analysis.ui.roi_dialog import (
     ROI_ICON_LABELS,
+    _canvas_radius_to_image_radius,
     _clamp_roi_viewport,
     _compute_roi_transform,
     _dialog_transform_resample,
@@ -43,6 +44,12 @@ class RoiDialogViewportTests(unittest.TestCase):
 
     def test_roi_icon_labels_match_expected_controls(self):
         self.assertEqual(ROI_ICON_LABELS, {"zoom_in": "+", "zoom_out": "-", "fit": "□"})
+
+    def test_canvas_radius_converts_to_smaller_image_radius_when_zoomed_in(self):
+        base = _canvas_radius_to_image_radius(1.0, 10.0)
+        zoomed = _canvas_radius_to_image_radius(2.5, 10.0)
+        self.assertAlmostEqual(base, 10.0)
+        self.assertAlmostEqual(zoomed, 4.0)
 
 
 if __name__ == "__main__":

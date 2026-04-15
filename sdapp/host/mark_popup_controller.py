@@ -56,17 +56,25 @@ class MarkPopupController:
         )
         return clamped_center, start_default, end_default, local_start, local_end
 
-    def _begin_popup_session(self, range_start: int, range_end: int) -> None:
+    def _begin_popup_session(self, range_start: int, range_end: int, *, normalize_to_current_frame: bool = False) -> None:
         try:
             self.app._apply_popup_range_bounds(int(range_start), int(range_end))
         except Exception as exc:
             self.app._log_warn(f"Initial popup preview failed: {exc}")
 
+        recompute_kwargs = {
+            "show_errors": False,
+            "loading_text": "Computing selected range...",
+        }
+        if normalize_to_current_frame:
+            current_idx = int(getattr(self.app, "_mark_popup_current_idx", range_start))
+            recompute_kwargs["normalization_range_start"] = current_idx
+            recompute_kwargs["normalization_range_end"] = current_idx
+
         self.app._recompute_popup_pipeline_for_bounds(
             int(getattr(self.app, "_mark_popup_local_start", range_start)),
             int(getattr(self.app, "_mark_popup_local_end", range_end)),
-            show_errors=False,
-            loading_text="Computing selected range...",
+            **recompute_kwargs,
         )
 
     def _resolve_initial_baseline_state(self, *, mode: str, event, start_default: int) -> tuple[int, int]:
@@ -272,7 +280,11 @@ class MarkPopupController:
         center_window(popup, width=1200, height=850)
         popup.deiconify()
         popup.update_idletasks()
-        self._begin_popup_session(initial_range_start, initial_range_end)
+        self._begin_popup_session(
+            initial_range_start,
+            initial_range_end,
+            normalize_to_current_frame=(mode == "new"),
+        )
 
     def on_destroy(self, _event=None) -> None:
         popup_ref = self.app._mark_popup

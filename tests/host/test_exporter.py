@@ -402,11 +402,11 @@ def test_export_metrics_only_writes_per_event_metrics_outputs(tmp_path: Path) ->
     metrics_dir = tmp_path / "event_0001" / "metrics"
     assert result["frames_exported"] == 0
     assert int(result["metrics_files_exported"]) >= 7
-    assert (metrics_dir / "propagation_speed.csv").exists()
+    assert (metrics_dir / "propagation_speed_event_0001.csv").exists()
     assert (metrics_dir / "propagation_speed.png").exists()
-    assert (metrics_dir / "area_recruited.csv").exists()
+    assert (metrics_dir / "area_recruited_event_0001.csv").exists()
     assert (metrics_dir / "area_recruited.png").exists()
-    assert (metrics_dir / "relative_area_recruited.csv").exists()
+    assert (metrics_dir / "relative_area_recruited_event_0001.csv").exists()
     assert (metrics_dir / "relative_area_recruited.png").exists()
     assert (metrics_dir / "metrics_summary.json").exists()
     assert (metrics_dir / "metrics_summary.md").exists()
@@ -454,7 +454,7 @@ def test_export_metrics_combined_workbook_includes_summary_and_selected_metric_s
         },
     )
 
-    workbook_path = tmp_path / "event_0001" / "metrics" / "metrics_combined.xlsx"
+    workbook_path = tmp_path / "event_0001" / "metrics" / "metrics_combined_event_0001.xlsx"
     assert workbook_path.exists()
     assert int(result["metrics_files_exported"]) >= 6
 
@@ -471,7 +471,7 @@ def test_export_metrics_combined_workbook_includes_summary_and_selected_metric_s
     assert summary_rows["Frames per second"] in {"2", "2.0"}
     assert "propagation_speed" in str(summary_rows["Selected metrics"])
     assert "relative_area_recruited" in str(summary_rows["Selected metrics"])
-    assert "metrics_combined.xlsx" in str(summary_rows["Written files"])
+    assert "metrics_combined_event_0001.xlsx" in str(summary_rows["Written files"])
 
     speed_sheet = workbook["Propagation Speed"]
     assert list(next(speed_sheet.iter_rows(min_row=1, max_row=1, values_only=True))) == [
@@ -519,7 +519,7 @@ def test_export_metrics_combined_workbook_is_not_written_when_option_is_disabled
         },
     )
 
-    assert not (tmp_path / "event_0001" / "metrics" / "metrics_combined.xlsx").exists()
+    assert not (tmp_path / "event_0001" / "metrics" / "metrics_combined_event_0001.xlsx").exists()
 
 
 def test_export_metrics_combined_workbook_reports_missing_openpyxl(monkeypatch, tmp_path: Path) -> None:
@@ -597,9 +597,9 @@ def test_export_metrics_respects_selection_flags(tmp_path: Path) -> None:
     )
 
     metrics_dir = tmp_path / "event_0001" / "metrics"
-    assert (metrics_dir / "propagation_speed.csv").exists()
-    assert not (metrics_dir / "area_recruited.csv").exists()
-    assert not (metrics_dir / "relative_area_recruited.csv").exists()
+    assert (metrics_dir / "propagation_speed_event_0001.csv").exists()
+    assert not (metrics_dir / "area_recruited_event_0001.csv").exists()
+    assert not (metrics_dir / "relative_area_recruited_event_0001.csv").exists()
 
 
 def test_export_metrics_prefers_local_roi_over_global_roi_defaults(tmp_path: Path) -> None:
@@ -746,9 +746,9 @@ def test_export_metrics_uses_analysis_scope_local_mask_arrays(tmp_path: Path) ->
     )
 
     metrics_dir = tmp_path / "event_0001" / "metrics"
-    with (metrics_dir / "area_recruited.csv").open("r", newline="", encoding="utf-8") as f:
+    with (metrics_dir / "area_recruited_event_0001.csv").open("r", newline="", encoding="utf-8") as f:
         area_rows = list(csv.DictReader(f))
-    with (metrics_dir / "relative_area_recruited.csv").open("r", newline="", encoding="utf-8") as f:
+    with (metrics_dir / "relative_area_recruited_event_0001.csv").open("r", newline="", encoding="utf-8") as f:
         relative_rows = list(csv.DictReader(f))
 
     assert [int(row["frame_index"]) for row in area_rows] == [12, 13, 14, 15]
@@ -801,7 +801,7 @@ def test_export_metrics_uses_legacy_event_local_mask_arrays(tmp_path: Path) -> N
     )
 
     metrics_dir = tmp_path / "event_0001" / "metrics"
-    with (metrics_dir / "area_recruited.csv").open("r", newline="", encoding="utf-8") as f:
+    with (metrics_dir / "area_recruited_event_0001.csv").open("r", newline="", encoding="utf-8") as f:
         area_rows = list(csv.DictReader(f))
 
     assert [int(row["frame_index"]) for row in area_rows] == [12, 13, 14, 15]
@@ -843,36 +843,36 @@ def test_export_lineage_metrics_write_object_tracking_artifacts(tmp_path: Path) 
 
     metrics_dir = tmp_path / "event_0001" / "metrics"
     assert int(result["metrics_files_exported"]) >= 6
-    assert (metrics_dir / "track_area_recruited.csv").exists()
-    assert (metrics_dir / "track_relative_area_recruited.csv").exists()
-    assert (metrics_dir / "track_propagation_speed.csv").exists()
-    assert (metrics_dir / "lineage_weighted_propagation_speed.csv").exists()
+    assert (metrics_dir / "track_area_recruited_event_0001.csv").exists()
+    assert (metrics_dir / "track_relative_area_recruited_event_0001.csv").exists()
+    assert (metrics_dir / "track_propagation_speed_event_0001.csv").exists()
+    assert (metrics_dir / "lineage_weighted_propagation_speed_event_0001.csv").exists()
     assert (metrics_dir / "object_lineage_overview.png").exists()
     assert (metrics_dir / "object_lineage_frames").is_dir()
-    assert (metrics_dir / "object_tracks.csv").exists()
-    assert (metrics_dir / "object_lineage.csv").exists()
+    assert (metrics_dir / "object_tracks_event_0001.csv").exists()
+    assert (metrics_dir / "object_lineage_event_0001.csv").exists()
     assert (metrics_dir / "object_lineage_summary.json").exists()
-    assert (metrics_dir / "metrics_combined.xlsx").exists()
+    assert (metrics_dir / "metrics_combined_event_0001.xlsx").exists()
 
     lineage_summary = json.loads((metrics_dir / "object_lineage_summary.json").read_text(encoding="utf-8"))
     assert int(lineage_summary["merge_event_count"]) == 1
     assert lineage_summary["area_weighted_avg_speed_um_per_sec"] is not None
     assert lineage_summary["area_weighted_max_speed_um_per_sec"] is not None
 
-    lineage_rows = list(csv.DictReader((metrics_dir / "object_lineage.csv").open("r", newline="", encoding="utf-8")))
+    lineage_rows = list(csv.DictReader((metrics_dir / "object_lineage_event_0001.csv").open("r", newline="", encoding="utf-8")))
     assert len(lineage_rows) == 3
     merged_rows = [row for row in lineage_rows if row["terminal_status"] == "merged"]
     assert len(merged_rows) == 2
 
     relative_rows = list(
-        csv.DictReader((metrics_dir / "track_relative_area_recruited.csv").open("r", newline="", encoding="utf-8"))
+        csv.DictReader((metrics_dir / "track_relative_area_recruited_event_0001.csv").open("r", newline="", encoding="utf-8"))
     )
     assert relative_rows
     assert {"track_id", "root_track_id", "frame_index", "relative_area_pct"} <= set(relative_rows[0].keys())
-    speed_rows = list(csv.DictReader((metrics_dir / "track_propagation_speed.csv").open("r", newline="", encoding="utf-8")))
+    speed_rows = list(csv.DictReader((metrics_dir / "track_propagation_speed_event_0001.csv").open("r", newline="", encoding="utf-8")))
     assert speed_rows
     weighted_rows = list(
-        csv.DictReader((metrics_dir / "lineage_weighted_propagation_speed.csv").open("r", newline="", encoding="utf-8"))
+        csv.DictReader((metrics_dir / "lineage_weighted_propagation_speed_event_0001.csv").open("r", newline="", encoding="utf-8"))
     )
     assert weighted_rows
     assert {"frame_index", "active_track_count", "area_weighted_speed_um_per_sec"} <= set(weighted_rows[0].keys())
@@ -880,7 +880,7 @@ def test_export_lineage_metrics_write_object_tracking_artifacts(tmp_path: Path) 
     assert overlay_frames
     assert len(overlay_frames) == 3
 
-    workbook = load_workbook(metrics_dir / "metrics_combined.xlsx", data_only=True)
+    workbook = load_workbook(metrics_dir / "metrics_combined_event_0001.xlsx", data_only=True)
     assert "Track Speed" in workbook.sheetnames
     assert "Weighted Track Speed" in workbook.sheetnames
     assert "Track Area" in workbook.sheetnames
@@ -954,12 +954,12 @@ def test_export_lineage_metrics_do_not_change_legacy_relative_area_outputs(tmp_p
 
     legacy_metrics_dir = legacy_dir / "event_0001" / "metrics"
     lineage_metrics_dir = lineage_dir / "event_0001" / "metrics"
-    legacy_relative = (legacy_metrics_dir / "relative_area_recruited.csv").read_text(encoding="utf-8")
-    lineage_relative = (lineage_metrics_dir / "relative_area_recruited.csv").read_text(encoding="utf-8")
+    legacy_relative = (legacy_metrics_dir / "relative_area_recruited_event_0001.csv").read_text(encoding="utf-8")
+    lineage_relative = (lineage_metrics_dir / "relative_area_recruited_event_0001.csv").read_text(encoding="utf-8")
 
     assert legacy_relative == lineage_relative
-    assert not (legacy_metrics_dir / "track_relative_area_recruited.csv").exists()
-    assert (lineage_metrics_dir / "track_relative_area_recruited.csv").exists()
+    assert not (legacy_metrics_dir / "track_relative_area_recruited_event_0001.csv").exists()
+    assert (lineage_metrics_dir / "track_relative_area_recruited_event_0001.csv").exists()
 
 
 def test_export_lineage_metrics_preserve_original_track_masks_while_clipping_metric_area_to_roi(tmp_path: Path) -> None:
@@ -994,8 +994,8 @@ def test_export_lineage_metrics_preserve_original_track_masks_while_clipping_met
     )
 
     metrics_dir = tmp_path / "event_0001" / "metrics"
-    object_rows = list(csv.DictReader((metrics_dir / "object_tracks.csv").open("r", newline="", encoding="utf-8")))
-    area_rows = list(csv.DictReader((metrics_dir / "track_area_recruited.csv").open("r", newline="", encoding="utf-8")))
+    object_rows = list(csv.DictReader((metrics_dir / "object_tracks_event_0001.csv").open("r", newline="", encoding="utf-8")))
+    area_rows = list(csv.DictReader((metrics_dir / "track_area_recruited_event_0001.csv").open("r", newline="", encoding="utf-8")))
 
     assert object_rows
     assert area_rows
@@ -1081,7 +1081,7 @@ def test_export_metrics_gap_warning_can_ignore(tmp_path: Path, monkeypatch: pyte
     )
 
     metrics_dir = tmp_path / "event_0001" / "metrics"
-    rows = list(csv.DictReader((metrics_dir / "propagation_speed.csv").open("r", newline="", encoding="utf-8")))
+    rows = list(csv.DictReader((metrics_dir / "propagation_speed_event_0001.csv").open("r", newline="", encoding="utf-8")))
     warning = json.loads((metrics_dir / "propagation_speed_warning.json").read_text(encoding="utf-8"))
 
     assert len(decisions) == 1
@@ -1138,7 +1138,7 @@ def test_export_metrics_gap_warning_can_stop_at_gap(tmp_path: Path, monkeypatch:
     )
 
     metrics_dir = tmp_path / "event_0001" / "metrics"
-    rows = list(csv.DictReader((metrics_dir / "propagation_speed.csv").open("r", newline="", encoding="utf-8")))
+    rows = list(csv.DictReader((metrics_dir / "propagation_speed_event_0001.csv").open("r", newline="", encoding="utf-8")))
 
     assert rows[1]["speed_um_per_sec"] != ""
     assert rows[2]["speed_um_per_sec"] == ""
@@ -1182,7 +1182,7 @@ def test_export_metrics_gap_warning_can_interpolate(tmp_path: Path, monkeypatch:
     )
 
     metrics_dir = tmp_path / "event_0001" / "metrics"
-    rows = list(csv.DictReader((metrics_dir / "propagation_speed.csv").open("r", newline="", encoding="utf-8")))
+    rows = list(csv.DictReader((metrics_dir / "propagation_speed_event_0001.csv").open("r", newline="", encoding="utf-8")))
     warning = json.loads((metrics_dir / "propagation_speed_warning.json").read_text(encoding="utf-8"))
     values = [row["speed_um_per_sec"] for row in rows]
 
@@ -1231,7 +1231,7 @@ def test_export_metrics_zero_growth_warning_can_set_zero(tmp_path: Path, monkeyp
     )
 
     metrics_dir = tmp_path / allocate_event_path_segment("Halo(Light Off) 1", set()) / "metrics"
-    rows = list(csv.DictReader((metrics_dir / "propagation_speed.csv").open("r", newline="", encoding="utf-8")))
+    rows = list(csv.DictReader((metrics_dir / "propagation_speed_event_0001.csv").open("r", newline="", encoding="utf-8")))
     warning = json.loads((metrics_dir / "propagation_speed_warning.json").read_text(encoding="utf-8"))
 
     assert len(decisions) == 1

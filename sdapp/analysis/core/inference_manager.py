@@ -453,6 +453,7 @@ class InferenceManager:
             self._log_error("Model", f"Inference failed on frame {frame_idx + 1}: {e}")
 
     def trigger_propagation(self, prop_start, prop_end, anchor_frame):
+        self._last_propagation_params = (prop_start, prop_end, anchor_frame)
         if self._prop_start_retry_job is not None and self.is_ui_alive():
             try:
                 self.root.after_cancel(self._prop_start_retry_job)

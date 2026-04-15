@@ -42,6 +42,30 @@ def test_begin_popup_session_applies_bounds_and_starts_processing() -> None:
     assert warnings == []
 
 
+def test_begin_popup_session_for_mark_new_uses_current_frame_normalization() -> None:
+    recompute_calls: list[dict[str, object]] = []
+    app = SimpleNamespace(
+        _mark_popup_local_start=12,
+        _mark_popup_local_end=18,
+        _mark_popup_current_idx=15,
+        _apply_popup_range_bounds=lambda _start, _end: None,
+        _recompute_popup_pipeline_for_bounds=lambda start, end, **kwargs: recompute_calls.append(
+            {"start": int(start), "end": int(end), **dict(kwargs)}
+        ),
+        _log_warn=lambda _message: None,
+    )
+    controller = MarkPopupController(app)
+
+    controller._begin_popup_session(12, 18, normalize_to_current_frame=True)
+
+    assert len(recompute_calls) == 1
+    call = recompute_calls[0]
+    assert call["start"] == 12
+    assert call["end"] == 18
+    assert call["normalization_range_start"] == 15
+    assert call["normalization_range_end"] == 15
+
+
 def test_edit_popup_baseline_end_should_track_event_start_not_center() -> None:
     event = SimpleNamespace(start_idx=642, end_idx=702)
     controller = MarkPopupController(SimpleNamespace())

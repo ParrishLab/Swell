@@ -151,6 +151,7 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         self.scale_axis_lock = True
         self._scale_is_local_override = False
         self._roi_is_local_override = False
+        self._frames_per_sec_is_local_override = False
         self.analysis_mode = None
 
         self.sam2_runtime = None
@@ -263,6 +264,7 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
                 if self._current_image_source_paths
                 else list(getattr(getattr(self, "frame_source", None), "source_paths", []) or [])
             ),
+            get_current_frame_idx=lambda: int(self.current_frame_idx),
             get_compose_final_mask_for_frame=self._compose_final_mask_for_frame,
             get_nonempty_final_mask_frames=self._collect_nonempty_final_mask_frames,
             get_frames_per_sec=lambda: float(self.frames_per_sec_var.get()),
@@ -290,6 +292,7 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
             set_scale_is_local_override=lambda v: setattr(self, "_scale_is_local_override", bool(v)),
             get_roi_is_local_override=lambda: bool(self._roi_is_local_override),
             set_roi_is_local_override=lambda v: setattr(self, "_roi_is_local_override", bool(v)),
+            refresh_metrics_status=self._refresh_metrics_status_labels,
         )
         self.interaction_controller = InteractionController(
             seg_state=self.seg_state,
@@ -345,6 +348,7 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         if hasattr(self, "entry_frames_per_sec"):
             self.entry_frames_per_sec.bind("<FocusOut>", self._on_frames_per_sec_commit, add="+")
             self.entry_frames_per_sec.bind("<Return>", self._on_frames_per_sec_commit, add="+")
+        self._refresh_metrics_status_labels()
         self._set_data_controls_enabled(False)
         self.inference_manager.start()
 
@@ -1071,9 +1075,11 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
             return 1, 1
         return max(1, int(frame_w)), max(1, int(frame_h))
 
-    def _iter_viewport_canvas_sizes(self) -> list[tuple[int, int]]:
+    def _iter_viewport_canvas_sizes(self, *, exclude_preview: bool = False) -> list[tuple[int, int]]:
         sizes: list[tuple[int, int]] = []
         for name in ("canvas_left", "canvas_right", "canvas_preview"):
+            if bool(exclude_preview) and name == "canvas_preview":
+                continue
             canvas = getattr(self, name, None)
             if canvas is None:
                 continue
@@ -1103,7 +1109,7 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
             self.viewport_state,
             image_width=img_w,
             image_height=img_h,
-            canvas_sizes=self._iter_viewport_canvas_sizes(),
+            canvas_sizes=self._iter_viewport_canvas_sizes(exclude_preview=True),
         )
         self._sync_legacy_viewport_fields()
 
@@ -1159,7 +1165,7 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
             anchor_canvas_x=anchor_x,
             anchor_canvas_y=anchor_y,
             new_zoom_factor=float(self.viewport_state.zoom_factor) * float(step),
-            shared_canvas_sizes=self._iter_viewport_canvas_sizes(),
+            shared_canvas_sizes=self._iter_viewport_canvas_sizes(exclude_preview=True),
         )
         self._sync_legacy_viewport_fields()
         self.update_display(update_preview=True)
@@ -1179,7 +1185,7 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
             canvas_height=max(1, int(canvas.winfo_height())),
             delta_canvas_x=float(delta_x),
             delta_canvas_y=float(delta_y),
-            shared_canvas_sizes=self._iter_viewport_canvas_sizes(),
+            shared_canvas_sizes=self._iter_viewport_canvas_sizes(exclude_preview=True),
         )
         self._sync_legacy_viewport_fields()
         self.update_display(update_preview=True)
@@ -1188,11 +1194,27 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         if self._focus_is_text_input():
             return None
         self._space_pan_requested = True
+        self._sync_viewport_cursor_states()
         return "break" if event is not None else None
 
     def _clear_space_pan_active(self, event=None):
         self._space_pan_requested = False
+        self._sync_viewport_cursor_states()
         return "break" if event is not None else None
+
+    def _sync_viewport_cursor_states(self) -> None:
+        active_canvas = getattr(self, "_viewport_pan_canvas", None) if bool(getattr(self, "_viewport_pan_active", False)) else None
+        for canvas_name in ("canvas_right", "canvas_preview"):
+            canvas = getattr(self, canvas_name, None)
+            if canvas is None:
+                continue
+            cursor = "fleur" if bool(getattr(self, "_space_pan_requested", False)) or canvas is active_canvas else "arrow"
+            try:
+                canvas.config(cursor=cursor)
+            except Exception:
+                pass
+        if getattr(self, "canvas_left", None) is not None:
+            self._draw_brush_cursor_on_canvas()
 
     def _start_canvas_pan(self, canvas, event) -> str | None:
         if not bool(getattr(self, "_space_pan_requested", False)):
@@ -1205,6 +1227,7 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
             canvas.config(cursor="fleur")
         except Exception:
             pass
+        self._sync_viewport_cursor_states()
         return "break"
 
     def _drag_canvas_pan(self, canvas, event) -> str | None:
@@ -1228,10 +1251,7 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
             self._viewport_pan_last_x = None
             self._viewport_pan_last_y = None
             try:
-                if canvas is getattr(self, "canvas_left", None):
-                    self._draw_brush_cursor_on_canvas()
-                else:
-                    canvas.config(cursor="arrow")
+                self._sync_viewport_cursor_states()
             except Exception:
                 pass
             return "break"
@@ -1247,6 +1267,9 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
             direction = 1 if int(num) == 4 else -1
         if direction == 0:
             return None
+        if bool(int(getattr(event, "state", 0)) & 0x0001):
+            self._step_brush_size(direction)
+            return "break"
         return self._zoom_shared_viewport(event.widget, direction, getattr(event, "x", 0.0), getattr(event, "y", 0.0))
 
     def _on_viewport_canvas_configure(self, _event=None):
@@ -2067,6 +2090,16 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         self.interaction_controller.on_mouse_move(event)
 
     def _draw_brush_cursor_on_canvas(self):
+        if bool(getattr(self, "_viewport_pan_active", False)) and getattr(self, "_viewport_pan_canvas", None) is getattr(self, "canvas_left", None):
+            self.canvas_left.delete("cursor_brush")
+            self.canvas_left.config(cursor="fleur")
+            return
+
+        if bool(getattr(self, "_space_pan_requested", False)):
+            self.canvas_left.delete("cursor_brush")
+            self.canvas_left.config(cursor="fleur")
+            return
+
         mode = self.tool_mode.get()
         if mode == "select":
             self.canvas_left.delete("cursor_brush")
@@ -2176,6 +2209,47 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         self.tool_mode.set("eraser")
         self.update_display()
         return "break"
+
+    def _set_tool_select_hotkey(self, event=None):
+        if self._focus_is_text_input():
+            return None
+        self.tool_mode.set("select")
+        self.update_display()
+        return "break"
+
+    def _set_tool_point_pos_hotkey(self, event=None):
+        if self._focus_is_text_input():
+            return None
+        self.tool_mode.set("point_pos")
+        self.update_display()
+        return "break"
+
+    def _set_tool_point_neg_hotkey(self, event=None):
+        if self._focus_is_text_input():
+            return None
+        self.tool_mode.set("point_neg")
+        self.update_display()
+        return "break"
+
+    def _step_brush_size(self, direction: int) -> None:
+        scale = getattr(self, "scale_brush", None)
+        var = getattr(self, "brush_size", None)
+        if scale is None or var is None:
+            return
+        try:
+            minimum = float(scale.cget("from"))
+            maximum = float(scale.cget("to"))
+            current = float(var.get())
+        except Exception:
+            return
+        step = 1.0 if int(direction) > 0 else -1.0
+        next_value = max(minimum, min(maximum, current + step))
+        if abs(next_value - current) < 1e-9:
+            return
+        var.set(next_value)
+        self.on_brush_size_change(next_value)
+        if str(getattr(self.tool_mode, "get", lambda: "")()) in {"brush", "eraser"}:
+            self._draw_brush_cursor_on_canvas()
 
     def _zoom_in_hotkey(self, event=None):
         if not hasattr(self, "canvas_left"):
@@ -2336,6 +2410,9 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
 
     def _on_frames_per_sec_commit(self, _event=None):
         return self._get_window_controller().on_frames_per_sec_commit(_event)
+
+    def _refresh_metrics_status_labels(self) -> None:
+        self._get_window_controller().refresh_metrics_status_labels()
 
     def _get_window_controller(self) -> AnalysisWindowController:
         controller = getattr(self, "window_controller", None)

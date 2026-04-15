@@ -102,6 +102,33 @@ class AnalysisLaunchController:
         except Exception:
             return fallback
 
+    def _default_processing_options_for_event(self, event_id: str) -> dict[str, bool]:
+        defaults = {
+            "horizontal_bar_denoise": False,
+            "smoothing": True,
+            "baseline_subtraction": True,
+            "global_normalization": True,
+            "stabilization": False,
+        }
+        browser = getattr(self.app, "browser_controller", None)
+        getter = getattr(browser, "get_event", None)
+        if not callable(getter):
+            return dict(defaults)
+        try:
+            event = getter(str(event_id))
+        except Exception:
+            return dict(defaults)
+        flags = dict(getattr(event, "flags", {}) or {}) if event is not None else {}
+        processing_raw = flags.get("analysis_processing")
+        processing = dict(processing_raw) if isinstance(processing_raw, dict) else {}
+        return {
+            "horizontal_bar_denoise": bool(processing.get("horizontal_bar_denoise", defaults["horizontal_bar_denoise"])),
+            "smoothing": bool(processing.get("smoothing", defaults["smoothing"])),
+            "baseline_subtraction": bool(processing.get("baseline_subtraction", defaults["baseline_subtraction"])),
+            "global_normalization": bool(processing.get("global_normalization", defaults["global_normalization"])),
+            "stabilization": bool(processing.get("stabilization", defaults["stabilization"])),
+        }
+
     @staticmethod
     def _launch_processing_options(
         *,
@@ -243,6 +270,7 @@ class AnalysisLaunchController:
         ttk.Label(summary, text=f"Event range: {event_start + 1} - {event_end + 1}", style="AppMeta.TLabel").grid(row=0, column=0, sticky="w")
 
         default_baseline_pre_frames = self._default_baseline_pre_frames_for_event(str(event_id))
+        default_processing = self._default_processing_options_for_event(str(event_id))
 
         baseline_row = ttk.Frame(summary, style="AppSurface.TFrame")
         baseline_row.grid(row=0, column=1, sticky="e", padx=(SPACING.inner, 0))
@@ -256,11 +284,11 @@ class AnalysisLaunchController:
         checks.columnconfigure(0, weight=1)
         checks.columnconfigure(1, weight=1)
         ttk.Label(checks, text="Preprocessing", style="AppSectionTitle.TLabel").pack(anchor="w", pady=(0, SPACING.gap))
-        bar_denoise_var = tk.BooleanVar(value=False)
-        smoothing_var = tk.BooleanVar(value=True)
-        subtract_var = tk.BooleanVar(value=True)
-        normalize_var = tk.BooleanVar(value=True)
-        stabilize_var = tk.BooleanVar(value=False)
+        bar_denoise_var = tk.BooleanVar(value=bool(default_processing["horizontal_bar_denoise"]))
+        smoothing_var = tk.BooleanVar(value=bool(default_processing["smoothing"]))
+        subtract_var = tk.BooleanVar(value=bool(default_processing["baseline_subtraction"]))
+        normalize_var = tk.BooleanVar(value=bool(default_processing["global_normalization"]))
+        stabilize_var = tk.BooleanVar(value=bool(default_processing["stabilization"]))
         checks_grid = ttk.Frame(checks, style="AppSurface.TFrame")
         checks_grid.pack(fill="x")
         checks_grid.columnconfigure(0, weight=1)

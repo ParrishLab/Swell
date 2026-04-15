@@ -781,6 +781,29 @@ class SDAnalyzerApp:
                 return str(stack_dir.resolve())
         return str(Path.cwd())
 
+    def _metrics_picker_initial_file(self) -> str:
+        reader = getattr(self, "reader", None)
+        if reader is None:
+            return ""
+        try:
+            frame_count = int(reader.get_frame_count())
+        except Exception:
+            return ""
+        if frame_count <= 0:
+            return ""
+        try:
+            idx = int(getattr(self, "current_frame_idx", 0))
+        except Exception:
+            idx = 0
+        idx = max(0, min(idx, frame_count - 1))
+        try:
+            ref = reader.get_frame_ref(idx)
+            source_path = Path(str(getattr(ref, "source_path", "") or "")).expanduser()
+            name = source_path.name
+            return str(name or "")
+        except Exception:
+            return ""
+
     def _load_metrics_reference_image_u8(self, image_path: str | Path) -> np.ndarray | None:
         path = Path(image_path).expanduser().resolve()
         if not path.exists() or not path.is_file():
@@ -852,10 +875,13 @@ class SDAnalyzerApp:
             if last_scale_image_path and Path(last_scale_image_path).is_file():
                 selected = last_scale_image_path
         if not selected:
+            initialdir = self._metrics_picker_initial_dir()
+            initialfile = self._metrics_picker_initial_file()
             selected = filedialog.askopenfilename(
                 parent=parent,
                 title=f"Select Image for {purpose}",
-                initialdir=self._metrics_picker_initial_dir(),
+                initialdir=initialdir,
+                initialfile=initialfile,
                 filetypes=[
                     ("Image files", "*.tif *.tiff *.png *.jpg *.jpeg *.bmp"),
                     ("TIFF files", "*.tif *.tiff"),
@@ -1411,6 +1437,8 @@ class SDAnalyzerApp:
         show_errors: bool = True,
         loading_text: str = "Computing popup sequence...",
         fast_mode: bool = False,
+        normalization_range_start: int | None = None,
+        normalization_range_end: int | None = None,
     ) -> bool:
         if self._mark_popup is None or not self._mark_popup.winfo_exists() or self.stack_info is None:
             return False
@@ -1434,6 +1462,12 @@ class SDAnalyzerApp:
             current_idx=int(self._mark_popup_current_idx),
             warm_radius=4 if fast_mode else 10,
             sample_stride=9 if fast_mode else 5,
+            norm_range_start=(
+                None if normalization_range_start is None else int(normalization_range_start)
+            ),
+            norm_range_end=(
+                None if normalization_range_end is None else int(normalization_range_end)
+            ),
         )
 
         def done(result: PopupProcessResult | None, error: Exception | None) -> None:

@@ -63,6 +63,57 @@ class UndoActionsTests(unittest.TestCase):
         self.assertIn(0, s.seg_state.paint_layers)
         self.assertEqual(s.updated, 1)
 
+    def test_double_undo_restores_propagated_mask_after_point_add_remove(self):
+        s = self._make_subject()
+        s.model_ready = True
+        frame_idx = 2
+        propagated_mask = np.zeros((4, 4), dtype=bool)
+        propagated_mask[1:3, 1:3] = True
+        point = [{"x": 1, "y": 1, "label": 1}]
+
+        s.record_action("point", frame_idx, None, point, mask_before=propagated_mask.copy())
+        s.record_action("point", frame_idx, point, None)
+
+        s.seg_state.clear_points(frame_idx)
+        s.seg_state.clear_mask(frame_idx)
+
+        s.on_undo()
+        self.assertEqual(s.seg_state.points[frame_idx], point)
+        self.assertEqual(s.inferred, 1)
+
+        s.on_undo()
+        self.assertNotIn(frame_idx, s.seg_state.points)
+        self.assertIn(frame_idx, s.seg_state.masks_cache)
+        self.assertTrue(np.array_equal(s.seg_state.masks_cache[frame_idx], propagated_mask))
+        self.assertEqual(s.inferred, 1)
+
+    def test_undo_redo_clear_frame_roundtrip_restores_frame_payload(self):
+        s = self._make_subject()
+        frame_idx = 1
+        points_before = [{"x": 3, "y": 2, "label": 1}]
+        plus = np.zeros((5, 5), dtype=bool)
+        minus = np.zeros((5, 5), dtype=bool)
+        plus[2, 2] = True
+        mask_before = np.zeros((5, 5), dtype=bool)
+        mask_before[1:4, 1:4] = True
+        clear_before = {
+            "points": points_before,
+            "paint": {"plus": plus.copy(), "minus": minus.copy()},
+            "mask": mask_before.copy(),
+        }
+        clear_after = {"points": None, "paint": None, "mask": None}
+
+        s.record_action("clear_frame", frame_idx, clear_before, clear_after)
+        s.on_undo()
+        self.assertEqual(s.seg_state.points[frame_idx], points_before)
+        self.assertTrue(np.any(s.seg_state.paint_layers[frame_idx]["plus"]))
+        self.assertTrue(np.array_equal(s.seg_state.masks_cache[frame_idx], mask_before))
+
+        s.on_redo()
+        self.assertNotIn(frame_idx, s.seg_state.points)
+        self.assertNotIn(frame_idx, s.seg_state.paint_layers)
+        self.assertNotIn(frame_idx, s.seg_state.masks_cache)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -321,6 +321,9 @@ class InteractionController:
         elif mode in ["point_pos", "point_neg"]:
             if is_click:
                 data_before = copy.deepcopy(self.points.get(idx))
+                mask_before = None
+                if data_before is None and idx in self.masks_cache and self.masks_cache[idx] is not None:
+                    mask_before = np.asarray(self.masks_cache[idx], dtype=bool).copy()
 
                 label = 1 if mode == "point_pos" else 0
                 if idx not in self.points:
@@ -330,7 +333,10 @@ class InteractionController:
                 self.seg_state.invalidate_final_mask_frames()
 
                 data_after = copy.deepcopy(self.points.get(idx))
-                self.record_action("point", idx, data_before, data_after)
+                if mask_before is not None:
+                    self.record_action("point", idx, data_before, data_after, mask_before=mask_before)
+                else:
+                    self.record_action("point", idx, data_before, data_after)
                 self.recompute_slider_jump_markers()
                 self._pending_dirty = True
 
@@ -409,18 +415,42 @@ class InteractionController:
 
     def clear_current_frame_data(self):
         idx = self.get_current_frame_idx()
+        frame_before = self._snapshot_frame_state(idx)
         had_points = bool(idx in self.points and self.points[idx])
         had_mask = bool(idx in self.masks_cache and self.masks_cache[idx] is not None)
         had_paint = bool(idx in self.paint_layers)
         self.seg_state.clear_points(idx)
         self.seg_state.clear_mask(idx)
         self.seg_state.clear_paint_layer(idx)
+        frame_after = self._snapshot_frame_state(idx)
         self.recompute_slider_jump_markers()
         self.update_display()
         changed = bool(had_points or had_mask or had_paint)
         if changed:
+            self.record_action("clear_frame", idx, frame_before, frame_after)
             self._pending_dirty = True
         return changed
+
+    def _snapshot_frame_state(self, frame_idx):
+        points_payload = copy.deepcopy(self.points.get(frame_idx))
+        paint_payload = None
+        layer = self.paint_layers.get(frame_idx)
+        if isinstance(layer, dict):
+            plus = layer.get("plus")
+            minus = layer.get("minus")
+            if plus is not None and minus is not None:
+                paint_payload = {
+                    "plus": np.asarray(plus, dtype=bool).copy(),
+                    "minus": np.asarray(minus, dtype=bool).copy(),
+                }
+        mask_payload = None
+        if frame_idx in self.masks_cache and self.masks_cache[frame_idx] is not None:
+            mask_payload = np.asarray(self.masks_cache[frame_idx], dtype=bool).copy()
+        return {
+            "points": points_payload,
+            "paint": paint_payload,
+            "mask": mask_payload,
+        }
 
     def _preview_paint_segment(self, x0, y0, x1, y1, ratio, offset_x, offset_y, mode):
         radius = max(1.0, float(self.brush_size.get()) * float(ratio))

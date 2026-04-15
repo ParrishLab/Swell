@@ -21,6 +21,7 @@ dependencies = [
   "pandas",
   "openpyxl",
   "ttkbootstrap",
+  "psutil",
 ]
 
 [project.optional-dependencies]

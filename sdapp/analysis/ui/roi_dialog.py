@@ -56,6 +56,11 @@ def _clamp_roi_viewport(state, *, canvas_width: int, canvas_height: int, image_w
     return state["viewport_state"]
 
 
+def _canvas_radius_to_image_radius(scale: float, canvas_radius_px: float) -> float:
+    safe_scale = max(1e-6, float(scale))
+    return float(canvas_radius_px) / safe_scale
+
+
 def open_roi_dialog(root, img_u8, initial_roi_points=None, allow_reset_local=False):
     popup = tk.Toplevel(root)
     popup.withdraw()
@@ -208,7 +213,7 @@ def open_roi_dialog(root, img_u8, initial_roi_points=None, allow_reset_local=Fal
         if not state["points"]:
             return None
         if max_dist_px is None:
-            max_dist_px = max(8.0, 12.0 / current_transform().scale)
+            max_dist_px = _canvas_radius_to_image_radius(current_transform().scale, 10.0)
         best_idx = None
         best_d2 = (max_dist_px**2) + 1
         for i, (x, y) in enumerate(state["points"]):
@@ -235,7 +240,7 @@ def open_roi_dialog(root, img_u8, initial_roi_points=None, allow_reset_local=Fal
         if not state["closed"] or len(state["points"]) < 3:
             return None
         if max_dist_px is None:
-            max_dist_px = max(6.0, 10.0 / current_transform().scale)
+            max_dist_px = _canvas_radius_to_image_radius(current_transform().scale, 8.0)
         best = None
         best_dist = max_dist_px + 1
         n = len(state["points"])
@@ -303,7 +308,11 @@ def open_roi_dialog(root, img_u8, initial_roi_points=None, allow_reset_local=Fal
         if len(state["points"]) < 3:
             return
         px, py = event_to_image_xy(event)
-        first_idx = nearest_point_idx(px, py, max_dist_px=10)
+        first_idx = nearest_point_idx(
+            px,
+            py,
+            max_dist_px=_canvas_radius_to_image_radius(current_transform().scale, 10.0),
+        )
         if first_idx == 0:
             state["closed"] = True
             state["selected_idx"] = 0

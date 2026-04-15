@@ -15,6 +15,55 @@ class AnalysisWindowController:
     def _dialog_parent(self):
         return getattr(self.app, "root", None)
 
+    def refresh_metrics_status_labels(self) -> None:
+        is_host_mode = bool(getattr(self.app, "_host_mode", False))
+        fps_source = "Current"
+        scale_source = "Current"
+        roi_source = "Current"
+        if is_host_mode:
+            fps_source = "Local Override" if bool(getattr(self.app, "_frames_per_sec_is_local_override", False)) else "Inherited Global"
+            scale_source = "Local Override" if bool(getattr(self.app, "_scale_is_local_override", False)) else "Inherited Global"
+            roi_source = "Local Override" if bool(getattr(self.app, "_roi_is_local_override", False)) else "Inherited Global"
+
+        fps_status = f"Frames/sec: Not set ({fps_source})"
+        try:
+            fps_value = float(self.app.frames_per_sec_var.get())
+            if fps_value > 0:
+                fps_status = f"Frames/sec: {fps_value:.6g} ({fps_source})"
+        except Exception:
+            pass
+
+        scale_status = f"Scale: Not set ({scale_source})"
+        try:
+            scale_value = float(getattr(self.app, "scale_px_per_mm", None))
+            if scale_value > 0:
+                scale_status = f"Scale: {scale_value:.6g} px/mm ({scale_source})"
+        except Exception:
+            pass
+
+        roi_points = list(getattr(self.app, "roi_points", []) or [])
+        roi_mask = getattr(self.app, "roi_mask", None)
+        roi_status = f"ROI: Not set ({roi_source})"
+        try:
+            if roi_mask is not None:
+                mask = np.asarray(roi_mask, dtype=bool)
+                if mask.ndim == 2:
+                    roi_status = f"ROI: {len(roi_points)} points ({int(np.count_nonzero(mask))} px) ({roi_source})"
+                elif roi_points:
+                    roi_status = f"ROI: {len(roi_points)} points ({roi_source})"
+            elif roi_points:
+                roi_status = f"ROI: {len(roi_points)} points ({roi_source})"
+        except Exception:
+            if roi_points:
+                roi_status = f"ROI: {len(roi_points)} points ({roi_source})"
+
+        if hasattr(self.app, "metrics_fps_status_var"):
+            self.app.metrics_fps_status_var.set(fps_status)
+        if hasattr(self.app, "metrics_scale_status_var"):
+            self.app.metrics_scale_status_var.set(scale_status)
+        if hasattr(self.app, "metrics_roi_status_var"):
+            self.app.metrics_roi_status_var.set(roi_status)
+
     def collect_current_metrics_settings(self) -> dict[str, object]:
         metrics: dict[str, object] = {}
         try:
@@ -74,9 +123,16 @@ class AnalysisWindowController:
         local_normalized = MetricsSettingsResolver.normalize(
             local_metrics_settings if isinstance(local_metrics_settings, dict) else None
         )
+        self.app._frames_per_sec_is_local_override = False
+        try:
+            local_fps = float(local_normalized.get("frames_per_sec"))
+            self.app._frames_per_sec_is_local_override = local_fps > 0
+        except Exception:
+            self.app._frames_per_sec_is_local_override = False
         self.app._scale_is_local_override = MetricsSettingsResolver.has_valid_scale(local_normalized)
         self.app._roi_is_local_override = MetricsSettingsResolver.has_valid_roi(local_normalized)
         if not normalized:
+            self.refresh_metrics_status_labels()
             return
         self.app._suppress_metrics_emit = True
         try:
@@ -137,6 +193,7 @@ class AnalysisWindowController:
                 self.app.roi_mask = None
         finally:
             self.app._suppress_metrics_emit = False
+        self.refresh_metrics_status_labels()
         if self.app._ui_alive():
             self.app.update_display()
 
@@ -221,10 +278,14 @@ class AnalysisWindowController:
     def on_metrics_settings_changed(self, reason: str) -> None:
         self.app._mark_project_dirty(reason=str(reason or "metrics_changed"))
         self.emit_host_metrics_update(reason=str(reason or "metrics_changed"))
+        self.refresh_metrics_status_labels()
 
     def on_frames_per_sec_commit(self, _event=None):
+        if bool(getattr(self.app, "_host_mode", False)):
+            self.app._frames_per_sec_is_local_override = True
         self.app._mark_project_dirty(reason="frames_per_sec")
         self.emit_host_metrics_update(reason="frames_per_sec")
+        self.refresh_metrics_status_labels()
         return None
 
     def autosave_project_after_metrics_commit(self, reason: str) -> dict[str, object]:

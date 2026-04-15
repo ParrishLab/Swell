@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 
 import cv2
 import numpy as np
@@ -44,6 +45,7 @@ class AnalysisController:
         apply_host_metrics_settings=None,
         clear_local_metrics_override=None,
         get_current_image_source_paths=None,
+        get_current_frame_idx=None,
         on_metrics_settings_changed=None,
         emit_host_global_metrics_update=None,
         autosave_project_after_metrics_commit=None,
@@ -51,6 +53,7 @@ class AnalysisController:
         set_scale_is_local_override=None,
         get_roi_is_local_override=None,
         set_roi_is_local_override=None,
+        refresh_metrics_status=None,
     ):
         self.root = root
         self.app_root = app_root
@@ -64,6 +67,7 @@ class AnalysisController:
         self.get_current_image_source_paths = (
             get_current_image_source_paths if callable(get_current_image_source_paths) else (lambda: [])
         )
+        self.get_current_frame_idx = get_current_frame_idx if callable(get_current_frame_idx) else (lambda: 0)
         self.get_compose_final_mask_for_frame = get_compose_final_mask_for_frame
         self.get_nonempty_final_mask_frames = get_nonempty_final_mask_frames
         self.get_frames_per_sec = get_frames_per_sec
@@ -105,6 +109,7 @@ class AnalysisController:
         self.set_roi_is_local_override = (
             set_roi_is_local_override if callable(set_roi_is_local_override) else (lambda _v: None)
         )
+        self.refresh_metrics_status = refresh_metrics_status if callable(refresh_metrics_status) else (lambda: None)
 
     def _has_loaded_frames(self) -> bool:
         try:
@@ -136,6 +141,35 @@ class AnalysisController:
             if not self._same_path(candidate, app_root_abs):
                 return candidate
         return None
+
+    def _current_frame_picker_defaults(self) -> tuple[str | None, str]:
+        preferred_dir: str | None = None
+        preferred_file = ""
+        try:
+            current_idx = max(0, int(self.get_current_frame_idx()))
+        except Exception:
+            current_idx = 0
+        try:
+            source_paths = list(self.get_current_image_source_paths() or [])
+        except Exception:
+            source_paths = []
+        if current_idx < len(source_paths):
+            raw = str(source_paths[current_idx] or "").strip()
+            if raw:
+                source_path = Path(raw).expanduser()
+                if source_path.name:
+                    preferred_file = source_path.name
+                parent = source_path.parent
+                if parent.exists() and parent.is_dir():
+                    preferred_dir = str(parent.resolve())
+        if not preferred_file:
+            try:
+                frame_names = list(self.get_frame_names() or [])
+            except Exception:
+                frame_names = []
+            if current_idx < len(frame_names):
+                preferred_file = Path(str(frame_names[current_idx])).name
+        return preferred_dir, str(preferred_file or "")
 
     def _get_first_frame_original_u8(self):
         if not self._has_loaded_frames():
@@ -425,6 +459,7 @@ class AnalysisController:
         self.set_scale_axis_lock(bool(result.get("axis_lock", True)))
         self.set_last_scale_image_path(result.get("image_path", ""))
         self.set_scale_is_local_override(True)
+        self.refresh_metrics_status()
         if callable(self.on_metrics_settings_changed):
             try:
                 self.on_metrics_settings_changed("scale")
@@ -459,11 +494,15 @@ class AnalysisController:
                 fallback_dir=self.app_root,
                 prefer_parent_for_existing_dir=False,
             )
+        preferred_dir, preferred_file = self._current_frame_picker_defaults()
+        if preferred_dir:
+            roi_initialdir = preferred_dir
 
         image_path = filedialog.askopenfilename(
             parent=self.root,
             title="Select Image for ROI",
             initialdir=roi_initialdir,
+            initialfile=preferred_file,
             filetypes=[
                 ("Image files", "*.png *.jpg *.jpeg *.tif *.tiff *.bmp"),
                 ("All files", "*.*"),
@@ -491,6 +530,7 @@ class AnalysisController:
         self.set_roi_mask(result["roi_mask"])
         self.set_roi_points(result["roi_points"])
         self.set_roi_is_local_override(True)
+        self.refresh_metrics_status()
         self.update_display()
         if callable(self.on_metrics_settings_changed):
             try:
@@ -579,6 +619,7 @@ class AnalysisController:
             self.set_scale_axis_lock(bool(result.get("axis_lock", True)))
             self.set_last_scale_image_path(scale_image_path)
             self.set_scale_is_local_override(False)
+        self.refresh_metrics_status()
         autosave_result = self.autosave_project_after_metrics_commit("global_scale")
         if isinstance(autosave_result, dict) and not bool(autosave_result.get("ok", False)):
             message = str(autosave_result.get("message", "Project autosave did not complete."))
@@ -624,6 +665,8 @@ class AnalysisController:
             self.set_roi_mask(result["roi_mask"])
             self.set_roi_points(result["roi_points"])
             self.set_roi_is_local_override(False)
+        self.refresh_metrics_status()
+        if not bool(self.get_roi_is_local_override()):
             self.update_display()
         autosave_result = self.autosave_project_after_metrics_commit("global_roi")
         if isinstance(autosave_result, dict) and not bool(autosave_result.get("ok", False)):

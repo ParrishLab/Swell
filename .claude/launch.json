@@ -1,0 +1,25 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "SDApp",
+      "runtimeExecutable": ".venv/bin/python3",
+      "runtimeArgs": ["-m", "sdapp.main"]
+    },
+    {
+      "name": "SDApp (smoke test)",
+      "runtimeExecutable": ".venv/bin/python3",
+      "runtimeArgs": ["-m", "sdapp.main", "--smoke-test"]
+    },
+    {
+      "name": "SDApp (model smoke test)",
+      "runtimeExecutable": ".venv/bin/python3",
+      "runtimeArgs": ["-m", "sdapp.main", "--smoke-test", "--smoke-model-runtime"]
+    },
+    {
+      "name": "pytest",
+      "runtimeExecutable": ".venv/bin/pytest",
+      "runtimeArgs": ["tests/"]
+    }
+  ]
+}

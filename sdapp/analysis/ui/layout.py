@@ -312,6 +312,19 @@ class LayoutBuilder:
         self.btn_draw_roi = ttk.Button(metrics_actions, text="Draw ROI", command=self.start_roi_selection, **semantic_button_options("secondary"))
         self.btn_draw_roi.grid(row=0, column=1, sticky="ew")
 
+        self.metrics_fps_status_var = tk.StringVar(value="Frames/sec: 1 (Current)")
+        self.metrics_scale_status_var = tk.StringVar(value="Scale: Not set (Current)")
+        self.metrics_roi_status_var = tk.StringVar(value="ROI: Not set (Current)")
+        ttk.Label(self.frame_analysis_body, textvariable=self.metrics_fps_status_var, style="AppSubpanelMeta.TLabel").grid(
+            row=2, column=0, columnspan=2, sticky="w", pady=(SPACING.inner, 0)
+        )
+        ttk.Label(self.frame_analysis_body, textvariable=self.metrics_scale_status_var, style="AppSubpanelMeta.TLabel").grid(
+            row=3, column=0, columnspan=2, sticky="w", pady=(2, 0)
+        )
+        ttk.Label(self.frame_analysis_body, textvariable=self.metrics_roi_status_var, style="AppSubpanelMeta.TLabel").grid(
+            row=4, column=0, columnspan=2, sticky="w", pady=(2, 0)
+        )
+
         self._stabilize_metrics_group_width()
         self._set_analysis_panel(False)
 
@@ -536,10 +549,16 @@ class LayoutBuilder:
         self.root.bind("<B>", self._set_tool_brush_hotkey)
         self.root.bind("<e>", self._set_tool_eraser_hotkey)
         self.root.bind("<E>", self._set_tool_eraser_hotkey)
+        self.root.bind("<v>", self._set_tool_select_hotkey)
+        self.root.bind("<V>", self._set_tool_select_hotkey)
         self.root.bind("<KeyPress-space>", self._set_space_pan_active, add="+")
         self.root.bind("<KeyRelease-space>", self._clear_space_pan_active, add="+")
-        self.root.bind("<Key-plus>", self._zoom_in_hotkey, add="+")
-        self.root.bind("<Key-equal>", self._zoom_in_hotkey, add="+")
-        self.root.bind("<Key-minus>", self._zoom_out_hotkey, add="+")
-        self.root.bind("<Key-underscore>", self._zoom_out_hotkey, add="+")
+        self.root.bind("<Key-plus>", self._set_tool_point_pos_hotkey, add="+")
+        self.root.bind("<Key-equal>", self._set_tool_point_pos_hotkey, add="+")
+        self.root.bind("<Key-minus>", self._set_tool_point_neg_hotkey, add="+")
+        self.root.bind("<Key-underscore>", self._set_tool_point_neg_hotkey, add="+")
+        self.root.bind(f"<{mod_key}-plus>", self._zoom_in_hotkey, add="+")
+        self.root.bind(f"<{mod_key}-equal>", self._zoom_in_hotkey, add="+")
+        self.root.bind(f"<{mod_key}-minus>", self._zoom_out_hotkey, add="+")
+        self.root.bind(f"<{mod_key}-underscore>", self._zoom_out_hotkey, add="+")
         self.root.bind("<Key-0>", self._reset_zoom_hotkey, add="+")

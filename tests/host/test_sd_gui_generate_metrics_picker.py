@@ -82,6 +82,43 @@ def test_pick_metrics_reference_image_validates_shape(monkeypatch, tmp_path: Pat
     assert warnings
 
 
+def test_pick_metrics_reference_image_prefills_current_active_frame(monkeypatch, tmp_path: Path) -> None:
+    input_dir = tmp_path / "input"
+    input_dir.mkdir(parents=True, exist_ok=True)
+    selected = input_dir / "frame_0002.tif"
+    Image.fromarray(np.zeros((8, 9), dtype=np.uint8)).save(selected)
+
+    class _Reader:
+        def get_frame_count(self):
+            return 2
+
+        def get_frame_ref(self, idx):
+            name = "frame_0001.tif" if int(idx) == 0 else "frame_0002.tif"
+            return SimpleNamespace(source_path=input_dir / name)
+
+    app = SDAnalyzerApp.__new__(SDAnalyzerApp)
+    app.reader = _Reader()
+    app.current_frame_idx = 1
+    app.input_var = _Var(str(input_dir))
+    app.stack_info = SimpleNamespace(frame_height=8, frame_width=9)
+    app._show_warning = lambda *_args, **_kwargs: None
+    app._load_metrics_reference_image_u8 = lambda _path: np.zeros((8, 9), dtype=np.uint8)
+
+    captured = {}
+
+    def _pick(**kwargs):
+        captured.update(kwargs)
+        return str(selected)
+
+    monkeypatch.setattr("sdapp.host.sd_gui.filedialog.askopenfilename", _pick)
+
+    result = app._pick_metrics_reference_image_u8(parent=None, purpose="ROI")
+
+    assert result is not None
+    assert captured.get("initialdir") == str(input_dir.resolve())
+    assert captured.get("initialfile") == "frame_0002.tif"
+
+
 def test_pick_metrics_reference_image_reuses_last_scale_image_path(monkeypatch, tmp_path: Path) -> None:
     selected = tmp_path / "scale_ref.tif"
     Image.fromarray(np.zeros((8, 9), dtype=np.uint8)).save(selected)
