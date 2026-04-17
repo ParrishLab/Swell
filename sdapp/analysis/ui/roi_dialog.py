@@ -61,7 +61,7 @@ def _canvas_radius_to_image_radius(scale: float, canvas_radius_px: float) -> flo
     return float(canvas_radius_px) / safe_scale
 
 
-def open_roi_dialog(root, img_u8, initial_roi_points=None, allow_reset_local=False):
+def open_roi_dialog(root, img_u8, initial_roi_points=None, allow_reset_local=False, pick_image_callback=None):
     popup = tk.Toplevel(root)
     popup.withdraw()
     popup.title("Draw ROI - First Original Frame")
@@ -460,6 +460,23 @@ def open_roi_dialog(root, img_u8, initial_roi_points=None, allow_reset_local=Fal
         state["closed"] = False
         redraw()
 
+    def on_change_image():
+        nonlocal img_u8, img_rgb, img_w, img_h
+        if not callable(pick_image_callback):
+            return
+        new_img = pick_image_callback()
+        if new_img is None:
+            return
+        img_u8 = new_img
+        img_rgb = cv2.cvtColor(img_u8, cv2.COLOR_GRAY2RGB)
+        img_h, img_w = img_u8.shape[:2]
+        state["points"] = []
+        state["selected_idx"] = None
+        state["closed"] = False
+        state["viewport_state"] = fit_viewport(img_w, img_h)
+        render_background()
+        redraw()
+
     def on_delete_selected():
         if state["selected_idx"] is None:
             return
@@ -508,6 +525,8 @@ def open_roi_dialog(root, img_u8, initial_roi_points=None, allow_reset_local=Fal
     button_opts = {"takefocus": False}
     left_controls = ttk.Frame(controls, style="AppSurface.TFrame")
     left_controls.pack(side="left")
+    if callable(pick_image_callback):
+        ttk.Button(left_controls, text="Change Image", command=on_change_image, **button_opts, **semantic_button_options("secondary")).pack(side="left", padx=(0, SPACING.gap))
     ttk.Button(left_controls, text="Undo Point", command=on_undo, **button_opts, **semantic_button_options("secondary")).pack(side="left", padx=(0, SPACING.gap))
     ttk.Button(left_controls, text="Delete Selected", command=on_delete_selected, **button_opts, **semantic_button_options("secondary")).pack(side="left", padx=(0, SPACING.gap))
     ttk.Button(left_controls, text="Clear", command=on_clear, **button_opts, **semantic_button_options("secondary")).pack(side="left", padx=(0, SPACING.gap))

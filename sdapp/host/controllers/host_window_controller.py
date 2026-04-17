@@ -623,16 +623,30 @@ class HostWindowController:
         dialog.wait_window()
         return result
 
-    def prompt_propagation_gap_action(self, payload: dict[str, object]) -> str:
+    def prompt_propagation_gap_action(self, payload: dict[str, object]) -> list[str]:
         warning_kind = str(payload.get("warning_kind", "gap") or "gap").strip().lower()
         default_action = "zero" if warning_kind == "zero_growth" else "ignore"
-        result = {"action": default_action}
+
+        runs_raw = list(payload.get("gap_frame_runs", []) or [])
+        runs_normalized: list[tuple[int, int]] = []
+        for raw in runs_raw:
+            if not isinstance(raw, (list, tuple)) or len(raw) < 2:
+                continue
+            try:
+                runs_normalized.append((int(raw[0]), int(raw[1])))
+            except Exception:
+                continue
+        if not runs_normalized:
+            return []
+
+        gap_actions = [default_action] * len(runs_normalized)
+        result = {"actions": list(gap_actions)}
+
         dialog = tk.Toplevel(self.app.root)
         dialog.withdraw()
         dialog.title("Propagation Speed Warning")
         dialog.transient(self.app.root)
         dialog.resizable(False, False)
-        dialog.geometry("860x520")
         apply_theme(dialog)
 
         shell = ttk.Frame(dialog, padding=SPACING.outer, style="AppShell.TFrame")
@@ -641,44 +655,37 @@ class HostWindowController:
         action_specs = self._propagation_action_specs(warning_kind)
         preview_frame_indices, preview_values = self._preview_series_from_payload(payload)
         preview_runs = self._preview_local_runs(preview_frame_indices, payload)
-        runs = list(payload.get("gap_frame_runs", []) or [])
-        run_labels = ", ".join(
-            f"{int(run[0])}" if int(run[0]) == int(run[1]) else f"{int(run[0])}-{int(run[1])}"
-            for run in runs
-            if isinstance(run, (list, tuple)) and len(run) >= 2
-        )
+
+        range_count = len(runs_normalized)
+        range_word = "range" if range_count == 1 else "ranges"
         if warning_kind == "zero_growth":
             heading = f"No outward propagation above threshold was detected for {event_name}."
             detail = (
-                "These frames have valid masks, but the propagation-speed metric found no outward expansion above threshold. "
-                "Choose whether to write zero speed, smooth across them, or end the speed trace at the first affected frame."
+                f"{range_count} affected {range_word} found. Each can use its own handling: "
+                "write zero speed, smooth across, or end the speed trace at that range."
             )
         else:
             heading = f"Undefined propagation-speed values were detected for {event_name}."
             detail = (
-                "These frames do not have enough valid information to compute propagation speed directly. "
-                "Choose whether to leave them blank, smooth across them, or end the speed trace at the first affected frame."
+                f"{range_count} affected {range_word} found. Each can use its own handling: "
+                "leave blank, smooth across, or end the speed trace at that range."
             )
         summary = ttk.Frame(shell, padding=SPACING.card, style="AppInset.TFrame")
         summary.pack(fill="x", pady=(0, SPACING.gap))
-        ttk.Label(
-            summary,
-            text=(
-                f"{heading}\n"
-                f"Frames: {run_labels or 'unknown'}"
-            ),
-            justify="left",
-            style="AppSectionTitle.TLabel",
-        ).pack(anchor="w")
+        ttk.Label(summary, text=heading, justify="left", style="AppSectionTitle.TLabel").pack(anchor="w")
         ttk.Label(
             shell,
             text=detail,
             justify="left",
             style="AppMeta.TLabel",
-            wraplength=620,
+            wraplength=820,
         ).pack(anchor="w", pady=(0, SPACING.card))
 
-        ttk.Label(shell, text="Preview", style="AppSectionTitle.TLabel").pack(anchor="w", pady=(0, SPACING.gap))
+        ttk.Label(
+            shell,
+            text="Preview — click a button below a graph to apply that action to every range",
+            style="AppSectionTitle.TLabel",
+        ).pack(anchor="w", pady=(0, SPACING.gap))
         previews = ttk.Frame(shell, style="AppShell.TFrame")
         previews.pack(fill="x", pady=(0, SPACING.card))
         preview_colors = {
@@ -701,29 +708,113 @@ class HostWindowController:
                 affected_runs=preview_runs,
                 color=preview_colors.get(str(spec["action"]), "#4db3ff"),
             )
-            ttk.Label(card, text=str(spec["description"]), style="AppMeta.TLabel", wraplength=220, justify="left").pack(anchor="w")
+            ttk.Label(
+                card,
+                text=str(spec["description"]),
+                style="AppMeta.TLabel",
+                wraplength=220,
+                justify="left",
+            ).pack(anchor="w")
+            button_row = ttk.Frame(card, style="AppInset.TFrame")
+            button_row.pack(fill="x", pady=(SPACING.inner, 0))
+            ttk.Button(
+                button_row,
+                text="Apply to all",
+                command=lambda value=str(spec["action"]): _apply_to_all(value),
+                **semantic_button_options(str(spec["semantic"])),
+            ).pack(anchor="center")
 
-        def _finish(action: str) -> None:
-            result["action"] = str(action)
+        ttk.Label(
+            shell,
+            text="Per-range selection",
+            style="AppSectionTitle.TLabel",
+        ).pack(anchor="w", pady=(SPACING.gap, SPACING.gap))
+        rows_frame = ttk.Frame(shell, style="AppShell.TFrame")
+        rows_frame.pack(fill="x", pady=(0, SPACING.card))
+
+        row_buttons: list[dict[str, ttk.Button]] = []
+        row_status_labels: list[ttk.Label] = []
+        for i, (start, end) in enumerate(runs_normalized):
+            row = ttk.Frame(rows_frame, padding=SPACING.card, style="AppInset.TFrame")
+            row.pack(fill="x", pady=(0 if i == 0 else SPACING.gap, 0))
+            label_text = (
+                f"Range {i + 1}: Frame {start}"
+                if start == end
+                else f"Range {i + 1}: Frames {start}–{end}"
+            )
+            ttk.Label(row, text=label_text, style="AppSectionTitle.TLabel").pack(side="left")
+            status_label = ttk.Label(row, text="", style="AppMeta.TLabel")
+            status_label.pack(side="left", padx=(SPACING.gap, 0))
+            row_status_labels.append(status_label)
+            btn_frame = ttk.Frame(row, style="AppInset.TFrame")
+            btn_frame.pack(side="right")
+            btns: dict[str, ttk.Button] = {}
+            for j, spec in enumerate(action_specs):
+                action_val = str(spec["action"])
+                btn = ttk.Button(
+                    btn_frame,
+                    text=str(spec["label"]),
+                    command=lambda idx=i, act=action_val: _set_gap(idx, act),
+                )
+                btn.pack(side="left", padx=(SPACING.gap if j else 0, 0))
+                btns[action_val] = btn
+            row_buttons.append(btns)
+
+        def _refresh_rows() -> None:
+            stopped_at: int | None = None
+            for i, btns in enumerate(row_buttons):
+                ended = stopped_at is not None
+                for action_val, btn in btns.items():
+                    if ended:
+                        btn.configure(**semantic_button_options("secondary"))
+                        btn.state(["disabled"])
+                    else:
+                        if action_val == gap_actions[i]:
+                            btn.configure(**semantic_button_options("primary"))
+                        else:
+                            btn.configure(**semantic_button_options("secondary"))
+                        btn.state(["!disabled"])
+                row_status_labels[i].configure(text="(trace already ended)" if ended else "")
+                if gap_actions[i] == "stop" and stopped_at is None:
+                    stopped_at = i
+
+        def _apply_to_all(action: str) -> None:
+            for i in range(len(gap_actions)):
+                gap_actions[i] = action
+            _refresh_rows()
+
+        def _set_gap(i: int, action: str) -> None:
+            gap_actions[i] = action
+            _refresh_rows()
+
+        def _confirm() -> None:
+            result["actions"] = list(gap_actions)
             dialog.destroy()
 
-        buttons = ttk.Frame(shell, style="AppShell.TFrame")
-        buttons.pack(fill="x")
-        for index, spec in enumerate(action_specs):
-            ttk.Button(
-                buttons,
-                text=str(spec["label"]),
-                command=lambda value=str(spec["action"]): _finish(value),
-                **semantic_button_options(str(spec["semantic"])),
-            ).pack(
-                side="left", padx=(SPACING.gap if index else 0, 0)
-            )
-        dialog.protocol("WM_DELETE_WINDOW", lambda: _finish(default_action))
-        self.center_window_on_screen(dialog, width=860, height=520)
+        def _cancel() -> None:
+            dialog.destroy()
+
+        _refresh_rows()
+
+        footer = ttk.Frame(shell, style="AppShell.TFrame")
+        footer.pack(fill="x", pady=(SPACING.gap, 0))
+        ttk.Button(footer, text="Cancel", command=_cancel, **semantic_button_options("secondary")).pack(side="right")
+        ttk.Button(
+            footer,
+            text="Confirm",
+            command=_confirm,
+            **semantic_button_options("primary"),
+        ).pack(side="right", padx=(0, SPACING.gap))
+
+        dialog.protocol("WM_DELETE_WINDOW", _cancel)
+        row_height = 56
+        base_height = 560
+        height = min(840, base_height + max(0, range_count - 1) * row_height)
+        self.center_window_on_screen(dialog, width=900, height=height)
         dialog.deiconify()
         dialog.grab_set()
         dialog.wait_window()
-        return str(result["action"])
+        return list(result["actions"])
 
     @staticmethod
     def center_window_on_screen(window, *, width: int | None = None, height: int | None = None) -> None:
@@ -798,6 +889,10 @@ class HostWindowController:
             img_u8 = self.app._pick_metrics_reference_image_u8(parent=dialog, purpose="Scale")
             if img_u8 is None:
                 return
+
+            def _pick_scale_image_for_dialog():
+                return self.app._pick_metrics_reference_image_u8(parent=dialog, purpose="Scale", force_picker=True)
+
             result = open_scale_dialog(
                 root=dialog,
                 img_u8=img_u8,
@@ -806,6 +901,7 @@ class HostWindowController:
                 compute_scale=compute_scale,
                 initial_scale_points=scale_points,
                 initial_axis_lock=scale_axis_lock,
+                pick_image_callback=_pick_scale_image_for_dialog,
             )
             if not isinstance(result, dict):
                 return
@@ -828,10 +924,15 @@ class HostWindowController:
             img_u8 = self.app._pick_metrics_reference_image_u8(parent=dialog, purpose="ROI")
             if img_u8 is None:
                 return
+
+            def _pick_roi_image_for_dialog():
+                return self.app._pick_metrics_reference_image_u8(parent=dialog, purpose="ROI", force_picker=True)
+
             result = open_roi_dialog(
                 root=dialog,
                 img_u8=img_u8,
                 initial_roi_points=list(roi_points),
+                pick_image_callback=_pick_roi_image_for_dialog,
             )
             if not isinstance(result, dict):
                 return
@@ -958,26 +1059,34 @@ class HostWindowController:
                     progress_payload = dict(payload or {})
                     self.app.root.after(0, lambda p=progress_payload: self.app._on_export_progress(p))
 
-                def _resolve_gap_decision(payload: dict[str, object]) -> str:
+                def _resolve_gap_decision(payload: dict[str, object]) -> list[str]:
                     warning_kind = str(payload.get("warning_kind", "gap") or "gap")
                     default_action = "zero" if warning_kind == "zero_growth" else "ignore"
-                    response: dict[str, str] = {"action": default_action}
+                    run_count = len(list(payload.get("gap_frame_runs", []) or []))
+                    fallback = [default_action] * max(run_count, 1)
+                    response: dict[str, list[str]] = {"actions": list(fallback)}
                     wait_event = threading.Event()
 
                     def _ask() -> None:
                         try:
-                            response["action"] = str(self.prompt_propagation_gap_action(dict(payload or {})) or default_action)
+                            raw = self.prompt_propagation_gap_action(dict(payload or {}))
+                            if isinstance(raw, str):
+                                raw = [raw]
+                            actions_list = list(raw or [])
+                            if not actions_list:
+                                actions_list = list(fallback)
+                            response["actions"] = actions_list
                         finally:
                             wait_event.set()
 
                     self.app.root.after(0, _ask)
                     wait_event.wait()
-                    action = str(response.get("action", default_action) or default_action)
+                    actions = list(response.get("actions") or fallback)
                     event_name = str(payload.get("event_label", "") or payload.get("event_id", "?"))
                     self.app._log_warn(
-                        f"Propagation speed warning kind='{warning_kind}' resolved for {event_name} with action='{action}'."
+                        f"Propagation speed warning kind='{warning_kind}' resolved for {event_name} with actions={actions}."
                     )
-                    return action
+                    return actions
 
                 result = export_analysis(
                     reader=self.app.reader,
@@ -1011,7 +1120,10 @@ class HostWindowController:
                     )
                 self.app.root.after(0, lambda: self.app._on_export_done(result))
             except Exception as exc:
-                self.app.root.after(0, lambda: self.app._set_status(f"Export failed: {exc}"))
+                def _show_err(e=exc):
+                    self.app._set_status(f"Export failed: {e}")
+                    messagebox.showerror("Export Failed", str(e), parent=self.app.root)
+                self.app.root.after(0, _show_err)
                 self.app._log_error(f"Export failed: {exc}")
 
         threading.Thread(target=worker, daemon=True).start()

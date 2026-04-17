@@ -613,6 +613,7 @@ class HostProjectLifecycleController:
         self.app.stack_info = info
         self.app.trace = None
         self.app.dc_trace_controller.clear_runtime()
+        self.app._last_scale_image_path = ""
         self.app.browser_controller.on_stack_loaded(reader, info)
         self.app.current_project_path = None
         self.app.browser_controller.session.set_project_path(None)

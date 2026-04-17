@@ -1885,6 +1885,9 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
     def start_roi_selection(self):
         self.analysis_controller.start_local_roi_selection()
 
+    def compute_metrics_preview(self):
+        self._get_window_controller().compute_metrics_preview()
+
     def start_local_scale_selection(self):
         self.analysis_controller.start_local_scale_selection()
 
@@ -1989,6 +1992,8 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
 
         if status == "complete":
             self._propagation_committed_snapshot = None
+            if hasattr(self, "compute_metrics_preview") and self._ui_alive():
+                self.root.after(0, self.compute_metrics_preview)
             return
         if status in ("stopped", "failed") and transition.restored_masks is not None:
             self.seg_state.masks_cache.clear()

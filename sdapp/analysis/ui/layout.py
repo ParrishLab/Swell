@@ -306,15 +306,19 @@ class LayoutBuilder:
         metrics_actions.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(SPACING.inner, 0))
         metrics_actions.columnconfigure(0, weight=1)
         metrics_actions.columnconfigure(1, weight=1)
+        metrics_actions.columnconfigure(2, weight=1)
 
         self.btn_set_scale = ttk.Button(metrics_actions, text="Set Scale", command=self.start_scale_selection, **semantic_button_options("secondary"))
         self.btn_set_scale.grid(row=0, column=0, sticky="ew", padx=(0, SPACING.gap))
         self.btn_draw_roi = ttk.Button(metrics_actions, text="Draw ROI", command=self.start_roi_selection, **semantic_button_options("secondary"))
-        self.btn_draw_roi.grid(row=0, column=1, sticky="ew")
+        self.btn_draw_roi.grid(row=0, column=1, sticky="ew", padx=(0, SPACING.gap))
+        self.btn_preview_metrics = ttk.Button(metrics_actions, text="Preview", command=self.compute_metrics_preview, **semantic_button_options("secondary"))
+        self.btn_preview_metrics.grid(row=0, column=2, sticky="ew")
 
         self.metrics_fps_status_var = tk.StringVar(value="Frames/sec: 1 (Current)")
         self.metrics_scale_status_var = tk.StringVar(value="Scale: Not set (Current)")
         self.metrics_roi_status_var = tk.StringVar(value="ROI: Not set (Current)")
+        self.metrics_preview_var = tk.StringVar(value="Preview: Click 'Preview' to compute")
         ttk.Label(self.frame_analysis_body, textvariable=self.metrics_fps_status_var, style="AppSubpanelMeta.TLabel").grid(
             row=2, column=0, columnspan=2, sticky="w", pady=(SPACING.inner, 0)
         )
@@ -323,6 +327,9 @@ class LayoutBuilder:
         )
         ttk.Label(self.frame_analysis_body, textvariable=self.metrics_roi_status_var, style="AppSubpanelMeta.TLabel").grid(
             row=4, column=0, columnspan=2, sticky="w", pady=(2, 0)
+        )
+        ttk.Label(self.frame_analysis_body, textvariable=self.metrics_preview_var, style="AppSubpanelMeta.TLabel").grid(
+            row=5, column=0, columnspan=2, sticky="w", pady=(6, 0)
         )
 
         self._stabilize_metrics_group_width()

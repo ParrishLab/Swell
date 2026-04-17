@@ -23,6 +23,7 @@ class StackReader:
         self._tiff_handle_pool: OrderedDict[str, tifffile.TiffFile] = OrderedDict()
         self._tiff_pool_max = 4
         self._tiff_lock = Lock()
+        self._channel_mode = "average"
 
     def open_stack(self, input_dir: str | Path, progress_callback: Optional[Callable[[int, int], None]] = None) -> StackInfo:
         input_path = Path(input_dir).expanduser().resolve()
@@ -40,6 +41,7 @@ class StackReader:
         expected_shape: Optional[tuple[int, int]] = None
         dtype_str: Optional[str] = None
         counter = 0
+        prompted_rgb = False
 
         for file_idx, file_path in enumerate(files):
             ext = file_path.suffix.lower()
@@ -57,6 +59,13 @@ class StackReader:
                         if expected_shape is None:
                             expected_shape = shape
                             dtype_str = str(page.dtype)
+                            if len(page.shape) >= 3 and page.shape[-1] >= 3 and not prompted_rgb:
+                                import tkinter.messagebox as messagebox
+                                if messagebox.askyesno("Multi-channel Image Detected", "Multi-channel (RGB) images detected.\n\nDo you want to average the channels to grayscale?\n\nYes: Average channels (Luma).\nNo: Use the first channel only."):
+                                    self._channel_mode = "average"
+                                else:
+                                    self._channel_mode = "first"
+                                prompted_rgb = True
                         if shape != expected_shape:
                             continue
                         name = file_path.name if page_count == 1 else f"{file_path.name}_p{page_idx:04d}"
@@ -74,11 +83,19 @@ class StackReader:
                 with Image.open(file_path) as img:
                     shape = _normalized_pil_frame_shape(img)
                     dtype_guess = _pil_dtype_str(img)
+                    is_rgb = img.mode in ("RGB", "RGBA")
                 if shape is None:
                     continue
                 if expected_shape is None:
                     expected_shape = shape
                     dtype_str = dtype_guess
+                    if is_rgb and not prompted_rgb:
+                        import tkinter.messagebox as messagebox
+                        if messagebox.askyesno("Multi-channel Image Detected", "Multi-channel (RGB) images detected.\n\nDo you want to average the channels to grayscale?\n\nYes: Average channels (Luma).\nNo: Use the first channel only."):
+                            self._channel_mode = "average"
+                        else:
+                            self._channel_mode = "first"
+                        prompted_rgb = True
                 if shape != expected_shape:
                     continue
                 frame_refs.append(
@@ -151,7 +168,7 @@ class StackReader:
             with Image.open(ref.source_path) as img:
                 arr = np.asarray(img)
 
-        frame = _to_grayscale(arr)
+        frame = _to_grayscale(arr, channel_mode=self._channel_mode)
 
         if use_cache:
             with self._cache_lock:
@@ -224,12 +241,14 @@ class StackReader:
             pass
 
 
-def _to_grayscale(arr: np.ndarray) -> np.ndarray:
+def _to_grayscale(arr: np.ndarray, channel_mode: str = "average") -> np.ndarray:
     if arr.ndim == 2:
         return arr
     if arr.ndim == 3:
         # RGB/RGBA -> luma approximation. Keeps source dtype.
         if arr.shape[2] >= 3:
+            if channel_mode == "first":
+                return arr[:, :, 0]
             rgb = arr[:, :, :3].astype(np.float32)
             gray = 0.299 * rgb[:, :, 0] + 0.587 * rgb[:, :, 1] + 0.114 * rgb[:, :, 2]
             if np.issubdtype(arr.dtype, np.integer):
@@ -243,7 +262,7 @@ def _to_grayscale(arr: np.ndarray) -> np.ndarray:
         if squeezed.ndim == 2:
             return squeezed
         if squeezed.ndim == 3:
-            return _to_grayscale(squeezed)
+            return _to_grayscale(squeezed, channel_mode=channel_mode)
     raise ValueError(f"Unsupported frame shape: {arr.shape}")
 
 

@@ -7,8 +7,11 @@ import queue
 import threading
 import time
 from typing import Callable, Optional
+import tkinter.messagebox as messagebox
 
 import numpy as np
+
+from sdapp.shared.errors import InferenceRuntimeError
 try:
     import torch
 except Exception:
@@ -112,7 +115,8 @@ class InferenceManager:
     def _inference_queue_depth(self):
         try:
             return int(self._infer_queue.qsize())
-        except Exception:
+        except Exception as e:
+            self._log_warn("Inference", f"Failed to get inference queue depth: {e}")
             return 0
 
     def is_busy(self) -> bool:
@@ -147,7 +151,8 @@ class InferenceManager:
     def _frame_shape_hw(self) -> tuple[int, int] | None:
         try:
             frame_shape = tuple(int(v) for v in self.get_frame_shape()[:2])
-        except Exception:
+        except Exception as e:
+            self._log_warn("Inference", f"Failed to get frame shape: {e}")
             return None
         if len(frame_shape) != 2 or frame_shape[0] <= 0 or frame_shape[1] <= 0:
             return None
@@ -449,8 +454,13 @@ class InferenceManager:
         except Exception as e:
             if self._recover_from_accelerator_oom("Model", e):
                 self._log_warn("Model", f"Inference stopped on frame {frame_idx + 1}; CPU fallback is now active.")
+                if self.is_ui_alive():
+                    self.root.after(0, lambda: messagebox.showwarning("Inference Fallback", f"GPU Out of Memory on frame {frame_idx + 1}. Switching to CPU fallback."))
                 return
-            self._log_error("Model", f"Inference failed on frame {frame_idx + 1}: {e}")
+            err = InferenceRuntimeError(str(e))
+            self._log_error("Model", f"Inference failed on frame {frame_idx + 1}: {err}")
+            if self.is_ui_alive():
+                self.root.after(0, lambda: messagebox.showerror("Inference Error", f"Inference failed on frame {frame_idx + 1}:\n\n{err}"))
 
     def trigger_propagation(self, prop_start, prop_end, anchor_frame):
         self._last_propagation_params = (prop_start, prop_end, anchor_frame)
@@ -707,8 +717,13 @@ class InferenceManager:
                     self.root.after(0, lambda: self.set_status("Propagation Error", "red"))
             if handled_oom:
                 self._log_warn("Propagation", "Propagation stopped after accelerator OOM; CPU fallback is now active.")
+                if self.is_ui_alive():
+                    self.root.after(0, lambda: messagebox.showwarning("Inference Fallback", "GPU Out of Memory during propagation. Switching to CPU fallback."))
             else:
-                self._log_error("Propagation", f"Propagation failed: {e}")
+                err = InferenceRuntimeError(str(e))
+                self._log_error("Propagation", f"Propagation failed: {err}")
+                if self.is_ui_alive():
+                    self.root.after(0, lambda: messagebox.showerror("Inference Error", f"Propagation failed:\n\n{err}"))
                 import traceback
 
                 traceback.print_exc()

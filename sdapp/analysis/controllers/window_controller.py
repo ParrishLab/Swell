@@ -64,6 +64,72 @@ class AnalysisWindowController:
         if hasattr(self.app, "metrics_roi_status_var"):
             self.app.metrics_roi_status_var.set(roi_status)
 
+    def compute_metrics_preview(self) -> None:
+        if not hasattr(self.app, "metrics_preview_var"):
+            return
+        
+        import numpy as np
+        from sdapp.analysis.core.metrics import compute_frame_metrics, extract_primary_boundary
+
+        self.app.metrics_preview_var.set("Preview: Computing...")
+        if self.app._ui_alive():
+            self.app.root.update_idletasks()
+
+        try:
+            frame_count = int(self.app._get_frame_count()) if hasattr(self.app, "_get_frame_count") else 0
+            if frame_count <= 0:
+                self.app.metrics_preview_var.set("Preview: No frames loaded.")
+                return
+
+            boundaries = []
+            masks_cache = getattr(self.app, "masks_cache", {})
+            for i in range(frame_count):
+                mask = masks_cache.get(i)
+                if mask is not None and np.any(mask):
+                    boundaries.append(extract_primary_boundary(np.asarray(mask, dtype=bool)))
+                else:
+                    boundaries.append(None)
+
+            if not any(b is not None for b in boundaries):
+                self.app.metrics_preview_var.set("Preview: No active masks to measure.")
+                return
+
+            metrics_dict = compute_frame_metrics(boundaries)
+            areas_px = metrics_dict.get("areas_px", np.array([]))
+            valid_areas = areas_px[np.isfinite(areas_px)]
+            max_area_px = float(np.max(valid_areas)) if valid_areas.size > 0 else 0.0
+
+            fps = float(self.app.frames_per_sec_var.get())
+            scale_px_per_mm = getattr(self.app, "scale_px_per_mm", None)
+
+            lines = []
+            if scale_px_per_mm and float(scale_px_per_mm) > 0:
+                scale_val = float(scale_px_per_mm)
+                max_area_mm2 = max_area_px / (scale_val**2)
+                lines.append(f"Max Area: {max_area_mm2:.4g} mm²")
+
+                avg_dist_px = metrics_dict.get("avg_dist_px", np.array([]))
+                valid_speed = avg_dist_px[np.isfinite(avg_dist_px)]
+                if valid_speed.size > 0:
+                    avg_speed_px_frame = float(np.mean(valid_speed))
+                    avg_speed_um_sec = (avg_speed_px_frame * 1000.0 / scale_val) * fps
+                    lines.append(f"Avg Speed: {avg_speed_um_sec:.4g} μm/s")
+            else:
+                lines.append(f"Max Area: {max_area_px:.0f} px")
+
+            roi_mask = getattr(self.app, "roi_mask", None)
+            if roi_mask is not None:
+                roi_arr = np.asarray(roi_mask, dtype=bool)
+                if np.any(roi_arr):
+                    roi_pixels = int(np.count_nonzero(roi_arr))
+                    if roi_pixels > 0:
+                        lines.append(f"ROI Fill: {(max_area_px / roi_pixels * 100.0):.1f}%")
+
+            self.app.metrics_preview_var.set(" | ".join(lines))
+
+        except Exception as e:
+            self.app.metrics_preview_var.set(f"Preview error: {e}")
+
     def collect_current_metrics_settings(self) -> dict[str, object]:
         metrics: dict[str, object] = {}
         try:

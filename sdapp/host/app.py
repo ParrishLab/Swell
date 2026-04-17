@@ -819,9 +819,10 @@ class SDAnalyzerApp:
         *,
         parent,
         purpose: str,
+        force_picker: bool = False,
     ) -> np.ndarray | None:
         selected = ""
-        if str(purpose or "").lower() == "scale":
+        if not force_picker and str(purpose or "").lower() == "scale":
             last_scale_image_path = str(getattr(self, "_last_scale_image_path", "") or "").strip()
             if last_scale_image_path and Path(last_scale_image_path).is_file():
                 selected = last_scale_image_path

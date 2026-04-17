@@ -25,7 +25,7 @@ from sdapp.shared.image_overlay import apply_mask_overlay
 from sdapp.shared.models import clone_analysis_payload
 from sdapp.shared.persistence.event_path import allocate_event_path_segment
 from sdapp.shared.services import MetricsSettingsResolver
-
+from sdapp.shared.errors import DataCorruptionError, InferenceRuntimeError
 from .config import EventCandidate, ExportRecord, TraceResult
 from .signal_analysis import event_to_dict
 from .stack_reader import StackReader
@@ -79,7 +79,7 @@ def export_analysis(
     include_metric_lineage_track_tables: bool = False,
     include_metric_combined_spreadsheet: bool = False,
     project_metadata: Optional[dict[str, object]] = None,
-    propagation_gap_decision: Optional[Callable[[dict[str, object]], str]] = None,
+    propagation_gap_decision: Optional[Callable[[dict[str, object]], list[str]]] = None,
 ) -> dict:
     analysis_sidecar_snapshot: dict[str, dict[str, object]] = {}
     if isinstance(analysis_sidecar, dict):
@@ -358,8 +358,8 @@ def _resolve_roi_mask(metrics_settings: dict[str, object], frame_shape: tuple[in
     if isinstance(raw_points, list) and raw_points:
         try:
             mask = roi_mask_from_points(raw_points, frame_shape)
-        except Exception:
-            mask = None
+        except Exception as e:
+            raise DataCorruptionError(f"Failed to generate ROI mask from points: {e}")
         if mask is not None and mask.shape == frame_shape and np.any(mask):
             return np.asarray(mask, dtype=bool).copy()
     return None
@@ -622,29 +622,35 @@ def _propagation_warning_entries(warning: dict[str, object] | None) -> list[dict
     return [dict(warning)]
 
 
-def _apply_propagation_gap_policy(values: np.ndarray, runs: list[tuple[int, int]], action: str) -> np.ndarray:
+def _apply_propagation_gap_policy(
+    values: np.ndarray,
+    runs: list[tuple[int, int]],
+    actions: list[str],
+) -> np.ndarray:
     arr = np.asarray(values, dtype=np.float64).copy()
     if not runs:
         return arr
-    normalized = str(action or "ignore").strip().lower()
-    if normalized == "stop":
-        first_gap = runs[0][0]
-        arr[first_gap:] = np.nan
-        return arr
-    if normalized == "zero":
-        for start, end in runs:
+    for (start, end), action in zip(runs, actions):
+        normalized = str(action or "ignore").strip().lower()
+        if normalized == "stop":
+            arr[start:] = np.nan
+            return arr
+        if normalized == "zero":
             arr[start : end + 1] = 0.0
-        return arr
-    if normalized == "interpolate":
-        for start, end in runs:
+            continue
+        if normalized == "interpolate":
             left_idx = start - 1
             right_idx = end + 1
+            if left_idx < 0 or right_idx >= arr.size:
+                continue
             left_val = float(arr[left_idx])
             right_val = float(arr[right_idx])
+            if not np.isfinite(left_val) or not np.isfinite(right_val):
+                continue
             span = right_idx - left_idx
             for idx in range(start, end + 1):
                 arr[idx] = left_val + ((right_val - left_val) * ((idx - left_idx) / float(span)))
-        return arr
+            continue
     return arr
 
 
@@ -698,7 +704,7 @@ def _write_metrics_combined_workbook(
         summary_rows.extend(
             [
                 (f"{prefix} type", entry.get("kind", "gap")),
-                (f"{prefix} action", entry.get("action")),
+                (f"{prefix} actions applied", entry.get("actions", entry.get("action"))),
                 (f"{prefix} frame runs", entry.get("frame_runs")),
             ]
         )
@@ -729,7 +735,7 @@ def _export_event_metrics(
     include_metric_lineage_object_metrics: bool,
     include_metric_lineage_track_tables: bool,
     include_metric_combined_spreadsheet: bool,
-    propagation_gap_decision: Optional[Callable[[dict[str, object]], str]] = None,
+    propagation_gap_decision: Optional[Callable[[dict[str, object]], list[str]]] = None,
     analysis_sidecar_payload: Optional[dict[str, object]] = None,
 ) -> dict[str, object]:
     frame0 = np.asarray(reader.read_frame(0, use_cache=True))
@@ -828,28 +834,51 @@ def _export_event_metrics(
 
     warning_entries: list[dict[str, object]] = []
 
-    if zero_runs:
-        zero_frame_runs = [[int(frame_indices[start]), int(frame_indices[end])] for start, end in zero_runs]
-        requested_action = "zero"
+    def _resolve_actions(
+        runs_local: list[tuple[int, int]],
+        frame_runs_local: list[list[int]],
+        warning_kind: str,
+        supported: list[str],
+        default: str,
+    ) -> list[str]:
+        count = len(runs_local)
+        if count == 0:
+            return []
+        allowed = set(supported)
+        resolved = [default] * count
         if callable(propagation_gap_decision):
             try:
                 decision_payload = {
                     "event_id": str(event.event_id),
                     "event_label": str(getattr(event, "label", "") or ""),
-                    "gap_frame_runs": zero_frame_runs,
+                    "gap_frame_runs": frame_runs_local,
                     "metric": "propagation_speed",
-                    "warning_kind": "zero_growth",
-                    "supported_actions": ["zero", "interpolate", "stop"],
+                    "warning_kind": warning_kind,
+                    "supported_actions": list(supported),
                     "preview_frame_indices": [int(idx) for idx in frame_indices],
                     "preview_speed_values": [None if not np.isfinite(val) else float(val) for val in speed_um_per_sec],
                 }
-                requested_action = str(propagation_gap_decision(decision_payload) or "zero")
-            except Exception:
-                requested_action = "zero"
-        normalized_action = requested_action.strip().lower()
-        if normalized_action not in {"zero", "stop", "interpolate"}:
-            normalized_action = "zero"
-        speed_um_per_sec = _apply_propagation_gap_policy(speed_um_per_sec, zero_runs, normalized_action)
+                raw = propagation_gap_decision(decision_payload)
+            except Exception as e:
+                raise DataCorruptionError(f"Propagation gap policy failed: {e}")
+            if isinstance(raw, str):
+                raw = [raw] * count
+            if isinstance(raw, (list, tuple)):
+                for i in range(min(count, len(raw))):
+                    value = str(raw[i] or default).strip().lower()
+                    resolved[i] = value if value in allowed else default
+        return resolved
+
+    if zero_runs:
+        zero_frame_runs = [[int(frame_indices[start]), int(frame_indices[end])] for start, end in zero_runs]
+        zero_actions = _resolve_actions(
+            zero_runs,
+            zero_frame_runs,
+            "zero_growth",
+            ["zero", "interpolate", "stop"],
+            "zero",
+        )
+        speed_um_per_sec = _apply_propagation_gap_policy(speed_um_per_sec, zero_runs, zero_actions)
         warning_entries.append(
             {
                 "metric": "propagation_speed",
@@ -857,34 +886,22 @@ def _export_event_metrics(
                 "event_id": str(event.event_id),
                 "event_label": str(getattr(event, "label", "") or ""),
                 "frame_runs": zero_frame_runs,
-                "action": normalized_action,
+                "actions": list(zero_actions),
             }
         )
-        if normalized_action == "stop":
+        if "stop" in zero_actions:
             gap_runs = []
 
     if gap_runs:
         gap_frame_runs = [[int(frame_indices[start]), int(frame_indices[end])] for start, end in gap_runs]
-        requested_action = "ignore"
-        if callable(propagation_gap_decision):
-            try:
-                decision_payload = {
-                    "event_id": str(event.event_id),
-                    "event_label": str(getattr(event, "label", "") or ""),
-                    "gap_frame_runs": gap_frame_runs,
-                    "metric": "propagation_speed",
-                    "warning_kind": "gap",
-                    "supported_actions": ["ignore", "interpolate", "stop"],
-                    "preview_frame_indices": [int(idx) for idx in frame_indices],
-                    "preview_speed_values": [None if not np.isfinite(val) else float(val) for val in speed_um_per_sec],
-                }
-                requested_action = str(propagation_gap_decision(decision_payload) or "ignore")
-            except Exception:
-                requested_action = "ignore"
-        normalized_action = requested_action.strip().lower()
-        if normalized_action not in {"ignore", "stop", "interpolate"}:
-            normalized_action = "ignore"
-        speed_um_per_sec = _apply_propagation_gap_policy(speed_um_per_sec, gap_runs, normalized_action)
+        gap_actions = _resolve_actions(
+            gap_runs,
+            gap_frame_runs,
+            "gap",
+            ["ignore", "interpolate", "stop"],
+            "ignore",
+        )
+        speed_um_per_sec = _apply_propagation_gap_policy(speed_um_per_sec, gap_runs, gap_actions)
         warning_entries.append(
             {
                 "metric": "propagation_speed",
@@ -892,7 +909,7 @@ def _export_event_metrics(
                 "event_id": str(event.event_id),
                 "event_label": str(getattr(event, "label", "") or ""),
                 "frame_runs": gap_frame_runs,
-                "action": normalized_action,
+                "actions": list(gap_actions),
             }
         )
 
@@ -1798,7 +1815,7 @@ def _write_metrics_summary_markdown(path: Path, summary: dict[str, object]) -> N
             lines.extend(
                 [
                     _markdown_bullet(f"{prefix} type", entry.get("kind", "gap")),
-                    _markdown_bullet(f"{prefix} action", entry.get("action")),
+                    _markdown_bullet(f"{prefix} actions applied", entry.get("actions", entry.get("action"))),
                     _markdown_bullet(f"{prefix} frame runs", entry.get("frame_runs")),
                 ]
             )
@@ -1820,7 +1837,7 @@ def _write_metrics_warning_markdown(path: Path, warning: dict[str, object]) -> N
         lines.extend(
             [
                 _markdown_bullet(f"{prefix} type", entry.get("kind", "gap")),
-                _markdown_bullet(f"{prefix} action applied", entry.get("action")),
+                _markdown_bullet(f"{prefix} actions applied", entry.get("actions", entry.get("action"))),
                 _markdown_bullet(f"{prefix} frame runs", entry.get("frame_runs")),
             ]
         )

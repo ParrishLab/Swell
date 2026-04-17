@@ -1095,7 +1095,7 @@ def test_export_metrics_gap_warning_can_ignore(tmp_path: Path, monkeypatch: pyte
     assert decisions[0]["preview_speed_values"][0] is None
     assert rows[2]["frame_index"] == "14"
     assert rows[2]["speed_um_per_sec"] == ""
-    assert warning["action"] == "ignore"
+    assert warning["actions"] == ["ignore"]
     assert warning["frame_runs"] == [[14, 14]]
     summary = json.loads((metrics_dir / "metrics_summary.json").read_text(encoding="utf-8"))
     assert float(summary["overall_max_speed_um_per_sec"]) == 5000.0
@@ -1190,7 +1190,7 @@ def test_export_metrics_gap_warning_can_interpolate(tmp_path: Path, monkeypatch:
     assert values[2] != ""
     assert values[3] != ""
     assert float(values[2]) > 0.0
-    assert warning["action"] == "interpolate"
+    assert warning["actions"] == ["interpolate"]
 
 
 def test_export_metrics_zero_growth_warning_can_set_zero(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1245,7 +1245,7 @@ def test_export_metrics_zero_growth_warning_can_set_zero(tmp_path: Path, monkeyp
     assert decisions[0]["preview_speed_values"][2] is None
     assert rows[2]["speed_um_per_sec"] == "0.0"
     assert warning["kind"] == "zero_growth"
-    assert warning["action"] == "zero"
+    assert warning["actions"] == ["zero"]
 
 
 def test_export_binary_masks_writes_mask_images_when_available(tmp_path: Path) -> None:

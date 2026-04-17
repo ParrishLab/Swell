@@ -98,10 +98,24 @@ class EagerFrameSource:
 
     def get_subtracted_frame(self, idx: int) -> np.ndarray:
         if not self.subtracted_frames:
-            raise NotImplementedError("Subtracted frames are not available for this frame source.")
+            if not getattr(self, "_warned_subtracted", False):
+                import tkinter.messagebox as messagebox
+                messagebox.showwarning(
+                    "Feature Not Available",
+                    "Subtracted frames are not available for this session. Falling back to raw frames."
+                )
+                self._warned_subtracted = True
+            return self.get_raw_frame(idx)
         return self.subtracted_frames[self._validate_index(idx)]
 
     def get_visual_frame(self, idx: int) -> np.ndarray:
         if not self.visual_frames:
-            raise NotImplementedError("Visualization frames are not available for this frame source.")
+            if not getattr(self, "_warned_visual", False):
+                import tkinter.messagebox as messagebox
+                messagebox.showwarning(
+                    "Feature Not Available",
+                    "Visualization frames are not available for this session. Falling back to raw frames."
+                )
+                self._warned_visual = True
+            return self.get_raw_frame(idx)
         return self.visual_frames[self._validate_index(idx)]

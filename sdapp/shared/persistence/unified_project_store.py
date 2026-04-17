@@ -27,43 +27,67 @@ from sdapp.shared.persistence.serialization import (
     encode_analysis_sidecar,
     encode_metadata_for_write,
 )
+from sdapp.shared.errors import ProjectLoadError
 from sdapp.shared.persistence.zip_io import read_json, read_npz, write_json, write_npz
 
 
 def _coerce_stack_ref(raw: dict[str, Any] | None) -> StackRef | None:
-    if not isinstance(raw, dict):
+    if raw is None:
         return None
+    if not isinstance(raw, dict):
+        raise ProjectLoadError("Stack reference data must be a dictionary.")
     try:
         return StackRef(
-            input_dir=str(raw.get("input_dir", "")),
-            frame_count=int(raw.get("frame_count", 0)),
-            frame_height=int(raw.get("frame_height", 0)),
-            frame_width=int(raw.get("frame_width", 0)),
+            input_dir=str(raw["input_dir"]),
+            frame_count=int(raw["frame_count"]),
+            frame_height=int(raw["frame_height"]),
+            frame_width=int(raw["frame_width"]),
             dtype=str(raw.get("dtype", "uint8")),
         )
-    except Exception:
-        return None
+    except KeyError as e:
+        raise ProjectLoadError(f"Missing required stack reference field: {e}")
+    except ValueError as e:
+        raise ProjectLoadError(f"Invalid value in stack reference: {e}")
+    except Exception as e:
+        raise ProjectLoadError(f"Failed to load stack reference: {e}")
 
 
 def _coerce_events(raw: Any) -> list[EventMeta]:
+    if raw is None:
+        return []
+    if not isinstance(raw, list):
+        raise ProjectLoadError("Events data must be a list.")
+    
     out: list[EventMeta] = []
-    for event in list(raw or []):
+    for i, event in enumerate(raw):
         if not isinstance(event, dict):
-            continue
+            raise ProjectLoadError(f"Event at index {i} must be a dictionary.")
         try:
-            start = event.get("global_start_idx", event.get("start_idx", event.get("frame_start", 0)))
-            end = event.get("global_end_idx", event.get("end_idx", event.get("frame_end", 0)))
+            start = event.get("global_start_idx", event.get("start_idx", event.get("frame_start")))
+            end = event.get("global_end_idx", event.get("end_idx", event.get("frame_end")))
+            
+            if start is None or end is None:
+                raise KeyError("Missing start or end index for event.")
+
+            event_id = event.get("event_id", event.get("id"))
+            if event_id is None:
+                raise KeyError("Missing event_id.")
+
             out.append(
                 EventMeta(
-                    event_id=str(event.get("event_id", event.get("id", ""))),
-                    label=str(event.get("label", event.get("event_id", event.get("id", "")))),
+                    event_id=str(event_id),
+                    label=str(event.get("label", event_id)),
                     global_start_idx=int(start),
                     global_end_idx=int(end),
                     flags=dict(event.get("flags", {})),
                 )
             )
-        except Exception:
-            continue
+        except KeyError as e:
+            raise ProjectLoadError(f"Missing required event field at index {i}: {e}")
+        except ValueError as e:
+            raise ProjectLoadError(f"Invalid value in event at index {i}: {e}")
+        except Exception as e:
+            raise ProjectLoadError(f"Failed to load event at index {i}: {e}")
     return out
 
 

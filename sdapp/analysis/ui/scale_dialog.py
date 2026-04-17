@@ -18,6 +18,7 @@ def open_scale_dialog(
     initial_scale_points=None,
     initial_axis_lock=None,
     allow_reset_local=False,
+    pick_image_callback=None,
 ):
     popup = tk.Toplevel(root)
     popup.withdraw()
@@ -352,6 +353,24 @@ def open_scale_dialog(
         state["dragging_idx"] = None
         redraw()
 
+    def on_change_image():
+        nonlocal img_u8, img_w, img_h
+        if not callable(pick_image_callback):
+            return
+        new_img = pick_image_callback()
+        if new_img is None:
+            return
+        img_u8 = new_img
+        img_h, img_w = img_u8.shape[:2]
+        state["points"] = []
+        state["preview"] = None
+        state["dragging_idx"] = None
+        state["zoom_factor"] = 1.0
+        state["offset_x"] = 0.0
+        state["offset_y"] = 0.0
+        render_background()
+        redraw()
+
     def set_space_pan_active(_event=None):
         state["space_pan_requested"] = True
         try:
@@ -454,6 +473,8 @@ def open_scale_dialog(
     ).pack(side="left", padx=(0, SPACING.inner))
     ttk.Button(left_controls, text="Undo", command=on_undo, **semantic_button_options("secondary")).pack(side="left", padx=(0, SPACING.gap))
     ttk.Button(left_controls, text="Clear", command=on_clear, **semantic_button_options("secondary")).pack(side="left", padx=(0, SPACING.gap))
+    if callable(pick_image_callback):
+        ttk.Button(left_controls, text="Change Image", command=on_change_image, **semantic_button_options("secondary")).pack(side="left", padx=(0, SPACING.gap))
     ttk.Checkbutton(left_controls, text="Axis Lock", variable=axis_lock_var, command=redraw).pack(side="left", padx=(SPACING.inner, 0))
 
     right_controls = ttk.Frame(controls, style="AppSurface.TFrame")

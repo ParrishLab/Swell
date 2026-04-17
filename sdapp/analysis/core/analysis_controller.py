@@ -382,6 +382,28 @@ class AnalysisController:
         if len(raw_scale_points) >= 2:
             initial_scale_points = list(raw_scale_points[:2])
 
+        image_path_ref = [image_path]
+
+        def _pick_scale_image_for_dialog():
+            path = filedialog.askopenfilename(
+                parent=self.root,
+                title="Select Image for Scale Calibration",
+                initialdir=scale_initialdir,
+                filetypes=[
+                    ("Image files", "*.png *.jpg *.jpeg *.tif *.tiff *.bmp"),
+                    ("All files", "*.*"),
+                ],
+            )
+            if not path:
+                return None
+            new_img = self._load_image_u8_from_path(path)
+            if new_img is None:
+                messagebox.showwarning("Image Error", "Unable to read selected image.", parent=self.root)
+                return None
+            self.set_last_scale_image_path(path)
+            image_path_ref[0] = path
+            return new_img
+
         result = open_scale_dialog(
             root=self.root,
             img_u8=img_u8,
@@ -391,10 +413,11 @@ class AnalysisController:
             initial_scale_points=initial_scale_points,
             initial_axis_lock=self.get_scale_axis_lock(),
             allow_reset_local=bool(self.get_scale_is_local_override()),
+            pick_image_callback=_pick_scale_image_for_dialog,
         )
         if result is None:
             return None
-        result["image_path"] = str(image_path)
+        result["image_path"] = str(image_path_ref[0])
         return result
 
     def _apply_local_scale_selection(self, result) -> None:
@@ -460,11 +483,31 @@ class AnalysisController:
             messagebox.showwarning("Image Error", "Unable to read selected image for ROI.", parent=self.root)
             return None
 
+        def _pick_roi_image_for_dialog():
+            path = filedialog.askopenfilename(
+                parent=self.root,
+                title="Select Image for ROI",
+                initialdir=roi_initialdir,
+                initialfile=preferred_file,
+                filetypes=[
+                    ("Image files", "*.png *.jpg *.jpeg *.tif *.tiff *.bmp"),
+                    ("All files", "*.*"),
+                ],
+            )
+            if not path:
+                return None
+            new_img = self._load_image_u8_from_path(path)
+            if new_img is None:
+                messagebox.showwarning("Image Error", "Unable to read selected image.", parent=self.root)
+                return None
+            return new_img
+
         result = open_roi_dialog(
             root=self.root,
             img_u8=img_u8,
             initial_roi_points=self.get_roi_points(),
             allow_reset_local=bool(self.get_roi_is_local_override()),
+            pick_image_callback=_pick_roi_image_for_dialog,
         )
         if result is None:
             return None
