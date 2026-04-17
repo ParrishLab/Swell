@@ -3,7 +3,7 @@ from __future__ import annotations
 import threading
 from tkinter import messagebox
 
-from sdapp.analysis.core.state import AppConfig
+from sdapp.shared.config import AppConfig
 from sdapp.shared.services.update_service import UpdateCheckResult, UpdateService
 from sdapp.shared.ui import BackgroundTaskRunner
 

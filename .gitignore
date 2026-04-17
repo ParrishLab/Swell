@@ -34,6 +34,9 @@ dist/
 *.whl
 pip-wheel-metadata/
 
+# MkDocs build output
+site/
+
 # Logs and temp
 *.log
 *.tmp

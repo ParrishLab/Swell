@@ -13,8 +13,8 @@ from tkinter import filedialog, messagebox, simpledialog, ttk
 import numpy as np
 from PIL import Image, ImageTk
 
-from sdapp.analysis.ui.theme import CANVAS_BACKGROUND, SLIDER_OVERLAY_BACKGROUND, SPACING
-from sdapp.analysis.core.state import AppConfig
+from sdapp.shared.ui.theme import CANVAS_BACKGROUND, SLIDER_OVERLAY_BACKGROUND, SPACING
+from sdapp.shared.config import AppConfig
 from .browser_controller import BrowserController
 from .config import APP_TITLE, DEFAULT_BASELINE_PRE_FRAMES, TraceResult
 from .controllers import (
@@ -25,6 +25,7 @@ from .controllers import (
     HostWindowController,
 )
 from .mark_popup_controller import MarkPopupController
+from .popup_window_manager import PopupWindowManager
 from .processing_engine import PopupProcessRequest, PopupProcessResult, PopupProcessingEngine
 from .preview_controller import HostPreviewController
 from .stack_reader import StackReader
@@ -35,6 +36,7 @@ from .ui_geometry import (
     linear_x_to_value,
 )
 
+from sdapp.shared.lru_cache import LRUCache
 from sdapp.shared.services import AnalysisWindowManager, CheckpointRuntimeService, SingleInstanceBridge
 from sdapp.shared.menu.factory import build_shared_menu
 from sdapp.shared.app_metadata import format_window_title
@@ -92,66 +94,15 @@ class SDAnalyzerApp:
         self._load_progress_bucket = -1
         self._export_progress_bucket = -1
 
-        self._mark_popup: tk.Toplevel | None = None
-        self._mark_popup_mode: str | None = None
-        self._mark_popup_event_id: str | None = None
-        self._mark_popup_anchor_idx = 0
-        self._mark_popup_current_idx = 0
-        self._mark_popup_local_start = 0
-        self._mark_popup_local_end = 0
-        self._mark_popup_image: ImageTk.PhotoImage | None = None
-        self._mark_popup_mini_image: ImageTk.PhotoImage | None = None
-        self._mark_start_var: tk.StringVar | None = None
-        self._mark_end_var: tk.StringVar | None = None
-        self._mark_baseline_count_var: tk.StringVar | None = None
-        self._mark_baseline_end_var: tk.StringVar | None = None
-        self._mark_contrast_var: tk.DoubleVar | None = None
-        self._mark_contrast_label_var: tk.StringVar | None = None
-        self._mark_frame_info_var: tk.StringVar | None = None
-        self._mark_window_info_var: tk.StringVar | None = None
-        self._mark_scale: tk.Scale | None = None
-        self._mark_preview_label: ttk.Label | None = None
-        self._mark_overlay: tk.Canvas | None = None
-        self._mark_range_canvas: tk.Canvas | None = None
-        self._mark_range_active_handle: str | None = None
-        self._mark_range_start_idx = 0
-        self._mark_range_end_idx = 0
-        self._mark_last_full_refresh_note: str = ""
-        self._mark_loading_var: tk.StringVar | None = None
-        self._mark_loading_label: ttk.Label | None = None
-        self._mark_loading_bar: ttk.Progressbar | None = None
-        self._mark_main_view_shell: ttk.Frame | None = None
-        self._mark_mini_frame: ttk.Frame | None = None
-        self._mark_mini_canvas: tk.Canvas | None = None
-        self._mark_mini_grip: tk.Label | None = None
-        self._mark_resize_start_x: int | None = None
-        self._mark_resize_start_y: int | None = None
-        self._mark_resize_start_w: int | None = None
-        self._mark_resize_start_h: int | None = None
-        self._mark_recompute_after_id: str | None = None
-        self._mark_recompute_show_errors = False
-        self._mark_baseline_frame: np.ndarray | None = None
-        self._mark_norm_p1: float = 0.0
-        self._mark_norm_p99: float = 1.0
-        self._mark_processed_cache: OrderedDict[int, np.ndarray] = OrderedDict()
-        self._mark_processed_cache_max = 32
-        self._popup_job_seq = 0
-        self._popup_active_job_id = 0
-        self._popup_engine = PopupProcessingEngine(smoothed_cache_max=64, baseline_cache_max=16, norm_cache_max=32)
+        self._popup = PopupWindowManager()
         self.preview_overlay: tk.Canvas | None = None
-        self._main_render_cache: OrderedDict[tuple[int, int, int], ImageTk.PhotoImage] = OrderedDict()
-        self._main_render_cache_max = 24
-        self._normalized_frame_u8_cache: OrderedDict[tuple[int, str], np.ndarray] = OrderedDict()
-        self._normalized_frame_u8_cache_max = 64
+        self._main_render_cache: LRUCache[tuple[int, int, int], ImageTk.PhotoImage] = LRUCache(max_items=24, gc_min_keep=8)
+        self._normalized_frame_u8_cache: LRUCache[tuple[int, str], np.ndarray] = LRUCache(max_items=64, max_bytes=160 * 1024 * 1024, gc_min_keep=16)
         self._pending_main_frame_idx: int | None = None
         self._pending_main_after_id: str | None = None
-        self._pending_popup_frame_idx: int | None = None
-        self._pending_popup_after_id: str | None = None
         self._last_log_msg: str = ""
         self._last_log_time: float = 0.0
         self._cache_gc_after_id: str | None = None
-        self._mark_processed_cache_max_bytes = 220 * 1024 * 1024
-        self._normalized_frame_u8_cache_max_bytes = 160 * 1024 * 1024
         self._analysis_windows: list[tuple[tk.Toplevel, object]] = []
         self.analysis_window_manager = AnalysisWindowManager()
         self._analysis_options_preview_image: ImageTk.PhotoImage | None = None
@@ -505,7 +456,7 @@ class SDAnalyzerApp:
             return None
         if self._focus_is_entry(getattr(event, "widget", None)):
             return None
-        if self._mark_popup is not None and self._mark_popup.winfo_exists():
+        if self._popup.mark_popup is not None and self._popup.mark_popup.winfo_exists():
             return None
         self._step_preview(step)
         return "break"
@@ -1179,11 +1130,11 @@ class SDAnalyzerApp:
         self.popup_controller.on_destroy(_event)
 
     def _popup_step(self, delta: int) -> None:
-        if self.stack_info is None or self._mark_scale is None:
+        if self.stack_info is None or self._popup.mark_scale is None:
             return
         low, high = self._popup_overlay_bounds()
-        idx = max(low, min(self._mark_popup_current_idx + int(delta), high))
-        self._mark_scale.set(idx)
+        idx = max(low, min(self._popup.mark_popup_current_idx + int(delta), high))
+        self._popup.mark_scale.set(idx)
         self._popup_update_preview(idx)
 
     def _popup_on_slide(self, value: str) -> None:
@@ -1191,58 +1142,58 @@ class SDAnalyzerApp:
         self._schedule_popup_preview_update(idx)
 
     def _schedule_popup_preview_update(self, idx: int) -> None:
-        if self._mark_popup is None or not self._mark_popup.winfo_exists():
+        if self._popup.mark_popup is None or not self._popup.mark_popup.winfo_exists():
             return
-        self._pending_popup_frame_idx = int(idx)
-        if self._pending_popup_after_id is not None:
+        self._popup.pending_popup_frame_idx = int(idx)
+        if self._popup.pending_popup_after_id is not None:
             try:
-                self._mark_popup.after_cancel(self._pending_popup_after_id)
+                self._popup.mark_popup.after_cancel(self._popup.pending_popup_after_id)
             except Exception:
                 pass
-        self._pending_popup_after_id = self._mark_popup.after(16, self._flush_popup_preview_update)
+        self._popup.pending_popup_after_id = self._popup.mark_popup.after(16, self._flush_popup_preview_update)
 
     def _flush_popup_preview_update(self) -> None:
-        self._pending_popup_after_id = None
-        if self._pending_popup_frame_idx is None:
+        self._popup.pending_popup_after_id = None
+        if self._popup.pending_popup_frame_idx is None:
             return
-        idx = int(self._pending_popup_frame_idx)
-        self._pending_popup_frame_idx = None
+        idx = int(self._popup.pending_popup_frame_idx)
+        self._popup.pending_popup_frame_idx = None
         self._popup_update_preview(idx)
         self._redraw_popup_overlay()
 
     def _popup_set_start_current(self) -> None:
-        if self._mark_start_var is None:
+        if self._popup.mark_start_var is None:
             return
-        self._mark_start_var.set(str(self._mark_popup_current_idx))
+        self._popup.mark_start_var.set(str(self._popup.mark_popup_current_idx))
         self._redraw_popup_overlay()
         self._schedule_popup_recompute(align_baseline_to_start=True)
 
     def _popup_set_end_current(self) -> None:
-        if self._mark_end_var is None:
+        if self._popup.mark_end_var is None:
             return
-        self._mark_end_var.set(str(self._mark_popup_current_idx))
+        self._popup.mark_end_var.set(str(self._popup.mark_popup_current_idx))
         self._redraw_popup_overlay()
 
     def _popup_on_contrast_change(self, value: str) -> None:
         try:
             factor = float(value)
         except ValueError:
-            factor = float(self._mark_contrast_var.get()) if self._mark_contrast_var is not None else 1.0
+            factor = float(self._popup.mark_contrast_var.get()) if self._popup.mark_contrast_var is not None else 1.0
         factor = max(0.5, min(3.0, factor))
         if abs(factor - 1.0) <= 0.05:
             factor = 1.0
-        if self._mark_contrast_var is not None:
-            self._mark_contrast_var.set(factor)
-        if self._mark_contrast_label_var is not None:
-            self._mark_contrast_label_var.set(f"Contrast: {factor:.2f}x")
-        self._popup_update_preview(self._mark_popup_current_idx)
+        if self._popup.mark_contrast_var is not None:
+            self._popup.mark_contrast_var.set(factor)
+        if self._popup.mark_contrast_label_var is not None:
+            self._popup.mark_contrast_label_var.set(f"Contrast: {factor:.2f}x")
+        self._popup_update_preview(self._popup.mark_popup_current_idx)
 
     def _popup_parse_baseline_controls(self) -> tuple[int, int]:
         if self.stack_info is None:
             raise RuntimeError("No stack loaded.")
         frame_count = int(self.stack_info.frame_count)
-        count_raw = self._mark_baseline_count_var.get().strip() if self._mark_baseline_count_var is not None else "30"
-        end_raw = self._mark_baseline_end_var.get().strip() if self._mark_baseline_end_var is not None else "0"
+        count_raw = self._popup.mark_baseline_count_var.get().strip() if self._popup.mark_baseline_count_var is not None else "30"
+        end_raw = self._popup.mark_baseline_end_var.get().strip() if self._popup.mark_baseline_end_var is not None else "0"
         try:
             baseline_count = int(float(count_raw))
         except ValueError as exc:
@@ -1257,16 +1208,16 @@ class SDAnalyzerApp:
         return baseline_count, baseline_end
 
     def _auto_adjust_baseline_from_start(self, force_match_start: bool = False) -> bool:
-        if self.stack_info is None or self._mark_start_var is None:
+        if self.stack_info is None or self._popup.mark_start_var is None:
             return False
-        if self._mark_baseline_count_var is None or self._mark_baseline_end_var is None:
+        if self._popup.mark_baseline_count_var is None or self._popup.mark_baseline_end_var is None:
             return False
-        start_raw = self._mark_start_var.get().strip()
+        start_raw = self._popup.mark_start_var.get().strip()
         if not start_raw:
             return False
         try:
             start_idx = int(float(start_raw))
-            baseline_end = int(float(self._mark_baseline_end_var.get().strip()))
+            baseline_end = int(float(self._popup.mark_baseline_end_var.get().strip()))
         except ValueError:
             return False
 
@@ -1280,48 +1231,48 @@ class SDAnalyzerApp:
             force_match_start=force_match_start,
         )
         if changed:
-            self._mark_baseline_end_var.set(str(next_end))
+            self._popup.mark_baseline_end_var.set(str(next_end))
             return True
         return False
 
     def _set_popup_loading(self, loading: bool, text: str = "Loading...") -> None:
-        if self._mark_loading_var is None or self._mark_loading_label is None or self._mark_loading_bar is None:
+        if self._popup.mark_loading_var is None or self._popup.mark_loading_label is None or self._popup.mark_loading_bar is None:
             return
         if loading:
-            self._mark_loading_var.set(text)
-            if not self._mark_loading_label.winfo_ismapped():
-                self._mark_loading_label.pack(anchor="w", pady=(0, 2))
-            if not self._mark_loading_bar.winfo_ismapped():
-                self._mark_loading_bar.pack(fill="x", pady=(0, 4))
-            self._mark_loading_bar.start(8)
-            if self._mark_popup is not None and self._mark_popup.winfo_exists():
-                self._mark_popup.update_idletasks()
+            self._popup.mark_loading_var.set(text)
+            if not self._popup.mark_loading_label.winfo_ismapped():
+                self._popup.mark_loading_label.pack(anchor="w", pady=(0, 2))
+            if not self._popup.mark_loading_bar.winfo_ismapped():
+                self._popup.mark_loading_bar.pack(fill="x", pady=(0, 4))
+            self._popup.mark_loading_bar.start(8)
+            if self._popup.mark_popup is not None and self._popup.mark_popup.winfo_exists():
+                self._popup.mark_popup.update_idletasks()
         else:
-            self._mark_loading_bar.stop()
-            if self._mark_loading_bar.winfo_ismapped():
-                self._mark_loading_bar.pack_forget()
-            if self._mark_loading_label.winfo_ismapped():
-                self._mark_loading_label.pack_forget()
-            self._mark_loading_var.set("")
+            self._popup.mark_loading_bar.stop()
+            if self._popup.mark_loading_bar.winfo_ismapped():
+                self._popup.mark_loading_bar.pack_forget()
+            if self._popup.mark_loading_label.winfo_ismapped():
+                self._popup.mark_loading_label.pack_forget()
+            self._popup.mark_loading_var.set("")
 
     def _popup_range_x_to_idx(self, x: float) -> int:
-        if self.stack_info is None or self._mark_range_canvas is None:
+        if self.stack_info is None or self._popup.mark_range_canvas is None:
             return 0
-        width = max(2, self._mark_range_canvas.winfo_width() - 12)
+        width = max(2, self._popup.mark_range_canvas.winfo_width() - 12)
         frame_count = int(self.stack_info.frame_count)
         return linear_x_to_value(x - 6.0, width, 0, max(0, frame_count - 1))
 
     def _popup_range_idx_to_x(self, idx: int) -> float:
-        if self.stack_info is None or self._mark_range_canvas is None:
+        if self.stack_info is None or self._popup.mark_range_canvas is None:
             return 6.0
-        width = max(2, self._mark_range_canvas.winfo_width() - 12)
+        width = max(2, self._popup.mark_range_canvas.winfo_width() - 12)
         frame_count = int(self.stack_info.frame_count)
         return 6.0 + linear_value_to_x(idx, 0, max(0, frame_count - 1), width)
 
     def _redraw_popup_range_selector(self) -> None:
-        if self._mark_range_canvas is None or self.stack_info is None:
+        if self._popup.mark_range_canvas is None or self.stack_info is None:
             return
-        c = self._mark_range_canvas
+        c = self._popup.mark_range_canvas
         c.delete("all")
         w = c.winfo_width()
         h = c.winfo_height()
@@ -1330,8 +1281,8 @@ class SDAnalyzerApp:
 
         y = h // 2
         c.create_line(6, y, w - 6, y, fill="#4c5058", width=4, capstyle=tk.ROUND)
-        x0 = self._popup_range_idx_to_x(self._mark_range_start_idx)
-        x1 = self._popup_range_idx_to_x(self._mark_range_end_idx)
+        x0 = self._popup_range_idx_to_x(self._popup.mark_range_start_idx)
+        x1 = self._popup_range_idx_to_x(self._popup.mark_range_end_idx)
         left = min(x0, x1)
         right = max(x0, x1)
         c.create_line(left, y, right, y, fill="#9cdb8f", width=6, capstyle=tk.ROUND)
@@ -1359,37 +1310,37 @@ class SDAnalyzerApp:
             )
 
     def _popup_range_press(self, event) -> None:
-        if self.stack_info is None or self._mark_range_canvas is None:
+        if self.stack_info is None or self._popup.mark_range_canvas is None:
             return
-        x_start = self._popup_range_idx_to_x(self._mark_range_start_idx)
-        x_end = self._popup_range_idx_to_x(self._mark_range_end_idx)
-        self._mark_range_active_handle = "start" if abs(event.x - x_start) <= abs(event.x - x_end) else "end"
+        x_start = self._popup_range_idx_to_x(self._popup.mark_range_start_idx)
+        x_end = self._popup_range_idx_to_x(self._popup.mark_range_end_idx)
+        self._popup.mark_range_active_handle = "start" if abs(event.x - x_start) <= abs(event.x - x_end) else "end"
         self._popup_range_drag(event)
 
     def _popup_range_drag(self, event) -> None:
-        if self._mark_range_active_handle is None:
+        if self._popup.mark_range_active_handle is None:
             return
         idx = self._popup_range_x_to_idx(event.x)
-        if self._mark_range_active_handle == "start":
-            self._on_popup_range_changed(idx, self._mark_range_end_idx, drag_final=False)
+        if self._popup.mark_range_active_handle == "start":
+            self._on_popup_range_changed(idx, self._popup.mark_range_end_idx, drag_final=False)
         else:
-            self._on_popup_range_changed(self._mark_range_start_idx, idx, drag_final=False)
+            self._on_popup_range_changed(self._popup.mark_range_start_idx, idx, drag_final=False)
 
     def _popup_range_release(self, _event) -> None:
-        self._on_popup_range_changed(self._mark_range_start_idx, self._mark_range_end_idx, drag_final=True)
-        self._mark_range_active_handle = None
+        self._on_popup_range_changed(self._popup.mark_range_start_idx, self._popup.mark_range_end_idx, drag_final=True)
+        self._popup.mark_range_active_handle = None
 
     def _on_popup_range_changed(self, start_idx: int, end_idx: int, drag_final: bool = False) -> None:
-        self._mark_last_full_refresh_note = ""
+        self._popup.mark_last_full_refresh_note = ""
         self._apply_popup_range_bounds(start_idx, end_idx)
         if drag_final:
             self._redraw_popup_overlay()
 
     def _apply_popup_range_bounds(self, start_idx: int, end_idx: int) -> None:
-        if self.stack_info is None or self._mark_scale is None:
+        if self.stack_info is None or self._popup.mark_scale is None:
             return
         # Keep the selected popup frame valid by preventing range collapse past current.
-        current_idx = int(self._mark_popup_current_idx)
+        current_idx = int(self._popup.mark_popup_current_idx)
         mark_start, mark_end = self._popup_get_normalized_mark_bounds_for_overlay()
         if mark_start is not None:
             start_idx = min(int(start_idx), int(mark_start))
@@ -1402,15 +1353,15 @@ class SDAnalyzerApp:
             end_idx,
             int(self.stack_info.frame_count),
             current_idx,
-            self._mark_processed_cache,
+            self._popup.mark_processed_cache,
         )
-        self._mark_popup_local_start = start_idx
-        self._mark_popup_local_end = end_idx
-        self._mark_range_start_idx = start_idx
-        self._mark_range_end_idx = end_idx
-        self._mark_popup_current_idx = clamped_current
-        self._mark_scale.configure(from_=start_idx, to=end_idx)
-        self._mark_scale.set(clamped_current)
+        self._popup.mark_popup_local_start = start_idx
+        self._popup.mark_popup_local_end = end_idx
+        self._popup.mark_range_start_idx = start_idx
+        self._popup.mark_range_end_idx = end_idx
+        self._popup.mark_popup_current_idx = clamped_current
+        self._popup.mark_scale.configure(from_=start_idx, to=end_idx)
+        self._popup.mark_scale.set(clamped_current)
         self._popup_update_window_info()
         self._redraw_popup_overlay()
         self._redraw_popup_range_selector()
@@ -1427,7 +1378,7 @@ class SDAnalyzerApp:
             loading_text="Refreshing current sequence...",
         )
         if ok:
-            self._mark_last_full_refresh_note = " | Current sequence refreshed"
+            self._popup.mark_last_full_refresh_note = " | Current sequence refreshed"
             self._popup_update_window_info()
 
     def _recompute_popup_pipeline_for_bounds(
@@ -1440,7 +1391,7 @@ class SDAnalyzerApp:
         normalization_range_start: int | None = None,
         normalization_range_end: int | None = None,
     ) -> bool:
-        if self._mark_popup is None or not self._mark_popup.winfo_exists() or self.stack_info is None:
+        if self._popup.mark_popup is None or not self._popup.mark_popup.winfo_exists() or self.stack_info is None:
             return False
         try:
             baseline_count, baseline_end = self._popup_parse_baseline_controls()
@@ -1449,9 +1400,9 @@ class SDAnalyzerApp:
                 self._log_warn(f"Popup recompute failed: {exc}")
                 messagebox.showwarning("Mark SD", str(exc), parent=self.root)
             return False
-        self._popup_job_seq += 1
-        job_id = int(self._popup_job_seq)
-        self._popup_active_job_id = job_id
+        self._popup.popup_job_seq += 1
+        job_id = int(self._popup.popup_job_seq)
+        self._popup.popup_active_job_id = job_id
         self._set_popup_loading(True, loading_text)
         req = PopupProcessRequest(
             job_id=job_id,
@@ -1459,7 +1410,7 @@ class SDAnalyzerApp:
             range_end=int(range_end),
             baseline_count=int(baseline_count),
             baseline_end=int(baseline_end),
-            current_idx=int(self._mark_popup_current_idx),
+            current_idx=int(self._popup.mark_popup_current_idx),
             warm_radius=4 if fast_mode else 10,
             sample_stride=9 if fast_mode else 5,
             norm_range_start=(
@@ -1473,7 +1424,7 @@ class SDAnalyzerApp:
         def done(result: PopupProcessResult | None, error: Exception | None) -> None:
             self.root.after(0, lambda: self._on_popup_process_result(job_id, result, error, show_errors))
 
-        self._popup_engine.submit_popup_job(req, done)
+        self._popup.engine.submit_popup_job(req, done)
         return True
 
     def _on_popup_process_result(
@@ -1483,9 +1434,9 @@ class SDAnalyzerApp:
         error: Exception | None,
         show_errors: bool,
     ) -> None:
-        if self._mark_popup is None or not self._mark_popup.winfo_exists():
+        if self._popup.mark_popup is None or not self._popup.mark_popup.winfo_exists():
             return
-        if int(job_id) != int(self._popup_active_job_id):
+        if int(job_id) != int(self._popup.popup_active_job_id):
             return
 
         self._set_popup_loading(False)
@@ -1498,10 +1449,10 @@ class SDAnalyzerApp:
         if result is None:
             return
 
-        self._mark_baseline_frame = result.baseline_frame
-        self._mark_norm_p1 = float(result.p1)
-        self._mark_norm_p99 = float(result.p99)
-        self._mark_processed_cache.clear()
+        self._popup.mark_baseline_frame = result.baseline_frame
+        self._popup.mark_norm_p1 = float(result.p1)
+        self._popup.mark_norm_p99 = float(result.p99)
+        self._popup.mark_processed_cache.clear()
         for idx in sorted(result.warmed_frames.keys()):
             self._cache_processed_frame(idx, result.warmed_frames[idx])
 
@@ -1512,7 +1463,7 @@ class SDAnalyzerApp:
             f"warm={t.get('warm', 0.0):.1f}, total={t.get('total', 0.0):.1f}."
         )
         self._popup_update_window_info()
-        self._popup_update_preview(self._mark_popup_current_idx)
+        self._popup_update_preview(self._popup.mark_popup_current_idx)
 
     def _schedule_popup_recompute(
         self,
@@ -1520,44 +1471,44 @@ class SDAnalyzerApp:
         delay_ms: int = 1400,
         align_baseline_to_start: bool = False,
     ) -> None:
-        if self._mark_popup is None or not self._mark_popup.winfo_exists():
+        if self._popup.mark_popup is None or not self._popup.mark_popup.winfo_exists():
             return
         adjusted = self._auto_adjust_baseline_from_start(force_match_start=align_baseline_to_start)
         if adjusted:
             self._redraw_popup_overlay()
         if show_errors:
-            self._mark_recompute_show_errors = True
-        if self._mark_recompute_after_id is not None:
+            self._popup.mark_recompute_show_errors = True
+        if self._popup.mark_recompute_after_id is not None:
             try:
-                self._mark_popup.after_cancel(self._mark_recompute_after_id)
+                self._popup.mark_popup.after_cancel(self._popup.mark_recompute_after_id)
             except Exception:
                 pass
-        self._mark_recompute_after_id = self._mark_popup.after(
+        self._popup.mark_recompute_after_id = self._popup.mark_popup.after(
             max(1000, int(delay_ms)), self._run_scheduled_popup_recompute
         )
 
     def _run_scheduled_popup_recompute(self) -> None:
-        show_errors = bool(self._mark_recompute_show_errors)
-        self._mark_recompute_show_errors = False
-        self._mark_recompute_after_id = None
+        show_errors = bool(self._popup.mark_recompute_show_errors)
+        self._popup.mark_recompute_show_errors = False
+        self._popup.mark_recompute_after_id = None
         self._recompute_popup_pipeline(show_errors=show_errors)
 
     def _recompute_popup_pipeline(self, show_errors: bool = True) -> bool:
-        if self._mark_popup is None or not self._mark_popup.winfo_exists() or self.stack_info is None:
+        if self._popup.mark_popup is None or not self._popup.mark_popup.winfo_exists() or self.stack_info is None:
             return False
         adjusted = self._auto_adjust_baseline_from_start(force_match_start=False)
         if adjusted:
             self._redraw_popup_overlay()
-        if self._mark_recompute_after_id is not None:
+        if self._popup.mark_recompute_after_id is not None:
             try:
-                self._mark_popup.after_cancel(self._mark_recompute_after_id)
+                self._popup.mark_popup.after_cancel(self._popup.mark_recompute_after_id)
             except Exception:
                 pass
-            self._mark_recompute_after_id = None
-        self._mark_recompute_show_errors = False
+            self._popup.mark_recompute_after_id = None
+        self._popup.mark_recompute_show_errors = False
 
         range_start, range_end = self._popup_overlay_bounds()
-        self._mark_last_full_refresh_note = ""
+        self._popup.mark_last_full_refresh_note = ""
         return self._recompute_popup_pipeline_for_bounds(
             range_start,
             range_end,
@@ -1569,57 +1520,52 @@ class SDAnalyzerApp:
         if self.reader is None:
             raise RuntimeError("Stack not loaded.")
 
-        if self._mark_baseline_frame is None:
+        if self._popup.mark_baseline_frame is None:
             raw = self.reader.read_frame(frame_idx, use_cache=True)
             return self._normalize_frame_percentile(raw)
 
-        if frame_idx in self._mark_processed_cache:
-            frame = self._mark_processed_cache.pop(frame_idx)
-            self._mark_processed_cache[frame_idx] = frame
-            return frame
+        if frame_idx in self._popup.mark_processed_cache:
+            return self._popup.mark_processed_cache.promote(frame_idx)
 
-        frame_u8 = self._popup_engine.get_processed_frame(
+        frame_u8 = self._popup.engine.get_processed_frame(
             frame_idx,
-            self._mark_baseline_frame,
-            self._mark_norm_p1,
-            self._mark_norm_p99,
+            self._popup.mark_baseline_frame,
+            self._popup.mark_norm_p1,
+            self._popup.mark_norm_p99,
         )
         self._cache_processed_frame(frame_idx, frame_u8)
         return frame_u8
 
     def _cache_processed_frame(self, frame_idx: int, frame_u8: np.ndarray) -> None:
-        self._mark_processed_cache[int(frame_idx)] = frame_u8
-        while len(self._mark_processed_cache) > self._mark_processed_cache_max:
-            self._mark_processed_cache.popitem(last=False)
-        self._trim_numpy_cache_by_bytes(self._mark_processed_cache, self._mark_processed_cache_max_bytes)
+        self._popup.mark_processed_cache[int(frame_idx)] = frame_u8
 
     def _popup_start_resize_mini(self, event) -> None:
-        if self._mark_mini_frame is None:
+        if self._popup.mark_mini_frame is None:
             return
-        self._mark_resize_start_x = event.x_root
-        self._mark_resize_start_y = event.y_root
-        self._mark_resize_start_w = self._mark_mini_frame.winfo_width()
-        self._mark_resize_start_h = self._mark_mini_frame.winfo_height()
+        self._popup.mark_resize_start_x = event.x_root
+        self._popup.mark_resize_start_y = event.y_root
+        self._popup.mark_resize_start_w = self._popup.mark_mini_frame.winfo_width()
+        self._popup.mark_resize_start_h = self._popup.mark_mini_frame.winfo_height()
 
     def _popup_do_resize_mini(self, event) -> None:
-        if self._mark_mini_frame is None or self._mark_resize_start_x is None:
+        if self._popup.mark_mini_frame is None or self._popup.mark_resize_start_x is None:
             return
-        dx = self._mark_resize_start_x - event.x_root
-        dy = event.y_root - self._mark_resize_start_y
+        dx = self._popup.mark_resize_start_x - event.x_root
+        dy = event.y_root - self._popup.mark_resize_start_y
         delta = max(dx, dy)
-        base_w = self._mark_resize_start_w if self._mark_resize_start_w is not None else self._mark_mini_frame.winfo_width()
-        base_h = self._mark_resize_start_h if self._mark_resize_start_h is not None else self._mark_mini_frame.winfo_height()
+        base_w = self._popup.mark_resize_start_w if self._popup.mark_resize_start_w is not None else self._popup.mark_mini_frame.winfo_width()
+        base_h = self._popup.mark_resize_start_h if self._popup.mark_resize_start_h is not None else self._popup.mark_mini_frame.winfo_height()
         new_size = max(70, min(450, max(base_w, base_h) + delta))
-        self._mark_mini_frame.configure(width=new_size, height=new_size)
-        self._mark_mini_frame.update_idletasks()
-        self._update_popup_mini_raw(self._mark_popup_current_idx)
+        self._popup.mark_mini_frame.configure(width=new_size, height=new_size)
+        self._popup.mark_mini_frame.update_idletasks()
+        self._update_popup_mini_raw(self._popup.mark_popup_current_idx)
 
     def _popup_stop_resize_mini(self, _event) -> None:
-        self._mark_resize_start_x = None
-        self._mark_resize_start_y = None
-        self._mark_resize_start_w = None
-        self._mark_resize_start_h = None
-        self._update_popup_mini_raw(self._mark_popup_current_idx)
+        self._popup.mark_resize_start_x = None
+        self._popup.mark_resize_start_y = None
+        self._popup.mark_resize_start_w = None
+        self._popup.mark_resize_start_h = None
+        self._update_popup_mini_raw(self._popup.mark_popup_current_idx)
 
     def _update_popup_mini_raw(self, frame_idx: int) -> None:
         return self._get_preview_controller().update_popup_mini_raw(frame_idx)
@@ -1836,33 +1782,11 @@ class SDAnalyzerApp:
         self._gc_runtime_caches(aggressive=False, run_python_gc=False)
         messagebox.showinfo("Export", f"Output written to:\n{result['output_dir']}", parent=self.root)
 
-    def _trim_numpy_cache_by_bytes(self, cache: OrderedDict[int, np.ndarray], max_bytes: int) -> None:
-        total = 0
-        for arr in cache.values():
-            total += int(getattr(arr, "nbytes", 0))
-        while cache and total > int(max_bytes):
-            _k, old = cache.popitem(last=False)
-            total -= int(getattr(old, "nbytes", 0))
-
     def _gc_runtime_caches(self, aggressive: bool = False, run_python_gc: bool = False) -> None:
-        if aggressive:
-            self._main_render_cache.clear()
-            self._mark_processed_cache.clear()
-            self._normalized_frame_u8_cache.clear()
-        else:
-            while len(self._main_render_cache) > max(8, self._main_render_cache_max // 2):
-                self._main_render_cache.popitem(last=False)
-            while len(self._mark_processed_cache) > max(8, self._mark_processed_cache_max // 2):
-                self._mark_processed_cache.popitem(last=False)
-            while len(self._normalized_frame_u8_cache) > max(16, self._normalized_frame_u8_cache_max // 2):
-                self._normalized_frame_u8_cache.popitem(last=False)
-            self._trim_numpy_cache_by_bytes(self._mark_processed_cache, self._mark_processed_cache_max_bytes)
-            self._trim_numpy_cache_by_bytes(
-                self._normalized_frame_u8_cache,
-                self._normalized_frame_u8_cache_max_bytes,
-            )
-
-        self._popup_engine.collect_garbage(aggressive=aggressive)
+        self._main_render_cache.gc(aggressive=aggressive)
+        self._popup.mark_processed_cache.gc(aggressive=aggressive)
+        self._normalized_frame_u8_cache.gc(aggressive=aggressive)
+        self._popup.engine.collect_garbage(aggressive=aggressive)
         if self.reader is not None:
             self.reader.collect_garbage(aggressive=aggressive)
         if run_python_gc:

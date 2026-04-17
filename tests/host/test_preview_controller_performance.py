@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-from collections import OrderedDict
 from types import SimpleNamespace
 from unittest.mock import patch
 
 import numpy as np
 
 from sdapp.host.preview_controller import HostPreviewController
+from sdapp.shared.lru_cache import LRUCache
 
 
 class _Label:
@@ -77,15 +77,13 @@ def _build_app(frames: list[np.ndarray]) -> SimpleNamespace:
         preview_overlay=None,
         preview_scale=None,
         dc_trace_controller=SimpleNamespace(update_for_frame=lambda _idx: None),
-        _main_render_cache=OrderedDict(),
-        _main_render_cache_max=24,
-        _normalized_frame_u8_cache=OrderedDict(),
-        _normalized_frame_u8_cache_max=64,
-        _normalized_frame_u8_cache_max_bytes=8 * 1024 * 1024,
-        _mark_mini_canvas=_Canvas(),
-        _mark_mini_frame=SimpleNamespace(),
-        _mark_popup_mini_image=None,
-        _trim_numpy_cache_by_bytes=lambda _cache, _max_bytes: None,
+        _main_render_cache=LRUCache(max_items=24, gc_min_keep=8),
+        _normalized_frame_u8_cache=LRUCache(max_items=64, max_bytes=8 * 1024 * 1024, gc_min_keep=16),
+        _popup=SimpleNamespace(
+            mark_mini_canvas=_Canvas(),
+            mark_mini_frame=SimpleNamespace(),
+            mark_popup_mini_image=None,
+        ),
         _set_status=lambda *_args: None,
         _log_error=lambda *_args: None,
         _show_warning=lambda *_args: None,
@@ -148,7 +146,7 @@ def test_popup_mini_reuses_main_preview_normalization_cache() -> None:
 
     assert app.reader.read_calls == [1]
     assert normalize_calls == [(1, "default")]
-    assert len(app._mark_mini_canvas.images) == 1
+    assert len(app._popup.mark_mini_canvas.images) == 1
 
 
 def test_schedule_main_preview_update_moves_live_cursor_before_render() -> None:

@@ -12,7 +12,7 @@ import numpy as np
 from sdapp.analysis.core.metrics import compute_scale
 from sdapp.analysis.ui.roi_dialog import open_roi_dialog
 from sdapp.analysis.ui.scale_dialog import open_scale_dialog
-from sdapp.analysis.ui.theme import SPACING, apply_theme
+from sdapp.shared.ui.theme import SPACING, apply_theme
 from sdapp.host.exporter import analysis_image_cache_key, export_analysis
 from sdapp.shared.models import clone_analysis_payload
 from sdapp.shared.services import MetricsSettingsResolver

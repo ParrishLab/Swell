@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sdapp.host.ui_logic import adjust_baseline_end_for_start, normalize_overlay_bounds
+from sdapp.host.ui_geometry import adjust_baseline_end_for_start, normalize_overlay_bounds
 
 
 def test_normalize_overlay_bounds_swaps_and_clamps() -> None:

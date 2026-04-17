@@ -13,7 +13,7 @@ def run_host_app(
     initial_project_path: str | None = None,
     instance_bridge: SingleInstanceBridge | None = None,
 ) -> None:
-    from sdapp.analysis.ui.theme import apply_theme
+    from sdapp.shared.ui.theme import apply_theme
     from sdapp.shared.ui.bootstrap import center_window_on_screen, create_root_window, ttk
 
     root = create_root_window(themename="darkly")

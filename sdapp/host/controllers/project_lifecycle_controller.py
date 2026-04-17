@@ -5,7 +5,7 @@ import threading
 import tkinter as tk
 from tkinter import filedialog, messagebox
 
-from sdapp.analysis.ui.theme import SPACING, apply_theme
+from sdapp.shared.ui.theme import SPACING, apply_theme
 from sdapp.host.host_models import stack_ref_from_stack_info
 from sdapp.host.stack_reader import StackReader
 from sdapp.shared.project_naming import derive_sdproj_name
@@ -19,6 +19,47 @@ class HostProjectLifecycleController:
 
     def _dialog_parent(self):
         return getattr(self.app, "root", None)
+
+    def _resolve_popup_engine(self):
+        legacy = getattr(self.app, "_popup_engine", None)
+        if legacy is not None:
+            return legacy
+        popup_state = getattr(self.app, "_popup", None)
+        if popup_state is not None:
+            engine = getattr(popup_state, "engine", None)
+            if engine is not None:
+                return engine
+        return None
+
+    def _set_popup_reader(self, reader: StackReader | None) -> None:
+        engine = self._resolve_popup_engine()
+        setter = getattr(engine, "set_reader", None)
+        if callable(setter):
+            setter(reader)
+
+    def _prewarm_popup_smoothed(self, indices: list[int]) -> None:
+        engine = self._resolve_popup_engine()
+        prewarm = getattr(engine, "prewarm_smoothed", None)
+        if callable(prewarm):
+            prewarm(indices)
+
+    def _clear_popup_processed_cache(self) -> None:
+        popup_state = getattr(self.app, "_popup", None)
+        cache = getattr(popup_state, "mark_processed_cache", None)
+        clear_fn = getattr(cache, "clear", None)
+        if callable(clear_fn):
+            clear_fn()
+
+    def _destroy_mark_popup_if_open(self) -> None:
+        popup_state = getattr(self.app, "_popup", None)
+        popup = getattr(popup_state, "mark_popup", None)
+        if popup is None:
+            return
+        try:
+            if popup.winfo_exists():
+                popup.destroy()
+        except Exception:
+            return
 
     def _prompt_three_way_action(
         self,
@@ -221,7 +262,7 @@ class HostProjectLifecycleController:
                 self.app.stack_info = stack_info
                 self.app.browser_controller.bind_frame_source(reader)
                 self.app.browser_controller.session.set_stack_ref(stack_ref_from_stack_info(stack_info))
-                self.app._popup_engine.set_reader(reader)
+                self._set_popup_reader(reader)
                 self.app.preview_scale.configure(from_=0, to=max(0, int(stack_info.frame_count) - 1))
                 frame_idx = 0
                 active_event = self.app.browser_controller.selected_event()
@@ -568,7 +609,7 @@ class HostProjectLifecycleController:
 
     def on_stack_loaded(self, reader: StackReader, info) -> None:
         self.app.reader = reader
-        self.app._popup_engine.set_reader(reader)
+        self._set_popup_reader(reader)
         self.app.stack_info = info
         self.app.trace = None
         self.app.dc_trace_controller.clear_runtime()
@@ -579,11 +620,9 @@ class HostProjectLifecycleController:
         self.app.current_frame_idx = 0
         self.app._main_render_cache.clear()
         self.app._normalized_frame_u8_cache.clear()
-        self.app._mark_processed_cache.clear()
+        self._clear_popup_processed_cache()
         self.app._sync_event_projections()
-
-        if self.app._mark_popup is not None and self.app._mark_popup.winfo_exists():
-            self.app._mark_popup.destroy()
+        self._destroy_mark_popup_if_open()
 
         self.app.preview_scale.configure(from_=0, to=max(0, info.frame_count - 1))
         self.app.preview_scale.set(0)
@@ -611,7 +650,7 @@ class HostProjectLifecycleController:
                 if self.app.reader is None:
                     return
                 self.app.reader.read_frame(idx, use_cache=True)
-            self.app._popup_engine.prewarm_smoothed(indices[:4])
+            self._prewarm_popup_smoothed(indices[:4])
 
         self._task_runner().start(
             _warmup,

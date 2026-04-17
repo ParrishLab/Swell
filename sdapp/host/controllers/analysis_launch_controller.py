@@ -8,7 +8,7 @@ from tkinter import messagebox
 import numpy as np
 from PIL import Image, ImageTk
 
-from sdapp.analysis.ui.theme import SPACING, apply_theme
+from sdapp.shared.ui.theme import SPACING, apply_theme
 from sdapp.host.analysis_payload_mapper import apply_analysis_scope_flags
 from sdapp.shared.frame_source import (
     EventScopedFrameSource,
@@ -689,7 +689,12 @@ class AnalysisLaunchController:
         if not windows:
             return
 
-        self.app._log_debug(f"Broadcasting checkpoint update to {len(windows)} analysis window(s).")
+        log_debug = getattr(self.app, "_log_debug", None)
+        message = f"Broadcasting checkpoint update to {len(windows)} analysis window(s)."
+        if callable(log_debug):
+            log_debug(message)
+        else:
+            self.app._log_info(message)
         for _win, analysis_app in windows:
             try:
                 # Analysis apps have _set_active_checkpoint_metadata

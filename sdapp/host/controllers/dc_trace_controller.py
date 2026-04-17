@@ -8,7 +8,7 @@ from typing import Any
 
 import numpy as np
 
-from sdapp.analysis.ui.theme import SPACING, apply_theme
+from sdapp.shared.ui.theme import SPACING, apply_theme
 from sdapp.host.dc_trace import WaveSurferH5Adapter
 from sdapp.shared.trace import TimeAlignment, TraceAttachment, TraceRecord
 from sdapp.shared.ui import BackgroundTaskRunner

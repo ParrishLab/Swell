@@ -6,6 +6,7 @@ import numpy as np
 from scipy.ndimage import map_coordinates
 from tkinter import filedialog, messagebox
 
+from sdapp.analysis.core.analysis_context import AnalysisContext
 from sdapp.analysis.core.metrics import compute_scale
 from sdapp.analysis.ui.roi_dialog import open_roi_dialog
 from sdapp.analysis.ui.scale_dialog import open_scale_dialog
@@ -13,103 +14,46 @@ from sdapp.analysis.utils.paths import resolve_existing_directory
 
 
 class AnalysisController:
-    def __init__(
-        self,
-        root,
-        app_root,
-        get_frame_count,
-        get_raw_frame,
-        get_masks_cache,
-        get_paint_layers,
-        get_points,
-        get_frame_names,
-        get_import_source_hint,
-        get_compose_final_mask_for_frame,
-        get_nonempty_final_mask_frames,
-        get_frames_per_sec,
-        get_scale_px_per_mm,
-        set_scale_px_per_mm,
-        get_scale_points,
-        set_scale_points,
-        get_scale_axis_lock,
-        set_scale_axis_lock,
-        get_last_scale_image_path,
-        set_last_scale_image_path,
-        get_roi_mask,
-        set_roi_mask,
-        get_roi_points,
-        set_roi_points,
-        update_display,
-        log_info,
-        log_success,
-        apply_host_metrics_settings=None,
-        clear_local_metrics_override=None,
-        get_current_image_source_paths=None,
-        get_current_frame_idx=None,
-        on_metrics_settings_changed=None,
-        emit_host_global_metrics_update=None,
-        autosave_project_after_metrics_commit=None,
-        get_scale_is_local_override=None,
-        set_scale_is_local_override=None,
-        get_roi_is_local_override=None,
-        set_roi_is_local_override=None,
-        refresh_metrics_status=None,
-    ):
+    def __init__(self, root, app_root, ctx: AnalysisContext):
         self.root = root
         self.app_root = app_root
-        self.get_frame_count = get_frame_count
-        self.get_raw_frame = get_raw_frame
-        self.get_masks_cache = get_masks_cache
-        self.get_paint_layers = get_paint_layers
-        self.get_points = get_points
-        self.get_frame_names = get_frame_names
-        self.get_import_source_hint = get_import_source_hint
-        self.get_current_image_source_paths = (
-            get_current_image_source_paths if callable(get_current_image_source_paths) else (lambda: [])
-        )
-        self.get_current_frame_idx = get_current_frame_idx if callable(get_current_frame_idx) else (lambda: 0)
-        self.get_compose_final_mask_for_frame = get_compose_final_mask_for_frame
-        self.get_nonempty_final_mask_frames = get_nonempty_final_mask_frames
-        self.get_frames_per_sec = get_frames_per_sec
-        self.get_scale_px_per_mm = get_scale_px_per_mm
-        self.set_scale_px_per_mm = set_scale_px_per_mm
-        self.get_scale_points = get_scale_points
-        self.set_scale_points = set_scale_points
-        self.get_scale_axis_lock = get_scale_axis_lock
-        self.set_scale_axis_lock = set_scale_axis_lock
-        self.get_last_scale_image_path = get_last_scale_image_path
-        self.set_last_scale_image_path = set_last_scale_image_path
-        self.get_roi_mask = get_roi_mask
-        self.set_roi_mask = set_roi_mask
-        self.get_roi_points = get_roi_points
-        self.set_roi_points = set_roi_points
-        self.update_display = update_display
-        self.apply_host_metrics_settings = apply_host_metrics_settings
-        self.clear_local_metrics_override = clear_local_metrics_override
-        self.log_info = log_info
-        self.log_success = log_success
-        self.on_metrics_settings_changed = on_metrics_settings_changed
-        self.emit_host_global_metrics_update = (
-            emit_host_global_metrics_update if callable(emit_host_global_metrics_update) else (lambda _r, _m: None)
-        )
-        self.autosave_project_after_metrics_commit = (
-            autosave_project_after_metrics_commit
-            if callable(autosave_project_after_metrics_commit)
-            else (lambda _reason: {"ok": True})
-        )
-        self.get_scale_is_local_override = (
-            get_scale_is_local_override if callable(get_scale_is_local_override) else (lambda: False)
-        )
-        self.set_scale_is_local_override = (
-            set_scale_is_local_override if callable(set_scale_is_local_override) else (lambda _v: None)
-        )
-        self.get_roi_is_local_override = (
-            get_roi_is_local_override if callable(get_roi_is_local_override) else (lambda: False)
-        )
-        self.set_roi_is_local_override = (
-            set_roi_is_local_override if callable(set_roi_is_local_override) else (lambda _v: None)
-        )
-        self.refresh_metrics_status = refresh_metrics_status if callable(refresh_metrics_status) else (lambda: None)
+        self.get_frame_count = ctx.get_frame_count
+        self.get_raw_frame = ctx.get_raw_frame
+        self.get_masks_cache = ctx.get_masks_cache
+        self.get_paint_layers = ctx.get_paint_layers
+        self.get_points = ctx.get_points
+        self.get_frame_names = ctx.get_frame_names
+        self.get_import_source_hint = ctx.get_import_source_hint
+        self.get_current_image_source_paths = ctx.get_current_image_source_paths
+        self.get_current_frame_idx = ctx.get_current_frame_idx
+        self.get_compose_final_mask_for_frame = ctx.get_compose_final_mask_for_frame
+        self.get_nonempty_final_mask_frames = ctx.get_nonempty_final_mask_frames
+        self.get_frames_per_sec = ctx.get_frames_per_sec
+        self.get_scale_px_per_mm = ctx.get_scale_px_per_mm
+        self.set_scale_px_per_mm = ctx.set_scale_px_per_mm
+        self.get_scale_points = ctx.get_scale_points
+        self.set_scale_points = ctx.set_scale_points
+        self.get_scale_axis_lock = ctx.get_scale_axis_lock
+        self.set_scale_axis_lock = ctx.set_scale_axis_lock
+        self.get_last_scale_image_path = ctx.get_last_scale_image_path
+        self.set_last_scale_image_path = ctx.set_last_scale_image_path
+        self.get_roi_mask = ctx.get_roi_mask
+        self.set_roi_mask = ctx.set_roi_mask
+        self.get_roi_points = ctx.get_roi_points
+        self.set_roi_points = ctx.set_roi_points
+        self.update_display = ctx.update_display
+        self.apply_host_metrics_settings = ctx.apply_host_metrics_settings
+        self.clear_local_metrics_override = ctx.clear_local_metrics_override
+        self.log_info = ctx.log_info
+        self.log_success = ctx.log_success
+        self.on_metrics_settings_changed = ctx.on_metrics_settings_changed
+        self.emit_host_global_metrics_update = ctx.emit_host_global_metrics_update
+        self.autosave_project_after_metrics_commit = ctx.autosave_project_after_metrics_commit
+        self.get_scale_is_local_override = ctx.get_scale_is_local_override
+        self.set_scale_is_local_override = ctx.set_scale_is_local_override
+        self.get_roi_is_local_override = ctx.get_roi_is_local_override
+        self.set_roi_is_local_override = ctx.set_roi_is_local_override
+        self.refresh_metrics_status = ctx.refresh_metrics_status
 
     def _has_loaded_frames(self) -> bool:
         try:

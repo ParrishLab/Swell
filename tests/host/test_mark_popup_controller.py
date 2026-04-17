@@ -102,11 +102,13 @@ def test_confirm_new_event_persists_baseline_scope_flags() -> None:
     created: list[dict[str, object]] = []
     app = SimpleNamespace(
         stack_info=SimpleNamespace(frame_count=100),
-        _mark_popup_mode="new",
-        _mark_popup_event_id=None,
-        _mark_start_var=SimpleNamespace(get=lambda: "12"),
-        _mark_end_var=SimpleNamespace(get=lambda: "18"),
-        _mark_popup_current_idx=12,
+        _popup=SimpleNamespace(
+            mark_popup_mode="new",
+            mark_popup_event_id=None,
+            mark_start_var=SimpleNamespace(get=lambda: "12"),
+            mark_end_var=SimpleNamespace(get=lambda: "18"),
+            mark_popup_current_idx=12,
+        ),
         _parse_frame_index=lambda value, _default, _name: int(value),
         _normalize_bounds=lambda start, end: (int(start), int(end), False, False),
         _duration_sec=lambda _duration_frames: None,
@@ -147,11 +149,13 @@ def test_confirm_edit_event_updates_baseline_scope_flags_and_preserves_existing_
     )
     app = SimpleNamespace(
         stack_info=SimpleNamespace(frame_count=100),
-        _mark_popup_mode="edit",
-        _mark_popup_event_id="event_0002",
-        _mark_start_var=SimpleNamespace(get=lambda: "22"),
-        _mark_end_var=SimpleNamespace(get=lambda: "27"),
-        _mark_popup_current_idx=22,
+        _popup=SimpleNamespace(
+            mark_popup_mode="edit",
+            mark_popup_event_id="event_0002",
+            mark_start_var=SimpleNamespace(get=lambda: "22"),
+            mark_end_var=SimpleNamespace(get=lambda: "27"),
+            mark_popup_current_idx=22,
+        ),
         _parse_frame_index=lambda value, _default, _name: int(value),
         _normalize_bounds=lambda start, end: (int(start), int(end), False, False),
         _duration_sec=lambda _duration_frames: None,

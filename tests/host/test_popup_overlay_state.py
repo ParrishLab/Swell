@@ -9,10 +9,12 @@ def test_popup_overlay_draws_baseline_before_event_span() -> None:
     recorded = {}
     controller = HostPreviewController.__new__(HostPreviewController)
     controller.app = SimpleNamespace(
-        _mark_overlay=object(),
-        _mark_scale=object(),
+        _popup=SimpleNamespace(
+            mark_overlay=object(),
+            mark_scale=object(),
+            mark_popup_current_idx=50,
+        ),
         stack_info=SimpleNamespace(frame_count=200),
-        _mark_popup_current_idx=50,
         _popup_parse_baseline_controls=lambda: (5, 22),
     )
     controller.popup_overlay_bounds = lambda: (0, 149)

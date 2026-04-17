@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections import OrderedDict
 
-from sdapp.host.ui_logic import clamp_popup_range
+from sdapp.host.ui_geometry import clamp_popup_range
 
 
 def test_clamp_popup_range_swaps_and_clamps_current() -> None:

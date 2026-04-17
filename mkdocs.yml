@@ -1,0 +1,67 @@
+site_name: SDApp
+site_description: Desktop tool for identifying SD events in image stacks and running event-level segmentation analysis.
+site_url: https://sdapp.readthedocs.io/
+repo_url: https://github.com/ClayDunford/Combined-tool-test
+repo_name: ClayDunford/Combined-tool-test
+edit_uri: edit/main/docs/
+
+docs_dir: docs
+
+theme:
+  name: material
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.sections
+    - navigation.top
+    - navigation.indexes
+    - content.code.copy
+    - content.action.edit
+    - search.suggest
+    - search.highlight
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.snippets:
+      base_path: [".", "docs"]
+      check_paths: true
+
+plugins:
+  - search
+  - include-markdown
+
+nav:
+  - Home: index.md
+  - Installation: installation.md
+  - Quickstart: quickstart.md
+  - GUI Reference:
+      - Host window: gui/host-window.md
+      - Analysis window: gui/analysis-window.md
+  - File formats: file-formats.md
+  - Troubleshooting: troubleshooting.md
+  - Citation: citation.md
+  - Changelog: changelog.md

@@ -19,6 +19,7 @@ from sdapp.analysis.core.render import RenderActions
 from sdapp.analysis.core.undo import UndoActions
 from sdapp.analysis.core.frame_source import EagerFrameSource, FrameSequenceView
 from sdapp.analysis.core.analysis_controller import AnalysisController
+from sdapp.analysis.core.analysis_context import AnalysisContext
 from sdapp.analysis.core.seg_state import SegmentationState
 from sdapp.analysis.core.inference_manager import InferenceManager
 from sdapp.analysis.core.interaction_controller import InteractionController
@@ -252,47 +253,49 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         self.analysis_controller = AnalysisController(
             root=self.root,
             app_root=self.app_root,
-            get_frame_count=self._get_frame_count,
-            get_raw_frame=self._get_raw_frame,
-            get_masks_cache=lambda: self.masks_cache,
-            get_paint_layers=lambda: self.paint_layers,
-            get_points=lambda: self.points,
-            get_frame_names=self._get_frame_names,
-            get_import_source_hint=self.get_input_source_hint,
-            get_current_image_source_paths=lambda: (
-                list(self._current_image_source_paths)
-                if self._current_image_source_paths
-                else list(getattr(getattr(self, "frame_source", None), "source_paths", []) or [])
+            ctx=AnalysisContext(
+                get_frame_count=self._get_frame_count,
+                get_raw_frame=self._get_raw_frame,
+                get_masks_cache=lambda: self.masks_cache,
+                get_paint_layers=lambda: self.paint_layers,
+                get_points=lambda: self.points,
+                get_frame_names=self._get_frame_names,
+                get_import_source_hint=self.get_input_source_hint,
+                get_current_image_source_paths=lambda: (
+                    list(self._current_image_source_paths)
+                    if self._current_image_source_paths
+                    else list(getattr(getattr(self, "frame_source", None), "source_paths", []) or [])
+                ),
+                get_current_frame_idx=lambda: int(self.current_frame_idx),
+                get_compose_final_mask_for_frame=self._compose_final_mask_for_frame,
+                get_nonempty_final_mask_frames=self._collect_nonempty_final_mask_frames,
+                get_frames_per_sec=lambda: float(self.frames_per_sec_var.get()),
+                get_scale_px_per_mm=lambda: self.scale_px_per_mm,
+                set_scale_px_per_mm=lambda v: setattr(self, "scale_px_per_mm", v),
+                get_scale_points=lambda: self.scale_points,
+                set_scale_points=lambda v: setattr(self, "scale_points", v),
+                get_scale_axis_lock=lambda: bool(self.scale_axis_lock),
+                set_scale_axis_lock=lambda v: setattr(self, "scale_axis_lock", bool(v)),
+                get_last_scale_image_path=lambda: self._last_scale_image_path,
+                set_last_scale_image_path=lambda v: setattr(self, "_last_scale_image_path", v or ""),
+                get_roi_mask=lambda: self.roi_mask,
+                set_roi_mask=lambda v: setattr(self, "roi_mask", v),
+                get_roi_points=lambda: self.roi_points,
+                set_roi_points=lambda v: setattr(self, "roi_points", v),
+                update_display=self.update_display,
+                apply_host_metrics_settings=self._apply_host_metrics_settings,
+                clear_local_metrics_override=self._clear_local_metrics_override,
+                log_info=self.log_info,
+                log_success=self.log_success,
+                on_metrics_settings_changed=self._on_metrics_settings_changed,
+                emit_host_global_metrics_update=self._emit_host_global_metrics_update,
+                autosave_project_after_metrics_commit=self._autosave_project_after_metrics_commit,
+                get_scale_is_local_override=lambda: bool(self._scale_is_local_override),
+                set_scale_is_local_override=lambda v: setattr(self, "_scale_is_local_override", bool(v)),
+                get_roi_is_local_override=lambda: bool(self._roi_is_local_override),
+                set_roi_is_local_override=lambda v: setattr(self, "_roi_is_local_override", bool(v)),
+                refresh_metrics_status=self._refresh_metrics_status_labels,
             ),
-            get_current_frame_idx=lambda: int(self.current_frame_idx),
-            get_compose_final_mask_for_frame=self._compose_final_mask_for_frame,
-            get_nonempty_final_mask_frames=self._collect_nonempty_final_mask_frames,
-            get_frames_per_sec=lambda: float(self.frames_per_sec_var.get()),
-            get_scale_px_per_mm=lambda: self.scale_px_per_mm,
-            set_scale_px_per_mm=lambda v: setattr(self, "scale_px_per_mm", v),
-            get_scale_points=lambda: self.scale_points,
-            set_scale_points=lambda v: setattr(self, "scale_points", v),
-            get_scale_axis_lock=lambda: bool(self.scale_axis_lock),
-            set_scale_axis_lock=lambda v: setattr(self, "scale_axis_lock", bool(v)),
-            get_last_scale_image_path=lambda: self._last_scale_image_path,
-            set_last_scale_image_path=lambda v: setattr(self, "_last_scale_image_path", v or ""),
-            get_roi_mask=lambda: self.roi_mask,
-            set_roi_mask=lambda v: setattr(self, "roi_mask", v),
-            get_roi_points=lambda: self.roi_points,
-            set_roi_points=lambda v: setattr(self, "roi_points", v),
-            update_display=self.update_display,
-            apply_host_metrics_settings=self._apply_host_metrics_settings,
-            clear_local_metrics_override=self._clear_local_metrics_override,
-            log_info=self.log_info,
-            log_success=self.log_success,
-            on_metrics_settings_changed=self._on_metrics_settings_changed,
-            emit_host_global_metrics_update=self._emit_host_global_metrics_update,
-            autosave_project_after_metrics_commit=self._autosave_project_after_metrics_commit,
-            get_scale_is_local_override=lambda: bool(self._scale_is_local_override),
-            set_scale_is_local_override=lambda v: setattr(self, "_scale_is_local_override", bool(v)),
-            get_roi_is_local_override=lambda: bool(self._roi_is_local_override),
-            set_roi_is_local_override=lambda v: setattr(self, "_roi_is_local_override", bool(v)),
-            refresh_metrics_status=self._refresh_metrics_status_labels,
         )
         self.interaction_controller = InteractionController(
             seg_state=self.seg_state,

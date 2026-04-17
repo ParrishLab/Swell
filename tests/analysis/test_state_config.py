@@ -11,9 +11,9 @@ class AppConfigTests(unittest.TestCase):
     def test_load_defaults_when_missing(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            with patch("sdapp.analysis.core.state.get_runtime_root", return_value=root), patch(
-                "sdapp.analysis.core.state.get_app_root", return_value=root
-            ), patch("sdapp.analysis.core.state.get_resources_root", return_value=root):
+            with patch("sdapp.shared.config.get_runtime_root", return_value=root), patch(
+                "sdapp.shared.config.get_app_root", return_value=root
+            ), patch("sdapp.shared.config.get_resources_root", return_value=root):
                 cfg = AppConfig.load()
             self.assertEqual(cfg.default_output, "output")
             self.assertEqual(cfg.default_baseline, 30)
@@ -32,9 +32,9 @@ class AppConfigTests(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
-            with patch("sdapp.analysis.core.state.get_runtime_root", return_value=root), patch(
-                "sdapp.analysis.core.state.get_app_root", return_value=root
-            ), patch("sdapp.analysis.core.state.get_resources_root", return_value=root):
+            with patch("sdapp.shared.config.get_runtime_root", return_value=root), patch(
+                "sdapp.shared.config.get_app_root", return_value=root
+            ), patch("sdapp.shared.config.get_resources_root", return_value=root):
                 cfg = AppConfig.load()
             self.assertEqual(cfg.default_output, "out")
             self.assertEqual(cfg.default_model, "models/m.pt")
@@ -47,9 +47,9 @@ class AppConfigTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / "config.json").write_text("{not-json", encoding="utf-8")
-            with patch("sdapp.analysis.core.state.get_runtime_root", return_value=root), patch(
-                "sdapp.analysis.core.state.get_app_root", return_value=root
-            ), patch("sdapp.analysis.core.state.get_resources_root", return_value=root):
+            with patch("sdapp.shared.config.get_runtime_root", return_value=root), patch(
+                "sdapp.shared.config.get_app_root", return_value=root
+            ), patch("sdapp.shared.config.get_resources_root", return_value=root):
                 cfg = AppConfig.load()
             self.assertEqual(cfg.default_output, "output")
             self.assertEqual(cfg.default_baseline, 30)
@@ -66,9 +66,9 @@ class AppConfigTests(unittest.TestCase):
                 '{"default_output":"packaged","default_model":"managed://sam2.1_hiera_base_plus","default_baseline":18}',
                 encoding="utf-8",
             )
-            with patch("sdapp.analysis.core.state.get_runtime_root", return_value=runtime_root), patch(
-                "sdapp.analysis.core.state.get_app_root", return_value=app_root
-            ), patch("sdapp.analysis.core.state.get_resources_root", return_value=resources_root):
+            with patch("sdapp.shared.config.get_runtime_root", return_value=runtime_root), patch(
+                "sdapp.shared.config.get_app_root", return_value=app_root
+            ), patch("sdapp.shared.config.get_resources_root", return_value=resources_root):
                 cfg = AppConfig.load()
             self.assertEqual(cfg.default_output, "packaged")
             self.assertEqual(cfg.default_baseline, 18)
@@ -80,9 +80,9 @@ class AppConfigTests(unittest.TestCase):
                 '{"default_output":"out","default_model":"managed://sam2.1_hiera_base_plus","default_baseline":12}',
                 encoding="utf-8",
             )
-            with patch("sdapp.analysis.core.state.get_runtime_root", return_value=root), patch(
-                "sdapp.analysis.core.state.get_app_root", return_value=root
-            ), patch("sdapp.analysis.core.state.get_resources_root", return_value=root):
+            with patch("sdapp.shared.config.get_runtime_root", return_value=root), patch(
+                "sdapp.shared.config.get_app_root", return_value=root
+            ), patch("sdapp.shared.config.get_resources_root", return_value=root):
                 cfg = AppConfig.load()
             self.assertEqual(cfg.model_token(), "managed://sam2.1_hiera_base_plus")
 
@@ -98,7 +98,7 @@ class AppConfigTests(unittest.TestCase):
                 last_update_check_at="2026-03-22T12:00:00+00:00",
                 ignored_version="0.2.0",
             )
-            with patch("sdapp.analysis.core.state._runtime_config_dir", return_value=root):
+            with patch("sdapp.shared.config._runtime_config_dir", return_value=root):
                 path = cfg.save()
             self.assertEqual(path, root / "config.json")
             saved = path.read_text(encoding="utf-8")

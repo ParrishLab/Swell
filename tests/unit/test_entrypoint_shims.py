@@ -91,7 +91,7 @@ def test_run_host_app_sets_versioned_root_title(monkeypatch) -> None:
     fake_host_app = types.ModuleType("sdapp.host.app")
     fake_host_app.SDAnalyzerApp = _FakeApp
 
-    monkeypatch.setitem(sys.modules, "sdapp.analysis.ui.theme", fake_theme)
+    monkeypatch.setitem(sys.modules, "sdapp.shared.ui.theme", fake_theme)
     monkeypatch.setitem(sys.modules, "sdapp.shared.ui.bootstrap", fake_bootstrap)
     monkeypatch.setitem(sys.modules, "sdapp.host.app", fake_host_app)
 

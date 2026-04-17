@@ -62,14 +62,7 @@ class HostPreviewController:
 
     def _cache_normalized_frame(self, key: tuple[int, str], frame_u8: np.ndarray) -> None:
         cache = self._normalized_frame_cache()
-        cache[key] = frame_u8
-        cache.move_to_end(key)
-        while len(cache) > int(getattr(self.app, "_normalized_frame_u8_cache_max", 64) or 64):
-            cache.popitem(last=False)
-        self.app._trim_numpy_cache_by_bytes(
-            cache,
-            int(getattr(self.app, "_normalized_frame_u8_cache_max_bytes", 120 * 1024 * 1024) or 120 * 1024 * 1024),
-        )
+        cache[key] = frame_u8  # LRUCache auto-promotes and evicts
 
     def normalize_frame_percentile(self, frame: np.ndarray, cache_key: tuple[int, str] | None = None) -> np.ndarray:
         if cache_key is not None:
@@ -130,10 +123,7 @@ class HostPreviewController:
         return ImageTk.PhotoImage(img)
 
     def cache_main_render(self, key: tuple[int, int, int], image: ImageTk.PhotoImage) -> None:
-        self.app._main_render_cache[key] = image
-        self.app._main_render_cache.move_to_end(key)
-        while len(self.app._main_render_cache) > self.app._main_render_cache_max:
-            self.app._main_render_cache.popitem(last=False)
+        self.app._main_render_cache[key] = image  # LRUCache auto-promotes and evicts
 
     def update_preview(self, frame_idx: int) -> None:
         if self.app.reader is None or self.app.stack_info is None:
@@ -321,61 +311,61 @@ class HostPreviewController:
         self.update_preview(target_idx)
 
     def update_popup_mini_raw(self, frame_idx: int) -> None:
-        if self.app.reader is None or self.app._mark_mini_canvas is None or self.app._mark_mini_frame is None:
+        if self.app.reader is None or self.app._popup.mark_mini_canvas is None or self.app._popup.mark_mini_frame is None:
             return
         raw_u8 = self.get_normalized_reader_frame(frame_idx)
         pil = Image.fromarray(raw_u8)
-        canvas_w = max(40, self.app._mark_mini_canvas.winfo_width())
-        canvas_h = max(40, self.app._mark_mini_canvas.winfo_height())
+        canvas_w = max(40, self.app._popup.mark_mini_canvas.winfo_width())
+        canvas_h = max(40, self.app._popup.mark_mini_canvas.winfo_height())
         max_w = max(40, canvas_w - 8)
         max_h = max(40, canvas_h - 8)
         pil.thumbnail((max_w, max_h), Image.Resampling.BILINEAR)
-        self.app._mark_popup_mini_image = ImageTk.PhotoImage(pil)
-        self.app._mark_mini_canvas.delete("all")
-        self.app._mark_mini_canvas.create_image(canvas_w // 2, canvas_h // 2, image=self.app._mark_popup_mini_image, anchor="center")
+        self.app._popup.mark_popup_mini_image = ImageTk.PhotoImage(pil)
+        self.app._popup.mark_mini_canvas.delete("all")
+        self.app._popup.mark_mini_canvas.create_image(canvas_w // 2, canvas_h // 2, image=self.app._popup.mark_popup_mini_image, anchor="center")
 
     def popup_update_window_info(self) -> None:
-        if self.app._mark_window_info_var is None:
+        if self.app._popup.mark_window_info_var is None:
             return
-        baseline_count = self.app._mark_baseline_count_var.get().strip() if self.app._mark_baseline_count_var is not None else "30"
-        baseline_end = self.app._mark_baseline_end_var.get().strip() if self.app._mark_baseline_end_var is not None else "0"
-        self.app._mark_window_info_var.set(
-            f"Range: [{self.app._mark_popup_local_start}, {self.app._mark_popup_local_end}] | "
-            f"Baseline: count={baseline_count}, end={baseline_end}{self.app._mark_last_full_refresh_note}"
+        baseline_count = self.app._popup.mark_baseline_count_var.get().strip() if self.app._popup.mark_baseline_count_var is not None else "30"
+        baseline_end = self.app._popup.mark_baseline_end_var.get().strip() if self.app._popup.mark_baseline_end_var is not None else "0"
+        self.app._popup.mark_window_info_var.set(
+            f"Range: [{self.app._popup.mark_popup_local_start}, {self.app._popup.mark_popup_local_end}] | "
+            f"Baseline: count={baseline_count}, end={baseline_end}{self.app._popup.mark_last_full_refresh_note}"
         )
 
     def popup_update_preview(self, frame_idx: int) -> None:
-        if self.app.reader is None or self.app.stack_info is None or self.app._mark_preview_label is None:
+        if self.app.reader is None or self.app.stack_info is None or self.app._popup.mark_preview_label is None:
             return
         low, high = self.popup_overlay_bounds()
         frame_idx = max(low, min(frame_idx, high))
-        self.app._mark_popup_current_idx = frame_idx
+        self.app._popup.mark_popup_current_idx = frame_idx
 
         frame = self.app._get_popup_processed_frame(frame_idx)
-        contrast_factor = float(self.app._mark_contrast_var.get()) if self.app._mark_contrast_var is not None else 1.0
+        contrast_factor = float(self.app._popup.mark_contrast_var.get()) if self.app._popup.mark_contrast_var is not None else 1.0
         image = self.render_preview_image(
             frame,
-            self.app._mark_preview_label,
+            self.app._popup.mark_preview_label,
             fallback_size=(1000, 700),
             pre_normalized=True,
             contrast_factor=contrast_factor,
         )
-        self.app._mark_popup_image = image
-        self.app._mark_preview_label.configure(image=image)
+        self.app._popup.mark_popup_image = image
+        self.app._popup.mark_preview_label.configure(image=image)
 
         self.update_popup_mini_raw(frame_idx)
 
-        if self.app._mark_frame_info_var is not None:
+        if self.app._popup.mark_frame_info_var is not None:
             frame_name = self.app.reader.get_frame_name(frame_idx)
-            self.app._mark_frame_info_var.set(f"Frame: {frame_idx}  [{frame_name}]")
+            self.app._popup.mark_frame_info_var.set(f"Frame: {frame_idx}  [{frame_name}]")
         self.popup_update_window_info()
         self.redraw_popup_overlay()
 
     def popup_overlay_bounds(self) -> tuple[int, int]:
-        if self.app._mark_scale is None:
-            return self.app._mark_popup_local_start, self.app._mark_popup_local_end
-        start_idx = int(float(self.app._mark_scale.cget("from")))
-        end_idx = int(float(self.app._mark_scale.cget("to")))
+        if self.app._popup.mark_scale is None:
+            return self.app._popup.mark_popup_local_start, self.app._popup.mark_popup_local_end
+        start_idx = int(float(self.app._popup.mark_scale.cget("from")))
+        end_idx = int(float(self.app._popup.mark_scale.cget("to")))
         if end_idx < start_idx:
             start_idx, end_idx = end_idx, start_idx
         return start_idx, end_idx
@@ -383,15 +373,15 @@ class HostPreviewController:
     def popup_get_normalized_mark_bounds_for_overlay(self) -> tuple[int | None, int | None]:
         start_idx: int | None = None
         end_idx: int | None = None
-        if self.app._mark_start_var is not None:
-            raw = self.app._mark_start_var.get().strip()
+        if self.app._popup.mark_start_var is not None:
+            raw = self.app._popup.mark_start_var.get().strip()
             if raw:
                 try:
                     start_idx = int(float(raw))
                 except ValueError:
                     start_idx = None
-        if self.app._mark_end_var is not None:
-            raw = self.app._mark_end_var.get().strip()
+        if self.app._popup.mark_end_var is not None:
+            raw = self.app._popup.mark_end_var.get().strip()
             if raw:
                 try:
                     end_idx = int(float(raw))
@@ -401,7 +391,7 @@ class HostPreviewController:
         return normalize_overlay_bounds(start_idx, end_idx, frame_count)
 
     def redraw_popup_overlay(self) -> None:
-        if self.app._mark_overlay is None:
+        if self.app._popup.mark_overlay is None:
             return
         start_idx, end_idx = self.popup_overlay_bounds()
         mark_start, mark_end = self.popup_get_normalized_mark_bounds_for_overlay()
@@ -432,7 +422,7 @@ class HostPreviewController:
 
         # Draw baseline-start before event start/end so the event markers remain visible
         # when they are only a frame or two apart.
-        markers = [(self.app._mark_popup_current_idx, "#e6e6e6")]
+        markers = [(self.app._popup.mark_popup_current_idx, "#e6e6e6")]
         if baseline_start is not None:
             markers.append((baseline_start, "#79ccff"))
         if mark_start is not None:
@@ -440,4 +430,4 @@ class HostPreviewController:
         if mark_end is not None:
             markers.append((mark_end, "#ff5c5c"))
 
-        self.draw_overlay_bar(self.app._mark_overlay, self.app._mark_scale, start_idx, end_idx, spans, markers)
+        self.draw_overlay_bar(self.app._popup.mark_overlay, self.app._popup.mark_scale, start_idx, end_idx, spans, markers)
