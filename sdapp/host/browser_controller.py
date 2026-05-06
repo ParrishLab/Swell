@@ -48,6 +48,14 @@ class BrowserController:
     def get_event(self, event_id: str | None) -> EventMeta | None:
         return self.events.get_event(event_id)
 
+    def event_display_name(self, event_id: str | None) -> str:
+        event_key = str(event_id or "").strip()
+        if not event_key:
+            return ""
+        event = self.get_event(event_key)
+        label = str(getattr(event, "label", "") or "").strip() if event is not None else ""
+        return label or event_key
+
     def get_active_event_id(self) -> str | None:
         return self.events.get_active_event_id()
 

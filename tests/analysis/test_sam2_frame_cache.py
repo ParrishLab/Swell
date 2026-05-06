@@ -46,6 +46,31 @@ def test_frame_cache_key_changes_with_processing_flags():
     assert key_a != key_c
 
 
+def test_frame_cache_key_is_stable_for_equivalent_sources():
+    class _EquivalentSource:
+        frame_count = 3
+        frame_shape = (4, 5)
+        source_paths = ["/tmp/a.tif", "/tmp/a.tif", "/tmp/a.tif"]
+        frame_names = ["a_000.tif", "a_001.tif", "a_002.tif"]
+
+    common = dict(
+        frame_count=3,
+        frame_shape=(4, 5),
+        baseline_frames=2,
+        apply_horizontal_bar_denoise=False,
+        apply_smoothing=True,
+        apply_baseline_subtraction=True,
+        apply_global_normalization=True,
+        apply_stabilization=False,
+        stats=None,
+    )
+
+    key_a = build_sam2_frame_cache_key(frame_source=_EquivalentSource(), **common)
+    key_b = build_sam2_frame_cache_key(frame_source=_EquivalentSource(), **common)
+
+    assert key_a == key_b
+
+
 def test_frame_cache_reuses_complete_dir(tmp_path: Path):
     cache = SAM2FrameCache(cache_root=str(tmp_path / "cache"))
     frames = np.zeros((2, 4, 4), dtype=np.uint8)

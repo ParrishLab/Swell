@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import OrderedDict
+from collections.abc import MutableMapping
 
 import numpy as np
 from PIL import Image, ImageTk
@@ -48,13 +49,24 @@ class HostPreviewController:
         self.app._pending_main_frame_idx = None
         self.update_preview(idx)
 
-    def _normalized_frame_cache(self) -> OrderedDict:
+    def _normalized_frame_cache(self) -> MutableMapping:
         cache = getattr(self.app, "_normalized_frame_u8_cache", None)
-        if isinstance(cache, OrderedDict):
+        if isinstance(cache, MutableMapping):
             return cache
         cache = OrderedDict()
         self.app._normalized_frame_u8_cache = cache
         return cache
+
+    @staticmethod
+    def _promote_cached(cache: MutableMapping, key):
+        promote = getattr(cache, "promote", None)
+        if callable(promote):
+            return promote(key)
+        value = cache.get(key)
+        move_to_end = getattr(cache, "move_to_end", None)
+        if callable(move_to_end):
+            move_to_end(key)
+        return value
 
     @staticmethod
     def normalized_cache_key(frame_idx: int, contrast_mode: str = "default") -> tuple[int, str]:
@@ -69,8 +81,7 @@ class HostPreviewController:
             cache = self._normalized_frame_cache()
             cached = cache.get(cache_key)
             if cached is not None:
-                cache.move_to_end(cache_key)
-                return cached
+                return self._promote_cached(cache, cache_key)
         p1 = float(np.percentile(frame, 1))
         p99 = float(np.percentile(frame, 99))
         if p99 <= p1:
@@ -87,8 +98,7 @@ class HostPreviewController:
         cache = self._normalized_frame_cache()
         cached = cache.get(cache_key)
         if cached is not None:
-            cache.move_to_end(cache_key)
-            return cached
+            return self._promote_cached(cache, cache_key)
         raw = self.app.reader.read_frame(int(frame_idx), use_cache=True)
         return self.normalize_frame_percentile(raw, cache_key=cache_key)
 
@@ -302,7 +312,8 @@ class HostPreviewController:
                 self.app.tree.selection_set(clicked_event.event_id)
                 self.app.tree.see(clicked_event.event_id)
             target_idx = clicked_event.start_idx
-            self.app._log_info(f"Overlay click: selected {clicked_event.event_id} and jumped to frame {target_idx}.")
+            display_name = str(getattr(clicked_event, "label", "") or getattr(clicked_event, "event_id", "")).strip()
+            self.app._log_info(f"Overlay click: selected {display_name} and jumped to frame {target_idx}.")
         else:
             target_idx = clicked_idx
             self.app._log_info(f"Overlay click: jumped to frame {target_idx}.")

@@ -1101,8 +1101,10 @@ class SDAnalyzerApp:
             self.tree.selection_set(updated.event_id)
             self.tree.see(updated.event_id)
         self._set_active_event_id(updated.event_id)
-        self._set_status(f"Renamed {updated.event_id}.")
-        self._log_info(f"Renamed {updated.event_id} to '{cleaned}'.")
+        event_display_name = getattr(self.browser_controller, "event_display_name", None)
+        display_name = str(event_display_name(updated.event_id) if callable(event_display_name) else cleaned).strip() or cleaned
+        self._set_status(f"Renamed {display_name}.")
+        self._log_info(f"Renamed {updated.event_id} to '{display_name}'.")
 
     def _open_mark_popup(self, mode: str, event_id: str | None) -> None:
         self.popup_controller.open_popup(mode=mode, event_id=event_id)
@@ -1165,14 +1167,30 @@ class SDAnalyzerApp:
     def _popup_set_start_current(self) -> None:
         if self._popup.mark_start_var is None:
             return
-        self._popup.mark_start_var.set(str(self._popup.mark_popup_current_idx))
+        idx = int(self._popup.mark_popup_current_idx)
+        self._popup.mark_start_var.set(str(idx))
+        if self._popup.mark_end_var is not None:
+            try:
+                end_val = int(float(self._popup.mark_end_var.get().strip()))
+                if idx > end_val:
+                    self._popup.mark_end_var.set(str(idx))
+            except ValueError:
+                pass
         self._redraw_popup_overlay()
         self._schedule_popup_recompute(align_baseline_to_start=True)
 
     def _popup_set_end_current(self) -> None:
         if self._popup.mark_end_var is None:
             return
-        self._popup.mark_end_var.set(str(self._popup.mark_popup_current_idx))
+        idx = int(self._popup.mark_popup_current_idx)
+        self._popup.mark_end_var.set(str(idx))
+        if self._popup.mark_start_var is not None:
+            try:
+                start_val = int(float(self._popup.mark_start_var.get().strip()))
+                if idx < start_val:
+                    self._popup.mark_start_var.set(str(idx))
+            except ValueError:
+                pass
         self._redraw_popup_overlay()
 
     def _popup_on_contrast_change(self, value: str) -> None:
@@ -1778,6 +1796,8 @@ class SDAnalyzerApp:
             f"Export complete: {result['events_exported']} event(s), {result['frames_exported']} frame(s), "
             f"analysis_images={int(result.get('analysis_images_exported', 0))}, "
             f"mask_overlays={int(result.get('mask_overlay_images_exported', 0))}, "
+            f"analysis_overlays={int(result.get('analysis_overlay_images_exported', 0))}, "
+            f"contour_maps={int(result.get('contour_maps_exported', 0))}, "
             f"metrics_files={int(result.get('metrics_files_exported', 0))}, output={result['output_dir']}."
         )
         self._gc_runtime_caches(aggressive=False, run_python_gc=False)

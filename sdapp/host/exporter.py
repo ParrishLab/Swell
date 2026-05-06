@@ -3,9 +3,12 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import csv
 from collections import defaultdict
+from datetime import datetime, timezone
+import hashlib
 import json
 from dataclasses import asdict
 from pathlib import Path
+import subprocess
 from threading import Lock
 from typing import Callable, Iterable, Optional
 
@@ -23,12 +26,16 @@ from sdapp.analysis.core.object_tracking import TrackingConfig, build_object_lin
 from sdapp.shared.frame_source import EventScopedFrameSource, PreparedFrameSource, SDStackFrameSource
 from sdapp.shared.image_overlay import apply_mask_overlay
 from sdapp.shared.models import clone_analysis_payload
-from sdapp.shared.persistence.event_path import allocate_event_path_segment
+from sdapp.shared.persistence.event_path import allocate_event_path_segment, sanitize_event_path_segment
 from sdapp.shared.services import MetricsSettingsResolver
 from sdapp.shared.errors import DataCorruptionError, InferenceRuntimeError
+from sdapp.shared.app_metadata import detect_app_version
 from .config import EventCandidate, ExportRecord, TraceResult
 from .signal_analysis import event_to_dict
 from .stack_reader import StackReader
+
+
+_CONTOUR_MAP_LINE_WIDTH_PX = 6
 
 
 class _PreparedVisualSequence:
@@ -41,10 +48,18 @@ class _PreparedVisualSequence:
     def __getitem__(self, idx: int) -> np.ndarray:
         return np.asarray(self._prepared_source.get_visual_frame(int(idx)), dtype=np.uint8)
 
+    @property
+    def stats(self):
+        return self._prepared_source.stats()
+
 
 def _event_output_name(event: EventCandidate) -> str:
     label = str(getattr(event, "label", "") or "").strip()
     return label or str(event.event_id)
+
+
+def _event_file_suffix(event: EventCandidate) -> str:
+    return f"_{sanitize_event_path_segment(_event_output_name(event))}"
 
 
 def _load_pyplot():
@@ -70,6 +85,8 @@ def export_analysis(
     include_analysis_images: bool = False,
     include_binary_masks: bool = False,
     include_mask_overlay_images: bool = False,
+    include_analysis_overlay_images: bool = False,
+    include_contour_map: bool = False,
     analysis_sidecar: Optional[dict[str, dict]] = None,
     analysis_image_cache: Optional[dict[tuple, object]] = None,
     include_metric_propagation_speed: bool = False,
@@ -94,16 +111,34 @@ def export_analysis(
         or bool(include_metric_relative_area_recruited)
         or bool(include_metric_lineage_object_metrics)
     )
-    include_any_mask_exports = bool(include_binary_masks) or bool(include_mask_overlay_images)
-    include_any_image_exports = bool(include_event_images) or bool(include_baseline_images) or bool(include_analysis_images)
+    include_any_mask_exports = (
+        bool(include_binary_masks)
+        or bool(include_mask_overlay_images)
+        or bool(include_analysis_overlay_images)
+    )
+    include_any_image_exports = (
+        bool(include_event_images)
+        or bool(include_baseline_images)
+        or bool(include_analysis_images)
+        or bool(include_contour_map)
+    )
     if not include_any_image_exports and not include_any_mask_exports and not include_any_metrics:
         raise ValueError("Select at least one export target (images, masks, overlays, or metrics).")
 
-    out_dir = Path(output_dir).expanduser().resolve()
-    out_dir.mkdir(parents=True, exist_ok=True)
-
     selected_ids = set(selected_event_ids) if selected_event_ids else {e.event_id for e in events}
     selected_events = [e for e in events if e.event_id in selected_ids]
+    _validate_metric_export_prerequisites(
+        events=selected_events,
+        analysis_sidecar=analysis_sidecar_snapshot,
+        project_metadata=project_metadata if isinstance(project_metadata, dict) else {},
+        include_metric_propagation_speed=bool(include_metric_propagation_speed),
+        include_metric_area_recruited=bool(include_metric_area_recruited),
+        include_metric_relative_area_recruited=bool(include_metric_relative_area_recruited),
+        include_metric_lineage_object_metrics=bool(include_metric_lineage_object_metrics),
+    )
+
+    out_dir = Path(output_dir).expanduser().resolve()
+    out_dir.mkdir(parents=True, exist_ok=True)
     used_event_segments: set[str] = set()
     event_output_segment_by_id: dict[str, str] = {}
     for event in selected_events:
@@ -123,6 +158,8 @@ def export_analysis(
     analysis_images_exported = 0
     masks_exported = 0
     mask_overlay_images_exported = 0
+    analysis_overlay_images_exported = 0
+    contour_maps_exported = 0
     metrics_files_exported = 0
     total_frames_to_export = 0
     for event in selected_events:
@@ -139,7 +176,8 @@ def export_analysis(
     frame_progress = 0
     progress_lock = Lock()
     max_workers = 4
-    stack_frame_source = SDStackFrameSource(reader=reader) if bool(include_analysis_images) else None
+    include_analysis_visual_stack = bool(include_analysis_images) or bool(include_analysis_overlay_images)
+    stack_frame_source = SDStackFrameSource(reader=reader) if include_analysis_visual_stack else None
 
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
         for event_idx, event in enumerate(selected_events, start=1):
@@ -153,6 +191,7 @@ def export_analysis(
                     }
                 )
             event_dir = out_dir / event_output_segment_by_id[str(event.event_id)]
+            event_dir.mkdir(parents=True, exist_ok=True)
             baseline_dir = event_dir / "baseline"
             extent_dir = event_dir / "event_extent"
             analysis_dir: Path | None = None
@@ -163,6 +202,10 @@ def export_analysis(
             if bool(include_analysis_images):
                 analysis_dir = event_dir / "analysis_images"
                 analysis_dir.mkdir(parents=True, exist_ok=True)
+            analysis_overlay_dir: Path | None = None
+            if bool(include_analysis_overlay_images):
+                analysis_overlay_dir = event_dir / "analysis_mask_overlays"
+                analysis_overlay_dir.mkdir(parents=True, exist_ok=True)
             masks_dir: Path | None = None
             if bool(include_binary_masks):
                 masks_dir = event_dir / "binary_masks"
@@ -171,6 +214,7 @@ def export_analysis(
             if bool(include_mask_overlay_images):
                 overlay_dir = event_dir / "mask_overlays"
                 overlay_dir.mkdir(parents=True, exist_ok=True)
+            contour_map_dir: Path | None = event_dir / "contour_map" if bool(include_contour_map) else None
 
             baseline_end = int(event.start_idx) - 1
             baseline_start: int | None = None
@@ -214,7 +258,16 @@ def export_analysis(
             manifest_records.extend([rec for _idx, _role, rec in event_records])
 
             event_sidecar = dict(analysis_sidecar_snapshot.get(str(event.event_id), {}) or {})
-            if analysis_dir is not None and stack_frame_source is not None:
+            mask_map = _build_event_global_mask_map(
+                event=event,
+                masks_payload=event_sidecar.get("masks_committed"),
+                baseline_pre_frames=int(baseline_pre_frames),
+                analysis_sidecar_payload=event_sidecar,
+            )
+            analysis_viz_frames = None
+            analysis_scope_start: int | None = None
+            analysis_scope_end: int | None = None
+            if (analysis_dir is not None or analysis_overlay_dir is not None) and stack_frame_source is not None:
                 analysis_scope_start, analysis_scope_end, analysis_baseline_pre, processing = analysis_image_export_plan(
                     event,
                     default_baseline_pre_frames=int(baseline_pre_frames),
@@ -240,6 +293,16 @@ def export_analysis(
                     cache=analysis_image_cache,
                     progress_callback=_notify_analysis_prepare,
                 )
+                _write_analysis_preprocessing_sidecar(
+                    event_dir,
+                    event=event,
+                    scope_start=int(analysis_scope_start),
+                    scope_end=int(analysis_scope_end),
+                    baseline_pre=int(analysis_baseline_pre),
+                    processing=processing,
+                    analysis_viz_frames=analysis_viz_frames,
+                )
+            if analysis_dir is not None and analysis_viz_frames is not None:
                 for local_idx, global_idx in enumerate(range(analysis_scope_start, analysis_scope_end + 1)):
                     role = "baseline" if int(global_idx) < int(event.start_idx) else "event"
                     _export_analysis_frame(
@@ -250,12 +313,21 @@ def export_analysis(
                         analysis_frame=np.asarray(analysis_viz_frames[local_idx], dtype=np.uint8),
                     )
                     analysis_images_exported += 1
-            mask_map = _build_event_global_mask_map(
-                event=event,
-                masks_payload=event_sidecar.get("masks_committed"),
-                baseline_pre_frames=int(baseline_pre_frames),
-                analysis_sidecar_payload=event_sidecar,
-            )
+            if analysis_overlay_dir is not None and analysis_viz_frames is not None:
+                for local_idx, global_idx in enumerate(range(analysis_scope_start, analysis_scope_end + 1)):
+                    mask = mask_map.get(int(global_idx))
+                    if mask is None or not np.any(mask):
+                        continue
+                    role = "baseline" if int(global_idx) < int(event.start_idx) else "event"
+                    _export_analysis_overlay_frame(
+                        reader=reader,
+                        frame_idx=int(global_idx),
+                        out_dir=analysis_overlay_dir,
+                        role=str(role),
+                        analysis_frame=np.asarray(analysis_viz_frames[local_idx], dtype=np.uint8),
+                        mask=mask,
+                    )
+                    analysis_overlay_images_exported += 1
             if masks_dir is not None:
                 for frame_idx in sorted(set(baseline_scope_indices + event_scope_indices)):
                     mask = mask_map.get(int(frame_idx))
@@ -282,6 +354,15 @@ def export_analysis(
                         mask=mask,
                     )
                     mask_overlay_images_exported += 1
+            if contour_map_dir is not None:
+                if _export_contour_map_frame(
+                    reader=reader,
+                    event=event,
+                    frame_indices=event_scope_indices,
+                    mask_map=mask_map,
+                    out_dir=contour_map_dir,
+                ):
+                    contour_maps_exported += 1
 
             if include_any_metrics:
                 metrics_settings = MetricsSettingsResolver.resolve_for_event(
@@ -315,7 +396,14 @@ def export_analysis(
             event_summaries.append(summary)
 
     _write_manifest_csv(out_dir / "events_manifest.csv", manifest_records)
-    _write_manifest_json(out_dir / "events_manifest.json", manifest_records, event_summaries)
+    export_metadata = _build_export_metadata(
+        reader=reader,
+        events=selected_events,
+        analysis_sidecar=analysis_sidecar_snapshot,
+        project_metadata=project_metadata if isinstance(project_metadata, dict) else {},
+        baseline_pre_frames=int(baseline_pre_frames),
+    )
+    _write_manifest_json(out_dir / "events_manifest.json", manifest_records, event_summaries, export_metadata=export_metadata)
     _write_manifest_markdown(
         out_dir / "events_manifest.md",
         records=manifest_records,
@@ -330,6 +418,8 @@ def export_analysis(
         "analysis_images_exported": int(analysis_images_exported),
         "masks_exported": int(masks_exported),
         "mask_overlay_images_exported": int(mask_overlay_images_exported),
+        "analysis_overlay_images_exported": int(analysis_overlay_images_exported),
+        "contour_maps_exported": int(contour_maps_exported),
         "metrics_files_exported": int(metrics_files_exported),
         "manifest_csv": str(out_dir / "events_manifest.csv"),
         "manifest_json": str(out_dir / "events_manifest.json"),
@@ -345,6 +435,82 @@ def _safe_float(value, default: float | None = None) -> float | None:
     if not np.isfinite(v):
         return default
     return v
+
+
+def _finite_optional(value: object) -> float | None:
+    try:
+        out = float(value)
+    except (TypeError, ValueError):
+        return None
+    return out if np.isfinite(out) else None
+
+
+def _scale_unit_is_px_per_mm(value: object) -> bool:
+    unit = str(value or "").strip().lower()
+    return unit in {"px_per_mm", "pixels_per_mm", "pixel_per_mm"}
+
+
+def _metrics_need_scale(
+    *,
+    include_metric_propagation_speed: bool,
+    include_metric_area_recruited: bool,
+    include_metric_lineage_object_metrics: bool,
+) -> bool:
+    return (
+        bool(include_metric_propagation_speed)
+        or bool(include_metric_area_recruited)
+        or bool(include_metric_lineage_object_metrics)
+    )
+
+
+def _require_metric_fps(metrics_settings: dict[str, object], *, event_id: str) -> float:
+    fps = _safe_float(metrics_settings.get("frames_per_sec"), default=None)
+    if fps is None or fps <= 0:
+        raise ValueError(f"Event {event_id} metrics export requires explicit frames_per_sec > 0.")
+    return float(fps)
+
+
+def _require_px_per_mm_scale(metrics_settings: dict[str, object], *, event_id: str) -> float:
+    scale = _safe_float(metrics_settings.get("scale_px_per_mm"), default=None)
+    if scale is None or scale <= 0:
+        raise ValueError(f"Event {event_id} physical-unit metrics require scale_px_per_mm > 0.")
+    if not _scale_unit_is_px_per_mm(metrics_settings.get("scale_unit")):
+        raise ValueError(f"Event {event_id} physical-unit metrics require scale_unit='px_per_mm'.")
+    return float(scale)
+
+
+def _validate_metric_export_prerequisites(
+    *,
+    events: list[EventCandidate],
+    analysis_sidecar: dict[str, dict[str, object]],
+    project_metadata: dict[str, object] | None,
+    include_metric_propagation_speed: bool,
+    include_metric_area_recruited: bool,
+    include_metric_relative_area_recruited: bool,
+    include_metric_lineage_object_metrics: bool,
+) -> None:
+    if not (
+        bool(include_metric_propagation_speed)
+        or bool(include_metric_area_recruited)
+        or bool(include_metric_relative_area_recruited)
+        or bool(include_metric_lineage_object_metrics)
+    ):
+        return
+    need_scale = _metrics_need_scale(
+        include_metric_propagation_speed=bool(include_metric_propagation_speed),
+        include_metric_area_recruited=bool(include_metric_area_recruited),
+        include_metric_lineage_object_metrics=bool(include_metric_lineage_object_metrics),
+    )
+    for event in events:
+        event_id = str(event.event_id)
+        metrics_settings = MetricsSettingsResolver.resolve_for_event(
+            event_id=event_id,
+            analysis_sidecar={event_id: dict(analysis_sidecar.get(event_id, {}) or {})},
+            project_metadata=project_metadata if isinstance(project_metadata, dict) else {},
+        )
+        _require_metric_fps(metrics_settings, event_id=event_id)
+        if need_scale:
+            _require_px_per_mm_scale(metrics_settings, event_id=event_id)
 
 
 def _resolve_roi_mask(metrics_settings: dict[str, object], frame_shape: tuple[int, int]) -> np.ndarray | None:
@@ -416,6 +582,72 @@ def _write_metric_plot(path: Path, time_sec: list[float], values: np.ndarray, ti
     plt.tight_layout()
     plt.savefig(path, dpi=150)
     plt.close()
+
+
+def _contour_map_colors(count: int) -> list[tuple[int, int, int]]:
+    if count <= 0:
+        return []
+    plt = _load_pyplot()
+    try:
+        cmap = plt.get_cmap("parula")
+    except ValueError:
+        cmap = plt.get_cmap("viridis")
+    if count == 1:
+        samples = [0.0]
+    else:
+        samples = [i / float(count - 1) for i in range(count)]
+    colors: list[tuple[int, int, int]] = []
+    for sample in samples:
+        rgba = cmap(float(sample))
+        colors.append(tuple(int(round(float(channel) * 255.0)) for channel in rgba[:3]))
+    return colors
+
+
+def _export_contour_map_frame(
+    *,
+    reader: StackReader,
+    event: EventCandidate,
+    frame_indices: list[int],
+    mask_map: dict[int, np.ndarray],
+    out_dir: Path,
+) -> bool:
+    mask_items: list[tuple[int, np.ndarray]] = []
+    for frame_idx in list(frame_indices or []):
+        mask = mask_map.get(int(frame_idx))
+        if mask is None:
+            continue
+        mask_arr = np.asarray(mask, dtype=bool)
+        if mask_arr.ndim != 2 or not np.any(mask_arr):
+            continue
+        mask_items.append((int(frame_idx), mask_arr.copy()))
+    if not mask_items:
+        return False
+
+    background_frame_idx = int(mask_items[0][0])
+    background = reader.read_frame(background_frame_idx, use_cache=True)
+    frame_shape = np.asarray(background).shape[:2]
+    base_rgb = apply_mask_overlay(background, np.zeros(frame_shape, dtype=bool))
+    image = Image.fromarray(np.asarray(base_rgb, dtype=np.uint8)).convert("RGB")
+    draw = ImageDraw.Draw(image)
+    colors = _contour_map_colors(len(mask_items))
+    contours_drawn = 0
+    for (_frame_idx, mask), color in zip(mask_items, colors):
+        boundary = extract_primary_boundary(mask)
+        if boundary is None or len(boundary) < 3:
+            continue
+        smoothed = smooth_boundary_fft(boundary, n_keep=25)
+        if smoothed is None or len(smoothed) < 3:
+            continue
+        points = [(float(x), float(y)) for y, x in np.asarray(smoothed, dtype=np.float64)]
+        draw.line(points + [points[0]], fill=tuple(int(v) for v in color), width=_CONTOUR_MAP_LINE_WIDTH_PX)
+        contours_drawn += 1
+
+    if contours_drawn <= 0:
+        return False
+    out_dir.mkdir(parents=True, exist_ok=True)
+    event_id = sanitize_event_path_segment(str(getattr(event, "event_id", "") or "event"))
+    image.save(out_dir / f"contour_map_{event_id}.png")
+    return True
 
 
 def _track_color_rgb(track_id: int, root_track_id: int) -> tuple[int, int, int]:
@@ -747,12 +979,20 @@ def _export_event_metrics(
     if not frame_indices:
         return {"files_written": 0}
 
-    scale_px_per_mm = _safe_float(metrics_settings.get("scale_px_per_mm"), default=None)
-    has_scale = scale_px_per_mm is not None and scale_px_per_mm > 0
-    fps = _safe_float(metrics_settings.get("frames_per_sec"), default=1.0)
-    if fps is None or fps <= 0:
-        fps = 1.0
+    need_scale = _metrics_need_scale(
+        include_metric_propagation_speed=bool(include_metric_propagation_speed),
+        include_metric_area_recruited=bool(include_metric_area_recruited),
+        include_metric_lineage_object_metrics=bool(include_metric_lineage_object_metrics),
+    )
+    fps = _require_metric_fps(metrics_settings, event_id=str(event.event_id))
+    scale_px_per_mm = (
+        _require_px_per_mm_scale(metrics_settings, event_id=str(event.event_id))
+        if need_scale
+        else _safe_float(metrics_settings.get("scale_px_per_mm"), default=None)
+    )
+    has_scale = scale_px_per_mm is not None and scale_px_per_mm > 0 and _scale_unit_is_px_per_mm(metrics_settings.get("scale_unit"))
     sec_per_frame = 1.0 / float(fps)
+    local_index_by_frame = {int(frame_index): int(local_idx) for local_idx, frame_index in enumerate(frame_indices)}
 
     roi_mask = _resolve_roi_mask(metrics_settings, frame_shape)
     has_roi = roi_mask is not None and np.any(roi_mask)
@@ -817,7 +1057,7 @@ def _export_event_metrics(
     time_sec = [(idx - frame_indices[0]) * sec_per_frame for idx in frame_indices]
     metrics_dir = event_dir / "metrics"
     metrics_dir.mkdir(parents=True, exist_ok=True)
-    suffix = f"_{event.event_id}"
+    suffix = _event_file_suffix(event)
     files_written = 0
     written: list[str] = []
     metric_tables: list[dict[str, object]] = []
@@ -1013,7 +1253,7 @@ def _export_event_metrics(
             root_track_id = int(getattr(track, "root_track_id", None) or int(track_id))
             for assignment in list(getattr(track, "frame_assignments", []) or []):
                 frame_index = int(getattr(assignment, "frame_index", 0))
-                local_idx = frame_indices.index(frame_index)
+                local_idx = local_index_by_frame[int(frame_index)]
                 original_mask = np.asarray(getattr(assignment, "mask", None), dtype=bool)
                 export_mask = (
                     np.asarray(original_mask & roi_mask, dtype=bool).copy()
@@ -1236,9 +1476,13 @@ def _export_event_metrics(
     summary = {
         "event_id": str(event.event_id),
         "frames_per_sec": float(fps),
+        "frames_per_sec_source": str(metrics_settings.get("frames_per_sec_source", "explicit") or "explicit"),
         "event_start_time_sec": float(int(event.start_idx) / float(fps)),
         "event_end_time_sec": float(int(event.end_idx) / float(fps)),
         "has_scale": bool(has_scale),
+        "scale_px_per_mm": None if scale_px_per_mm is None else float(scale_px_per_mm),
+        "scale_unit": str(metrics_settings.get("scale_unit", "") or ""),
+        "scale_source": str(metrics_settings.get("scale_source", "") or ""),
         "has_roi": bool(has_roi),
         "roi_pixels": int(roi_pixels),
         "selected_metrics": {
@@ -1268,7 +1512,7 @@ def _export_event_metrics(
     written.extend(["metrics_summary.json", "metrics_summary.md"])
     summary["written_files"] = list(written)
     (metrics_dir / "metrics_summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
-    _write_metrics_summary_markdown(metrics_dir / "metrics_summary.md", summary)
+    _write_metrics_summary_markdown(metrics_dir / "metrics_summary.md", summary, event_title=_event_output_name(event))
     files_written += 2
     return {"files_written": int(files_written)}
 
@@ -1420,7 +1664,7 @@ def _export_frame(
 
     timestamp_sec = None
     if trace is not None and frame_idx < len(trace.time_sec):
-        timestamp_sec = trace.time_sec[frame_idx]
+        timestamp_sec = _finite_optional(trace.time_sec[frame_idx])
 
     return ExportRecord(
         event_id=event_id,
@@ -1522,8 +1766,102 @@ def resolve_analysis_image_stack(
         cache[cache_key] = {
             "frames_viz": frames_viz,
             "frame_count": int(len(frames_viz)),
+            "stats": frames_viz.stats,
         }
     return frames_viz
+
+
+def _sha256_array(arr: np.ndarray) -> str:
+    contiguous = np.ascontiguousarray(arr)
+    h = hashlib.sha256()
+    h.update(str(contiguous.dtype).encode("utf-8"))
+    h.update(json.dumps([int(v) for v in contiguous.shape]).encode("utf-8"))
+    h.update(contiguous.tobytes())
+    return h.hexdigest()
+
+
+def _analysis_preprocessing_payload(
+    *,
+    event: EventCandidate,
+    scope_start: int,
+    scope_end: int,
+    baseline_pre: int,
+    processing: dict[str, bool],
+    stats: object | None,
+) -> dict[str, object]:
+    payload: dict[str, object] = {
+        "event_id": str(event.event_id),
+        "scope_start_idx": int(scope_start),
+        "scope_end_idx": int(scope_end),
+        "baseline_pre_frames": int(baseline_pre),
+        "processing": {str(key): bool(value) for key, value in dict(processing or {}).items()},
+        "stats_available": stats is not None,
+    }
+    if stats is None:
+        return payload
+
+    baseline = getattr(stats, "baseline", None)
+    baseline_payload: dict[str, object] | None = None
+    if baseline is not None:
+        baseline_arr = np.asarray(baseline, dtype=np.float32)
+        baseline_payload = {
+            "sha256": _sha256_array(baseline_arr),
+            "shape": [int(v) for v in baseline_arr.shape],
+            "median": float(np.median(baseline_arr)) if baseline_arr.size > 0 else None,
+        }
+    offsets = getattr(stats, "stabilization_offsets_px", None)
+    offsets_payload = None
+    if offsets is not None:
+        offsets_arr = np.asarray(offsets, dtype=np.float32)
+        offsets_payload = offsets_arr.tolist()
+    payload.update(
+        {
+            "frame_count": int(getattr(stats, "frame_count", 0) or 0),
+            "frame_shape": [int(v) for v in tuple(getattr(stats, "frame_shape", (0, 0)))[:2]],
+            "baseline_frames_used": int(getattr(stats, "baseline_frames", 0) or 0),
+            "normalization": {
+                "global": bool(getattr(stats, "apply_global_normalization", False)),
+                "p1": None if getattr(stats, "p1", None) is None else float(getattr(stats, "p1")),
+                "p99": None if getattr(stats, "p99", None) is None else float(getattr(stats, "p99")),
+            },
+            "baseline": baseline_payload,
+            "stabilization": {
+                "enabled": bool(getattr(stats, "apply_stabilization", False)),
+                "reference_index": int(getattr(stats, "stabilization_reference_index", 0) or 0),
+                "offsets_px": offsets_payload,
+                "fallback_frame_indices": [int(v) for v in list(getattr(stats, "stabilization_fallback_frame_indices", []) or [])],
+                "used_fallback_offsets": bool(list(getattr(stats, "stabilization_fallback_frame_indices", []) or [])),
+            },
+        }
+    )
+    return payload
+
+
+def _write_analysis_preprocessing_sidecar(
+    event_dir: Path,
+    *,
+    event: EventCandidate,
+    scope_start: int,
+    scope_end: int,
+    baseline_pre: int,
+    processing: dict[str, bool],
+    analysis_viz_frames: object,
+) -> None:
+    stats = getattr(analysis_viz_frames, "stats", None)
+    if callable(stats):
+        stats = stats()
+    payload = _analysis_preprocessing_payload(
+        event=event,
+        scope_start=int(scope_start),
+        scope_end=int(scope_end),
+        baseline_pre=int(baseline_pre),
+        processing=processing,
+        stats=stats,
+    )
+    (event_dir / "analysis_preprocessing_sidecar.json").write_text(
+        json.dumps(payload, indent=2),
+        encoding="utf-8",
+    )
 
 
 def _export_analysis_frame(
@@ -1557,6 +1895,23 @@ def _export_mask_overlay_frame(
     output_ext = source_ext if source_ext in {".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff"} else ".tiff"
     output_name = f"{int(frame_idx):06d}_{role}_overlay_{stem}{output_ext}"
     _write_frame(out_dir / output_name, apply_mask_overlay(frame, mask), output_ext)
+
+
+def _export_analysis_overlay_frame(
+    reader: StackReader,
+    frame_idx: int,
+    out_dir: Path,
+    role: str,
+    analysis_frame: np.ndarray,
+    mask: np.ndarray,
+) -> None:
+    ref = reader.get_frame_ref(frame_idx)
+    frame_name = ref.frame_name
+    stem = Path(frame_name).stem
+    source_ext = ref.source_ext
+    output_ext = source_ext if source_ext in {".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff"} else ".tiff"
+    output_name = f"{int(frame_idx):06d}_{role}_analysis_overlay_{stem}{output_ext}"
+    _write_frame(out_dir / output_name, apply_mask_overlay(analysis_frame, mask), output_ext)
 
 
 def _write_frame(path: Path, frame: np.ndarray, ext: str) -> None:
@@ -1594,7 +1949,7 @@ def _write_trace_data_csv(path: Path, trace: TraceResult) -> None:
             writer.writerow(
                 [
                     trace.frame_indices[i],
-                    trace.time_sec[i] if i < len(trace.time_sec) else None,
+                    "" if i >= len(trace.time_sec) or _finite_optional(trace.time_sec[i]) is None else _finite_optional(trace.time_sec[i]),
                     trace.mean[i] if i < len(trace.mean) else None,
                     trace.median[i] if i < len(trace.median) else None,
                     trace.std[i] if i < len(trace.std) else None,
@@ -1652,10 +2007,167 @@ def _write_manifest_csv(path: Path, records: list[ExportRecord]) -> None:
             )
 
 
-def _write_manifest_json(path: Path, records: list[ExportRecord], events: list[dict]) -> None:
+def _repo_root() -> Path:
+    return Path(__file__).resolve().parents[2]
+
+
+def _run_git(args: list[str]) -> str | None:
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(_repo_root()), *args],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            timeout=5,
+        )
+    except Exception:
+        return None
+    return result.stdout.strip()
+
+
+def _git_metadata() -> dict[str, object]:
+    status = _run_git(["status", "--porcelain"])
+    return {
+        "commit": _run_git(["rev-parse", "HEAD"]),
+        "branch": _run_git(["rev-parse", "--abbrev-ref", "HEAD"]),
+        "dirty": None if status is None else bool(status),
+    }
+
+
+def _file_sha256(path: Path) -> str | None:
+    try:
+        h = hashlib.sha256()
+        with path.open("rb") as f:
+            for chunk in iter(lambda: f.read(1024 * 1024), b""):
+                h.update(chunk)
+        return h.hexdigest()
+    except Exception:
+        return None
+
+
+def _source_file_metadata(reader: StackReader) -> list[dict[str, object]]:
+    out: list[dict[str, object]] = []
+    seen: set[str] = set()
+    for frame_idx in range(int(reader.get_frame_count())):
+        try:
+            ref = reader.get_frame_ref(int(frame_idx))
+        except Exception:
+            continue
+        path = Path(ref.source_path)
+        key = str(path)
+        if key in seen:
+            continue
+        seen.add(key)
+        sha = _file_sha256(path)
+        out.append(
+            {
+                "path": key,
+                "sha256": sha,
+                "hash_status": "ok" if sha else "unavailable",
+            }
+        )
+    return out
+
+
+def _stack_metadata(reader: StackReader) -> dict[str, object]:
+    try:
+        info = reader.get_stack_info()
+    except Exception:
+        info = None
+    return {
+        "input_dir": None if info is None else str(getattr(info, "input_dir", "") or ""),
+        "frame_count": int(reader.get_frame_count()),
+        "frame_height": None if info is None else int(getattr(info, "frame_height", 0) or 0),
+        "frame_width": None if info is None else int(getattr(info, "frame_width", 0) or 0),
+        "dtype": None if info is None else str(getattr(info, "dtype", "") or ""),
+        "channel_mode": str(getattr(reader, "channel_mode", "unknown") or "unknown"),
+    }
+
+
+def _roi_mask_hash_from_settings(metrics_settings: dict[str, object]) -> str | None:
+    raw = metrics_settings.get("roi_mask")
+    if raw is None:
+        return None
+    try:
+        arr = np.asarray(raw, dtype=bool)
+    except Exception:
+        return None
+    if arr.ndim != 2 or arr.size <= 0:
+        return None
+    return _sha256_array(arr.astype(np.uint8))
+
+
+def _build_export_metadata(
+    *,
+    reader: StackReader,
+    events: list[EventCandidate],
+    analysis_sidecar: dict[str, dict[str, object]],
+    project_metadata: dict[str, object] | None,
+    baseline_pre_frames: int,
+) -> dict[str, object]:
+    calibration_by_event: dict[str, object] = {}
+    roi_hash_by_event: dict[str, str] = {}
+    preprocessing_by_event: dict[str, object] = {}
+    for event in events:
+        event_id = str(event.event_id)
+        event_sidecar = dict(analysis_sidecar.get(event_id, {}) or {})
+        metrics_settings = MetricsSettingsResolver.resolve_for_event(
+            event_id=event_id,
+            analysis_sidecar={event_id: event_sidecar},
+            project_metadata=project_metadata if isinstance(project_metadata, dict) else {},
+        )
+        roi_hash = _roi_mask_hash_from_settings(metrics_settings)
+        if roi_hash:
+            roi_hash_by_event[event_id] = roi_hash
+        scope_start, scope_end, analysis_baseline_pre, processing = analysis_image_export_plan(
+            event,
+            default_baseline_pre_frames=int(baseline_pre_frames),
+        )
+        preprocessing_by_event[event_id] = {
+            "scope_start_idx": int(scope_start),
+            "scope_end_idx": int(scope_end),
+            "baseline_pre_frames": int(analysis_baseline_pre),
+            "processing": {str(key): bool(value) for key, value in processing.items()},
+        }
+        calibration_by_event[event_id] = {
+            "frames_per_sec": _finite_optional(metrics_settings.get("frames_per_sec")),
+            "frames_per_sec_source": str(metrics_settings.get("frames_per_sec_source", "explicit") or "explicit")
+            if "frames_per_sec" in metrics_settings
+            else None,
+            "scale_px_per_mm": _finite_optional(metrics_settings.get("scale_px_per_mm")),
+            "scale_unit": str(metrics_settings.get("scale_unit", "") or "") or None,
+            "scale_source": str(metrics_settings.get("scale_source", "") or "") or None,
+            "scale_points": metrics_settings.get("scale_points"),
+            "scale_image_path": metrics_settings.get("scale_image_path"),
+            "roi_mask_sha256": roi_hash,
+        }
+    roi_hash_values = sorted(set(roi_hash_by_event.values()))
+    return {
+        "run_timestamp_utc": datetime.now(timezone.utc).isoformat(),
+        "app_version": detect_app_version(),
+        "git": _git_metadata(),
+        "stack": _stack_metadata(reader),
+        "baseline_pre_frames": int(baseline_pre_frames),
+        "calibration": {"events": calibration_by_event},
+        "preprocessing": {"events": preprocessing_by_event},
+        "source_files": _source_file_metadata(reader),
+        "roi_mask_sha256": roi_hash_values[0] if len(roi_hash_values) == 1 else None,
+        "roi_mask_sha256_by_event": roi_hash_by_event,
+    }
+
+
+def _write_manifest_json(
+    path: Path,
+    records: list[ExportRecord],
+    events: list[dict],
+    *,
+    export_metadata: dict[str, object] | None = None,
+) -> None:
     payload = {
         "events": events,
         "frames": [asdict(rec) for rec in records],
+        "export_metadata": dict(export_metadata or {}),
     }
     path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
@@ -1769,14 +2281,16 @@ def _write_manifest_markdown(
     path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
 
 
-def _write_metrics_summary_markdown(path: Path, summary: dict[str, object]) -> None:
+def _write_metrics_summary_markdown(path: Path, summary: dict[str, object], *, event_title: str | None = None) -> None:
     selected_metrics = summary.get("selected_metrics")
     enabled_metrics = []
     if isinstance(selected_metrics, dict):
         enabled_metrics = [name for name, enabled in selected_metrics.items() if bool(enabled)]
+    title = str(event_title or "").strip() or str(summary.get("event_id", "unknown"))
     lines = [
-        f"# Metrics Summary: {summary.get('event_id', 'unknown')}",
+        f"# Metrics Summary: {title}",
         "",
+        _markdown_bullet("Event ID", summary.get("event_id")),
         _markdown_bullet("Frames per second", summary.get("frames_per_sec")),
         _markdown_bullet("Event start time (sec)", summary.get("event_start_time_sec")),
         _markdown_bullet("Event end time (sec)", summary.get("event_end_time_sec")),

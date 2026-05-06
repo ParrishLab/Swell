@@ -6,6 +6,7 @@ import importlib.util
 
 import numpy as np
 
+import sdapp.host.controllers.host_window_controller as host_window_controller
 from sdapp.host.config import EventCandidate
 from sdapp.host.controllers.host_window_controller import HostWindowController
 from sdapp.host.exporter import analysis_image_cache_key
@@ -174,3 +175,94 @@ def test_restore_snapshot_if_masks_unchanged_is_noop_for_dict_masks() -> None:
     restored = controller._restore_snapshot_if_masks_changed(snapshot)
 
     assert restored == 0
+
+
+def test_run_export_passes_contour_map_option(monkeypatch, tmp_path) -> None:
+    captured: dict[str, object] = {}
+
+    class _ImmediateThread:
+        def __init__(self, target, daemon=False):  # noqa: ANN001, FBT002
+            self._target = target
+            self.daemon = daemon
+
+        def start(self) -> None:
+            self._target()
+
+    class _Root:
+        def after(self, _delay, callback):
+            callback()
+
+    class _OutputVar:
+        def __init__(self) -> None:
+            self.value = str(tmp_path)
+
+        def get(self) -> str:
+            return self.value
+
+        def set(self, value: str) -> None:
+            self.value = str(value)
+
+    class _Session:
+        def load_analysis_sidecar(self, _event_id: str):
+            return {"masks_committed": np.zeros((1, 2, 2), dtype=np.uint8)}
+
+        def state(self):
+            return SimpleNamespace(
+                analysis_sidecar={"event_0001": {"masks_committed": np.zeros((1, 2, 2), dtype=np.uint8)}},
+                metadata={},
+            )
+
+    def _fake_export_analysis(**kwargs):
+        captured.update(kwargs)
+        return {
+            "output_dir": str(tmp_path),
+            "events_exported": 1,
+            "frames_exported": 0,
+            "analysis_images_exported": 0,
+            "mask_overlay_images_exported": 0,
+            "analysis_overlay_images_exported": 0,
+            "contour_maps_exported": 1,
+            "metrics_files_exported": 0,
+        }
+
+    monkeypatch.setattr(host_window_controller.threading, "Thread", _ImmediateThread)
+    monkeypatch.setattr(host_window_controller, "export_analysis", _fake_export_analysis)
+    app = SimpleNamespace(
+        reader=object(),
+        trace=None,
+        root=_Root(),
+        output_var=_OutputVar(),
+        baseline_pre_frames=0,
+        analysis_window_manager=SimpleNamespace(get=lambda *_args: None),
+        browser_controller=SimpleNamespace(
+            export_candidates=lambda event_ids: [
+                EventCandidate(
+                    event_id=str(event_ids[0]),
+                    start_idx=0,
+                    end_idx=0,
+                    duration_frames=1,
+                    duration_sec=None,
+                )
+            ],
+            session=_Session(),
+        ),
+        _set_status=lambda *_args, **_kwargs: None,
+        _log_info=lambda *_args, **_kwargs: None,
+        _log_warn=lambda *_args, **_kwargs: None,
+        _log_error=lambda *_args, **_kwargs: None,
+        _on_export_progress=lambda *_args, **_kwargs: None,
+        _on_export_done=lambda *_args, **_kwargs: None,
+    )
+    controller = HostWindowController(app)
+
+    controller.run_export(
+        ["event_0001"],
+        options={
+            "output_dir": str(tmp_path),
+            "include_event_images": False,
+            "include_baseline_images": False,
+            "include_contour_map": True,
+        },
+    )
+
+    assert captured["include_contour_map"] is True

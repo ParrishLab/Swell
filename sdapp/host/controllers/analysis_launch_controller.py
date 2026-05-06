@@ -26,6 +26,9 @@ class AnalysisLaunchController:
         self.app = app
 
     def _event_display_name(self, event_id: str) -> str:
+        display_name = getattr(self.app.browser_controller, "event_display_name", None)
+        if callable(display_name):
+            return str(display_name(str(event_id)) or str(event_id))
         try:
             event = self.app.browser_controller.get_event(str(event_id))
         except Exception:
@@ -532,8 +535,9 @@ class AnalysisLaunchController:
             active_event_id = str(full_stack_event.event_id)
 
         window_scope = "__project__"
+        active_event_name = self._event_display_name(str(active_event_id))
         if self.app.analysis_window_manager.focus_event_window(window_scope, active_event_id):
-            self.app._set_status(f"Focused analysis workspace for {active_event_id}.")
+            self.app._set_status(f"Focused analysis workspace for {active_event_name}.")
             return
 
         frame_source = self.app.browser_controller.get_frame_source()
@@ -596,13 +600,13 @@ class AnalysisLaunchController:
                 flags=flags,
             )
         except Exception as exc:
-            self.app._log_warn(f"Unable to persist analysis preprocessing settings for {active_event_id}: {exc}")
+            self.app._log_warn(f"Unable to persist analysis preprocessing settings for {active_event_name}: {exc}")
         launch_preparation = options.get("launch_preparation")
         try:
             app_cls = self.load_analysis_app_class()
             win = tk.Toplevel(self.app.root)
             win.withdraw()
-            win.title(f"Open Analysis - {active_event_id}")
+            win.title(f"Open Analysis - {active_event_name}")
 
             analysis_app = app_cls(win, menu_builder=build_shared_menu, menu_mode="analysis", host_mode=True)
             open_result = analysis_app.open_from_host_context(
@@ -634,12 +638,14 @@ class AnalysisLaunchController:
             self.app.analysis_window_manager.open_event_window(window_scope, active_event_id, win, analysis_app)
             self.app._analysis_windows.append((win, analysis_app))
 
-            def _on_analysis_destroy(_event=None, sid=str(window_scope), eid=str(active_event_id)) -> None:
+            def _on_analysis_destroy(event=None, sid=str(window_scope), eid=str(active_event_id)) -> None:
+                if event is not None and event.widget is not win:
+                    return
                 self.app.analysis_window_manager.unregister(sid, eid)
                 self.app._analysis_windows = [
                     (w, a)
                     for (w, a) in self.app._analysis_windows
-                    if bool(hasattr(w, "winfo_exists") and w.winfo_exists())
+                    if w != win and bool(hasattr(w, "winfo_exists") and w.winfo_exists())
                 ]
                 try:
                     build_shared_menu(self.app.root, self.app, mode="host", host_mode=False)
@@ -647,8 +653,8 @@ class AnalysisLaunchController:
                     pass
 
             win.bind("<Destroy>", _on_analysis_destroy)
-            self.app._set_status(f"Opened analysis workspace for {active_event_id}.")
-            self.app._log_info(f"Opened analysis workspace for event {active_event_id}.")
+            self.app._set_status(f"Opened analysis workspace for {active_event_name}.")
+            self.app._log_info(f"Opened analysis workspace for event {active_event_name}.")
         except Exception as exc:
             self.app._log_error(f"Open Analysis failed: {exc}")
             self.app._show_warning("Open Analysis", f"Failed to open analysis workspace:\n{exc}")

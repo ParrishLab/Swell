@@ -111,7 +111,11 @@ class AnalysisRuntimeController:
             started = time.perf_counter()
             if int(getattr(self.app, "_analysis_prewarm_generation", 0) or 0) != generation:
                 return None
-            frame_source.prewarm(indices, generation=generation)
+            frame_source.prewarm(
+                indices,
+                generation=generation,
+                should_continue=lambda: int(getattr(self.app, "_analysis_prewarm_generation", 0) or 0) == generation,
+            )
             if int(getattr(self.app, "_analysis_prewarm_generation", 0) or 0) != generation:
                 return None
             return {

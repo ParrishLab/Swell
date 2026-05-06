@@ -104,6 +104,27 @@ class ProjectSessionService:
             out[int(frame_idx)] = {"plus": plus, "minus": minus}
         return out
 
+    def apply_paint_to_masks(
+        self,
+        masks: dict[int, np.ndarray],
+        paint_layers: dict[int, dict[str, np.ndarray]],
+    ) -> dict[int, np.ndarray]:
+        """Return a new masks dict with paint layers merged in (same logic as the renderer)."""
+        if not paint_layers:
+            return self.copy_masks_dict(masks)
+        out = self.copy_masks_dict(masks)
+        for frame_idx, layer in paint_layers.items():
+            idx = int(frame_idx)
+            plus = np.asarray(layer.get("plus"), dtype=bool)
+            minus = np.asarray(layer.get("minus"), dtype=bool)
+            base = out.get(idx)
+            if base is None:
+                base = np.zeros_like(plus)
+            if base.shape != plus.shape or base.shape != minus.shape:
+                continue
+            out[idx] = ((base | plus) & ~minus).copy()
+        return out
+
     def event_mask_bounds(self, mask_dict: dict[int, np.ndarray], frame_count: int) -> tuple[int, int]:
         if not mask_dict:
             return 0, max(0, frame_count - 1)
@@ -266,7 +287,9 @@ class ProjectSessionService:
             record.analysis.masks_draft = self.copy_masks_dict(seg_state.masks_cache)
             record.analysis.masks_committed = self.copy_masks_dict(record.analysis.masks_committed)
         else:
-            record.analysis.masks_committed = self.copy_masks_dict(seg_state.masks_cache)
+            record.analysis.masks_committed = self.apply_paint_to_masks(
+                seg_state.masks_cache, seg_state.paint_layers
+            )
             if bool(record.metadata.propagation_completed):
                 record.analysis.masks_draft = None
             record.analysis.use_draft = False

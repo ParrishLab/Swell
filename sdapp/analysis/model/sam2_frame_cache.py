@@ -21,15 +21,18 @@ def _safe_tuple(values) -> tuple[int, ...]:
 
 
 def _stable_source_identity(frame_source, *, frame_count: int, frame_shape: tuple[int, int]) -> str:
-    source_paths = [str(p) for p in list(getattr(frame_source, "source_paths", []) or [])[:8]]
-    frame_names = [str(n) for n in list(getattr(frame_source, "frame_names", []) or [])[:8]]
+    source_paths = [str(p) for p in list(getattr(frame_source, "source_paths", []) or [])]
+    frame_names = [str(n) for n in list(getattr(frame_source, "frame_names", []) or [])]
     payload = {
         "type": type(frame_source).__name__,
         "frame_count": int(frame_count),
         "frame_shape": list(_safe_tuple(frame_shape)),
-        "source_paths": source_paths,
-        "frame_names": frame_names,
-        "source_id": id(frame_source),
+        "source_paths_digest": sha256(repr(source_paths).encode("utf-8")).hexdigest(),
+        "frame_names_digest": sha256(repr(frame_names).encode("utf-8")).hexdigest(),
+        "first_source_paths": source_paths[:3],
+        "last_source_paths": source_paths[-3:],
+        "first_frame_names": frame_names[:3],
+        "last_frame_names": frame_names[-3:],
     }
     return sha256(repr(payload).encode("utf-8")).hexdigest()[:24]
 

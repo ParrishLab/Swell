@@ -119,6 +119,9 @@ class HostWindowController:
         event_id = str(payload.get("event_id", "") or "").strip()
         if not event_id:
             return "the current event"
+        display_name = getattr(self.app.browser_controller, "event_display_name", None)
+        if callable(display_name):
+            return str(display_name(event_id) or event_id)
         try:
             event = self.app.browser_controller.get_event(event_id)
         except Exception:
@@ -429,6 +432,8 @@ class HostWindowController:
         include_analysis_var = tk.BooleanVar(value=False)
         include_masks_var = tk.BooleanVar(value=True)
         include_mask_overlay_var = tk.BooleanVar(value=True)
+        include_analysis_overlay_var = tk.BooleanVar(value=False)
+        include_contour_map_var = tk.BooleanVar(value=False)
         include_metric_speed_var = tk.BooleanVar(value=True)
         include_metric_area_var = tk.BooleanVar(value=True)
         include_metric_rel_area_var = tk.BooleanVar(value=True)
@@ -468,6 +473,14 @@ class HostWindowController:
         masks_check.pack(anchor="w")
         overlay_check = ttk.Checkbutton(checks, text="Mask Overlay Images", variable=include_mask_overlay_var)
         overlay_check.pack(anchor="w")
+        analysis_overlay_check = ttk.Checkbutton(
+            checks,
+            text="Analysis Overlay Images",
+            variable=include_analysis_overlay_var,
+        )
+        analysis_overlay_check.pack(anchor="w")
+        contour_map_check = ttk.Checkbutton(checks, text="Contour Map", variable=include_contour_map_var)
+        contour_map_check.pack(anchor="w")
         if not has_masks:
             include_masks_var.set(False)
             masks_check.configure(state="disabled")
@@ -475,6 +488,12 @@ class HostWindowController:
             include_mask_overlay_var.set(False)
             overlay_check.configure(state="disabled")
             self.attach_disabled_tooltip(dialog, overlay_check, "No binary masks exist for the selected events.")
+            include_analysis_overlay_var.set(False)
+            analysis_overlay_check.configure(state="disabled")
+            self.attach_disabled_tooltip(dialog, analysis_overlay_check, "No binary masks exist for the selected events.")
+            include_contour_map_var.set(False)
+            contour_map_check.configure(state="disabled")
+            self.attach_disabled_tooltip(dialog, contour_map_check, "No binary masks exist for the selected events.")
 
         ttk.Separator(checks, orient="horizontal").pack(fill="x", pady=(6, 4))
         ttk.Label(checks, text="Metrics", style="AppMeta.TLabel").pack(anchor="w")
@@ -586,6 +605,8 @@ class HostWindowController:
                 or bool(include_analysis_var.get())
                 or bool(include_masks_var.get())
                 or bool(include_mask_overlay_var.get())
+                or bool(include_analysis_overlay_var.get())
+                or bool(include_contour_map_var.get())
                 or bool(include_metric_speed_var.get())
                 or bool(include_metric_area_var.get())
                 or bool(include_metric_rel_area_var.get())
@@ -605,6 +626,8 @@ class HostWindowController:
                 "include_analysis_images": bool(include_analysis_var.get()),
                 "include_binary_masks": bool(include_masks_var.get()),
                 "include_mask_overlay_images": bool(include_mask_overlay_var.get()),
+                "include_analysis_overlay_images": bool(include_analysis_overlay_var.get()),
+                "include_contour_map": bool(include_contour_map_var.get()),
                 "include_metric_propagation_speed": bool(include_metric_speed_var.get()),
                 "include_metric_area_recruited": bool(include_metric_area_var.get()),
                 "include_metric_relative_area_recruited": bool(include_metric_rel_area_var.get()),
@@ -974,6 +997,8 @@ class HostWindowController:
             payload: dict[str, object] = {"frames_per_sec": float(frames_per_sec)}
             if scale_value is not None:
                 payload["scale_px_per_mm"] = float(scale_value)
+                payload["scale_unit"] = "px_per_mm"
+                payload["scale_source"] = "calibration"
             if len(scale_points) == 2:
                 payload["scale_points"] = [[float(pt[0]), float(pt[1])] for pt in scale_points]
                 payload["scale_axis_lock"] = bool(scale_axis_lock)
@@ -1033,6 +1058,8 @@ class HostWindowController:
             f"analysis_images={bool(options.get('include_analysis_images'))}, "
             f"binary_masks={bool(options.get('include_binary_masks'))}, "
             f"mask_overlay_images={bool(options.get('include_mask_overlay_images'))}, "
+            f"analysis_overlay_images={bool(options.get('include_analysis_overlay_images'))}, "
+            f"contour_map={bool(options.get('include_contour_map'))}, "
             f"metric_propagation_speed={bool(options.get('include_metric_propagation_speed'))}, "
             f"metric_area_recruited={bool(options.get('include_metric_area_recruited'))}, "
             f"metric_relative_area_recruited={bool(options.get('include_metric_relative_area_recruited'))}, "
@@ -1047,7 +1074,9 @@ class HostWindowController:
                 assert self.app.reader is not None
                 export_events = self.app.browser_controller.export_candidates(event_ids)
                 analysis_image_cache = None
-                if bool(options.get("include_analysis_images")):
+                if bool(options.get("include_analysis_images")) or bool(
+                    options.get("include_analysis_overlay_images")
+                ):
                     analysis_image_cache = self._seed_analysis_image_export_cache(export_events, baseline_pre)
                 sidecar = self.app.browser_controller.session.state().analysis_sidecar
                 metadata = self.app.browser_controller.session.state().metadata
@@ -1101,6 +1130,8 @@ class HostWindowController:
                     include_analysis_images=bool(options.get("include_analysis_images")),
                     include_binary_masks=bool(options.get("include_binary_masks")),
                     include_mask_overlay_images=bool(options.get("include_mask_overlay_images")),
+                    include_analysis_overlay_images=bool(options.get("include_analysis_overlay_images")),
+                    include_contour_map=bool(options.get("include_contour_map")),
                     analysis_sidecar=sidecar,
                     analysis_image_cache=analysis_image_cache,
                     include_metric_propagation_speed=bool(options.get("include_metric_propagation_speed")),

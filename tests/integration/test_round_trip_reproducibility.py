@@ -79,6 +79,7 @@ def test_round_trip_reproducibility(tmp_path: Path):
             ],
             "metrics_settings": {
                 "scale_px_per_mm": 100.0,
+                "scale_unit": "px_per_mm",
                 "frames_per_sec": 2.0,
                 "roi_mask": np.ones((100, 100), dtype=bool).tolist()
             }

@@ -152,15 +152,15 @@ class AnalysisController:
         t_vals = np.linspace(0.0, length, n_samples)
         offsets = np.linspace(-linewidth / 2.0, linewidth / 2.0, max(3, int(linewidth)))
 
-        sampled_rows = []
         img_f = img_u8.astype(np.float32)
-        for off in offsets:
+        sampled_rows = np.empty((len(offsets), n_samples), dtype=np.float32)
+        for row_idx, off in enumerate(offsets):
             xs = x1 + ux * t_vals + nx * off
             ys = y1 + uy * t_vals + ny * off
             vals = map_coordinates(img_f, [ys, xs], order=1, mode="nearest")
-            sampled_rows.append(vals)
+            sampled_rows[row_idx, :] = vals
 
-        profile = np.mean(np.vstack(sampled_rows), axis=0)
+        profile = np.mean(sampled_rows, axis=0)
         kernel = np.array([1.0, 2.0, 3.0, 2.0, 1.0], dtype=np.float32)
         kernel /= np.sum(kernel)
         profile = np.convolve(profile, kernel, mode="same")
@@ -564,7 +564,7 @@ class AnalysisController:
     def reset_local_scale_override(self) -> None:
         self._reset_local_metric_override(
             override_kind="scale",
-            keys=["scale_px_per_mm", "scale_points", "scale_axis_lock", "scale_image_path"],
+            keys=["scale_px_per_mm", "scale_unit", "scale_source", "scale_points", "scale_axis_lock", "scale_image_path"],
             title="Scale Reset",
             success_message="Local scale override cleared. This event now uses the global scale.",
         )
@@ -589,6 +589,8 @@ class AnalysisController:
     def _apply_global_scale_selection(self, result) -> None:
         payload = {
             "scale_px_per_mm": float(result["px_per_mm"]),
+            "scale_unit": "px_per_mm",
+            "scale_source": "calibration",
             "scale_points": [[float(pt[0]), float(pt[1])] for pt in list(result.get("scale_points", []))],
             "scale_axis_lock": bool(result.get("axis_lock", True)),
         }

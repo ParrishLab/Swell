@@ -97,6 +97,13 @@ class RenderActionsTests(unittest.TestCase):
         )
         self.assertEqual(rendered.size, (40, 40))
 
+    def test_display_photo_cache_accessor_not_shadowed_by_cache_store(self):
+        harness = _ViewportRenderHarness()
+        cache = harness._display_photo_cache()
+        cache["sentinel"] = object()
+
+        self.assertIs(harness._display_photo_cache(), cache)
+
     def test_slider_move_does_not_mark_dirty(self):
         harness = _RenderHarness()
         harness.current_frame_idx = 0

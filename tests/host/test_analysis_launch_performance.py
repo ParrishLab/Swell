@@ -185,3 +185,26 @@ def test_event_display_name_prefers_event_label() -> None:
     controller = AnalysisLaunchController(app)
 
     assert controller._event_display_name("event_0042") == "Halo(Light Off) 1"
+
+
+def test_focus_existing_analysis_window_status_uses_event_label() -> None:
+    statuses: list[str] = []
+    app = SimpleNamespace(
+        browser_controller=SimpleNamespace(
+            get_event=lambda event_id: SimpleNamespace(event_id=str(event_id), label="Visible Event"),
+            event_display_name=lambda _event_id: "Visible Event",
+        ),
+        analysis_window_manager=SimpleNamespace(focus_event_window=lambda _scope, _event_id: True),
+        reader=object(),
+        stack_info=SimpleNamespace(frame_count=3),
+        root=object(),
+        _active_event_id=lambda: "event_0042",
+        _get_model_setup_controller=lambda: SimpleNamespace(is_analysis_allowed=lambda: (True, "")),
+        _set_status=lambda message: statuses.append(str(message)),
+        _show_warning=lambda *_args, **_kwargs: None,
+    )
+    controller = AnalysisLaunchController(app)
+
+    controller.analyze_selected_event()
+
+    assert statuses == ["Focused analysis workspace for Visible Event."]

@@ -35,4 +35,43 @@ These override the project-level defaults set in the host window.
 | **Import External Masks** | Map masks from a file or folder into the current event. |
 | **Save Current Masks** | Persist the current mask set into the active `.sdproj` project. |
 
-<!-- TODO: document keyboard shortcuts and brush-size controls -->
+## Keyboard shortcuts
+
+### Tool selection
+
+| Key | Tool |
+| --- | --- |
+| `B` | Brush |
+| `E` | Eraser |
+| `V` | Select |
+| `+` / `=` | Positive point |
+| `-` / `_` | Negative point |
+
+### Frame navigation
+
+| Key | Action |
+| --- | --- |
+| `←` / `→` | Previous / next frame |
+| `Delete` / `Backspace` | Delete selected point |
+
+### Editing
+
+| Key | Action |
+| --- | --- |
+| `Cmd+Z` / `Ctrl+Z` | Undo |
+| `Cmd+Shift+Z` / `Ctrl+Shift+Z` | Redo |
+
+### Zoom and pan
+
+| Key | Action |
+| --- | --- |
+| `Cmd++` / `Ctrl++` | Zoom in |
+| `Cmd+-` / `Ctrl+-` | Zoom out |
+| `0` | Reset zoom (fit to frame) |
+| `Space` + drag | Pan the viewport |
+
+Use `Cmd` on macOS and `Ctrl` on Windows/Linux. Shortcuts are suppressed when a text field has focus.
+
+## Brush size
+
+The brush size slider in the tools panel sets the radius in pixels (range: 1–50 px, default: 10 px). You can also adjust it with **Shift+Mouse Wheel** while hovering over the canvas.

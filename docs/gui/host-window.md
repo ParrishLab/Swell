@@ -36,4 +36,14 @@ The host window is the entry point for project and event management.
 
 Exports include event images, baseline images, binary masks, and metrics files. See [File formats](../file-formats.md) for the output layout.
 
-<!-- TODO: document keyboard shortcuts -->
+## Keyboard shortcuts
+
+### Frame navigation
+
+| Key | Action |
+| --- | --- |
+| `←` / `→` | Step one frame backward / forward |
+| `Shift+←` / `Shift+→` | Jump 10 frames backward / forward |
+| `↑` / `↓` | Jump 10 frames forward / backward |
+
+These shortcuts are suppressed when a text entry field has focus. The same bindings apply inside the **Mark SD Event** popup.

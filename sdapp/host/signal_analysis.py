@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+from concurrent.futures import ThreadPoolExecutor
 from typing import Callable, Optional
 
 import numpy as np
@@ -40,21 +42,27 @@ def compute_trace(
     progress_callback: Optional[Callable[[int, int], None]] = None,
 ) -> TraceResult:
     n_frames = reader.get_frame_count()
-    means = np.zeros(n_frames, dtype=np.float64)
-    medians = np.zeros(n_frames, dtype=np.float64)
-    stds = np.zeros(n_frames, dtype=np.float64)
 
     batch_size = max(1, min(int(TRACE_BATCH_SIZE), max(1, n_frames)))
-    for start_idx in range(0, n_frames, batch_size):
+    max_workers = min(os.cpu_count() or 4, 8)
+
+    def _process_batch(start_idx: int) -> tuple[int, np.ndarray, np.ndarray, np.ndarray]:
         end_idx = min(n_frames, start_idx + batch_size)
         batch_means, batch_medians, batch_stds = _compute_trace_stats_batch(reader, start_idx, end_idx)
-        means[start_idx:end_idx] = batch_means
-        medians[start_idx:end_idx] = batch_medians
-        stds[start_idx:end_idx] = batch_stds
-        if progress_callback is not None:
-            for idx in range(start_idx, end_idx):
-                if idx % 50 == 0 or idx == n_frames - 1:
-                    progress_callback(idx + 1, n_frames)
+        return int(start_idx), batch_means, batch_medians, batch_stds
+
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        batches = list(executor.map(_process_batch, range(0, n_frames, batch_size)))
+
+    batches.sort(key=lambda item: int(item[0]))
+    means = np.concatenate([item[1] for item in batches], axis=0) if batches else np.zeros((0,), dtype=np.float64)
+    medians = np.concatenate([item[2] for item in batches], axis=0) if batches else np.zeros((0,), dtype=np.float64)
+    stds = np.concatenate([item[3] for item in batches], axis=0) if batches else np.zeros((0,), dtype=np.float64)
+
+    if progress_callback is not None:
+        for idx in range(n_frames):
+            if idx % 50 == 0 or idx == n_frames - 1:
+                progress_callback(idx + 1, n_frames)
 
     frame_indices = list(range(n_frames))
     if seconds_per_frame and seconds_per_frame > 0:

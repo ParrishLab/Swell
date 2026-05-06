@@ -6,7 +6,17 @@ import numpy as np
 
 
 class MetricsSettingsResolver:
-    METRIC_KEYS = ("frames_per_sec", "scale_px_per_mm", "scale_points", "scale_axis_lock", "scale_image_path", "roi_points", "roi_mask")
+    METRIC_KEYS = (
+        "frames_per_sec",
+        "scale_px_per_mm",
+        "scale_unit",
+        "scale_source",
+        "scale_points",
+        "scale_axis_lock",
+        "scale_image_path",
+        "roi_points",
+        "roi_mask",
+    )
     ROI_KEYS = ("roi_points", "roi_mask")
 
     @staticmethod
@@ -28,6 +38,12 @@ class MetricsSettingsResolver:
                     out["scale_px_per_mm"] = float(scale)
             except Exception:
                 pass
+        scale_unit = str(settings.get("scale_unit", "") or "").strip()
+        if scale_unit:
+            out["scale_unit"] = scale_unit
+        scale_source = str(settings.get("scale_source", "") or "").strip()
+        if scale_source:
+            out["scale_source"] = scale_source
         scale_points = settings.get("scale_points")
         if isinstance(scale_points, list) and len(scale_points) >= 2:
             clean_scale_points: list[list[float]] = []
@@ -76,6 +92,8 @@ class MetricsSettingsResolver:
                 return float(value) > 0
             except (TypeError, ValueError):
                 return False
+        if key in {"scale_unit", "scale_source"}:
+            return isinstance(value, str) and bool(value.strip())
         if key == "scale_points":
             return isinstance(value, list) and len(value) >= 2
         if key == "scale_axis_lock":
@@ -133,6 +151,8 @@ class MetricsSettingsResolver:
                 merged[key] = [[float(pt[0]), float(pt[1])] for pt in list(value)[:2]]
             elif key == "roi_points":
                 merged[key] = [[float(pt[0]), float(pt[1])] for pt in list(value)]
+            elif key in {"scale_unit", "scale_source"}:
+                merged[key] = str(value)
             else:
                 merged[key] = value
             changed = True

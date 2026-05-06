@@ -45,6 +45,16 @@ class _FakeStackInfo:
         self.dtype = "uint8"
 
 
+def test_event_display_name_prefers_label_and_falls_back_to_id() -> None:
+    host = BrowserController()
+    labeled = host.create_event(start_idx=0, end_idx=1, frame_count=5, label="Visible Event")
+    unlabeled = host.create_event(start_idx=2, end_idx=3, frame_count=5)
+
+    assert host.event_display_name(labeled.event_id) == "Visible Event"
+    assert host.event_display_name(unlabeled.event_id) == unlabeled.event_id
+    assert host.event_display_name("missing") == "missing"
+
+
 def test_apply_direct_analysis_update_routes_by_payload_event_id() -> None:
     host = BrowserController()
     host.on_stack_loaded(_FakeReader(), _FakeStackInfo())

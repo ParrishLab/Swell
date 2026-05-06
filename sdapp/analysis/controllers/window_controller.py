@@ -141,6 +141,8 @@ class AnalysisWindowController:
         try:
             if bool(getattr(self.app, "_scale_is_local_override", False)) and self.app.scale_px_per_mm is not None and float(self.app.scale_px_per_mm) > 0:
                 metrics["scale_px_per_mm"] = float(self.app.scale_px_per_mm)
+                metrics["scale_unit"] = "px_per_mm"
+                metrics["scale_source"] = "calibration"
         except Exception:
             pass
         if bool(getattr(self.app, "_scale_is_local_override", False)) and isinstance(getattr(self.app, "scale_points", None), list):

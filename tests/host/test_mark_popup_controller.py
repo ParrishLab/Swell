@@ -140,9 +140,11 @@ def test_confirm_new_event_persists_baseline_scope_flags() -> None:
 
 def test_confirm_edit_event_updates_baseline_scope_flags_and_preserves_existing_flags() -> None:
     updated: list[dict[str, object]] = []
+    statuses: list[str] = []
+    logs: list[str] = []
     existing = EventMeta(
         "event_0002",
-        "event_0002",
+        "Visible Event",
         start_idx=20,
         end_idx=28,
         flags={"keep": True, "baseline_pre_frames": 2},
@@ -167,8 +169,8 @@ def test_confirm_edit_event_updates_baseline_scope_flags_and_preserves_existing_
         _sync_event_projections=lambda: None,
         tree=SimpleNamespace(selection_set=lambda _event_id: None),
         _set_active_event_id=lambda _event_id: None,
-        _set_status=lambda _message: None,
-        _log_info=lambda _message: None,
+        _set_status=lambda message: statuses.append(str(message)),
+        _log_info=lambda message: logs.append(str(message)),
         preview_scale=SimpleNamespace(set=lambda _value: None),
         _update_preview=lambda _idx: None,
     )
@@ -185,6 +187,8 @@ def test_confirm_edit_event_updates_baseline_scope_flags_and_preserves_existing_
     assert int(flags["analysis_scope_end_idx"]) == 27
     assert int(flags["analysis_local_event_start_idx"]) == 4
     assert int(flags["analysis_local_event_end_idx"]) == 9
+    assert statuses[-1] == "Updated Visible Event boundaries."
+    assert logs[-1] == "Updated Visible Event: [20, 28] -> [22, 27]."
 
 
 def test_delete_selected_events_requires_confirmation() -> None:

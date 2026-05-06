@@ -14,16 +14,22 @@ from .config import FrameRef, MAX_PREVIEW_CACHE, SUPPORTED_EXTENSIONS, StackInfo
 
 
 class StackReader:
-    def __init__(self, max_cache: int = MAX_PREVIEW_CACHE):
+    def __init__(
+        self,
+        max_cache: int = MAX_PREVIEW_CACHE,
+        channel_mode_resolver: Optional[Callable[[], str]] = None,
+    ):
         self.max_cache = max(1, int(max_cache))
         self._frame_refs: list[FrameRef] = []
         self._stack_info: Optional[StackInfo] = None
         self._cache: OrderedDict[int, np.ndarray] = OrderedDict()
         self._cache_lock = Lock()
         self._tiff_handle_pool: OrderedDict[str, tifffile.TiffFile] = OrderedDict()
+        self._tiff_handle_locks: dict[str, Lock] = {}
         self._tiff_pool_max = 4
         self._tiff_lock = Lock()
         self._channel_mode = "average"
+        self._channel_mode_resolver = channel_mode_resolver
 
     def open_stack(self, input_dir: str | Path, progress_callback: Optional[Callable[[int, int], None]] = None) -> StackInfo:
         input_path = Path(input_dir).expanduser().resolve()
@@ -31,7 +37,7 @@ class StackReader:
             raise FileNotFoundError(f"Input directory not found: {input_path}")
 
         files = sorted(
-            [p for p in input_path.iterdir() if p.is_file() and p.suffix.lower() in SUPPORTED_EXTENSIONS],
+            [p for p in input_path.iterdir() if _is_supported_stack_file(p)],
             key=_natural_sort_key,
         )
         if not files:
@@ -60,11 +66,7 @@ class StackReader:
                             expected_shape = shape
                             dtype_str = str(page.dtype)
                             if len(page.shape) >= 3 and page.shape[-1] >= 3 and not prompted_rgb:
-                                import tkinter.messagebox as messagebox
-                                if messagebox.askyesno("Multi-channel Image Detected", "Multi-channel (RGB) images detected.\n\nDo you want to average the channels to grayscale?\n\nYes: Average channels (Luma).\nNo: Use the first channel only."):
-                                    self._channel_mode = "average"
-                                else:
-                                    self._channel_mode = "first"
+                                self._channel_mode = self._resolve_channel_mode()
                                 prompted_rgb = True
                         if shape != expected_shape:
                             continue
@@ -90,11 +92,7 @@ class StackReader:
                     expected_shape = shape
                     dtype_str = dtype_guess
                     if is_rgb and not prompted_rgb:
-                        import tkinter.messagebox as messagebox
-                        if messagebox.askyesno("Multi-channel Image Detected", "Multi-channel (RGB) images detected.\n\nDo you want to average the channels to grayscale?\n\nYes: Average channels (Luma).\nNo: Use the first channel only."):
-                            self._channel_mode = "average"
-                        else:
-                            self._channel_mode = "first"
+                        self._channel_mode = self._resolve_channel_mode()
                         prompted_rgb = True
                 if shape != expected_shape:
                     continue
@@ -144,6 +142,10 @@ class StackReader:
     def get_frame_ref(self, frame_idx: int) -> FrameRef:
         return self._frame_refs[frame_idx]
 
+    @property
+    def channel_mode(self) -> str:
+        return str(self._channel_mode)
+
     def read_frame(self, frame_idx: int, use_cache: bool = True) -> np.ndarray:
         if frame_idx < 0 or frame_idx >= len(self._frame_refs):
             raise IndexError(f"Frame index out of range: {frame_idx}")
@@ -182,19 +184,44 @@ class StackReader:
         path_str = str(path)
         with self._tiff_lock:
             tif = self._tiff_handle_pool.get(path_str)
+            handle_lock = self._tiff_handle_locks.get(path_str)
             if tif is None:
                 tif = tifffile.TiffFile(path_str)
                 self._tiff_handle_pool[path_str] = tif
-                while len(self._tiff_handle_pool) > self._tiff_pool_max:
-                    _old_path, old_tif = self._tiff_handle_pool.popitem(last=False)
-                    try:
-                        old_tif.close()
-                    except Exception:
-                        pass
-            else:
-                self._tiff_handle_pool.move_to_end(path_str)
+            if handle_lock is None:
+                handle_lock = Lock()
+                self._tiff_handle_locks[path_str] = handle_lock
+            self._tiff_handle_pool.move_to_end(path_str)
+            handle_lock.acquire()
+            self._evict_tiff_handles_locked(exclude={path_str})
+        try:
             arr = tif.pages[key].asarray()
+        finally:
+            handle_lock.release()
         return arr
+
+    def _evict_tiff_handles_locked(self, *, exclude: set[str] | None = None) -> None:
+        excluded = set(exclude or set())
+        while len(self._tiff_handle_pool) > self._tiff_pool_max:
+            evicted = False
+            for old_path in list(self._tiff_handle_pool.keys()):
+                if old_path in excluded:
+                    continue
+                old_lock = self._tiff_handle_locks.get(old_path)
+                if old_lock is not None and not old_lock.acquire(blocking=False):
+                    continue
+                old_tif = self._tiff_handle_pool.pop(old_path)
+                try:
+                    old_tif.close()
+                except Exception:
+                    pass
+                if old_lock is not None:
+                    old_lock.release()
+                self._tiff_handle_locks.pop(old_path, None)
+                evicted = True
+                break
+            if not evicted:
+                break
 
     def _read_tiff_page_with_pillow(self, path: Path, key: int) -> np.ndarray:
         with Image.open(path) as img:
@@ -207,12 +234,19 @@ class StackReader:
 
     def _close_tiff_handles(self) -> None:
         with self._tiff_lock:
-            for _p, tif in list(self._tiff_handle_pool.items()):
+            for path_str, tif in list(self._tiff_handle_pool.items()):
+                handle_lock = self._tiff_handle_locks.get(path_str)
+                if handle_lock is not None:
+                    handle_lock.acquire()
                 try:
                     tif.close()
                 except Exception:
                     pass
+                finally:
+                    if handle_lock is not None:
+                        handle_lock.release()
             self._tiff_handle_pool.clear()
+            self._tiff_handle_locks.clear()
 
     def collect_garbage(self, aggressive: bool = False) -> None:
         with self._cache_lock:
@@ -228,17 +262,35 @@ class StackReader:
         with self._tiff_lock:
             keep_handles = max(2, self._tiff_pool_max // 2)
             while len(self._tiff_handle_pool) > keep_handles:
-                _old_path, old_tif = self._tiff_handle_pool.popitem(last=False)
+                old_path, old_tif = self._tiff_handle_pool.popitem(last=False)
+                old_lock = self._tiff_handle_locks.pop(old_path, None)
+                if old_lock is not None:
+                    old_lock.acquire()
                 try:
                     old_tif.close()
                 except Exception:
                     pass
+                finally:
+                    if old_lock is not None:
+                        old_lock.release()
 
     def __del__(self):
         try:
             self._close_tiff_handles()
         except Exception:
             pass
+
+    def _resolve_channel_mode(self) -> str:
+        resolver = self._channel_mode_resolver
+        if not callable(resolver):
+            return "average"
+        try:
+            mode = str(resolver() or "").strip().lower()
+        except Exception:
+            return "average"
+        if mode in {"average", "first"}:
+            return mode
+        return "average"
 
 
 def _to_grayscale(arr: np.ndarray, channel_mode: str = "average") -> np.ndarray:
@@ -264,6 +316,15 @@ def _to_grayscale(arr: np.ndarray, channel_mode: str = "average") -> np.ndarray:
         if squeezed.ndim == 3:
             return _to_grayscale(squeezed, channel_mode=channel_mode)
     raise ValueError(f"Unsupported frame shape: {arr.shape}")
+
+
+def _is_supported_stack_file(path: Path) -> bool:
+    if not path.is_file():
+        return False
+    name = path.name
+    if name.startswith(".") or name.startswith("._"):
+        return False
+    return path.suffix.lower() in SUPPORTED_EXTENSIONS
 
 
 def _normalized_frame_shape_from_shape(raw_shape) -> tuple[int, int] | None:

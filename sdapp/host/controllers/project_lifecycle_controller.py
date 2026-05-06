@@ -50,6 +50,19 @@ class HostProjectLifecycleController:
         if callable(clear_fn):
             clear_fn()
 
+    def _event_display_name(self, event_id: str) -> str:
+        display_name = getattr(self.app.browser_controller, "event_display_name", None)
+        if callable(display_name):
+            return str(display_name(str(event_id)) or str(event_id))
+        event_key = str(event_id or "").strip()
+        event = None
+        try:
+            event = self.app.browser_controller.get_event(event_key)
+        except Exception:
+            event = None
+        label = str(getattr(event, "label", "") or "").strip() if event is not None else ""
+        return label or event_key
+
     def _destroy_mark_popup_if_open(self) -> None:
         popup_state = getattr(self.app, "_popup", None)
         popup = getattr(popup_state, "mark_popup", None)
@@ -60,6 +73,36 @@ class HostProjectLifecycleController:
                 popup.destroy()
         except Exception:
             return
+
+    @staticmethod
+    def _rgb_prompt_title() -> str:
+        return "Multi-channel Image Detected"
+
+    @staticmethod
+    def _rgb_prompt_message() -> str:
+        return (
+            "Multi-channel (RGB) images detected.\n\n"
+            "Do you want to average the channels to grayscale?\n\n"
+            "Yes: Average channels (Luma).\n"
+            "No: Use the first channel only."
+        )
+
+    def _select_stack_channel_mode(self) -> str:
+        def _prompt() -> str:
+            use_average = messagebox.askyesno(
+                self._rgb_prompt_title(),
+                self._rgb_prompt_message(),
+                parent=self._dialog_parent(),
+            )
+            return "average" if use_average else "first"
+
+        try:
+            return str(self._run_on_ui_thread(_prompt) or "average")
+        except Exception:
+            return "average"
+
+    def _create_stack_reader(self) -> StackReader:
+        return StackReader(channel_mode_resolver=self._select_stack_channel_mode)
 
     def _prompt_three_way_action(
         self,
@@ -233,12 +276,12 @@ class HostProjectLifecycleController:
             if stack_ref is not None and str(stack_ref.input_dir or ""):
                 input_dir = str(stack_ref.input_dir)
                 if Path(input_dir).exists():
-                    reader = StackReader()
+                    reader = self._create_stack_reader()
                     stack_info = reader.open_stack(input_dir)
                 else:
                     replacement = self._run_on_ui_thread(lambda: self._prompt_rebind_missing_stack_folder(input_dir))
                     if replacement:
-                        reader = StackReader()
+                        reader = self._create_stack_reader()
                         stack_info = reader.open_stack(replacement)
                     else:
                         warning = f"Stack folder is missing and was not rebound:\n\n{input_dir}"
@@ -343,8 +386,9 @@ class HostProjectLifecycleController:
         result = self.app.browser_controller.apply_analysis_sync(payload)
         if bool(result.get("ok")):
             event_id = result["normalized"]["event_id"]
-            self.app._log_info(f"Analysis sync accepted for event {event_id}.")
-            self.app._set_status(f"Analysis sync saved: {event_id}")
+            event_name = self._event_display_name(event_id)
+            self.app._log_info(f"Analysis sync accepted for event {event_name}.")
+            self.app._set_status(f"Analysis sync saved: {event_name}")
             return
         code = result.get("code", "PAYLOAD_INVALID")
         message = result.get("message", "Unknown sync validation error.")
@@ -355,8 +399,9 @@ class HostProjectLifecycleController:
         result = self.app.browser_controller.apply_direct_analysis_update(payload)
         event_id = str(result.get("event_id", payload.get("event_id", "")))
         if bool(result.get("ok")):
-            self.app._log_info(f"Analysis state updated for event {event_id}.")
-            self.app._set_status(f"Analysis state saved: {event_id}")
+            event_name = self._event_display_name(event_id)
+            self.app._log_info(f"Analysis state updated for event {event_name}.")
+            self.app._set_status(f"Analysis state saved: {event_name}")
             return result
         code = str(result.get("code", "PAYLOAD_INVALID"))
         message = str(result.get("message", "Unknown analysis update error."))
@@ -379,15 +424,16 @@ class HostProjectLifecycleController:
                 "code": "EVENT_NOT_FOUND",
                 "message": f"event_id not found in host event catalog: {event_id}",
             }
+        event_name = self._event_display_name(event_id)
         clear_local_metric_keys = [str(key) for key in list(dict(payload or {}).get("clear_local_metric_keys") or []) if str(key).strip()]
         if clear_local_metric_keys:
             changed = self.app.browser_controller.clear_event_metrics_settings_keys(event_id, clear_local_metric_keys)
             resolved = self.app.browser_controller.resolve_event_metrics_settings(event_id)
             local = self.app.browser_controller.load_event_metrics_settings(event_id)
             if changed:
-                self.app._set_status(f"Local metrics override cleared: {event_id}")
+                self.app._set_status(f"Local metrics override cleared: {event_name}")
                 self.app._log_info(
-                    f"Cleared local metrics override keys for event {event_id}: {', '.join(clear_local_metric_keys)}."
+                    f"Cleared local metrics override keys for event {event_name}: {', '.join(clear_local_metric_keys)}."
                 )
             return {
                 "ok": True,
@@ -403,8 +449,8 @@ class HostProjectLifecycleController:
             merge_missing_only=False,
         )
         if changed:
-            self.app._set_status(f"Metrics settings updated: {event_id}")
-            self.app._log_info(f"Updated local metrics settings for event {event_id}.")
+            self.app._set_status(f"Metrics settings updated: {event_name}")
+            self.app._log_info(f"Updated local metrics settings for event {event_name}.")
         return {"ok": True, "event_id": event_id, "changed": bool(changed)}
 
     def on_analysis_global_metrics_update(self, payload: dict) -> dict:
@@ -416,7 +462,7 @@ class HostProjectLifecycleController:
                 "message": "Missing metrics_settings in global metrics update payload.",
             }
         existing = dict(self.app.browser_controller.get_global_metrics_defaults() or {})
-        for key in ("scale_px_per_mm", "scale_points", "scale_axis_lock", "roi_points", "roi_mask"):
+        for key in ("scale_px_per_mm", "scale_unit", "scale_source", "scale_points", "scale_axis_lock", "scale_image_path", "roi_points", "roi_mask"):
             if key in metrics_settings:
                 existing[key] = metrics_settings[key]
         updated = self.app.browser_controller.set_global_metrics_defaults(existing)
@@ -599,7 +645,9 @@ class HostProjectLifecycleController:
         self.app._load_progress_bucket = -1
 
         self._task_runner().start(
-            lambda: (lambda reader: (reader, reader.open_stack(input_dir, progress_callback=self.on_load_progress)))(StackReader()),
+            lambda: (
+                lambda reader: (reader, reader.open_stack(input_dir, progress_callback=self.on_load_progress))
+            )(self._create_stack_reader()),
             on_success=lambda payload: self.on_stack_loaded(payload[0], payload[1]),
             on_error=lambda exc: (
                 self.app._set_status(f"Load failed: {exc}"),

@@ -20,6 +20,7 @@ class VisualizationStats:
     apply_stabilization: bool = False
     stabilization_reference_index: int = 0
     stabilization_offsets_px: np.ndarray | None = None
+    stabilization_fallback_frame_indices: list[int] | None = None
     baseline: np.ndarray | None = None
     p1: float | None = None
     p99: float | None = None
@@ -133,10 +134,10 @@ def _compute_stabilization_offsets(
     apply_smoothing: bool,
     should_cancel: Callable[[], bool] | None = None,
     progress_callback=None,
-) -> np.ndarray:
+) -> tuple[np.ndarray, list[int]]:
     offsets = np.zeros((max(0, int(frame_count)), 2), dtype=np.float32)
     if int(frame_count) <= 1:
-        return offsets
+        return offsets, []
     reference = _processed_source_frame(
         frame_source,
         0,
@@ -144,6 +145,7 @@ def _compute_stabilization_offsets(
         apply_smoothing=bool(apply_smoothing),
     )
     last_valid = np.zeros((2,), dtype=np.float32)
+    fallback_indices: list[int] = []
     total = max(1, int(frame_count) - 1)
     for idx in range(1, int(frame_count)):
         _raise_if_cancelled(should_cancel)
@@ -173,11 +175,12 @@ def _compute_stabilization_offsets(
             candidate = None
         if candidate is None:
             candidate = last_valid.copy()
+            fallback_indices.append(int(idx))
         else:
             last_valid = candidate
         offsets[idx] = candidate
         _emit_stats_progress(progress_callback, stage="stabilize", current=idx, total=total)
-    return offsets
+    return offsets, fallback_indices
 
 
 def _raise_if_cancelled(should_cancel: Callable[[], bool] | None) -> None:
@@ -204,7 +207,10 @@ def _emit_stats_progress(
 
 
 def _stats_sample_indices(frame_count: int) -> list[int]:
-    return list(range(0, max(0, int(frame_count)), 5))
+    count = max(0, int(frame_count))
+    if count <= 0:
+        return []
+    return list(range(0, count, 5)) or [0]
 
 
 def _prepare_stats_frame_cache(
@@ -283,8 +289,9 @@ def compute_visualization_stats(
     frame_shape = tuple(int(v) for v in first_frame.shape[:2])
     baseline_count = max(1, min(int(baseline_frames), frame_count))
     stabilization_offsets = None
+    stabilization_fallback_frame_indices: list[int] = []
     if bool(apply_stabilization):
-        stabilization_offsets = _compute_stabilization_offsets(
+        stabilization_offsets, stabilization_fallback_frame_indices = _compute_stabilization_offsets(
             frame_source,
             frame_count=frame_count,
             apply_horizontal_bar_denoise=bool(apply_horizontal_bar_denoise),
@@ -336,6 +343,7 @@ def compute_visualization_stats(
         apply_stabilization=bool(apply_stabilization),
         stabilization_reference_index=0,
         stabilization_offsets_px=None if stabilization_offsets is None else np.asarray(stabilization_offsets, dtype=np.float32),
+        stabilization_fallback_frame_indices=list(stabilization_fallback_frame_indices),
         baseline=baseline,
         p1=p1,
         p99=p99,
@@ -414,23 +422,29 @@ def build_visualization_stack(
             np.zeros((0, 0, 0), dtype=np.uint8),
         )
 
-    raw_frames = []
+    first_raw = _read_frame_float32(frame_source, 0)
+    frame_shape = tuple(int(v) for v in first_raw.shape[:2])
+    raw_frames = np.empty((frame_count, frame_shape[0], frame_shape[1]), dtype=np.float32)
+    raw_frames[0] = first_raw
     total_progress_steps = max(1, frame_count * 3)
-    for i in range(frame_count):
-        raw_frames.append(_read_frame_float32(frame_source, i))
+
+    for i in range(1, frame_count):
+        raw_frames[i] = _read_frame_float32(frame_source, i)
         if callable(progress_callback):
-            progress_callback(
-                {
-                    "stage": "read",
-                    "current": int(i + 1),
-                    "total": int(total_progress_steps),
-                }
-            )
+            progress_callback({"stage": "read", "current": int(i + 1), "total": int(total_progress_steps)})
 
     resolved_stats = stats
     if resolved_stats is None:
+        class _RawArrayFrameSource:
+            def __init__(self, frames: np.ndarray) -> None:
+                self._frames = frames
+                self.frame_count = int(frames.shape[0])
+
+            def get_raw_frame(self, idx: int) -> np.ndarray:
+                return self._frames[int(idx)]
+
         resolved_stats = compute_visualization_stats(
-            frame_source,
+            _RawArrayFrameSource(raw_frames),
             baseline_frames=baseline_frames,
             apply_horizontal_bar_denoise=apply_horizontal_bar_denoise,
             apply_smoothing=apply_smoothing,
@@ -438,35 +452,35 @@ def build_visualization_stack(
             apply_global_normalization=apply_global_normalization,
             apply_stabilization=apply_stabilization,
         )
-    offsets = getattr(resolved_stats, "stabilization_offsets_px", None)
-    stabilized_raw_frames: list[np.ndarray] = []
-    source_frames: list[np.ndarray] = []
-    for i, frame in enumerate(raw_frames):
-        stabilized = _stabilize_frame(
-            frame,
-            offsets[i] if bool(getattr(resolved_stats, "apply_stabilization", False)) and offsets is not None and i < len(offsets) else None,
-        )
-        stabilized_raw_frames.append(stabilized)
-        source_frames.append(
-            _processed_frame(
-                stabilized,
-                apply_horizontal_bar_denoise=bool(apply_horizontal_bar_denoise),
-                apply_smoothing=bool(apply_smoothing),
-            )
-        )
-        if callable(progress_callback):
-            progress_callback(
-                {
-                    "stage": "preprocess",
-                    "current": int(frame_count + i + 1),
-                    "total": int(total_progress_steps),
-                }
-            )
-    source_for_sub = np.asarray(source_frames, dtype=np.float32)
 
-    baseline = None
+    offsets = getattr(resolved_stats, "stabilization_offsets_px", None)
+    do_stabilize = bool(getattr(resolved_stats, "apply_stabilization", False)) and offsets is not None
+
+    if do_stabilize:
+        stabilized_raw_frames = np.empty_like(raw_frames)
+        for i in range(frame_count):
+            stabilized_raw_frames[i] = _stabilize_frame(raw_frames[i], offsets[i] if i < len(offsets) else None)
+        if callable(progress_callback):
+            progress_callback({"stage": "preprocess", "current": int(frame_count * 2), "total": int(total_progress_steps)})
+    else:
+        stabilized_raw_frames = raw_frames
+
+    # Vectorize denoising and smoothing over the whole stack at once — far faster than N per-frame calls.
+    source_for_sub: np.ndarray = stabilized_raw_frames
+    if bool(apply_horizontal_bar_denoise):
+        row_bias = np.median(source_for_sub, axis=2, keepdims=True).astype(np.float32)
+        global_bias = np.median(row_bias, axis=1, keepdims=True).astype(np.float32)
+        source_for_sub = (source_for_sub - (row_bias - global_bias)).astype(np.float32)
+    if bool(apply_smoothing):
+        # Single gaussian_filter call on (N, H, W) with sigma=(0, 0.5, 0.5) replaces N individual calls.
+        source_for_sub = gaussian_filter(
+            source_for_sub.astype(np.float32, copy=False), sigma=(0, 0.5, 0.5)
+        ).astype(np.float32)
+    if callable(progress_callback):
+        progress_callback({"stage": "preprocess", "current": int(frame_count * 2), "total": int(total_progress_steps)})
+
     if bool(apply_baseline_subtraction):
-        baseline_count = max(1, min(int(baseline_frames), int(source_for_sub.shape[0])))
+        baseline_count = max(1, min(int(baseline_frames), source_for_sub.shape[0]))
         if (
             resolved_stats is not None
             and bool(resolved_stats.apply_baseline_subtraction)
@@ -476,11 +490,11 @@ def build_visualization_stack(
             baseline = np.asarray(resolved_stats.baseline, dtype=np.float32)
         else:
             baseline = np.median(source_for_sub[:baseline_count], axis=0).astype(np.float32, copy=False)
-        frames_sub = source_for_sub - baseline
+        frames_sub = (source_for_sub - baseline).astype(np.float32)
     else:
-        frames_sub = source_for_sub.copy()
+        frames_sub = source_for_sub.astype(np.float32, copy=False)
 
-    frames_viz: list[np.ndarray] = []
+    frames_viz = np.empty((frame_count, frame_shape[0], frame_shape[1]), dtype=np.uint8)
     if bool(apply_global_normalization):
         subsample = frames_sub[::5] if frames_sub.shape[0] > 0 else frames_sub
         if resolved_stats is not None and bool(resolved_stats.apply_global_normalization):
@@ -492,32 +506,18 @@ def build_visualization_stack(
         denom = p99 - p1
         if denom <= 0:
             denom = 1e-8
-        for frame in frames_sub:
-            clipped = np.clip(frame, p1, p99)
-            norm = (clipped - p1) / denom
-            frames_viz.append((norm * 255).astype(np.uint8))
-            if callable(progress_callback):
-                progress_callback(
-                    {
-                        "stage": "visualize",
-                        "current": int((2 * frame_count) + len(frames_viz)),
-                        "total": int(total_progress_steps),
-                    }
-                )
+        frames_viz[:] = np.clip((np.clip(frames_sub, p1, p99) - p1) / denom * 255.0, 0.0, 255.0).astype(np.uint8)
     else:
-        for frame in frames_sub:
-            frames_viz.append(_frame_to_uint8(frame))
-            if callable(progress_callback):
-                progress_callback(
-                    {
-                        "stage": "visualize",
-                        "current": int((2 * frame_count) + len(frames_viz)),
-                        "total": int(total_progress_steps),
-                    }
-                )
+        # Per-frame local normalization (each frame scaled to its own min/max).
+        lo = frames_sub.min(axis=(1, 2), keepdims=True).astype(np.float32)
+        hi = frames_sub.max(axis=(1, 2), keepdims=True).astype(np.float32)
+        denom_arr = np.where(hi - lo > 0, hi - lo, np.float32(1e-8))
+        frames_viz[:] = np.clip((frames_sub - lo) / denom_arr * 255.0, 0.0, 255.0).astype(np.uint8)
+    if callable(progress_callback):
+        progress_callback({"stage": "visualize", "current": int(frame_count * 3), "total": int(total_progress_steps)})
 
     return (
-        np.asarray(stabilized_raw_frames, dtype=np.float32),
-        np.asarray(frames_sub, dtype=np.float32),
-        np.asarray(frames_viz, dtype=np.uint8),
+        stabilized_raw_frames.astype(np.float32, copy=False),
+        frames_sub,
+        frames_viz,
     )

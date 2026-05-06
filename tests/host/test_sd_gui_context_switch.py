@@ -301,6 +301,8 @@ def test_rename_selected_event_updates_label() -> None:
     assert calls["update"]["event_id"] == "event_0001"
     assert calls["update"]["label"] == "Renamed Event"
     assert calls["active"] == "event_0001"
+    assert calls["status"] == "Renamed Renamed Event."
+    assert calls["log"] == "Renamed event_0001 to 'Renamed Event'."
 
 
 def test_refresh_event_table_uses_visible_label_and_preserves_selection() -> None:

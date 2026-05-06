@@ -25,6 +25,27 @@ def test_prepared_frame_source_prewarm_populates_cache_without_changing_values()
     np.testing.assert_array_equal(prepared.get_visual_frame(2), expected)
 
 
+def test_prepared_frame_source_prewarm_stops_when_generation_is_stale():
+    frames = [np.full((8, 8), fill_value=i, dtype=np.uint8) for i in range(6)]
+    source = EagerFrameSource(
+        raw_frames=frames,
+        subtracted_frames=frames,
+        visual_frames=frames,
+        frame_names=[f"f{i}.tif" for i in range(6)],
+        source_paths=["/tmp/stack"] * 6,
+    )
+    prepared = PreparedFrameSource(source)
+    calls = {"count": 0}
+
+    def should_continue() -> bool:
+        calls["count"] += 1
+        return calls["count"] <= 2
+
+    prepared.prewarm([0, 1, 2, 3], generation=1, should_continue=should_continue)
+
+    assert set(prepared._frame_cache.keys()) == {0}
+
+
 def test_prepared_frame_source_stabilization_keeps_outputs_in_same_coordinate_space():
     base = np.zeros((24, 24), dtype=np.float32)
     base[8:13, 9:14] = 8.0

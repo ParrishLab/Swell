@@ -94,7 +94,7 @@ def test_global_metrics_update_sets_defaults_and_preserves_existing_local_overri
 def test_analysis_metrics_update_can_clear_local_roi_override() -> None:
     browser = BrowserController()
     browser.on_stack_loaded(_FakeReader(), _FakeStackInfo())
-    event = browser.create_event(start_idx=0, end_idx=1, frame_count=6)
+    event = browser.create_event(start_idx=0, end_idx=1, frame_count=6, label="Visible Event")
     browser.set_global_metrics_defaults({"roi_points": [[1.0, 1.0], [3.0, 1.0], [3.0, 3.0]]})
     browser.upsert_event_metrics_settings(
         event.event_id,
@@ -125,3 +125,51 @@ def test_analysis_metrics_update_can_clear_local_roi_override() -> None:
     assert result["local_metrics_settings"] is None
     assert browser.load_event_metrics_settings(event.event_id) is None
     assert browser.resolve_event_metrics_settings(event.event_id)["roi_points"] == [[1.0, 1.0], [3.0, 1.0], [3.0, 3.0]]
+    assert statuses[-1] == "Local metrics override cleared: Visible Event"
+    assert logs[-1] == "Cleared local metrics override keys for event Visible Event: roi_points, roi_mask."
+
+
+def test_analysis_metrics_update_log_uses_event_label() -> None:
+    browser = BrowserController()
+    browser.on_stack_loaded(_FakeReader(), _FakeStackInfo())
+    event = browser.create_event(start_idx=0, end_idx=1, frame_count=6, label="Visible Event")
+
+    logs: list[str] = []
+    statuses: list[str] = []
+    app = SimpleNamespace(
+        browser_controller=browser,
+        _set_status=lambda text: statuses.append(str(text)),
+        _log_info=lambda text: logs.append(str(text)),
+    )
+    controller = HostProjectLifecycleController(app)
+
+    result = controller.on_analysis_metrics_update(
+        {
+            "event_id": event.event_id,
+            "metrics_settings": {"frames_per_sec": 10.0},
+        }
+    )
+
+    assert result["ok"] is True
+    assert result["changed"] is True
+    assert statuses[-1] == "Metrics settings updated: Visible Event"
+    assert logs[-1] == "Updated local metrics settings for event Visible Event."
+
+
+def test_analysis_state_update_log_uses_event_label() -> None:
+    browser = BrowserController()
+    event = browser.create_event(start_idx=0, end_idx=2, frame_count=6, label="Visible Event")
+    logs: list[str] = []
+    statuses: list[str] = []
+    app = SimpleNamespace(
+        browser_controller=browser,
+        _set_status=lambda text: statuses.append(str(text)),
+        _log_info=lambda text: logs.append(str(text)),
+    )
+    controller = HostProjectLifecycleController(app)
+
+    result = controller.on_analysis_state_update({"event_id": event.event_id, "analysis": {"prompts": {}}})
+
+    assert result["ok"] is True
+    assert logs[-1] == "Analysis state updated for event Visible Event."
+    assert statuses[-1] == "Analysis state saved: Visible Event"

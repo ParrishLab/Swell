@@ -147,6 +147,11 @@ class AnalysisModelController:
         self.app.model_ready = False
         self.app.predictor = None
         self.app.inference_state = None
+        if hasattr(self.app, "inference_manager") and self.app.inference_manager is not None:
+            try:
+                self.app.inference_manager.on_model_unloaded()
+            except Exception:
+                pass
         if hasattr(self.app, "sam2_runtime") and self.app.sam2_runtime is not None:
             try:
                 self.app.sam2_runtime.shutdown()

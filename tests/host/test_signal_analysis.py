@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
 
 from sdapp.host.config import EventCandidate
 from sdapp.host.signal_analysis import compute_trace, event_to_dict
@@ -17,6 +18,13 @@ class DummyReader:
     def read_frame(self, frame_idx: int, use_cache: bool = True) -> np.ndarray:
         self.use_cache_calls.append(bool(use_cache))
         return self._frames[frame_idx]
+
+
+class FailingReader(DummyReader):
+    def read_frame(self, frame_idx: int, use_cache: bool = True) -> np.ndarray:
+        if int(frame_idx) == 1:
+            raise RuntimeError("frame read failed")
+        return super().read_frame(frame_idx, use_cache=use_cache)
 
 
 def test_compute_trace_stats_and_default_time_none() -> None:
@@ -67,6 +75,13 @@ def test_compute_trace_uses_cache_aware_reads_and_preserves_values() -> None:
     assert trace.mean[0] == float(np.mean(frames[0]))
     assert trace.median[10] == float(np.median(frames[10]))
     assert trace.std[-1] == float(np.std(frames[-1]))
+
+
+def test_compute_trace_propagates_batch_read_failures() -> None:
+    frames = [np.zeros((2, 2), dtype=np.uint8) for _ in range(3)]
+
+    with pytest.raises(RuntimeError, match="frame read failed"):
+        compute_trace(FailingReader(frames))
 
 
 def test_event_to_dict_matches_event_candidate_fields() -> None:

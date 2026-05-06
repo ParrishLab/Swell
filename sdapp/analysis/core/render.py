@@ -1,13 +1,17 @@
+from collections import OrderedDict
 import cv2
 import numpy as np
 import time
 from PIL import Image, ImageTk
+import zlib
 
 from sdapp.shared.image_overlay import apply_mask_overlay, frame_to_rgb_u8
 from sdapp.analysis.core.viewport import compute_fit_scale
 
 
 class RenderActions:
+    _DISPLAY_PHOTO_CACHE_MAX = 12
+
     def _compute_display_ratio(self, max_w, max_h, orig_w, orig_h):
         return compute_fit_scale(max_w, max_h, orig_w, orig_h)
 
@@ -39,6 +43,69 @@ class RenderActions:
             fillcolor=fillcolor,
         )
         return pil_canvas, transform
+
+    def _array_content_token(self, arr) -> tuple:
+        source = np.asarray(arr)
+        if source.size == 0:
+            return tuple(source.shape), str(source.dtype), 0
+        contiguous = np.ascontiguousarray(source)
+        return tuple(int(v) for v in contiguous.shape), str(contiguous.dtype), int(zlib.crc32(contiguous))
+
+    def _canvas_is_visible(self, canvas) -> bool:
+        checker = getattr(canvas, "winfo_ismapped", None)
+        if not callable(checker):
+            return True
+        try:
+            return bool(checker())
+        except Exception:
+            return True
+
+    def _display_photo_cache(self) -> OrderedDict:
+        cache = getattr(self, "_display_photo_cache_store", None)
+        if isinstance(cache, OrderedDict):
+            return cache
+        cache = OrderedDict()
+        self._display_photo_cache_store = cache
+        return cache
+
+    def _cache_photo(self, key: tuple, image: ImageTk.PhotoImage) -> None:
+        cache = self._display_photo_cache()
+        cache[key] = image
+        cache.move_to_end(key)
+        while len(cache) > int(self._DISPLAY_PHOTO_CACHE_MAX):
+            cache.popitem(last=False)
+
+    def _cached_canvas_photo(self, canvas, img_arr, *, resample, fill_value, token: tuple):
+        src = np.asarray(img_arr, dtype=np.uint8)
+        src_h, src_w = src.shape[:2]
+        transform = self._get_canvas_viewport_transform(canvas, src_w, src_h)
+        fill_key = fill_value if isinstance(fill_value, (int, float, str)) else tuple(int(v) for v in fill_value)
+        key = (
+            int(canvas.winfo_width()),
+            int(canvas.winfo_height()),
+            int(src_w),
+            int(src_h),
+            round(float(transform.scale), 8),
+            round(float(transform.offset_x), 4),
+            round(float(transform.offset_y), 4),
+            int(self._transform_resample(resample)),
+            fill_key,
+            tuple(token),
+        )
+        cache = self._display_photo_cache()
+        cached = cache.get(key)
+        if cached is not None:
+            cache.move_to_end(key)
+            return cached, transform
+        pil_img, rendered_transform = self._render_array_to_canvas_image(
+            canvas,
+            src,
+            resample=resample,
+            fill_value=fill_value,
+        )
+        photo = ImageTk.PhotoImage(pil_img)
+        self._cache_photo(key, photo)
+        return photo, rendered_transform
 
     def _draw_pending_frames_placeholder(self) -> None:
         total = int(self._get_frame_count()) if hasattr(self, "_get_frame_count") else 0
@@ -126,6 +193,8 @@ class RenderActions:
         if img_arr_gray is None:
             self._draw_pending_frames_placeholder()
             return
+        img_arr_gray = np.asarray(img_arr_gray, dtype=np.uint8)
+        visual_token = self._array_content_token(img_arr_gray)
         img_arr = frame_to_rgb_u8(img_arr_gray)
 
         final_mask = None
@@ -158,16 +227,19 @@ class RenderActions:
             else:
                 final_mask = (final_mask | plus) & ~minus
 
-        if np.any(final_mask):
+        final_mask_any = bool(np.any(final_mask))
+        final_mask_token = ("mask",) + self._array_content_token(final_mask) if final_mask_any else ("mask-empty", tuple(final_mask.shape))
+        if final_mask_any:
             img_arr = apply_mask_overlay(img_arr, final_mask)
 
-        img_pil_left, left_transform = self._render_array_to_canvas_image(
+        left_resample = Image.Resampling.NEAREST if self.is_dragging and self.tool_mode.get() in ["brush", "eraser"] else Image.Resampling.LANCZOS
+        self.tk_img_left, left_transform = self._cached_canvas_photo(
             self.canvas_left,
             img_arr,
-            resample=Image.Resampling.NEAREST if self.is_dragging and self.tool_mode.get() in ["brush", "eraser"] else Image.Resampling.LANCZOS,
+            resample=left_resample,
             fill_value=(241, 241, 241),
+            token=("left", int(idx), visual_token, final_mask_token, bool(self.is_dragging), str(self.tool_mode.get())),
         )
-        self.tk_img_left = ImageTk.PhotoImage(img_pil_left)
         self.canvas_left.delete("all")
         self.canvas_left.create_image(0, 0, image=self.tk_img_left, anchor="nw")
 
@@ -180,30 +252,30 @@ class RenderActions:
             raw_shape = tuple(int(v) for v in np.asarray(raw_frame).shape[:2])
         self._draw_overlay_elements(left_transform, raw_shape)
 
-        if update_preview:
-            if np.any(final_mask):
+        if update_preview and self._canvas_is_visible(self.canvas_preview):
+            if final_mask_any:
                 mask_uint8 = (final_mask * 255).astype(np.uint8)
-                preview_pil, _ = self._render_array_to_canvas_image(
+                self.tk_preview, _ = self._cached_canvas_photo(
                     self.canvas_preview,
                     mask_uint8,
                     resample=Image.Resampling.NEAREST,
                     fill_value=0,
+                    token=("preview", int(idx), final_mask_token),
                 )
-                self.tk_preview = ImageTk.PhotoImage(preview_pil)
                 self.canvas_preview.delete("all")
                 self.canvas_preview.create_image(0, 0, image=self.tk_preview, anchor="nw")
             else:
                 self.canvas_preview.delete("all")
 
-        if not self.is_dragging:
+        if not self.is_dragging and self._canvas_is_visible(self.canvas_right):
             img_arr_right = frame_to_rgb_u8(img_arr_gray)
-            img_pil_right, _ = self._render_array_to_canvas_image(
+            self.tk_img_right, _ = self._cached_canvas_photo(
                 self.canvas_right,
                 img_arr_right,
                 resample=Image.Resampling.LANCZOS,
                 fill_value=(241, 241, 241),
+                token=("right", int(idx), visual_token),
             )
-            self.tk_img_right = ImageTk.PhotoImage(img_pil_right)
             self.canvas_right.delete("all")
             self.canvas_right.create_image(0, 0, image=self.tk_img_right, anchor="nw")
             self._draw_analysis_overlay_on_right(idx)

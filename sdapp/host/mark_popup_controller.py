@@ -15,6 +15,14 @@ class MarkPopupController:
     def __init__(self, app) -> None:
         self.app = app
 
+    def _event_display_name(self, event_id: str | None) -> str:
+        display_name = getattr(getattr(self.app, "browser_controller", None), "event_display_name", None)
+        if callable(display_name):
+            return str(display_name(str(event_id or "")) or str(event_id or ""))
+        event = self.app._get_event_by_id(event_id) if event_id else None
+        label = str(getattr(event, "label", "") or "").strip() if event is not None else ""
+        return label or str(event_id or "")
+
     def open_new(self) -> None:
         self.open_popup(mode="new", event_id=None)
 
@@ -124,7 +132,7 @@ class MarkPopupController:
         popup = tk.Toplevel(self.app.root)
         popup.withdraw()
         self.app._popup.mark_popup = popup
-        popup.title("Mark SD Event" if mode == "new" else f"Edit SD Event ({event_id})")
+        popup.title("Mark SD Event" if mode == "new" else f"Edit SD Event ({self._event_display_name(event_id)})")
         popup.geometry("1200x850")
         popup.transient(self.app.root)
         apply_theme(popup)
@@ -393,8 +401,9 @@ class MarkPopupController:
             self.app._sync_event_projections()
             self.app.tree.selection_set(event.event_id)
             self.app._set_active_event_id(event.event_id)
-            self.app._set_status(f"Updated {event.event_id} boundaries.")
-            self.app._log_info(f"Updated {event.event_id}: [{old_start}, {old_end}] -> [{start}, {end}].")
+            event_name = self._event_display_name(event.event_id)
+            self.app._set_status(f"Updated {event_name} boundaries.")
+            self.app._log_info(f"Updated {event_name}: [{old_start}, {old_end}] -> [{start}, {end}].")
         else:
             new_flags = apply_analysis_scope_flags(
                 {},

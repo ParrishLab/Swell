@@ -123,6 +123,27 @@ def test_update_preview_reuses_normalized_frame_when_resized() -> None:
     assert all(pre_normalized for _shape, pre_normalized in render_calls)
 
 
+def test_normalized_frame_cache_preserves_lru_cache_policy() -> None:
+    frames = [np.full((4, 4), idx, dtype=np.float32) for idx in range(4)]
+    app = _build_app(frames)
+    app._normalized_frame_u8_cache = LRUCache(max_items=2, gc_min_keep=1)
+    controller = HostPreviewController(app)
+
+    out0 = controller.get_normalized_reader_frame(0)
+    out1 = controller.get_normalized_reader_frame(1)
+    out0_again = controller.get_normalized_reader_frame(0)
+    out2 = controller.get_normalized_reader_frame(2)
+
+    assert isinstance(app._normalized_frame_u8_cache, LRUCache)
+    assert np.array_equal(out0, out0_again)
+    assert len(app._normalized_frame_u8_cache) == 2
+    assert (1, "default") not in app._normalized_frame_u8_cache
+    assert (0, "default") in app._normalized_frame_u8_cache
+    assert (2, "default") in app._normalized_frame_u8_cache
+    assert app.reader.read_calls == [0, 1, 2]
+    assert out2.shape == out0.shape
+
+
 def test_popup_mini_reuses_main_preview_normalization_cache() -> None:
     frames = [np.arange(64, dtype=np.float32).reshape(8, 8) for _ in range(3)]
     app = _build_app(frames)
@@ -176,3 +197,29 @@ def test_schedule_main_preview_update_moves_live_cursor_before_render() -> None:
     assert trace_calls == [2]
     assert app._pending_main_frame_idx == 2
     assert after_calls and after_calls[0][0] == 16
+
+
+def test_overlay_click_log_uses_visible_event_label() -> None:
+    frames = [np.arange(64, dtype=np.float32).reshape(8, 8) for _ in range(5)]
+    app = _build_app(frames)
+    logs: list[str] = []
+    active: list[str] = []
+    selections: list[str] = []
+    app.events = [SimpleNamespace(event_id="event_0001", label="Visible Event", start_idx=1, end_idx=3)]
+    app.preview_overlay = _Canvas(width=100, height=20)
+    app.preview_scale = SimpleNamespace(set=lambda _value: None)
+    app.tree = SimpleNamespace(
+        exists=lambda _event_id: True,
+        selection_set=lambda event_id: selections.append(str(event_id)),
+        see=lambda _event_id: None,
+    )
+    app._set_active_event_id = lambda event_id: active.append(str(event_id))
+    app._log_info = lambda message: logs.append(str(message))
+    controller = HostPreviewController(app)
+    controller.update_preview = lambda _idx: None  # type: ignore[method-assign]
+
+    controller.on_main_overlay_click(SimpleNamespace(x=50))
+
+    assert active == ["event_0001"]
+    assert selections == ["event_0001"]
+    assert logs[-1] == "Overlay click: selected Visible Event and jumped to frame 1."

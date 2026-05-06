@@ -122,17 +122,21 @@ class PreparedFrameSource:
             self._cache_put(idx, prepared)
             return prepared
 
-    def prewarm(self, indices: list[int], generation: int | None = None) -> None:
-        del generation  # Reserved for callers that generation-guard background workers.
+    def prewarm(self, indices: list[int], generation: int | None = None, should_continue=None) -> None:
+        del generation  # Kept for compatibility with existing callers/tests.
         total = int(self.frame_count)
         if total <= 0:
             return
         for raw_idx in list(indices or []):
+            if callable(should_continue) and not bool(should_continue()):
+                return
             try:
                 idx = self._validate_index(int(raw_idx))
             except Exception:
                 continue
             self._prepared_frame(idx)
+            if callable(should_continue) and not bool(should_continue()):
+                return
 
     def get_raw_frame(self, idx: int) -> np.ndarray:
         return self._prepared_frame(idx)[0]

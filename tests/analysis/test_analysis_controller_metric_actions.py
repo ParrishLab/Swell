@@ -139,7 +139,9 @@ def test_reset_local_scale_override_clears_event_local_keys() -> None:
     with patch("sdapp.analysis.core.analysis_controller.messagebox.showinfo"):
         controller.reset_local_scale_override()
 
-    assert state["cleared_local"] == [("reset_local_scale", ["scale_px_per_mm", "scale_points", "scale_axis_lock", "scale_image_path"])]
+    assert state["cleared_local"] == [
+        ("reset_local_scale", ["scale_px_per_mm", "scale_unit", "scale_source", "scale_points", "scale_axis_lock", "scale_image_path"])
+    ]
     assert state["autosaves"] == ["reset_local_scale"]
 
 

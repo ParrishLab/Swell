@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import os
 from collections import OrderedDict
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from threading import Event, Lock, Thread
 from time import perf_counter
@@ -122,10 +124,19 @@ class PopupProcessingEngine:
         warmed: dict[int, np.ndarray] = {}
         lo = max(request.range_start, int(request.current_idx) - int(request.warm_radius))
         hi = min(request.range_end, int(request.current_idx) + int(request.warm_radius))
-        for idx in range(lo, hi + 1):
+        indices = list(range(lo, hi + 1))
+        max_workers = min(os.cpu_count() or 4, 8)
+
+        def _warm_worker(idx: int) -> None:
             if cancel_event is not None and cancel_event.is_set():
-                return None
+                return
             warmed[idx] = self.get_processed_frame(idx, baseline, p1, p99)
+
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            list(executor.map(_warm_worker, indices))
+
+        if cancel_event is not None and cancel_event.is_set():
+            return None
         t3 = perf_counter()
 
         return PopupProcessResult(
@@ -235,11 +246,29 @@ class PopupProcessingEngine:
         if not indices:
             raise RuntimeError("No baseline frames available.")
 
-        parts: list[np.ndarray] = []
-        for idx in indices:
+        max_workers = min(os.cpu_count() or 4, 8)
+        parts_dict: dict[int, np.ndarray] = {}
+        error: Exception | None = None
+
+        def _worker(idx: int) -> None:
+            nonlocal error
             if cancel_event is not None and cancel_event.is_set():
-                raise RuntimeError("Canceled")
-            parts.append(self._get_smoothed_frame(idx, cancel_event))
+                return
+            try:
+                frame = self._get_smoothed_frame(idx, cancel_event)
+                parts_dict[idx] = frame
+            except Exception as e:
+                error = e
+
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            executor.map(_worker, indices)
+
+        if error:
+            raise error
+        if cancel_event is not None and cancel_event.is_set():
+            raise RuntimeError("Canceled")
+
+        parts = [parts_dict[idx] for idx in indices]
         baseline = np.median(np.stack(parts, axis=0), axis=0).astype(np.float32, copy=False)
 
         with self._lock:
@@ -268,29 +297,46 @@ class PopupProcessingEngine:
         if (int(range_end) - int(range_start)) % stride != 0:
             sampled_indices.append(int(range_end))
 
-        sampled_diffs: list[np.ndarray] = []
-        for idx in sampled_indices:
+        sampled_diffs_dict: dict[int, np.ndarray] = {}
+        error: Exception | None = None
+        max_workers = min(os.cpu_count() or 4, 8)
+
+        def _worker(idx: int) -> None:
+            nonlocal error
             if cancel_event is not None and cancel_event.is_set():
-                raise RuntimeError("Canceled")
+                return
             skey = (int(idx), int(baseline_end), int(baseline_count))
             with self._lock:
                 cached = self._sampled_diff_cache.get(skey)
                 if cached is not None:
                     self._sampled_diff_cache.move_to_end(skey)
             if cached is not None:
-                sampled_diffs.append(cached)
-                continue
-            smoothed = self._get_smoothed_frame(idx, cancel_event)
-            diff = (smoothed - baseline).astype(np.float32, copy=False)
-            sampled_diffs.append(diff)
-            with self._lock:
-                self._cache_put_sampled_diff(skey, diff)
+                sampled_diffs_dict[idx] = cached
+                return
+            try:
+                smoothed = self._get_smoothed_frame(idx, cancel_event)
+                diff = (smoothed - baseline).astype(np.float32, copy=False)
+                sampled_diffs_dict[idx] = diff
+                with self._lock:
+                    self._cache_put_sampled_diff(skey, diff)
+            except Exception as e:
+                error = e
 
-        sampled_stack = np.stack(sampled_diffs, axis=0)
-        if sampled_stack.nbytes > 400_000_000:
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            executor.map(_worker, sampled_indices)
+
+        if error:
+            raise error
+        if cancel_event is not None and cancel_event.is_set():
+            raise RuntimeError("Canceled")
+
+        sampled_diffs = [sampled_diffs_dict[idx] for idx in sampled_indices]
+
+        sampled_bytes = sum(int(getattr(frame, "nbytes", 0) or 0) for frame in sampled_diffs)
+        if sampled_bytes > 400_000_000:
             rng = np.random.default_rng(0)
             sampled_values = []
-            for frame in sampled_stack:
+            for frame in sampled_diffs:
                 flat = frame.ravel()
                 take = min(flat.size, 100_000)
                 idxs = rng.choice(flat.size, size=take, replace=False)
@@ -299,6 +345,7 @@ class PopupProcessingEngine:
             p1 = float(np.percentile(pool, 1))
             p99 = float(np.percentile(pool, 99))
         else:
+            sampled_stack = np.stack(sampled_diffs, axis=0)
             p1 = float(np.percentile(sampled_stack, 1))
             p99 = float(np.percentile(sampled_stack, 99))
 

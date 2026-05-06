@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import numpy as np
@@ -107,6 +108,35 @@ def test_open_stack_tiff_multipage_creates_page_names(tmp_path: Path) -> None:
     assert np.array_equal(reader.read_frame(1), page1)
 
 
+def test_read_tiff_pages_concurrently_preserves_outputs_and_handle_locks(tmp_path: Path) -> None:
+    pages = [np.full((4, 5), idx + 1, dtype=np.uint16) for idx in range(4)]
+    for idx, page in enumerate(pages):
+        tifffile.imwrite(tmp_path / f"frame_{idx:04d}.tif", page)
+
+    reader = StackReader()
+    reader.open_stack(tmp_path)
+
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        results = list(pool.map(lambda idx: reader.read_frame(idx, use_cache=False), range(4)))
+
+    for idx, result in enumerate(results):
+        assert np.array_equal(result, pages[idx])
+    assert len(reader._tiff_handle_locks) == len(reader._tiff_handle_pool)
+
+
+def test_open_stack_ignores_macos_appledouble_tiff_sidecars(tmp_path: Path) -> None:
+    page = np.full((4, 5), 11, dtype=np.uint16)
+    tifffile.imwrite(tmp_path / "frame_001.tif", page)
+    (tmp_path / "._frame_001.tif").write_bytes(b"\x00\x05\x16\x07not-a-real-tiff")
+
+    reader = StackReader()
+    info = reader.open_stack(tmp_path)
+
+    assert info.frame_count == 1
+    assert reader.get_frame_name(0) == "frame_001.tif"
+    assert np.array_equal(reader.read_frame(0), page)
+
+
 def test_open_stack_rgb_tiff_uses_grayscale_frame_dimensions(tmp_path: Path) -> None:
     tiff_path = tmp_path / "rgb_stack.tif"
     page0 = np.zeros((2048, 3072, 3), dtype=np.uint8)
@@ -124,6 +154,46 @@ def test_open_stack_rgb_tiff_uses_grayscale_frame_dimensions(tmp_path: Path) -> 
     assert info.frame_width == 3072
     assert reader.read_frame(0).shape == (2048, 3072)
     assert reader.read_frame(1).shape == (2048, 3072)
+
+
+def test_open_stack_rgb_uses_channel_mode_resolver_once(tmp_path: Path) -> None:
+    tiff_path = tmp_path / "rgb_stack.tif"
+    page0 = np.zeros((3, 3, 3), dtype=np.uint8)
+    page1 = np.zeros((3, 3, 3), dtype=np.uint8)
+    page0[:, :, 0] = 11
+    page1[:, :, 0] = 22
+    tifffile.imwrite(tiff_path, page0)
+    tifffile.imwrite(tiff_path, page1, append=True)
+
+    calls: list[str] = []
+
+    def _resolver() -> str:
+        calls.append("called")
+        return "first"
+
+    reader = StackReader(channel_mode_resolver=_resolver)
+    reader.open_stack(tmp_path)
+
+    assert len(calls) == 1
+    assert reader.channel_mode == "first"
+    assert np.array_equal(reader.read_frame(0), page0[:, :, 0])
+    assert np.array_equal(reader.read_frame(1), page1[:, :, 0])
+
+
+def test_open_stack_rgb_defaults_to_average_when_resolver_invalid(tmp_path: Path) -> None:
+    tiff_path = tmp_path / "rgb_stack.tif"
+    page0 = np.zeros((2, 2, 3), dtype=np.uint8)
+    page0[:, :, 0] = 100
+    page0[:, :, 1] = 10
+    page0[:, :, 2] = 0
+    tifffile.imwrite(tiff_path, page0)
+
+    reader = StackReader(channel_mode_resolver=lambda: "invalid")
+    reader.open_stack(tmp_path)
+    out = reader.read_frame(0)
+
+    expected = np.array([[35, 35], [35, 35]], dtype=np.uint8)
+    assert np.array_equal(out, expected)
 
 
 def test_read_tiff_falls_back_to_pillow_when_tifffile_decode_fails(tmp_path: Path, monkeypatch) -> None:
