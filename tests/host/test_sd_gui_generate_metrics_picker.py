@@ -79,6 +79,7 @@ def test_pick_metrics_reference_image_validates_shape(monkeypatch, tmp_path: Pat
 
     assert result is None
     assert captured.get("initialdir") == str(input_dir.resolve())
+    assert "parent" not in captured
     assert warnings
 
 
@@ -117,6 +118,7 @@ def test_pick_metrics_reference_image_prefills_current_active_frame(monkeypatch,
     assert result is not None
     assert captured.get("initialdir") == str(input_dir.resolve())
     assert captured.get("initialfile") == "frame_0002.tif"
+    assert "parent" not in captured
 
 
 def test_pick_metrics_reference_image_reuses_last_scale_image_path(monkeypatch, tmp_path: Path) -> None:

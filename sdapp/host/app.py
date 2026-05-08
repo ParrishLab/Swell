@@ -15,6 +15,7 @@ from PIL import Image, ImageTk
 
 from sdapp.shared.ui.theme import CANVAS_BACKGROUND, SLIDER_OVERLAY_BACKGROUND, SPACING
 from sdapp.shared.config import AppConfig
+from .auto_detect_controller import AutoDetectController
 from .browser_controller import BrowserController
 from .config import APP_TITLE, DEFAULT_BASELINE_PRE_FRAMES, TraceResult
 from .controllers import (
@@ -71,6 +72,7 @@ class SDAnalyzerApp:
         self.checkpoint_runtime = CheckpointRuntimeService()
         self.model_setup_controller = HostModelSetupController(self)
         self.dc_trace_controller = HostDCTraceController(self)
+        self.auto_detect_controller = AutoDetectController(self)
         self.config = AppConfig.load()
         self.current_event_id: str | None = None
         self.current_frame_idx = 0
@@ -217,7 +219,7 @@ class SDAnalyzerApp:
 
         nav_row = ttk.Frame(viewer_shell, style="AppSurface.TFrame")
         nav_row.grid(row=3, column=0, sticky="ew")
-        for column in range(3):
+        for column in range(4):
             nav_row.columnconfigure(column, weight=1)
         ttk.Button(nav_row, text="Prev", command=lambda: self._step_preview(-1), **semantic_button_options("secondary")).grid(
             row=0,
@@ -230,9 +232,15 @@ class SDAnalyzerApp:
             sticky="ew",
             padx=(SPACING.gap, SPACING.gap),
         )
-        ttk.Button(nav_row, text="Next", command=lambda: self._step_preview(1), **semantic_button_options("secondary")).grid(
+        ttk.Button(nav_row, text="Auto-detect", command=self.auto_detect_controller.start, **semantic_button_options("secondary")).grid(
             row=0,
             column=2,
+            sticky="ew",
+            padx=(0, SPACING.gap),
+        )
+        ttk.Button(nav_row, text="Next", command=lambda: self._step_preview(1), **semantic_button_options("secondary")).grid(
+            row=0,
+            column=3,
             sticky="ew",
         )
 
@@ -817,10 +825,10 @@ class SDAnalyzerApp:
     def _pick_metrics_reference_image_u8(
         self,
         *,
-        parent,
+        parent=None,
         purpose: str,
         force_picker: bool = False,
-    ) -> np.ndarray | None:
+    ) -> tuple[np.ndarray, str] | None:
         selected = ""
         if not force_picker and str(purpose or "").lower() == "scale":
             last_scale_image_path = str(getattr(self, "_last_scale_image_path", "") or "").strip()
@@ -829,17 +837,19 @@ class SDAnalyzerApp:
         if not selected:
             initialdir = self._metrics_picker_initial_dir()
             initialfile = self._metrics_picker_initial_file()
-            selected = filedialog.askopenfilename(
-                parent=parent,
-                title=f"Select Image for {purpose}",
-                initialdir=initialdir,
-                initialfile=initialfile,
-                filetypes=[
+            picker_options = {
+                "title": f"Select Image for {purpose}",
+                "initialdir": initialdir,
+                "initialfile": initialfile,
+                "filetypes": [
                     ("Image files", "*.tif *.tiff *.png *.jpg *.jpeg *.bmp"),
                     ("TIFF files", "*.tif *.tiff"),
                     ("All files", "*.*"),
                 ],
-            )
+            }
+            if parent is not None:
+                picker_options["parent"] = parent
+            selected = filedialog.askopenfilename(**picker_options)
             if not selected:
                 return None
             if str(purpose or "").lower() == "scale":
@@ -868,7 +878,7 @@ class SDAnalyzerApp:
                         ),
                     )
                     return None
-        return img_u8
+        return img_u8, Path(selected).name
 
     @staticmethod
     def _snap_scale_points_axis(p1, p2):
@@ -1076,35 +1086,68 @@ class SDAnalyzerApp:
             self._log_warn("Rename Selected blocked: selected event not found.")
             self._show_warning("SD Event", "Selected event was not found.")
             return
-        new_label = simpledialog.askstring(
-            "Rename SD Event",
-            "Event name:",
-            initialvalue=str(event.label),
-            parent=self.root,
-        )
-        if new_label is None:
+
+        def _commit_rename(val: str) -> None:
+            val = str(val).strip()
+            if not val:
+                self._show_warning("Rename SD Event", "Event name cannot be empty.")
+                return
+            if val == str(event.label):
+                return
+            updated = self.browser_controller.update_event(
+                event.event_id,
+                start_idx=None,
+                end_idx=None,
+                label=val,
+                frame_count=int(self.stack_info.frame_count) if self.stack_info is not None else int(event.end_idx + 1),
+                flags=dict(event.flags),
+            )
+            self._sync_event_projections()
+            if self.tree.exists(updated.event_id):
+                self.tree.selection_set(updated.event_id)
+                self.tree.see(updated.event_id)
+            self._set_active_event_id(updated.event_id)
+            event_display_name = getattr(self.browser_controller, "event_display_name", None)
+            display_name = str(event_display_name(updated.event_id) if callable(event_display_name) else val).strip() or val
+            self._set_status(f"Renamed {display_name}.")
+            self._log_info(f"Renamed {updated.event_id} to '{display_name}'.")
+
+        try:
+            bbox = self.tree.bbox(selected[0], "id")
+        except AttributeError:
+            bbox = None
+        if not bbox:
+            new_label = simpledialog.askstring(
+                "Rename SD Event",
+                "Event name:",
+                initialvalue=str(event.label),
+                parent=self.root,
+            )
+            if new_label is not None:
+                _commit_rename(new_label)
             return
-        cleaned = str(new_label).strip()
-        if not cleaned:
-            self._show_warning("Rename SD Event", "Event name cannot be empty.")
-            return
-        updated = self.browser_controller.update_event(
-            event.event_id,
-            start_idx=None,
-            end_idx=None,
-            label=cleaned,
-            frame_count=int(self.stack_info.frame_count) if self.stack_info is not None else int(event.end_idx + 1),
-            flags=dict(event.flags),
-        )
-        self._sync_event_projections()
-        if self.tree.exists(updated.event_id):
-            self.tree.selection_set(updated.event_id)
-            self.tree.see(updated.event_id)
-        self._set_active_event_id(updated.event_id)
-        event_display_name = getattr(self.browser_controller, "event_display_name", None)
-        display_name = str(event_display_name(updated.event_id) if callable(event_display_name) else cleaned).strip() or cleaned
-        self._set_status(f"Renamed {display_name}.")
-        self._log_info(f"Renamed {updated.event_id} to '{display_name}'.")
+        x, y, w, h = bbox
+
+        entry = ttk.Entry(self.tree)
+        entry.insert(0, str(event.label))
+        entry.select_range(0, "end")
+        entry.place(x=x, y=y, width=w, height=h)
+        entry.focus_set()
+
+        def _save(_e=None):
+            if not entry.winfo_exists():
+                return
+            val = entry.get().strip()
+            entry.destroy()
+            _commit_rename(val)
+
+        def _cancel(_e=None):
+            if entry.winfo_exists():
+                entry.destroy()
+
+        entry.bind("<Return>", _save)
+        entry.bind("<Escape>", _cancel)
+        entry.bind("<FocusOut>", _save)
 
     def _open_mark_popup(self, mode: str, event_id: str | None) -> None:
         self.popup_controller.open_popup(mode=mode, event_id=event_id)

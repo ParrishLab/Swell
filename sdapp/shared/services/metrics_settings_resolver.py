@@ -15,9 +15,10 @@ class MetricsSettingsResolver:
         "scale_axis_lock",
         "scale_image_path",
         "roi_points",
+        "roi_polygons",
         "roi_mask",
     )
-    ROI_KEYS = ("roi_points", "roi_mask")
+    ROI_KEYS = ("roi_points", "roi_polygons", "roi_mask")
 
     @staticmethod
     def normalize(settings: dict | None) -> dict[str, object]:
@@ -73,6 +74,24 @@ class MetricsSettingsResolver:
                     continue
             if clean_points:
                 out["roi_points"] = clean_points
+        polygons = settings.get("roi_polygons")
+        if isinstance(polygons, list) and polygons:
+            clean_polygons: list[list[list[float]]] = []
+            for raw_polygon in polygons:
+                if not isinstance(raw_polygon, list):
+                    continue
+                clean_polygon: list[list[float]] = []
+                for pt in raw_polygon:
+                    if not isinstance(pt, (list, tuple)) or len(pt) < 2:
+                        continue
+                    try:
+                        clean_polygon.append([float(pt[0]), float(pt[1])])
+                    except Exception:
+                        continue
+                if len(clean_polygon) >= 3:
+                    clean_polygons.append(clean_polygon)
+            if clean_polygons:
+                out["roi_polygons"] = clean_polygons
         if settings.get("roi_mask") is not None:
             try:
                 arr = np.asarray(settings.get("roi_mask"), dtype=bool)
@@ -102,6 +121,8 @@ class MetricsSettingsResolver:
             return isinstance(value, str) and bool(value.strip())
         if key == "roi_points":
             return isinstance(value, list) and len(value) > 0
+        if key == "roi_polygons":
+            return isinstance(value, list) and any(isinstance(poly, list) and len(poly) >= 3 for poly in value)
         if key == "roi_mask":
             try:
                 arr = np.asarray(value, dtype=bool)
@@ -151,6 +172,12 @@ class MetricsSettingsResolver:
                 merged[key] = [[float(pt[0]), float(pt[1])] for pt in list(value)[:2]]
             elif key == "roi_points":
                 merged[key] = [[float(pt[0]), float(pt[1])] for pt in list(value)]
+            elif key == "roi_polygons":
+                merged[key] = [
+                    [[float(pt[0]), float(pt[1])] for pt in list(poly)]
+                    for poly in list(value)
+                    if isinstance(poly, list) and len(poly) >= 3
+                ]
             elif key in {"scale_unit", "scale_source"}:
                 merged[key] = str(value)
             else:
@@ -176,7 +203,10 @@ class MetricsSettingsResolver:
             except Exception:
                 pass
         points = settings.get("roi_points")
-        return isinstance(points, list) and len(points) >= 3
+        if isinstance(points, list) and len(points) >= 3:
+            return True
+        polygons = settings.get("roi_polygons")
+        return isinstance(polygons, list) and any(isinstance(poly, list) and len(poly) >= 3 for poly in polygons)
 
     @classmethod
     def resolve_for_event(

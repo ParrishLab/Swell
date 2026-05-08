@@ -186,11 +186,11 @@ class LayoutBuilder:
         segmented.grid(row=1, column=0, columnspan=3, sticky="ew")
         for seg_col in range(3):
             segmented.columnconfigure(seg_col, weight=1)
-        self.btn_tool_select = ttk.Button(segmented, text="Select", command=lambda: self._set_tool_mode("select"), style="AppSegmentedActive.TButton")
+        self.btn_tool_select = ttk.Button(segmented, text="Select (V)", command=lambda: self._set_tool_mode("select"), style="AppSegmentedActive.TButton")
         self.btn_tool_select.grid(row=0, column=0, sticky="ew")
-        self.btn_tool_point_pos = ttk.Button(segmented, text="Point (+)", command=lambda: self._set_tool_mode("point_pos"), style="AppSegmented.TButton")
+        self.btn_tool_point_pos = ttk.Button(segmented, text="Point (+) (+)", command=lambda: self._set_tool_mode("point_pos"), style="AppSegmented.TButton")
         self.btn_tool_point_pos.grid(row=0, column=1, sticky="ew", padx=(1, 1))
-        self.btn_tool_point_neg = ttk.Button(segmented, text="Point (-)", command=lambda: self._set_tool_mode("point_neg"), style="AppSegmented.TButton")
+        self.btn_tool_point_neg = ttk.Button(segmented, text="Point (-) (-)", command=lambda: self._set_tool_mode("point_neg"), style="AppSegmented.TButton")
         self.btn_tool_point_neg.grid(row=0, column=2, sticky="ew")
 
         sensitivity_row = ttk.Frame(frame, style="AppSubpanel.TFrame")
@@ -215,9 +215,9 @@ class LayoutBuilder:
         brush_row.grid(row=3, column=0, columnspan=3, sticky="ew", pady=(SPACING.inner, 0))
         brush_row.columnconfigure(0, weight=1)
         brush_row.columnconfigure(1, weight=1)
-        self.btn_tool_brush = ttk.Button(brush_row, text="Brush (+)", command=lambda: self._set_tool_mode("brush"), style="AppSegmented.TButton")
+        self.btn_tool_brush = ttk.Button(brush_row, text="Brush (+) (B)", command=lambda: self._set_tool_mode("brush"), style="AppSegmented.TButton")
         self.btn_tool_brush.grid(row=0, column=0, sticky="ew", padx=(0, 1))
-        self.btn_tool_eraser = ttk.Button(brush_row, text="Eraser (-)", command=lambda: self._set_tool_mode("eraser"), style="AppSegmented.TButton")
+        self.btn_tool_eraser = ttk.Button(brush_row, text="Brush (-) (E)", command=lambda: self._set_tool_mode("eraser"), style="AppSegmented.TButton")
         self.btn_tool_eraser.grid(row=0, column=1, sticky="ew")
 
         brush_size_row = ttk.Frame(frame, style="AppSubpanel.TFrame")

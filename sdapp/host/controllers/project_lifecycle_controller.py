@@ -123,7 +123,6 @@ class HostProjectLifecycleController:
         dialog.title(str(title))
         dialog.transient(parent)
         dialog.resizable(False, False)
-        dialog.geometry("420x220")
         apply_theme(dialog)
 
         shell = ttk.Frame(dialog, padding=SPACING.outer, style="AppShell.TFrame")
@@ -142,8 +141,10 @@ class HostProjectLifecycleController:
         dialog.protocol("WM_DELETE_WINDOW", lambda: _finish(None))
 
         center = getattr(self.app, "_center_window_on_screen", None)
+        dialog.update_idletasks()
+        height = max(1, int(dialog.winfo_reqheight()))
         if callable(center):
-            center(dialog, width=420, height=220)
+            center(dialog, width=340, height=height)
         dialog.deiconify()
         dialog.grab_set()
         dialog.wait_window()
@@ -462,7 +463,17 @@ class HostProjectLifecycleController:
                 "message": "Missing metrics_settings in global metrics update payload.",
             }
         existing = dict(self.app.browser_controller.get_global_metrics_defaults() or {})
-        for key in ("scale_px_per_mm", "scale_unit", "scale_source", "scale_points", "scale_axis_lock", "scale_image_path", "roi_points", "roi_mask"):
+        for key in (
+            "scale_px_per_mm",
+            "scale_unit",
+            "scale_source",
+            "scale_points",
+            "scale_axis_lock",
+            "scale_image_path",
+            "roi_points",
+            "roi_polygons",
+            "roi_mask",
+        ):
             if key in metrics_settings:
                 existing[key] = metrics_settings[key]
         updated = self.app.browser_controller.set_global_metrics_defaults(existing)

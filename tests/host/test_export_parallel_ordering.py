@@ -27,6 +27,9 @@ class FakeReader:
     def read_frame(self, frame_idx: int, use_cache: bool = True) -> np.ndarray:  # noqa: ARG002
         return self._frames[frame_idx]
 
+    def get_frame_count(self) -> int:
+        return len(self._frames)
+
     def get_frame_ref(self, frame_idx: int) -> FrameRef:
         return self._refs[frame_idx]
 

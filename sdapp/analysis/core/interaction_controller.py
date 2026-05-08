@@ -297,6 +297,18 @@ class InteractionController:
 
         idx = self.get_current_frame_idx()
         mode = self.tool_mode.get()
+        
+        # Modifier inversion (Shift: 1, Alt/Option: 8 or 16)
+        has_modifier = bool(getattr(event, "state", 0) & 0x0019)
+        if has_modifier:
+            if mode == "point_pos":
+                mode = "point_neg"
+            elif mode == "point_neg":
+                mode = "point_pos"
+            elif mode == "brush":
+                mode = "eraser"
+            elif mode == "eraser":
+                mode = "brush"
 
         orig_h, orig_w = self.get_frame_shape_for_idx(idx)
         ratio, offset_x, offset_y = self.get_display_transform(self.canvas_left, orig_w, orig_h)

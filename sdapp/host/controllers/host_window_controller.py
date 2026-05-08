@@ -10,7 +10,7 @@ from tkinter import filedialog, messagebox
 import numpy as np
 
 from sdapp.analysis.core.metrics import compute_scale
-from sdapp.analysis.ui.roi_dialog import open_roi_dialog
+from sdapp.analysis.ui.roi_dialog import _call_preserving_geometry, open_roi_dialog
 from sdapp.analysis.ui.scale_dialog import open_scale_dialog
 from sdapp.shared.ui.theme import SPACING, apply_theme
 from sdapp.host.exporter import analysis_image_cache_key, export_analysis
@@ -69,7 +69,9 @@ class HostWindowController:
             restored += 1
         return int(restored)
 
-    def _global_metrics_defaults_state(self) -> tuple[float, float | None, list[list[float]], bool, list[list[float]], np.ndarray | None]:
+    def _global_metrics_defaults_state(
+        self,
+    ) -> tuple[float, float | None, list[list[float]], bool, list[list[float]], list, np.ndarray | None]:
         defaults = dict(self.app.browser_controller.get_global_metrics_defaults() or {})
         fps_initial = defaults.get("frames_per_sec", 1.0)
         try:
@@ -89,6 +91,7 @@ class HostWindowController:
         scale_points = list(defaults.get("scale_points", [])) if isinstance(defaults.get("scale_points"), list) else []
         scale_axis_lock = bool(defaults.get("scale_axis_lock", True))
         roi_points = list(defaults.get("roi_points", [])) if isinstance(defaults.get("roi_points"), list) else []
+        roi_polygons = list(defaults.get("roi_polygons", [])) if isinstance(defaults.get("roi_polygons"), list) else []
         roi_mask = defaults.get("roi_mask")
         if roi_mask is not None:
             try:
@@ -97,7 +100,7 @@ class HostWindowController:
                     roi_mask = None
             except Exception:
                 roi_mask = None
-        return float(fps_initial), scale_value, scale_points, scale_axis_lock, roi_points, roi_mask
+        return float(fps_initial), scale_value, scale_points, scale_axis_lock, roi_points, roi_polygons, roi_mask
 
     def refresh_open_metrics_popup(self) -> None:
         dialog = getattr(self.app, "_open_metrics_dialog", None)
@@ -857,7 +860,7 @@ class HostWindowController:
         except Exception:
             pass
 
-        fps_initial, scale_value, scale_points, scale_axis_lock, roi_points, roi_mask = self._global_metrics_defaults_state()
+        fps_initial, scale_value, scale_points, scale_axis_lock, roi_points, roi_polygons, roi_mask = self._global_metrics_defaults_state()
 
         dialog = tk.Toplevel(self.app.root)
         dialog.withdraw()
@@ -890,16 +893,17 @@ class HostWindowController:
                 scale_status_var.set("Scale: Not set")
             else:
                 scale_status_var.set(f"Scale: {float(scale_value):.6g} px/mm")
+            region_count = len(roi_polygons) if isinstance(roi_polygons, list) and roi_polygons else (1 if roi_points else 0)
             if roi_mask is not None:
-                roi_status_var.set(f"ROI: {len(roi_points)} points ({int(np.count_nonzero(roi_mask))} px)")
+                roi_status_var.set(f"ROI: {region_count} region(s), {int(np.count_nonzero(roi_mask))} px")
             elif roi_points:
                 roi_status_var.set(f"ROI: {len(roi_points)} points")
             else:
                 roi_status_var.set("ROI: Not set")
 
         def _refresh_from_host() -> None:
-            nonlocal scale_value, scale_points, scale_axis_lock, roi_points, roi_mask
-            _fps_value, scale_value, scale_points, scale_axis_lock, roi_points, roi_mask = self._global_metrics_defaults_state()
+            nonlocal scale_value, scale_points, scale_axis_lock, roi_points, roi_polygons, roi_mask
+            _fps_value, scale_value, scale_points, scale_axis_lock, roi_points, roi_polygons, roi_mask = self._global_metrics_defaults_state()
             _refresh_labels()
 
         self.app._refresh_open_metrics_dialog = _refresh_from_host
@@ -909,13 +913,30 @@ class HostWindowController:
 
         def _set_scale() -> None:
             nonlocal scale_value, scale_points, scale_axis_lock
-            img_u8 = self.app._pick_metrics_reference_image_u8(parent=dialog, purpose="Scale")
-            if img_u8 is None:
+            img_result = _call_preserving_geometry(
+                dialog,
+                lambda: self.app._pick_metrics_reference_image_u8(parent=None, purpose="Scale"),
+            )
+            if img_result is None:
                 return
+            img_u8, img_name = img_result
 
             def _pick_scale_image_for_dialog():
-                return self.app._pick_metrics_reference_image_u8(parent=dialog, purpose="Scale", force_picker=True)
+                res = self.app._pick_metrics_reference_image_u8(parent=dialog, purpose="Scale", force_picker=True)
+                return res[0] if res else None
 
+            initial_length_mm = None
+            if scale_points and len(scale_points) >= 2 and scale_value > 0:
+                p1, p2 = scale_points[0], scale_points[1]
+                dist_px = np.hypot(float(p1[0]) - float(p2[0]), float(p1[1]) - float(p2[1]))
+                initial_length_mm = float(dist_px) / float(scale_value)
+
+            initial_manual_px_per_mm = None
+            # In host, we don't have a dedicated manual_px_per_mm getter/setter 
+            # in the same way, but we can pass it if we add it to host state.
+            # For now, we'll assume it's only in Analysis for simplicity unless
+            # we want to add it to host_models.py.
+            
             result = open_scale_dialog(
                 root=dialog,
                 img_u8=img_u8,
@@ -925,6 +946,10 @@ class HostWindowController:
                 initial_scale_points=scale_points,
                 initial_axis_lock=scale_axis_lock,
                 pick_image_callback=_pick_scale_image_for_dialog,
+                initial_length_mm=initial_length_mm,
+                context="host",
+                initial_manual_px_per_mm=None, # Host doesn't persist manual yet
+                image_label=img_name,
             )
             if not isinstance(result, dict):
                 return
@@ -943,23 +968,40 @@ class HostWindowController:
             _refresh_labels()
 
         def _set_roi() -> None:
-            nonlocal roi_points, roi_mask
-            img_u8 = self.app._pick_metrics_reference_image_u8(parent=dialog, purpose="ROI")
-            if img_u8 is None:
+            nonlocal roi_points, roi_polygons, roi_mask
+            img_result = _call_preserving_geometry(
+                dialog,
+                lambda: self.app._pick_metrics_reference_image_u8(parent=None, purpose="ROI"),
+            )
+            if img_result is None:
                 return
+            img_u8, img_name = img_result
 
-            def _pick_roi_image_for_dialog():
-                return self.app._pick_metrics_reference_image_u8(parent=dialog, purpose="ROI", force_picker=True)
+            def _pick_roi_image_for_dialog(parent=None):
+                picker_parent = parent or dialog
+                res = _call_preserving_geometry(
+                    picker_parent,
+                    lambda: self.app._pick_metrics_reference_image_u8(
+                        parent=picker_parent,
+                        purpose="ROI",
+                        force_picker=True,
+                    ),
+                )
+                return res[0] if res else None
 
             result = open_roi_dialog(
                 root=dialog,
                 img_u8=img_u8,
                 initial_roi_points=list(roi_points),
+                initial_roi_polygons=roi_polygons,
                 pick_image_callback=_pick_roi_image_for_dialog,
+                context="host",
+                image_label=img_name,
             )
             if not isinstance(result, dict):
                 return
             roi_points = list(result.get("roi_points", []))
+            roi_polygons = list(result.get("roi_polygons", [])) if isinstance(result.get("roi_polygons"), list) else []
             raw_mask = result.get("roi_mask")
             if raw_mask is None:
                 roi_mask = None
@@ -1004,6 +1046,12 @@ class HostWindowController:
                 payload["scale_axis_lock"] = bool(scale_axis_lock)
             if roi_points:
                 payload["roi_points"] = [[float(pt[0]), float(pt[1])] for pt in roi_points]
+            if roi_polygons:
+                payload["roi_polygons"] = [
+                    [[float(pt[0]), float(pt[1])] for pt in list(poly)]
+                    for poly in roi_polygons
+                    if isinstance(poly, list) and len(poly) >= 3
+                ]
             if roi_mask is not None:
                 payload["roi_mask"] = np.asarray(roi_mask, dtype=bool).copy()
 

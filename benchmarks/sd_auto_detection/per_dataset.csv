@@ -1,0 +1,14 @@
+dataset,sdproj_path,frame_count,frame_shape,roi_pixels,cell_count,raw_candidate_count_research,raw_candidate_count_vendored,accepted_count_research,accepted_count_vendored,candidates_match,accepted_match,raw_trace_max_abs_diff,detrended_max_abs_diff,lag1_max_abs_diff
+2.10.2026.2_02.10.2026.2,/Users/claydunford/Development/Recovery Metric/data/whole_slice_rois/2.10.2026.2_02.10.2026.2.sdproj,3049,"(1104, 1608)",55781,759,8,8,3,3,True,True,0.0,0.0,0.0
+2.20.2026.1_2202026 glc 2.1 15mM,/Users/claydunford/Development/Recovery Metric/data/whole_slice_rois/2.20.2026.1_2202026 glc 2.1 15mM.sdproj,2398,"(2048, 3072)",2279950,1309,6,6,2,2,True,True,0.0,0.0,0.0
+2.20.2026.4_2202026 glc 2.4 15mM,/Users/claydunford/Development/Recovery Metric/data/whole_slice_rois/2.20.2026.4_2202026 glc 2.4 15mM.sdproj,2397,"(2048, 3072)",2658414,1293,6,6,5,5,True,True,0.0,0.0,0.0
+3.25.2026.2_3.25.26.02,/Users/claydunford/Development/Recovery Metric/data/whole_slice_rois/3.25.2026.2_3.25.26.02.sdproj,1152,"(1104, 1608)",229037,675,8,8,0,0,True,True,0.0,0.0,
+3.3.2026.2_03032026 glc 15mM 2.2,/Users/claydunford/Development/Recovery Metric/data/whole_slice_rois/3.3.2026.2_03032026 glc 15mM 2.2.sdproj,2397,"(2048, 3072)",2996538,1344,7,7,3,3,True,True,0.0,0.0,0.0
+3.3.2026.4_332026 glc 15mM 2.4,/Users/claydunford/Development/Recovery Metric/data/whole_slice_rois/3.3.2026.4_332026 glc 15mM 2.4.sdproj,2397,"(2048, 3072)",3011248,1283,10,10,2,2,True,True,0.0,0.0,0.0
+4.2.2026.1_422026 Spatial Transcriptomics 1.1,/Users/claydunford/Development/Recovery Metric/data/whole_slice_rois/4.2.2026.1_422026 Spatial Transcriptomics 1.1.sdproj,9474,"(2048, 3072)",1247489,701,22,22,13,13,True,True,0.0,0.0,0.0
+4.6.2026.1_4.6.2026.1,/Users/claydunford/Development/Recovery Metric/data/whole_slice_rois/4.6.2026.1_4.6.2026.1.sdproj,3528,"(1104, 1608)",113142,651,12,12,7,7,True,True,0.0,0.0,0.0
+4.6.2026.2_4.6.2026.2.5sdproj,/Users/claydunford/Development/Recovery Metric/data/whole_slice_rois/4.6.2026.2_4.6.2026.2.5sdproj.sdproj,1322,"(1104, 1608)",85543,733,7,7,2,2,True,True,0.0,0.0,0.0
+4.6.2026.2_4.6.2026.2,/Users/claydunford/Development/Recovery Metric/data/whole_slice_rois/4.6.2026.2_4.6.2026.2.sdproj,366,"(1104, 1608)",90152,745,2,2,1,1,True,True,0.0,0.0,0.0
+4.6.2026.3_4.6.2026.3,/Users/claydunford/Development/Recovery Metric/data/whole_slice_rois/4.6.2026.3_4.6.2026.3.sdproj,2867,"(1104, 1608)",240748,1042,8,8,5,5,True,True,0.0,0.0,0.0
+4.6.2026.4_4.6.2026.4,/Users/claydunford/Development/Recovery Metric/data/whole_slice_rois/4.6.2026.4_4.6.2026.4.sdproj,2867,"(1104, 1608)",119460,707,9,9,7,7,True,True,0.0,0.0,0.0
+4.8.2026.1_4.8.2026.1,/Users/claydunford/Development/Recovery Metric/data/whole_slice_rois/4.8.2026.1_4.8.2026.1.sdproj,3347,"(1104, 1608)",286756,939,11,11,3,3,True,True,0.0,0.0,0.0

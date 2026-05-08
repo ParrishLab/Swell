@@ -150,10 +150,22 @@ def apply_theme(root, *, themename: str = "darkly"):
         font=("TkDefaultFont", 8),
     )
     style.configure(
+        "AppMicro.TLabel",
+        background=palette["app_bg"],
+        foreground=palette["muted"],
+        font=("TkDefaultFont", 7),
+    )
+    style.configure(
         "AppSurfaceMeta.TLabel",
         background=palette["surface_bg"],
         foreground=palette["muted"],
         font=("TkDefaultFont", 8),
+    )
+    style.configure(
+        "AppSurfaceMicro.TLabel",
+        background=palette["surface_bg"],
+        foreground=palette["muted"],
+        font=("TkDefaultFont", 7),
     )
     style.configure(
         "AppStripMeta.TLabel",

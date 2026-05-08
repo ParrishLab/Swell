@@ -171,6 +171,23 @@ class AnalysisWindowController:
                         continue
             if clean_points:
                 metrics["roi_points"] = clean_points
+        roi_polygons = getattr(self.app, "roi_polygons", [])
+        if bool(getattr(self.app, "_roi_is_local_override", False)) and isinstance(roi_polygons, list) and roi_polygons:
+            clean_polygons: list[list[list[float]]] = []
+            for raw_polygon in roi_polygons:
+                if not isinstance(raw_polygon, list):
+                    continue
+                clean_polygon: list[list[float]] = []
+                for pt in raw_polygon:
+                    if isinstance(pt, (list, tuple)) and len(pt) >= 2:
+                        try:
+                            clean_polygon.append([float(pt[0]), float(pt[1])])
+                        except (TypeError, ValueError):
+                            continue
+                if len(clean_polygon) >= 3:
+                    clean_polygons.append(clean_polygon)
+            if clean_polygons:
+                metrics["roi_polygons"] = clean_polygons
         if bool(getattr(self.app, "_roi_is_local_override", False)) and self.app.roi_mask is not None:
             try:
                 roi_mask = np.asarray(self.app.roi_mask, dtype=bool)
@@ -250,6 +267,23 @@ class AnalysisWindowController:
                 self.app.roi_points = cleaned_points
             elif not self.app._roi_is_local_override:
                 self.app.roi_points = []
+            if "roi_polygons" in normalized and isinstance(normalized.get("roi_polygons"), list):
+                cleaned_polygons: list[list[list[float]]] = []
+                for raw_polygon in list(normalized.get("roi_polygons", [])):
+                    if not isinstance(raw_polygon, list):
+                        continue
+                    clean_polygon: list[list[float]] = []
+                    for pt in raw_polygon:
+                        if isinstance(pt, (list, tuple)) and len(pt) >= 2:
+                            try:
+                                clean_polygon.append([float(pt[0]), float(pt[1])])
+                            except (TypeError, ValueError):
+                                continue
+                    if len(clean_polygon) >= 3:
+                        cleaned_polygons.append(clean_polygon)
+                self.app.roi_polygons = cleaned_polygons
+            elif not self.app._roi_is_local_override:
+                self.app.roi_polygons = []
             if "roi_mask" in normalized and normalized.get("roi_mask") is not None:
                 try:
                     roi_mask = np.asarray(normalized.get("roi_mask"), dtype=bool)

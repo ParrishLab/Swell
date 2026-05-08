@@ -64,6 +64,7 @@ class AnalysisWorkspaceControllerTests(unittest.TestCase):
                 scale_axis_lock=True,
                 scale_image_path="",
                 roi_points=[],
+                roi_polygons=[],
                 roi_mask=None,
                 created_at="2026-01-01T00:00:00Z",
             )
@@ -137,6 +138,7 @@ class AnalysisWorkspaceControllerTests(unittest.TestCase):
                 scale_axis_lock=True,
                 scale_image_path="",
                 roi_points=[],
+                roi_polygons=[],
                 roi_mask=None,
                 created_at="2026-01-01T00:00:00Z",
             )
@@ -162,6 +164,7 @@ class AnalysisWorkspaceControllerTests(unittest.TestCase):
                 scale_axis_lock=True,
                 scale_image_path="",
                 roi_points=[],
+                roi_polygons=[],
                 roi_mask=None,
                 created_at="2026-01-01T00:00:00Z",
             )

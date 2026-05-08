@@ -15,6 +15,7 @@ def _make_controller():
         "scale_axis_lock": True,
         "scale_image_path": "",
         "roi_points": [],
+        "roi_polygons": [],
         "roi_mask": None,
         "scale_local": False,
         "roi_local": False,
@@ -52,6 +53,8 @@ def _make_controller():
             set_roi_mask=lambda v: state.__setitem__("roi_mask", v),
             get_roi_points=lambda: list(state["roi_points"]),
             set_roi_points=lambda v: state.__setitem__("roi_points", list(v)),
+            get_roi_polygons=lambda: list(state["roi_polygons"]),
+            set_roi_polygons=lambda v: state.__setitem__("roi_polygons", list(v)),
             update_display=lambda: state.__setitem__("updated", state["updated"] + 1),
             log_info=lambda *_args: None,
             log_success=lambda *_args: None,
@@ -133,6 +136,28 @@ def test_global_roi_selection_updates_visible_state_when_no_local_override() -> 
     assert state["autosaves"] == ["global_roi"]
 
 
+def test_global_and_local_roi_selection_updates_both_scopes() -> None:
+    controller, state = _make_controller()
+    roi_mask = np.ones((4, 4), dtype=bool)
+    polygons = [[[1.0, 1.0], [3.0, 1.0], [3.0, 3.0]]]
+    controller._capture_roi_selection = lambda: {
+        "target_scope": "global_and_local",
+        "roi_points": polygons[0],
+        "roi_polygons": polygons,
+        "roi_mask": roi_mask,
+    }
+
+    with patch("sdapp.analysis.core.analysis_controller.messagebox.showinfo"):
+        controller.start_roi_selection()
+
+    assert state["roi_local"] is True
+    assert state["roi_points"] == polygons[0]
+    assert state["roi_polygons"] == polygons
+    assert state["global_updates"][0][0] == "global_roi"
+    assert state["global_updates"][0][1]["roi_polygons"] == polygons
+    assert state["autosaves"] == ["global_and_local_roi"]
+
+
 def test_reset_local_scale_override_clears_event_local_keys() -> None:
     controller, state = _make_controller()
     state["scale_local"] = True
@@ -151,5 +176,5 @@ def test_reset_local_roi_override_clears_event_local_keys() -> None:
     with patch("sdapp.analysis.core.analysis_controller.messagebox.showinfo"):
         controller.reset_local_roi_override()
 
-    assert state["cleared_local"] == [("reset_local_roi", ["roi_points", "roi_mask"])]
+    assert state["cleared_local"] == [("reset_local_roi", ["roi_points", "roi_polygons", "roi_mask"])]
     assert state["autosaves"] == ["reset_local_roi"]

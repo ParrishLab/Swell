@@ -56,6 +56,23 @@ class FakeReader:
         return self._refs[frame_idx]
 
 
+def test_resolve_roi_mask_falls_back_to_roi_polygons() -> None:
+    mask = exporter._resolve_roi_mask(
+        {
+            "roi_polygons": [
+                [[1, 1], [3, 1], [3, 3], [1, 3]],
+                [[6, 6], [8, 6], [8, 8], [6, 8]],
+            ],
+        },
+        (10, 10),
+    )
+
+    assert mask is not None
+    assert mask[2, 2]
+    assert mask[7, 7]
+    assert not mask[0, 0]
+
+
 def _load_manifest_rows(csv_path: Path) -> list[dict]:
     with csv_path.open("r", newline="", encoding="utf-8") as f:
         return list(csv.DictReader(f))

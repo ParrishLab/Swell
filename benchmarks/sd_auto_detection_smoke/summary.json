@@ -1,0 +1,37 @@
+[
+  {
+    "dataset": "2.10.2026.2_02.10.2026.2",
+    "sdproj_path": "/Users/claydunford/Development/Recovery Metric/data/whole_slice_rois/2.10.2026.2_02.10.2026.2.sdproj",
+    "frame_count": 3049,
+    "frame_shape": [
+      1104,
+      1608
+    ],
+    "roi_pixels": 55781,
+    "cell_count": 759,
+    "raw_candidate_count_research": 8,
+    "raw_candidate_count_vendored": 8,
+    "accepted_count_research": 3,
+    "accepted_count_vendored": 3,
+    "candidates_match": true,
+    "accepted_match": true,
+    "raw_trace_max_abs_diff": 0.0,
+    "detrended_max_abs_diff": 0.0,
+    "lag1_max_abs_diff": 0.0,
+    "timings": {
+      "research_coherence_gate": 0.289889,
+      "research_detrend": 2.581463,
+      "research_find_candidates": 0.108442,
+      "research_grid": 0.01632,
+      "research_stack_open": 0.920786,
+      "research_trace_extract": 19.044233,
+      "resolve_inputs": 1.583358,
+      "vendored_coherence_gate": 0.081875,
+      "vendored_detrend": 2.511633,
+      "vendored_find_candidates": 0.096147,
+      "vendored_grid": 0.009728,
+      "vendored_stack_open": 0.263848,
+      "vendored_trace_extract": 18.993862
+    }
+  }
+]

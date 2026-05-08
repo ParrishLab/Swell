@@ -1,0 +1,2 @@
+dataset,sdproj_path,frame_count,frame_shape,roi_pixels,cell_count,raw_candidate_count_research,raw_candidate_count_vendored,accepted_count_research,accepted_count_vendored,candidates_match,accepted_match,raw_trace_max_abs_diff,detrended_max_abs_diff,lag1_max_abs_diff
+2.10.2026.2_02.10.2026.2,/Users/claydunford/Development/Recovery Metric/data/whole_slice_rois/2.10.2026.2_02.10.2026.2.sdproj,3049,"(1104, 1608)",55781,759,8,8,3,3,True,True,0.0,0.0,0.0

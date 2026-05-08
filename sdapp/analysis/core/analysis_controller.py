@@ -8,7 +8,7 @@ from tkinter import filedialog, messagebox
 
 from sdapp.analysis.core.analysis_context import AnalysisContext
 from sdapp.analysis.core.metrics import compute_scale
-from sdapp.analysis.ui.roi_dialog import open_roi_dialog
+from sdapp.analysis.ui.roi_dialog import _call_preserving_geometry, open_roi_dialog
 from sdapp.analysis.ui.scale_dialog import open_scale_dialog
 from sdapp.analysis.utils.paths import resolve_existing_directory
 
@@ -37,10 +37,14 @@ class AnalysisController:
         self.set_scale_axis_lock = ctx.set_scale_axis_lock
         self.get_last_scale_image_path = ctx.get_last_scale_image_path
         self.set_last_scale_image_path = ctx.set_last_scale_image_path
+        self.get_manual_scale_px_per_mm = ctx.get_manual_scale_px_per_mm
+        self.set_manual_scale_px_per_mm = ctx.set_manual_scale_px_per_mm
         self.get_roi_mask = ctx.get_roi_mask
         self.set_roi_mask = ctx.set_roi_mask
         self.get_roi_points = ctx.get_roi_points
         self.set_roi_points = ctx.set_roi_points
+        self.get_roi_polygons = ctx.get_roi_polygons
+        self.set_roi_polygons = ctx.set_roi_polygons
         self.update_display = ctx.update_display
         self.apply_host_metrics_settings = ctx.apply_host_metrics_settings
         self.clear_local_metrics_override = ctx.clear_local_metrics_override
@@ -375,12 +379,23 @@ class AnalysisController:
             return None
 
         initial_scale_points = []
+        initial_length_mm = None
+        initial_manual_px_per_mm = None
         try:
             raw_scale_points = list(self.get_scale_points() or [])
+            px_per_mm = self.get_scale_px_per_mm()
+            initial_manual_px_per_mm = self.get_manual_scale_px_per_mm()
         except Exception:
             raw_scale_points = []
+            px_per_mm = None
+            initial_manual_px_per_mm = None
+            
         if len(raw_scale_points) >= 2:
             initial_scale_points = list(raw_scale_points[:2])
+            if px_per_mm and float(px_per_mm) > 0:
+                p1, p2 = initial_scale_points[0], initial_scale_points[1]
+                dist_px = np.hypot(float(p1[0]) - float(p2[0]), float(p1[1]) - float(p2[1]))
+                initial_length_mm = float(dist_px) / float(px_per_mm)
 
         image_path_ref = [image_path]
 
@@ -414,6 +429,10 @@ class AnalysisController:
             initial_axis_lock=self.get_scale_axis_lock(),
             allow_reset_local=bool(self.get_scale_is_local_override()),
             pick_image_callback=_pick_scale_image_for_dialog,
+            initial_length_mm=initial_length_mm,
+            context="analysis",
+            initial_manual_px_per_mm=initial_manual_px_per_mm,
+            image_label=Path(image_path).name if image_path else "First Original Frame",
         )
         if result is None:
             return None
@@ -426,6 +445,10 @@ class AnalysisController:
         self.set_scale_axis_lock(bool(result.get("axis_lock", True)))
         self.set_last_scale_image_path(result.get("image_path", ""))
         self.set_scale_is_local_override(True)
+        if result.get("axis_mode") == "manual":
+            self.set_manual_scale_px_per_mm(result["px_per_mm"])
+        else:
+            self.set_manual_scale_px_per_mm(None)
         self.refresh_metrics_status()
         if callable(self.on_metrics_settings_changed):
             try:
@@ -465,15 +488,18 @@ class AnalysisController:
         if preferred_dir:
             roi_initialdir = preferred_dir
 
-        image_path = filedialog.askopenfilename(
-            parent=self.root,
-            title="Select Image for ROI",
-            initialdir=roi_initialdir,
-            initialfile=preferred_file,
-            filetypes=[
-                ("Image files", "*.png *.jpg *.jpeg *.tif *.tiff *.bmp"),
-                ("All files", "*.*"),
-            ],
+        image_path = _call_preserving_geometry(
+            self.root,
+            lambda: filedialog.askopenfilename(
+                parent=self.root,
+                title="Select Image for ROI",
+                initialdir=roi_initialdir,
+                initialfile=preferred_file,
+                filetypes=[
+                    ("Image files", "*.png *.jpg *.jpeg *.tif *.tiff *.bmp"),
+                    ("All files", "*.*"),
+                ],
+            ),
         )
         if not image_path:
             return None
@@ -483,16 +509,20 @@ class AnalysisController:
             messagebox.showwarning("Image Error", "Unable to read selected image for ROI.", parent=self.root)
             return None
 
-        def _pick_roi_image_for_dialog():
-            path = filedialog.askopenfilename(
-                parent=self.root,
-                title="Select Image for ROI",
-                initialdir=roi_initialdir,
-                initialfile=preferred_file,
-                filetypes=[
-                    ("Image files", "*.png *.jpg *.jpeg *.tif *.tiff *.bmp"),
-                    ("All files", "*.*"),
-                ],
+        def _pick_roi_image_for_dialog(parent=None):
+            picker_parent = parent or self.root
+            path = _call_preserving_geometry(
+                picker_parent,
+                lambda: filedialog.askopenfilename(
+                    parent=picker_parent,
+                    title="Select Image for ROI",
+                    initialdir=roi_initialdir,
+                    initialfile=preferred_file,
+                    filetypes=[
+                        ("Image files", "*.png *.jpg *.jpeg *.tif *.tiff *.bmp"),
+                        ("All files", "*.*"),
+                    ],
+                ),
             )
             if not path:
                 return None
@@ -506,8 +536,11 @@ class AnalysisController:
             root=self.root,
             img_u8=img_u8,
             initial_roi_points=self.get_roi_points(),
+            initial_roi_polygons=self.get_roi_polygons(),
             allow_reset_local=bool(self.get_roi_is_local_override()),
             pick_image_callback=_pick_roi_image_for_dialog,
+            context="analysis",
+            image_label=preferred_file or "Reference image",
         )
         if result is None:
             return None
@@ -516,6 +549,7 @@ class AnalysisController:
     def _apply_local_roi_selection(self, result) -> None:
         self.set_roi_mask(result["roi_mask"])
         self.set_roi_points(result["roi_points"])
+        self.set_roi_polygons(result.get("roi_polygons", []))
         self.set_roi_is_local_override(True)
         self.refresh_metrics_status()
         self.update_display()
@@ -572,7 +606,7 @@ class AnalysisController:
     def reset_local_roi_override(self) -> None:
         self._reset_local_metric_override(
             override_kind="roi",
-            keys=["roi_points", "roi_mask"],
+            keys=["roi_points", "roi_polygons", "roi_mask"],
             title="ROI Reset",
             success_message="Local ROI override cleared. This event now uses the global ROI.",
         )
@@ -635,16 +669,31 @@ class AnalysisController:
         result = self._capture_roi_selection()
         if result is None:
             return
-        if str(result.get("target_scope", "")).lower() == "reset_local_roi":
+        target_scope = str(result.get("target_scope", "")).lower()
+        if target_scope == "reset_local_roi":
             self.reset_local_roi_override()
+            return
+        if target_scope == "global_and_local":
+            self._apply_global_and_local_roi_selection(result)
             return
         self._apply_local_roi_selection(result)
 
-    def _apply_global_roi_selection(self, result) -> None:
-        payload = {
+    def _roi_payload(self, result) -> dict[str, object]:
+        payload: dict[str, object] = {
             "roi_points": [[float(pt[0]), float(pt[1])] for pt in list(result.get("roi_points", []))],
             "roi_mask": np.asarray(result.get("roi_mask"), dtype=bool).copy() if result.get("roi_mask") is not None else None,
         }
+        polygons = result.get("roi_polygons")
+        if isinstance(polygons, list) and polygons:
+            payload["roi_polygons"] = [
+                [[float(pt[0]), float(pt[1])] for pt in list(poly)]
+                for poly in polygons
+                if isinstance(poly, list) and len(poly) >= 3
+            ]
+        return payload
+
+    def _apply_global_roi_selection(self, result) -> None:
+        payload = self._roi_payload(result)
         update_result = self.emit_host_global_metrics_update("global_roi", payload)
         if isinstance(update_result, dict) and not bool(update_result.get("ok", False)):
             message = str(update_result.get("message", "Host rejected global ROI update."))
@@ -653,6 +702,7 @@ class AnalysisController:
         if not bool(self.get_roi_is_local_override()):
             self.set_roi_mask(result["roi_mask"])
             self.set_roi_points(result["roi_points"])
+            self.set_roi_polygons(result.get("roi_polygons", []))
             self.set_roi_is_local_override(False)
         self.refresh_metrics_status()
         if not bool(self.get_roi_is_local_override()):
@@ -664,12 +714,44 @@ class AnalysisController:
             return
         messagebox.showinfo("Global ROI Set", "Global ROI polygon saved.", parent=self.root)
 
+    def _apply_global_and_local_roi_selection(self, result) -> None:
+        payload = self._roi_payload(result)
+        update_result = self.emit_host_global_metrics_update("global_roi", payload)
+        if isinstance(update_result, dict) and not bool(update_result.get("ok", False)):
+            message = str(update_result.get("message", "Host rejected global ROI update."))
+            messagebox.showwarning("Global ROI", message, parent=self.root)
+            return
+        self.set_roi_mask(result["roi_mask"])
+        self.set_roi_points(result["roi_points"])
+        self.set_roi_polygons(result.get("roi_polygons", []))
+        self.set_roi_is_local_override(True)
+        self.refresh_metrics_status()
+        self.update_display()
+        if callable(self.on_metrics_settings_changed):
+            try:
+                self.on_metrics_settings_changed("roi")
+            except Exception:
+                pass
+        autosave_result = self.autosave_project_after_metrics_commit("global_and_local_roi")
+        if isinstance(autosave_result, dict) and not bool(autosave_result.get("ok", False)):
+            message = str(autosave_result.get("message", "Project autosave did not complete."))
+            messagebox.showwarning("ROI Set", message, parent=self.root)
+            return
+        messagebox.showinfo("ROI Set", "Global ROI overwritten and local ROI saved.", parent=self.root)
+
     def start_global_roi_selection(self):
         result = self._capture_roi_selection()
         if result is None:
             return
-        if str(result.get("target_scope", "")).lower() == "reset_local_roi":
+        target_scope = str(result.get("target_scope", "")).lower()
+        if target_scope == "reset_local_roi":
             self.reset_local_roi_override()
+            return
+        if target_scope == "local":
+            self._apply_local_roi_selection(result)
+            return
+        if target_scope == "global_and_local":
+            self._apply_global_and_local_roi_selection(result)
             return
         self._apply_global_roi_selection(result)
 
@@ -689,10 +771,14 @@ class AnalysisController:
         result = self._capture_roi_selection()
         if result is None:
             return
-        if str(result.get("target_scope", "")).lower() == "reset_local_roi":
+        target_scope = str(result.get("target_scope", "")).lower()
+        if target_scope == "reset_local_roi":
             self.reset_local_roi_override()
             return
-        if str(result.get("target_scope", "local")).lower() == "global":
+        if target_scope == "global":
             self._apply_global_roi_selection(result)
+            return
+        if target_scope == "global_and_local":
+            self._apply_global_and_local_roi_selection(result)
             return
         self._apply_local_roi_selection(result)

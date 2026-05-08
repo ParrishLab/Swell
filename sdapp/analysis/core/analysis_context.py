@@ -48,6 +48,8 @@ class AnalysisContext:
     # Optional callbacks (no-op defaults)                                  #
     # ------------------------------------------------------------------ #
 
+    get_manual_scale_px_per_mm: Callable[[], Any] = field(default=lambda: None)
+    set_manual_scale_px_per_mm: Callable[[Any], None] = field(default=lambda _v: None)
     apply_host_metrics_settings: Callable[..., Any] | None = None
     clear_local_metrics_override: Callable[..., Any] | None = None
     get_current_image_source_paths: Callable[[], list] = field(default=lambda: [])
@@ -61,4 +63,6 @@ class AnalysisContext:
     set_scale_is_local_override: Callable[[bool], None] = field(default=lambda _v: None)
     get_roi_is_local_override: Callable[[], bool] = field(default=lambda: False)
     set_roi_is_local_override: Callable[[bool], None] = field(default=lambda _v: None)
+    get_roi_polygons: Callable[[], Any] = field(default=lambda: [])
+    set_roi_polygons: Callable[[Any], None] = field(default=lambda _v: None)
     refresh_metrics_status: Callable[[], None] = field(default=lambda: None)

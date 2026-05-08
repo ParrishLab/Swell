@@ -33,6 +33,7 @@ class WorkspaceUiState:
     scale_axis_lock: bool
     scale_image_path: str
     roi_points: list
+    roi_polygons: list
     roi_mask: object
     created_at: str
 
@@ -609,6 +610,7 @@ class AnalysisWorkspaceController:
             scale_axis_lock=bool(ui_state.scale_axis_lock),
             scale_image_path=str(ui_state.scale_image_path or ""),
             roi_points=list(ui_state.roi_points) if ui_state.roi_points else [],
+            roi_polygons=list(ui_state.roi_polygons) if ui_state.roi_polygons else [],
             roi_mask=ui_state.roi_mask,
             created_at=str(ui_state.created_at),
             current_image_source_paths=list(self.frame_source.source_paths),

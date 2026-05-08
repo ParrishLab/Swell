@@ -55,6 +55,7 @@ class ProjectSessionServiceTests(unittest.TestCase):
             scale_axis_lock=False,
             scale_image_path="/tmp/scale.png",
             roi_points=[],
+            roi_polygons=[],
             roi_mask=roi,
             created_at="2026-01-01T00:00:00Z",
             current_image_source_paths=[],

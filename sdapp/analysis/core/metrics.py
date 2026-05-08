@@ -249,3 +249,35 @@ def roi_mask_from_points(
     draw = ImageDraw.Draw(canvas)
     draw.polygon(points, outline=1, fill=1)
     return np.asarray(canvas, dtype=bool)
+
+
+def roi_mask_from_polygons(
+    roi_polygons: list[list[list[float]]] | list[list[tuple[float, float]]] | None,
+    frame_shape: Tuple[int, int],
+) -> Optional[np.ndarray]:
+    if not isinstance(roi_polygons, list) or not roi_polygons:
+        return None
+    h = int(frame_shape[0]) if len(frame_shape) > 0 else 0
+    w = int(frame_shape[1]) if len(frame_shape) > 1 else 0
+    if h <= 0 or w <= 0:
+        return None
+    canvas = Image.new("L", (w, h), 0)
+    draw = ImageDraw.Draw(canvas)
+    drew_any = False
+    for raw_polygon in roi_polygons:
+        if not isinstance(raw_polygon, list) or len(raw_polygon) < 3:
+            continue
+        points: list[tuple[float, float]] = []
+        for raw in raw_polygon:
+            if not isinstance(raw, (list, tuple)) or len(raw) < 2:
+                continue
+            try:
+                points.append((float(raw[0]), float(raw[1])))
+            except (TypeError, ValueError):
+                continue
+        if len(points) >= 3:
+            draw.polygon(points, outline=1, fill=1)
+            drew_any = True
+    if not drew_any:
+        return None
+    return np.asarray(canvas, dtype=bool)

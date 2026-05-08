@@ -1,0 +1,170 @@
+dataset,stage,seconds
+2.10.2026.2_02.10.2026.2,research_coherence_gate,0.272032
+2.10.2026.2_02.10.2026.2,research_detrend,2.57656
+2.10.2026.2_02.10.2026.2,research_find_candidates,0.098251
+2.10.2026.2_02.10.2026.2,research_grid,0.010571
+2.10.2026.2_02.10.2026.2,research_stack_open,0.769625
+2.10.2026.2_02.10.2026.2,research_trace_extract,12.76362
+2.10.2026.2_02.10.2026.2,resolve_inputs,1.50531
+2.10.2026.2_02.10.2026.2,vendored_coherence_gate,0.080762
+2.10.2026.2_02.10.2026.2,vendored_detrend,2.538475
+2.10.2026.2_02.10.2026.2,vendored_find_candidates,0.099213
+2.10.2026.2_02.10.2026.2,vendored_grid,0.009637
+2.10.2026.2_02.10.2026.2,vendored_stack_open,0.262952
+2.10.2026.2_02.10.2026.2,vendored_trace_extract,11.675572
+2.20.2026.1_2202026 glc 2.1 15mM,research_coherence_gate,0.453758
+2.20.2026.1_2202026 glc 2.1 15mM,research_detrend,3.18168
+2.20.2026.1_2202026 glc 2.1 15mM,research_find_candidates,0.141813
+2.20.2026.1_2202026 glc 2.1 15mM,research_grid,0.064074
+2.20.2026.1_2202026 glc 2.1 15mM,research_stack_open,1.025781
+2.20.2026.1_2202026 glc 2.1 15mM,research_trace_extract,205.507927
+2.20.2026.1_2202026 glc 2.1 15mM,resolve_inputs,0.026206
+2.20.2026.1_2202026 glc 2.1 15mM,vendored_coherence_gate,0.087363
+2.20.2026.1_2202026 glc 2.1 15mM,vendored_detrend,3.023771
+2.20.2026.1_2202026 glc 2.1 15mM,vendored_find_candidates,0.126509
+2.20.2026.1_2202026 glc 2.1 15mM,vendored_grid,0.069084
+2.20.2026.1_2202026 glc 2.1 15mM,vendored_stack_open,0.30405
+2.20.2026.1_2202026 glc 2.1 15mM,vendored_trace_extract,201.996684
+2.20.2026.4_2202026 glc 2.4 15mM,research_coherence_gate,0.863535
+2.20.2026.4_2202026 glc 2.4 15mM,research_detrend,3.150509
+2.20.2026.4_2202026 glc 2.4 15mM,research_find_candidates,0.133415
+2.20.2026.4_2202026 glc 2.4 15mM,research_grid,0.071429
+2.20.2026.4_2202026 glc 2.4 15mM,research_stack_open,1.12263
+2.20.2026.4_2202026 glc 2.4 15mM,research_trace_extract,183.667206
+2.20.2026.4_2202026 glc 2.4 15mM,resolve_inputs,0.10823
+2.20.2026.4_2202026 glc 2.4 15mM,vendored_coherence_gate,0.077504
+2.20.2026.4_2202026 glc 2.4 15mM,vendored_detrend,3.076874
+2.20.2026.4_2202026 glc 2.4 15mM,vendored_find_candidates,0.149687
+2.20.2026.4_2202026 glc 2.4 15mM,vendored_grid,0.094456
+2.20.2026.4_2202026 glc 2.4 15mM,vendored_stack_open,0.275255
+2.20.2026.4_2202026 glc 2.4 15mM,vendored_trace_extract,167.70064
+3.25.2026.2_3.25.26.02,research_coherence_gate,0.273567
+3.25.2026.2_3.25.26.02,research_detrend,0.793379
+3.25.2026.2_3.25.26.02,research_find_candidates,0.041531
+3.25.2026.2_3.25.26.02,research_grid,0.016945
+3.25.2026.2_3.25.26.02,research_stack_open,0.306463
+3.25.2026.2_3.25.26.02,research_trace_extract,4.713607
+3.25.2026.2_3.25.26.02,resolve_inputs,1.18604
+3.25.2026.2_3.25.26.02,vendored_coherence_gate,0.061882
+3.25.2026.2_3.25.26.02,vendored_detrend,0.762657
+3.25.2026.2_3.25.26.02,vendored_find_candidates,0.043925
+3.25.2026.2_3.25.26.02,vendored_grid,0.017092
+3.25.2026.2_3.25.26.02,vendored_stack_open,0.098766
+3.25.2026.2_3.25.26.02,vendored_trace_extract,4.176022
+3.3.2026.2_03032026 glc 15mM 2.2,research_coherence_gate,0.628437
+3.3.2026.2_03032026 glc 15mM 2.2,research_detrend,3.204038
+3.3.2026.2_03032026 glc 15mM 2.2,research_find_candidates,0.136166
+3.3.2026.2_03032026 glc 15mM 2.2,research_grid,0.083601
+3.3.2026.2_03032026 glc 15mM 2.2,research_stack_open,1.144604
+3.3.2026.2_03032026 glc 15mM 2.2,research_trace_extract,179.875922
+3.3.2026.2_03032026 glc 15mM 2.2,resolve_inputs,0.03754
+3.3.2026.2_03032026 glc 15mM 2.2,vendored_coherence_gate,0.100984
+3.3.2026.2_03032026 glc 15mM 2.2,vendored_detrend,3.229279
+3.3.2026.2_03032026 glc 15mM 2.2,vendored_find_candidates,0.121456
+3.3.2026.2_03032026 glc 15mM 2.2,vendored_grid,0.106332
+3.3.2026.2_03032026 glc 15mM 2.2,vendored_stack_open,0.237217
+3.3.2026.2_03032026 glc 15mM 2.2,vendored_trace_extract,180.082484
+3.3.2026.4_332026 glc 15mM 2.4,research_coherence_gate,0.423612
+3.3.2026.4_332026 glc 15mM 2.4,research_detrend,3.29216
+3.3.2026.4_332026 glc 15mM 2.4,research_find_candidates,0.160367
+3.3.2026.4_332026 glc 15mM 2.4,research_grid,0.073547
+3.3.2026.4_332026 glc 15mM 2.4,research_stack_open,1.048349
+3.3.2026.4_332026 glc 15mM 2.4,research_trace_extract,178.891141
+3.3.2026.4_332026 glc 15mM 2.4,resolve_inputs,0.029766
+3.3.2026.4_332026 glc 15mM 2.4,vendored_coherence_gate,0.150294
+3.3.2026.4_332026 glc 15mM 2.4,vendored_detrend,3.247096
+3.3.2026.4_332026 glc 15mM 2.4,vendored_find_candidates,0.152904
+3.3.2026.4_332026 glc 15mM 2.4,vendored_grid,0.07583
+3.3.2026.4_332026 glc 15mM 2.4,vendored_stack_open,0.238372
+3.3.2026.4_332026 glc 15mM 2.4,vendored_trace_extract,183.201029
+4.2.2026.1_422026 Spatial Transcriptomics 1.1,research_coherence_gate,0.557059
+4.2.2026.1_422026 Spatial Transcriptomics 1.1,research_detrend,7.05949
+4.2.2026.1_422026 Spatial Transcriptomics 1.1,research_find_candidates,0.265351
+4.2.2026.1_422026 Spatial Transcriptomics 1.1,research_grid,0.054852
+4.2.2026.1_422026 Spatial Transcriptomics 1.1,research_stack_open,4.502913
+4.2.2026.1_422026 Spatial Transcriptomics 1.1,research_trace_extract,755.759194
+4.2.2026.1_422026 Spatial Transcriptomics 1.1,resolve_inputs,0.053775
+4.2.2026.1_422026 Spatial Transcriptomics 1.1,vendored_coherence_gate,0.200995
+4.2.2026.1_422026 Spatial Transcriptomics 1.1,vendored_detrend,7.089886
+4.2.2026.1_422026 Spatial Transcriptomics 1.1,vendored_find_candidates,0.358999
+4.2.2026.1_422026 Spatial Transcriptomics 1.1,vendored_grid,0.052852
+4.2.2026.1_422026 Spatial Transcriptomics 1.1,vendored_stack_open,0.996394
+4.2.2026.1_422026 Spatial Transcriptomics 1.1,vendored_trace_extract,769.966345
+4.6.2026.1_4.6.2026.1,research_coherence_gate,1.006585
+4.6.2026.1_4.6.2026.1,research_detrend,2.798141
+4.6.2026.1_4.6.2026.1,research_find_candidates,0.088038
+4.6.2026.1_4.6.2026.1,research_grid,0.012762
+4.6.2026.1_4.6.2026.1,research_stack_open,0.84538
+4.6.2026.1_4.6.2026.1,research_trace_extract,8.257561
+4.6.2026.1_4.6.2026.1,resolve_inputs,1.312166
+4.6.2026.1_4.6.2026.1,vendored_coherence_gate,0.102806
+4.6.2026.1_4.6.2026.1,vendored_detrend,2.740524
+4.6.2026.1_4.6.2026.1,vendored_find_candidates,0.090865
+4.6.2026.1_4.6.2026.1,vendored_grid,0.012621
+4.6.2026.1_4.6.2026.1,vendored_stack_open,0.301126
+4.6.2026.1_4.6.2026.1,vendored_trace_extract,8.023424
+4.6.2026.2_4.6.2026.2.5sdproj,research_coherence_gate,0.308845
+4.6.2026.2_4.6.2026.2.5sdproj,research_detrend,1.006731
+4.6.2026.2_4.6.2026.2.5sdproj,research_find_candidates,0.047669
+4.6.2026.2_4.6.2026.2.5sdproj,research_grid,0.010835
+4.6.2026.2_4.6.2026.2.5sdproj,research_stack_open,0.333248
+4.6.2026.2_4.6.2026.2.5sdproj,research_trace_extract,3.999433
+4.6.2026.2_4.6.2026.2.5sdproj,resolve_inputs,0.969636
+4.6.2026.2_4.6.2026.2.5sdproj,vendored_coherence_gate,0.058728
+4.6.2026.2_4.6.2026.2.5sdproj,vendored_detrend,0.966854
+4.6.2026.2_4.6.2026.2.5sdproj,vendored_find_candidates,0.047919
+4.6.2026.2_4.6.2026.2.5sdproj,vendored_grid,0.010482
+4.6.2026.2_4.6.2026.2.5sdproj,vendored_stack_open,0.115854
+4.6.2026.2_4.6.2026.2.5sdproj,vendored_trace_extract,3.756722
+4.6.2026.2_4.6.2026.2,research_coherence_gate,0.046606
+4.6.2026.2_4.6.2026.2,research_detrend,0.29903
+4.6.2026.2_4.6.2026.2,research_find_candidates,0.020433
+4.6.2026.2_4.6.2026.2,research_grid,0.011554
+4.6.2026.2_4.6.2026.2,research_stack_open,0.085162
+4.6.2026.2_4.6.2026.2,research_trace_extract,1.020823
+4.6.2026.2_4.6.2026.2,resolve_inputs,0.36071
+4.6.2026.2_4.6.2026.2,vendored_coherence_gate,0.003497
+4.6.2026.2_4.6.2026.2,vendored_detrend,0.293342
+4.6.2026.2_4.6.2026.2,vendored_find_candidates,0.02031
+4.6.2026.2_4.6.2026.2,vendored_grid,0.010819
+4.6.2026.2_4.6.2026.2,vendored_stack_open,0.030482
+4.6.2026.2_4.6.2026.2,vendored_trace_extract,0.888477
+4.6.2026.3_4.6.2026.3,research_coherence_gate,0.968299
+4.6.2026.3_4.6.2026.3,research_detrend,2.865472
+4.6.2026.3_4.6.2026.3,research_find_candidates,0.106843
+4.6.2026.3_4.6.2026.3,research_grid,0.014495
+4.6.2026.3_4.6.2026.3,research_stack_open,0.775409
+4.6.2026.3_4.6.2026.3,research_trace_extract,8.204397
+4.6.2026.3_4.6.2026.3,resolve_inputs,0.818938
+4.6.2026.3_4.6.2026.3,vendored_coherence_gate,0.086251
+4.6.2026.3_4.6.2026.3,vendored_detrend,2.843927
+4.6.2026.3_4.6.2026.3,vendored_find_candidates,0.110818
+4.6.2026.3_4.6.2026.3,vendored_grid,0.015003
+4.6.2026.3_4.6.2026.3,vendored_stack_open,0.249867
+4.6.2026.3_4.6.2026.3,vendored_trace_extract,7.685534
+4.6.2026.4_4.6.2026.4,research_coherence_gate,0.457792
+4.6.2026.4_4.6.2026.4,research_detrend,2.025378
+4.6.2026.4_4.6.2026.4,research_find_candidates,0.081836
+4.6.2026.4_4.6.2026.4,research_grid,0.012213
+4.6.2026.4_4.6.2026.4,research_stack_open,0.541999
+4.6.2026.4_4.6.2026.4,research_trace_extract,7.787006
+4.6.2026.4_4.6.2026.4,resolve_inputs,1.235623
+4.6.2026.4_4.6.2026.4,vendored_coherence_gate,0.068305
+4.6.2026.4_4.6.2026.4,vendored_detrend,1.989684
+4.6.2026.4_4.6.2026.4,vendored_find_candidates,0.083212
+4.6.2026.4_4.6.2026.4,vendored_grid,0.0123
+4.6.2026.4_4.6.2026.4,vendored_stack_open,0.250691
+4.6.2026.4_4.6.2026.4,vendored_trace_extract,7.3931
+4.8.2026.1_4.8.2026.1,research_coherence_gate,0.813673
+4.8.2026.1_4.8.2026.1,research_detrend,2.76191
+4.8.2026.1_4.8.2026.1,research_find_candidates,0.117625
+4.8.2026.1_4.8.2026.1,research_grid,0.016782
+4.8.2026.1_4.8.2026.1,research_stack_open,0.820561
+4.8.2026.1_4.8.2026.1,research_trace_extract,8.545931
+4.8.2026.1_4.8.2026.1,resolve_inputs,0.610703
+4.8.2026.1_4.8.2026.1,vendored_coherence_gate,0.112197
+4.8.2026.1_4.8.2026.1,vendored_detrend,2.693716
+4.8.2026.1_4.8.2026.1,vendored_find_candidates,0.115894
+4.8.2026.1_4.8.2026.1,vendored_grid,0.017255
+4.8.2026.1_4.8.2026.1,vendored_stack_open,0.283671
+4.8.2026.1_4.8.2026.1,vendored_trace_extract,8.029609

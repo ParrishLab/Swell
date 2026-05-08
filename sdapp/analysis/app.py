@@ -90,11 +90,6 @@ class PrintLogger:
 
 class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderActions, UndoActions):
     def __init__(self, root, *, menu_builder=None, menu_mode="analysis", host_mode: bool = False):
-        if not bool(host_mode):
-            raise RuntimeError(
-                "Standalone SD Segmenter runtime has been removed. "
-                "Open analysis from the SD ID main window."
-            )
         self.root = root
         self.root.title(format_window_title("IOS SD Analysis"))
         self.root.geometry("1400x950")
@@ -148,6 +143,7 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         self.scale_px_per_mm = None
         self.roi_mask = None
         self.roi_points = []
+        self.roi_polygons = []
         self.scale_points = []
         self.scale_axis_lock = True
         self._scale_is_local_override = False
@@ -282,6 +278,8 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
                 set_roi_mask=lambda v: setattr(self, "roi_mask", v),
                 get_roi_points=lambda: self.roi_points,
                 set_roi_points=lambda v: setattr(self, "roi_points", v),
+                get_roi_polygons=lambda: self.roi_polygons,
+                set_roi_polygons=lambda v: setattr(self, "roi_polygons", v),
                 update_display=self.update_display,
                 apply_host_metrics_settings=self._apply_host_metrics_settings,
                 clear_local_metrics_override=self._clear_local_metrics_override,
@@ -1939,6 +1937,7 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
                 scale_axis_lock=bool(self.scale_axis_lock),
                 scale_image_path=str(getattr(self, "_last_scale_image_path", "") or ""),
                 roi_points=list(self.roi_points) if self.roi_points else [],
+                roi_polygons=list(self.roi_polygons) if self.roi_polygons else [],
                 roi_mask=self.roi_mask,
                 created_at=self._project_created_at,
             )
@@ -2472,14 +2471,3 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         self._sync_saved_mask_overlay_state(reset_history=True)
         if changed:
             self._mark_project_dirty("clear_frame")
-
-
-def main():
-    raise RuntimeError(
-        "Standalone SD Segmenter launch is not supported. "
-        "Start the unified host app with `python -m sdapp.main`."
-    )
-
-
-if __name__ == "__main__":
-    main()

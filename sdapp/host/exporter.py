@@ -19,6 +19,7 @@ import tifffile
 from sdapp.analysis.core.metrics import (
     compute_frame_metrics,
     extract_primary_boundary,
+    roi_mask_from_polygons,
     roi_mask_from_points,
     smooth_boundary_fft,
 )
@@ -521,6 +522,14 @@ def _resolve_roi_mask(metrics_settings: dict[str, object], frame_shape: tuple[in
         if arr.ndim == 2 and arr.shape == frame_shape and np.any(arr):
             return arr.copy()
     raw_points = normalized.get("roi_points")
+    raw_polygons = normalized.get("roi_polygons")
+    if isinstance(raw_polygons, list) and raw_polygons:
+        try:
+            mask = roi_mask_from_polygons(raw_polygons, frame_shape)
+        except Exception as e:
+            raise DataCorruptionError(f"Failed to generate ROI mask from polygons: {e}")
+        if mask is not None and mask.shape == frame_shape and np.any(mask):
+            return np.asarray(mask, dtype=bool).copy()
     if isinstance(raw_points, list) and raw_points:
         try:
             mask = roi_mask_from_points(raw_points, frame_shape)

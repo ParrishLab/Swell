@@ -58,6 +58,7 @@ class SessionSnapshot:
     scale_axis_lock: bool
     scale_image_path: str
     roi_points: list
+    roi_polygons: list
     roi_mask: np.ndarray | None
     created_at: str
     current_image_source_paths: list[str]
@@ -73,6 +74,7 @@ class LoadedSessionActions:
     scale_axis_lock: bool
     scale_image_path: str
     roi_points: list
+    roi_polygons: list
     roi_mask: np.ndarray | None
     baseline_frame_count: int
 
@@ -383,6 +385,7 @@ class ProjectSessionService:
 
         roi_data = {
             "roi_points": list(snapshot.roi_points) if snapshot.roi_points else [],
+            "roi_polygons": list(snapshot.roi_polygons) if snapshot.roi_polygons else [],
             "roi_mask_shape": list(snapshot.roi_mask.shape) if snapshot.roi_mask is not None else None,
             "roi_mask_rle": SegmentationState._encode_rle(snapshot.roi_mask.astype(bool)) if snapshot.roi_mask is not None else None,
         }
@@ -474,6 +477,7 @@ class ProjectSessionService:
 
         global_state = state.get("global", {})
         roi_points = []
+        roi_polygons = []
         roi_mask = None
         return LoadedSessionActions(
             active_event_id=active_id,
@@ -483,6 +487,7 @@ class ProjectSessionService:
             scale_axis_lock=bool(global_state.get("scale_axis_lock", True)),
             scale_image_path=str(global_state.get("scale_image_path", "") or ""),
             roi_points=roi_points,
+            roi_polygons=roi_polygons,
             roi_mask=roi_mask,
             baseline_frame_count=int(global_state.get("baseline_frame_count", 30)),
         )

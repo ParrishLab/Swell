@@ -34,6 +34,7 @@ class ProjectLoadPlan:
     scale_axis_lock: bool
     scale_image_path: str
     roi_points: list
+    roi_polygons: list
     roi_mask: Any
     fingerprint_mismatches: list[str]
 
@@ -41,14 +42,6 @@ class ProjectLoadPlan:
 @dataclass
 class CloseRequirements:
     has_running_propagation: bool
-
-
-def _standalone_removed(action: str) -> None:
-    message = (
-        f"{action} is not available in host-bound analysis windows.\n"
-        "Use the SD ID main window for project lifecycle actions."
-    )
-    raise RuntimeError(message)
 
 
 def setup_project_menu(app) -> None:
@@ -86,7 +79,10 @@ def save_project_to_path(app, target_path: str | Path, is_autosave: bool = False
         return
     if bool(is_autosave):
         return
-    _standalone_removed("Save Project")
+    raise RuntimeError(
+        "Save Project is not available in host-bound analysis windows.\n"
+        "Use the SD ID main window for project lifecycle actions."
+    )
 
 
 def save_project(app) -> None:
@@ -188,6 +184,8 @@ def prepare_loaded_project(app, loaded, project_path) -> ProjectLoadPlan:
     roi_data = loaded.roi_data or {}
     roi_points = roi_data.get("roi_points", [])
     safe_roi_points = roi_points if isinstance(roi_points, list) else []
+    roi_polygons = roi_data.get("roi_polygons", [])
+    safe_roi_polygons = roi_polygons if isinstance(roi_polygons, list) else []
     roi_rle = roi_data.get("roi_mask_rle")
     if roi_rle:
         roi_mask = app.seg_state._decode_rle(roi_rle)
@@ -224,6 +222,7 @@ def prepare_loaded_project(app, loaded, project_path) -> ProjectLoadPlan:
         scale_axis_lock=bool(loaded_actions.scale_axis_lock),
         scale_image_path=str(loaded_actions.scale_image_path or ""),
         roi_points=safe_roi_points,
+        roi_polygons=safe_roi_polygons,
         roi_mask=roi_mask,
         fingerprint_mismatches=mismatches,
     )
@@ -257,6 +256,7 @@ def apply_loaded_project_plan(app, plan: ProjectLoadPlan) -> None:
     app.scale_axis_lock = bool(plan.scale_axis_lock)
     app._last_scale_image_path = str(plan.scale_image_path or "")
     app.roi_points = list(plan.roi_points)
+    app.roi_polygons = list(plan.roi_polygons)
     app.roi_mask = plan.roi_mask
 
     try:

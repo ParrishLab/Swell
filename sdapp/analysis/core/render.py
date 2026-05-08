@@ -330,9 +330,13 @@ class RenderActions:
         h, w = np.asarray(raw_frame).shape[:2]
         transform = self._get_canvas_viewport_transform(self.canvas_right, w, h)
 
-        if hasattr(self, "roi_points") and self.roi_points:
+        roi_polygons = getattr(self, "roi_polygons", None)
+        polygons = roi_polygons if isinstance(roi_polygons, list) and roi_polygons else []
+        if not polygons and hasattr(self, "roi_points") and self.roi_points:
+            polygons = [self.roi_points]
+        for polygon in polygons:
             pts = []
-            for x, y in self.roi_points:
+            for x, y in polygon:
                 cx, cy = transform.image_to_canvas(x, y)
                 pts.extend([cx, cy])
             if len(pts) >= 4:

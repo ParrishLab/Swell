@@ -9,6 +9,15 @@ from sdapp.analysis.ui.theme import SPACING, apply_theme
 from sdapp.shared.ui.bootstrap import center_window_on_screen, semantic_button_options, ttk
 
 
+def _scale_save_actions(context: str, allow_reset_local: bool) -> list[tuple[str, str, str]]:
+    if context == "host":
+        return [("global", "Set Global Scale", "primary")]
+    return [
+        ("global", "Set Global Scale", "secondary"),
+        ("local", "Set Local Scale", "primary"),
+    ]
+
+
 def open_scale_dialog(
     root,
     img_u8,
@@ -19,36 +28,59 @@ def open_scale_dialog(
     initial_axis_lock=None,
     allow_reset_local=False,
     pick_image_callback=None,
+    initial_length_mm=None,
+    context: str = "analysis",
+    initial_manual_px_per_mm=None,
+    image_label: str | None = None,
 ):
     popup = tk.Toplevel(root)
     popup.withdraw()
-    popup.title("Set Scale - First Original Frame")
+    base_title = "Set Scale"
+    full_title = f"{base_title} - {image_label}" if image_label else base_title
+    popup.title(full_title)
     popup.resizable(True, True)
-    popup.geometry("1080x860")
-    popup.minsize(900, 760)
+    popup.geometry("1120x820")
+    popup.minsize(900, 700)
     apply_theme(popup)
     popup.columnconfigure(0, weight=1)
     popup.rowconfigure(0, weight=1)
 
+    # Access palette for scrollbar colors
+    from sdapp.shared.ui.theme import _theme_palette
+    palette = _theme_palette(ttk.Style())
+
     shell = ttk.Frame(popup, padding=SPACING.outer, style="AppShell.TFrame")
     shell.grid(row=0, column=0, sticky="nsew")
     shell.columnconfigure(0, weight=1)
-    shell.rowconfigure(0, weight=1)
-    shell.rowconfigure(1, weight=0)
+    shell.rowconfigure(1, weight=1)
+
+    top_bar = ttk.Frame(shell, style="AppShell.TFrame")
+    top_bar.grid(row=0, column=0, sticky="ew", pady=(0, SPACING.inner))
+    top_bar.columnconfigure(0, weight=1)
+    ttk.Label(top_bar, text=full_title, style="AppSectionTitle.TLabel").grid(row=0, column=0, sticky="w")
+
+    body = ttk.Frame(shell, style="AppShell.TFrame")
+    body.grid(row=1, column=0, sticky="nsew")
+    body.columnconfigure(0, weight=1)
+    body.columnconfigure(1, weight=0)
+    body.rowconfigure(0, weight=1)
 
     img_h, img_w = img_u8.shape[:2]
-    max_w, max_h = 900, 700
+    max_w, max_h = 760, 620
     initial_fit_ratio = min(max_w / img_w, max_h / img_h, 1.0)
 
-    canvas_shell = ttk.Frame(shell, padding=SPACING.card, style="AppInset.TFrame")
-    canvas_shell.grid(row=0, column=0, sticky="nsew")
+    canvas_shell = ttk.Frame(body, padding=SPACING.card, style="AppInset.TFrame")
+    canvas_shell.grid(row=0, column=0, sticky="nsew", padx=(0, SPACING.inner))
+    
     x_scroll = ttk.Scrollbar(canvas_shell, orient="horizontal")
     y_scroll = ttk.Scrollbar(canvas_shell, orient="vertical")
+    
     canvas = tk.Canvas(
         canvas_shell,
         width=max_w,
         height=max_h,
         bg="black",
+        highlightthickness=0,
         xscrollcommand=x_scroll.set,
         yscrollcommand=y_scroll.set,
     )
@@ -92,6 +124,7 @@ def open_scale_dialog(
         "fit_ratio": initial_fit_ratio,
         "offset_x": 0.0,
         "offset_y": 0.0,
+        "manual_mode_active": bool(initial_manual_px_per_mm is not None),
     }
     result = {"value": None}
 
@@ -231,12 +264,41 @@ def open_scale_dialog(
             "fallback": bool(refine.get("fallback", False)),
         }
 
+    btn_set_local = None
+    btn_set_global = None
+
     def redraw():
         canvas.delete("overlay")
         zoom_mult = max(1.0, float(state["zoom_factor"]))
         point_radius = min(24.0, marker_radius_canvas_px * zoom_mult)
         line_width = min(8.0, max(2.0, 2.0 * zoom_mult))
-        if len(state["points"]) < 2:
+        
+        # Update button states and manual/point-based UI interlocking
+        is_manual = bool(state["manual_mode_active"])
+        num_pts = len(state["points"])
+        
+        if is_manual:
+            point_based_state = "disabled"
+            manual_input_state = "!disabled"
+            is_ready = True
+        else:
+            point_based_state = "!disabled"
+            manual_input_state = "!disabled"
+            is_ready = (num_pts == 2)
+
+        # Disable point-based configuration
+        for w in [length_entry, axis_lock_check, btn_undo, btn_clear]:
+            if w is not None:
+                try:
+                    w.state([point_based_state])
+                except Exception:
+                    pass
+
+        for btn in [btn_set_local, btn_set_global]:
+            if btn is not None:
+                btn.state(["!disabled"] if is_ready else ["disabled"])
+
+        if not is_manual:
             for px, py in state["points"]:
                 x, y = image_to_canvas_xy(px, py)
                 canvas.create_oval(
@@ -298,6 +360,9 @@ def open_scale_dialog(
         elif len(state["points"]) < 2:
             state["points"].append((px, py))
             state["dragging_idx"] = len(state["points"]) - 1
+            if len(state["points"]) == 2:
+                length_entry.focus_set()
+                length_entry.selection_range(0, tk.END)
         else:
             return
         redraw()
@@ -415,17 +480,57 @@ def open_scale_dialog(
         canvas.xview_moveto(0.0)
         canvas.yview_moveto(0.0)
 
+    def on_cancel(_event=None):
+        if state["points"]:
+            if not messagebox.askyesno("Discard Changes", "Discard unsaved points?", parent=popup):
+                return
+        popup.destroy()
+
+    def on_apply_manual():
+        try:
+            val = float(manual_scale_var.get())
+            if val <= 0:
+                raise ValueError()
+            state["manual_mode_active"] = True
+            redraw()
+        except ValueError:
+            messagebox.showwarning("Manual Scale", "Please enter a valid positive number for pixels per mm.", parent=popup)
+
+    def on_clear_manual():
+        manual_scale_var.set("")
+        state["manual_mode_active"] = False
+        redraw()
+
     def on_set_scale(target_scope: str):
-        if len(state["points"]) != 2:
-            messagebox.showwarning("Set Scale", "Select exactly 2 points for scale bar.", parent=popup)
+        if state["manual_mode_active"]:
+            try:
+                manual_val = float(manual_scale_var.get())
+                if manual_val > 0:
+                    result["value"] = {
+                        "target_scope": str(target_scope),
+                        "px_per_mm": manual_val,
+                        "scale_points": [],  # No points for manual entry
+                        "axis_mode": "manual",
+                        "axis_lock": bool(axis_lock_var.get()),
+                        "refined_ok": False,
+                        "fallback": False,
+                    }
+                    popup.destroy()
+                    return
+            except (ValueError, TypeError):
+                pass
+            messagebox.showwarning("Set Scale", "Please enter a valid manual scale value.", parent=popup)
             return
-        mm_length = simpledialog.askfloat(
-            "Scale Length",
-            "Scale bar length (millimeters):",
-            minvalue=1e-9,
-            parent=popup,
-        )
-        if mm_length is None:
+
+        if len(state["points"]) != 2:
+            messagebox.showwarning("Set Scale", "Select exactly 2 points for scale bar, or enter a manual pixel value.", parent=popup)
+            return
+        try:
+            mm_length = float(mm_length_var.get())
+            if mm_length <= 0:
+                raise ValueError()
+        except ValueError:
+            messagebox.showwarning("Set Scale", "Please enter a valid positive number for length (mm).", parent=popup)
             return
         compute_preview()
         prev = state["preview"]
@@ -449,6 +554,32 @@ def open_scale_dialog(
         }
         popup.destroy()
 
+    popup.protocol("WM_DELETE_WINDOW", on_cancel)
+    popup.bind("<Escape>", on_cancel, add="+")
+
+    status_var = tk.StringVar(value="Step 1: Click on the image to place the first endpoint.")
+    
+    init_len = "1.0"
+    if initial_length_mm is not None:
+        try:
+            val = float(initial_length_mm)
+            if val > 0:
+                init_len = str(val)
+        except (ValueError, TypeError):
+            pass
+    mm_length_var = tk.StringVar(value=init_len)
+    
+    init_manual = ""
+    if initial_manual_px_per_mm is not None:
+        try:
+            val = float(initial_manual_px_per_mm)
+            if val > 0:
+                init_manual = f"{val:.6f}"
+        except (ValueError, TypeError):
+            pass
+    manual_scale_var = tk.StringVar(value=init_manual)
+    manual_scale_var.trace_add("write", lambda *args: redraw())
+
     canvas.bind("<Button-1>", on_click)
     canvas.bind("<B1-Motion>", on_drag)
     canvas.bind("<ButtonRelease-1>", on_release)
@@ -458,41 +589,91 @@ def open_scale_dialog(
     canvas.bind("<Button-5>", on_mouse_wheel)
     popup.focus_set()
     render_background()
-    redraw()
-    controls = ttk.Frame(shell, padding=(0, SPACING.inner, 0, 0), style="AppSurface.TFrame")
-    controls.grid(row=1, column=0, sticky="ew")
-    controls.columnconfigure(0, weight=1)
-    controls.columnconfigure(1, weight=1)
 
-    left_controls = ttk.Frame(controls, style="AppSurface.TFrame")
-    left_controls.grid(row=0, column=0, sticky="w")
-    ttk.Label(
-        left_controls,
-        text="Click to add/select points. Drag to move. Wheel zooms. Shift-drag or Space-drag pans.",
-        style="AppMeta.TLabel",
-    ).pack(side="left", padx=(0, SPACING.inner))
-    ttk.Button(left_controls, text="Undo", command=on_undo, **semantic_button_options("secondary")).pack(side="left", padx=(0, SPACING.gap))
-    ttk.Button(left_controls, text="Clear", command=on_clear, **semantic_button_options("secondary")).pack(side="left", padx=(0, SPACING.gap))
+    # 1. Right-side Toolbar
+    side = ttk.Frame(body, width=270, style="AppSurface.TFrame")
+    side.grid(row=0, column=1, sticky="ns")
+    side.grid_propagate(False)
+
+    # Manual Entry Section (Top)
+    ttk.Label(side, text="MANUAL SCALE ENTRY", style="AppSectionTitle.TLabel").pack(anchor="w", pady=(0, 2))
+    
+    manual_input_frame = ttk.Frame(side, style="AppSurface.TFrame")
+    manual_input_frame.pack(fill="x", pady=(0, 2))
+    ttk.Label(manual_input_frame, text="Pixels per mm:", style="AppSurfaceMeta.TLabel").pack(side="left")
+    manual_entry = ttk.Entry(manual_input_frame, textvariable=manual_scale_var, width=12, style="AppCompact.TEntry")
+    manual_entry.pack(side="left", padx=(SPACING.gap, 0))
+    
+    manual_btns_frame = ttk.Frame(side, style="AppSurface.TFrame")
+    manual_btns_frame.pack(fill="x", pady=(SPACING.gap, 0))
+    ttk.Button(manual_btns_frame, text="Apply Manual", command=on_apply_manual, **semantic_button_options("secondary")).pack(side="left", padx=(0, SPACING.gap))
+    ttk.Button(manual_btns_frame, text="Clear", command=on_clear_manual, **semantic_button_options("secondary")).pack(side="left")
+    
+    ttk.Label(side, text="(Overrides points when applied)", style="AppMicro.TLabel").pack(anchor="w", pady=(2, 0))
+
+    ttk.Separator(side, orient="horizontal").pack(fill="x", pady=SPACING.inner)
+
+    # Point-Based Scale Section (Middle)
+    ttk.Label(side, text="POINT-BASED SCALE", style="AppSectionTitle.TLabel").pack(anchor="w", pady=(0, 2))
+    
+    config_frame = ttk.Frame(side, style="AppSurface.TFrame")
+    config_frame.pack(fill="x", pady=(0, SPACING.inner))
+    
+    ttk.Label(config_frame, text="Length (mm):", style="AppSurfaceMeta.TLabel").pack(anchor="w")
+    length_entry = ttk.Entry(config_frame, textvariable=mm_length_var, width=12, style="AppCompact.TEntry")
+    length_entry.pack(anchor="w", pady=(2, SPACING.gap))
+    
+    axis_lock_check = ttk.Checkbutton(config_frame, text="Axis Lock", variable=axis_lock_var, command=redraw, style="AppSurface.TCheckbutton")
+    axis_lock_check.pack(anchor="w")
+
+    # History controls
+    history_frame = ttk.Frame(side, style="AppSurface.TFrame")
+    history_frame.pack(fill="x", pady=(SPACING.inner, 0))
+    btn_undo = ttk.Button(history_frame, text="Undo Last Point", command=on_undo, **semantic_button_options("secondary"))
+    btn_undo.pack(fill="x", pady=(0, SPACING.gap))
+    btn_clear = ttk.Button(history_frame, text="Clear All Points", command=on_clear, **semantic_button_options("secondary"))
+    btn_clear.pack(fill="x")
+    
     if callable(pick_image_callback):
-        ttk.Button(left_controls, text="Change Image", command=on_change_image, **semantic_button_options("secondary")).pack(side="left", padx=(0, SPACING.gap))
-    ttk.Checkbutton(left_controls, text="Axis Lock", variable=axis_lock_var, command=redraw).pack(side="left", padx=(SPACING.inner, 0))
+        ttk.Button(side, text="Change Image", command=on_change_image, **semantic_button_options("secondary")).pack(fill="x", pady=(SPACING.inner, 0))
 
-    right_controls = ttk.Frame(controls, style="AppSurface.TFrame")
-    right_controls.grid(row=0, column=1, sticky="e")
-    ttk.Button(right_controls, text="Cancel", command=popup.destroy, **semantic_button_options("secondary")).pack(side="right")
+    # Zoom controls (matching ROI dialog style)
+    zoom_row = ttk.Frame(side, style="AppSurface.TFrame")
+    zoom_row.pack(fill="x", pady=(SPACING.outer, 0))
+    ttk.Button(zoom_row, text="Zoom In", width=10, command=zoom_in, **semantic_button_options("secondary")).pack(side="left", padx=(0, SPACING.gap))
+    ttk.Button(zoom_row, text="Zoom Out", width=10, command=zoom_out, **semantic_button_options("secondary")).pack(side="left", padx=(0, SPACING.gap))
+    ttk.Button(zoom_row, text="Fit", width=5, command=reset_view, **semantic_button_options("secondary")).pack(side="left")
+
+    # 2. Bottom Action Bar
+    actions = ttk.Frame(shell, style="AppShell.TFrame")
+    actions.grid(row=2, column=0, sticky="ew", pady=(SPACING.inner, 0))
+    
+    ttk.Button(actions, text="Cancel", command=on_cancel, **semantic_button_options("secondary")).pack(side="right")
+    
+    save_targets = _scale_save_actions(context, allow_reset_local)
+    for scope, label, kind in reversed(save_targets):
+        btn = ttk.Button(
+            actions, 
+            text=label, 
+            command=lambda s=scope: on_set_scale(s), 
+            **semantic_button_options(kind)
+        )
+        btn.pack(side="right", padx=(0, SPACING.gap))
+        if scope == "local":
+            btn_set_local = btn
+        elif scope == "global":
+            btn_set_global = btn
+
     if bool(allow_reset_local):
         ttk.Button(
-            right_controls,
+            actions,
             text="Use Global Scale",
             command=lambda: (result.__setitem__("value", {"target_scope": "reset_local_scale"}), popup.destroy()),
             **semantic_button_options("secondary"),
         ).pack(side="right", padx=(0, SPACING.gap))
-    ttk.Button(right_controls, text="Set Local Scale", command=lambda: on_set_scale("local"), **semantic_button_options("secondary")).pack(
-        side="right", padx=(0, SPACING.gap)
-    )
-    ttk.Button(right_controls, text="Set Global Scale", command=lambda: on_set_scale("global"), **semantic_button_options("primary")).pack(
-        side="right", padx=(0, SPACING.gap)
-    )
+
+    # Initialize UI state
+    redraw()
     popup.bind("<KeyPress-space>", set_space_pan_active, add="+")
     popup.bind("<space>", set_space_pan_active, add="+")
     popup.bind("<KeyRelease-space>", clear_space_pan_active, add="+")
@@ -509,7 +690,7 @@ def open_scale_dialog(
     except Exception:
         pass
 
-    center_window_on_screen(popup, width=1080, height=860)
+    center_window_on_screen(popup, width=1120, height=820)
     popup.deiconify()
     popup.grab_set()
     popup.wait_window()

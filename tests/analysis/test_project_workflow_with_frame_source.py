@@ -98,6 +98,7 @@ class ProjectWorkflowFrameSourceTests(unittest.TestCase):
             scale_axis_lock=False,
             scale_image_path="/tmp/scale-ref.png",
             roi_points=[],
+            roi_polygons=[],
             roi_mask=None,
             fingerprint_mismatches=[],
         )
