@@ -18,6 +18,10 @@ All notable changes to this project are documented in this file.
 ### Model/checkpoint compatibility
 - No checkpoint format or project schema bump in this release; existing managed and local SAM2 model selections remain compatible.
 
+### Platform/backend limitations
+- No platform-specific regressions are known from the automated suite.
+- DC trace controller and host window controller received minor fixes to align with the updated auto-detect and analysis launch flows.
+
 ### .sdproj/migration notes
 - No `.sdproj` schema version bump is required; existing projects remain loadable.
 - `_save_project_after_metrics_apply` now persists project state immediately after metrics are applied from the host window, reducing the chance of unsaved metric changes.
