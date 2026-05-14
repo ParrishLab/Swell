@@ -19,6 +19,8 @@ from sdapp.shared.frame_source.launch_preparation import build_launch_preparatio
 from sdapp.shared.menu.factory import build_shared_menu
 from sdapp.shared.ui import BackgroundTaskRunner
 from sdapp.shared.ui.bootstrap import center_window_on_screen as center_window, semantic_button_options, ttk
+from sdapp.shared.diagnostics import OpenPerfTrace, get_active as get_active_trace, set_active as set_active_trace, stage as perf_stage
+from sdapp.shared.frame_source.preprocessing import compute_visualization_stats_for_preview
 
 
 class AnalysisLaunchController:
@@ -40,7 +42,8 @@ class AnalysisLaunchController:
         cached = getattr(self.app, "_analysis_app_class_cache", None)
         if cached is not None:
             return cached
-        from sdapp.analysis.app import SDSegmentationApp
+        with perf_stage("load_analysis_app_class.import"):
+            from sdapp.analysis.app import SDSegmentationApp
 
         self.app._analysis_app_class_cache = SDSegmentationApp
         return SDSegmentationApp
@@ -213,6 +216,18 @@ class AnalysisLaunchController:
             apply_global_normalization=apply_global_normalization,
             apply_stabilization=apply_stabilization,
         )
+        with perf_stage("prepare_launch_preview.prepared_source.prepare"):
+            stats = compute_visualization_stats_for_preview(
+                scoped_source,
+                preview_scale=0.25,
+                baseline_frames=max(1, int(baseline_pre_frames)),
+                apply_horizontal_bar_denoise=bool(apply_horizontal_bar_denoise),
+                apply_smoothing=bool(apply_smoothing),
+                apply_baseline_subtraction=bool(apply_baseline_subtraction),
+                apply_global_normalization=bool(apply_global_normalization),
+                apply_stabilization=bool(apply_stabilization),
+                should_cancel=should_cancel,
+            )
         prepared_source = PreparedFrameSource(
             scoped_source,
             baseline_frames=max(1, int(baseline_pre_frames)),
@@ -221,11 +236,12 @@ class AnalysisLaunchController:
             apply_baseline_subtraction=bool(apply_baseline_subtraction),
             apply_global_normalization=bool(apply_global_normalization),
             apply_stabilization=bool(apply_stabilization),
+            stats=stats,
         )
-        stats = prepared_source.prepare(should_cancel=should_cancel)
-        raw_frame = prepared_source.get_raw_frame(local_frame_idx)
-        sub_frame = prepared_source.get_subtracted_frame(local_frame_idx)
-        frame_u8 = prepared_source.get_visual_frame(local_frame_idx)
+        with perf_stage("prepare_launch_preview.render_frames"):
+            raw_frame = prepared_source.get_raw_frame(local_frame_idx)
+            sub_frame = prepared_source.get_subtracted_frame(local_frame_idx)
+            frame_u8 = prepared_source.get_visual_frame(local_frame_idx)
         log_debug = getattr(self.app, "_log_debug", None)
         message = (
             f"Analysis launch preview elapsed={(time.perf_counter() - started) * 1000.0:.1f}ms "
@@ -259,7 +275,7 @@ class AnalysisLaunchController:
         dialog.title(f"Open Analysis Options - {self._event_display_name(str(event_id))}")
         dialog.transient(self.app.root)
         dialog.resizable(False, False)
-        dialog.geometry("760x560")
+        dialog.geometry("640x500")
         apply_theme(dialog)
 
         shell = ttk.Frame(dialog, padding=SPACING.outer, style="AppShell.TFrame")
@@ -320,11 +336,11 @@ class AnalysisLaunchController:
         preview_body.pack(fill="both", expand=True)
         preview_label = ttk.Label(preview_body, anchor="center", style="Card.TLabel")
         preview_label.pack(fill="both", expand=True)
-        preview_label.configure(text="Loading preview...")
+        preview_label.configure(text="Click 'Show Preview' to compute a preview.")
 
         footer = ttk.Frame(shell, style="AppShell.TFrame")
         footer.pack(fill="x", pady=(8, 0))
-        status_var = tk.StringVar(value="Preparing exact preview...")
+        status_var = tk.StringVar(value="Adjust settings, then click 'Show Preview'.")
         ttk.Label(footer, textvariable=status_var, style="AppMeta.TLabel").pack(side="left")
 
         result: dict[str, object] = {"ok": False}
@@ -400,21 +416,22 @@ class AnalysisLaunchController:
             apply_stabilization = bool(stabilize_var.get())
 
             def _worker() -> dict[str, object] | None:
-                try:
-                    return self._prepare_analysis_launch_preview(
-                        event_id=str(event_id),
-                        event_start=int(event_start),
-                        event_end=int(event_end),
-                        baseline_pre_frames=int(baseline_count),
-                        apply_horizontal_bar_denoise=apply_horizontal_bar_denoise,
-                        apply_smoothing=apply_smoothing,
-                        apply_baseline_subtraction=apply_subtraction,
-                        apply_global_normalization=apply_normalization,
-                        apply_stabilization=apply_stabilization,
-                        should_cancel=lambda g=generation: bool(state.get("closed")) or int(state.get("generation", 0)) != int(g),
-                    )
-                except VisualizationCancelled:
-                    return None
+                with perf_stage(f"options_dialog.preview_refresh#{generation}"):
+                    try:
+                        return self._prepare_analysis_launch_preview(
+                            event_id=str(event_id),
+                            event_start=int(event_start),
+                            event_end=int(event_end),
+                            baseline_pre_frames=int(baseline_count),
+                            apply_horizontal_bar_denoise=apply_horizontal_bar_denoise,
+                            apply_smoothing=apply_smoothing,
+                            apply_baseline_subtraction=apply_subtraction,
+                            apply_global_normalization=apply_normalization,
+                            apply_stabilization=apply_stabilization,
+                            should_cancel=lambda g=generation: bool(state.get("closed")) or int(state.get("generation", 0)) != int(g),
+                        )
+                    except VisualizationCancelled:
+                        return None
 
             def _on_preview(payload: dict[str, object] | None) -> None:
                 if not isinstance(payload, dict):
@@ -437,10 +454,14 @@ class AnalysisLaunchController:
                     pass
             state["debounce_after_id"] = dialog.after(80, _refresh_preview)
 
+        def _mark_preview_stale(*_args) -> None:
+            if state.get("launch_preparation") is not None:
+                status_var.set("Settings changed — click 'Show Preview' to update.")
+
         for var in (bar_denoise_var, smoothing_var, subtract_var, normalize_var, stabilize_var):
-            var.trace_add("write", lambda *_args: _schedule_preview_refresh())
+            var.trace_add("write", _mark_preview_stale)
         for evt in ("<KeyRelease>", "<FocusOut>", "<Return>", "<MouseWheel>", "<ButtonRelease-1>"):
-            baseline_entry.bind(evt, lambda _e: _schedule_preview_refresh())
+            baseline_entry.bind(evt, lambda _e: _mark_preview_stale())
 
         buttons = ttk.Frame(shell, style="AppShell.TFrame")
         buttons.pack(fill="x", pady=(8, 0))
@@ -486,15 +507,44 @@ class AnalysisLaunchController:
 
         ttk.Button(buttons, text="Cancel", command=_cancel, **semantic_button_options("secondary")).pack(side="right")
         ttk.Button(buttons, text="Open Analysis", command=_open, **semantic_button_options("primary")).pack(side="right", padx=(0, 8))
+        ttk.Button(buttons, text="Show Preview", command=_refresh_preview, **semantic_button_options("secondary")).pack(side="left")
 
-        self.center_window_on_screen(dialog, width=760, height=560)
+        self.center_window_on_screen(dialog, width=640, height=500)
         dialog.deiconify()
         dialog.grab_set()
-        _schedule_preview_refresh()
         self.app.root.wait_window(dialog)
         return result if bool(result.get("ok")) else None
 
     def analyze_selected_event(self) -> None:
+        trace = OpenPerfTrace(label="analysis_window")
+        set_active_trace(trace)
+        self.app._open_perf_trace = trace
+        dumped = {"done": False}
+
+        def _dump_trace(reason: str) -> None:
+            if dumped["done"]:
+                return
+            dumped["done"] = True
+            try:
+                trace.annotate(outcome=reason)
+                log_fn = getattr(self.app, "_log_info", None)
+                if callable(log_fn):
+                    trace.dump(log_fn)
+            except Exception:
+                pass
+            finally:
+                if get_active_trace() is trace:
+                    set_active_trace(None)
+                if getattr(self.app, "_open_perf_trace", None) is trace:
+                    self.app._open_perf_trace = None
+
+        try:
+            return self._analyze_selected_event_inner(trace, _dump_trace)
+        except Exception:
+            _dump_trace("error")
+            raise
+
+    def _analyze_selected_event_inner(self, trace: OpenPerfTrace, _dump_trace) -> None:
         model_setup = self.app._get_model_setup_controller()
         allowed, reason = model_setup.is_analysis_allowed()
         if not allowed:
@@ -509,10 +559,12 @@ class AnalysisLaunchController:
             )
             if open_manager:
                 model_setup.open_model_manager(required=False)
+            _dump_trace("model_setup_required")
             return
 
         if self.app.reader is None or self.app.stack_info is None:
             self.app._show_warning("Open Analysis", "Load a stack first.")
+            _dump_trace("no_stack_loaded")
             return
         active_event_id = self.app._active_event_id()
         if active_event_id is None:
@@ -524,6 +576,7 @@ class AnalysisLaunchController:
                 parent=self.app.root,
             )
             if not open_full_stack:
+                _dump_trace("declined_full_stack")
                 return
             try:
                 full_stack_event = self.app.browser_controller.ensure_full_stack_analysis_event(
@@ -531,6 +584,7 @@ class AnalysisLaunchController:
                 )
             except Exception as exc:
                 self.app._show_warning("Open Analysis", f"Unable to prepare full-stack event:\n{exc}")
+                _dump_trace("full_stack_event_error")
                 return
             active_event_id = str(full_stack_event.event_id)
 
@@ -538,17 +592,20 @@ class AnalysisLaunchController:
         active_event_name = self._event_display_name(str(active_event_id))
         if self.app.analysis_window_manager.focus_event_window(window_scope, active_event_id):
             self.app._set_status(f"Focused analysis workspace for {active_event_name}.")
+            _dump_trace("refocused_existing_window")
             return
 
         frame_source = self.app.browser_controller.get_frame_source()
         if frame_source is None:
             self.app._show_warning("Open Analysis", "No host frame source is available for analysis.")
+            _dump_trace("no_frame_source")
             return
 
         try:
             context = self.app.browser_controller.host_context_for_event(active_event_id)
         except Exception as exc:
             self.app._show_warning("Open Analysis", f"Unable to prepare host context:\n{exc}")
+            _dump_trace("host_context_error")
             return
 
         mismatch_result = model_setup.resolve_project_model_mismatch(context.get("project_metadata"))
@@ -564,6 +621,7 @@ class AnalysisLaunchController:
                     "Open Analysis",
                     str(mismatch_result.get("message", "Model mismatch must be resolved before opening analysis.")),
                 )
+            _dump_trace(f"model_mismatch:{action}")
             return
         context["model_context"] = model_setup.build_host_model_context()
 
@@ -571,13 +629,15 @@ class AnalysisLaunchController:
         flags = dict(event_payload.get("flags", {}))
         event_start = int(event_payload.get("start_idx", 0))
         event_end = int(event_payload.get("end_idx", event_start))
-        options = self.prompt_analysis_open_options(
-            event_id=str(active_event_id),
-            event_start=event_start,
-            event_end=event_end,
-        )
+        with perf_stage("prompt_analysis_open_options"):
+            options = self.prompt_analysis_open_options(
+                event_id=str(active_event_id),
+                event_start=event_start,
+                event_end=event_end,
+            )
         if options is None:
             self.app._log_info("Open Analysis canceled from options dialog.")
+            _dump_trace("canceled_from_options")
             return
         baseline_pre = int(max(1, int(options.get("baseline_pre_frames", self.app.baseline_pre_frames))))
         self.app.baseline_pre_frames = baseline_pre
@@ -608,8 +668,11 @@ class AnalysisLaunchController:
             win.withdraw()
             win.title(f"Open Analysis - {active_event_name}")
 
-            analysis_app = app_cls(win, menu_builder=build_shared_menu, menu_mode="analysis", host_mode=True)
-            open_result = analysis_app.open_from_host_context(
+            with perf_stage("SDSegmentationApp.__init__"):
+                analysis_app = app_cls(win, menu_builder=build_shared_menu, menu_mode="analysis", host_mode=True)
+            analysis_app._open_perf_trace = trace
+            with perf_stage("analysis_app.open_from_host_context"):
+                open_result = analysis_app.open_from_host_context(
                 context,
                 frame_source=frame_source,
                 host_context_for_event=self.app.browser_controller.host_context_for_event,
@@ -631,10 +694,13 @@ class AnalysisLaunchController:
                 message = str(open_result.get("message", "Unknown open error."))
                 win.destroy()
                 self.app._show_warning("Open Analysis", f"Open failed ({code}).\n{message}")
+                _dump_trace(f"open_failed:{code}")
                 return
             self.center_window_on_screen(win)
             win.deiconify()
+            trace.mark("window_visible")
             win.after_idle(lambda w=win: self.center_window_on_screen(w))
+            win.after_idle(lambda: (trace.mark("after_idle"), _dump_trace("ok")))
             self.app.analysis_window_manager.open_event_window(window_scope, active_event_id, win, analysis_app)
             self.app._analysis_windows.append((win, analysis_app))
 
@@ -658,6 +724,7 @@ class AnalysisLaunchController:
         except Exception as exc:
             self.app._log_error(f"Open Analysis failed: {exc}")
             self.app._show_warning("Open Analysis", f"Failed to open analysis workspace:\n{exc}")
+            _dump_trace("exception")
 
     @staticmethod
     def center_window_on_screen(window, *, width: int | None = None, height: int | None = None) -> None:

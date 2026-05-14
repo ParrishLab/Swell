@@ -115,6 +115,31 @@ class HostWindowController:
         if callable(refresher):
             refresher()
 
+    def _save_project_after_metrics_apply(self) -> bool:
+        project_path = str(getattr(self.app, "current_project_path", "") or "").strip()
+        if not project_path:
+            self.app._show_warning(
+                "Open Metrics",
+                "Metrics were updated in memory, but no .sdproj path is set. Save the project once, then apply metrics again.",
+            )
+            self.app._set_status("Metrics updated; project not saved.")
+            return False
+        try:
+            state = self.app.save_host_session(project_path)
+        except Exception as exc:
+            self.app._show_warning("Open Metrics", f"Metrics were updated, but the project save failed:\n{exc}")
+            self.app._set_status("Metrics updated; project save failed.")
+            return False
+        saved_path = str(getattr(state, "project_path", "") or project_path)
+        self.app.current_project_path = saved_path
+        try:
+            self.app.browser_controller.session.set_project_path(saved_path)
+        except Exception:
+            pass
+        self.app._log_info(f"Saved project after metrics update: {saved_path}.")
+        self.app._set_status(f"Global metrics defaults updated and saved: {Path(saved_path).name}")
+        return True
+
     def _propagation_gap_event_name(self, payload: dict[str, object]) -> str:
         event_label = str(payload.get("event_label", "") or "").strip()
         if event_label:
@@ -427,7 +452,7 @@ class HostWindowController:
         dialog.title("Export Options")
         dialog.transient(self.app.root)
         dialog.resizable(False, False)
-        dialog.geometry("760x620")
+        dialog.geometry("680x560")
         apply_theme(dialog)
 
         include_event_var = tk.BooleanVar(value=True)
@@ -643,7 +668,7 @@ class HostWindowController:
         ttk.Button(buttons, text="Cancel", command=_cancel, **semantic_button_options("secondary")).pack(side="right")
         ttk.Button(buttons, text="Export", command=_confirm, **semantic_button_options("primary")).pack(side="right", padx=(0, 8))
         dialog.protocol("WM_DELETE_WINDOW", _cancel)
-        self.center_window_on_screen(dialog, width=760, height=620)
+        self.center_window_on_screen(dialog, width=680, height=560)
         dialog.deiconify()
         dialog.grab_set()
         dialog.wait_window()
@@ -867,7 +892,7 @@ class HostWindowController:
         dialog.title("Open Metrics")
         dialog.transient(self.app.root)
         dialog.resizable(False, False)
-        dialog.geometry("720x320")
+        dialog.geometry("560x260")
         apply_theme(dialog)
         self.app._open_metrics_dialog = dialog
 
@@ -1065,6 +1090,8 @@ class HostWindowController:
                 )
             else:
                 self.app._log_info("Updated global metrics defaults.")
+            if not self._save_project_after_metrics_apply():
+                return
             dialog.destroy()
 
         ttk.Button(actions, text="Cancel", command=_cancel, **semantic_button_options("secondary")).pack(side="right")
@@ -1076,7 +1103,7 @@ class HostWindowController:
                 self.app._refresh_open_metrics_dialog = None
 
         dialog.bind("<Destroy>", _on_destroy)
-        self.center_window_on_screen(dialog, width=720, height=320)
+        self.center_window_on_screen(dialog, width=560, height=260)
         dialog.deiconify()
         dialog.grab_set()
         dialog.wait_window()

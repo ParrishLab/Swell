@@ -85,3 +85,22 @@ def test_new_project_dialog_is_parented_to_root(monkeypatch) -> None:
 
     assert calls.get("parent") is app.root
     assert calls.get("mustexist") is True
+
+
+def test_new_project_marks_modal_depth_while_picker_is_open(monkeypatch) -> None:
+    app = _app_stub()
+    app._host_modal_dialog_depth = 0
+    controller = HostProjectLifecycleController(app)
+    depths: list[int] = []
+
+    monkeypatch.setattr(controller, "prepare_context_switch", lambda: False)
+
+    def _fake_askdirectory(**_kwargs):
+        depths.append(int(app._host_modal_dialog_depth))
+        return "/tmp/input"
+
+    with patch("sdapp.host.controllers.project_lifecycle_controller.filedialog.askdirectory", side_effect=_fake_askdirectory):
+        controller.new_project()
+
+    assert depths == [1]
+    assert app._host_modal_dialog_depth == 0

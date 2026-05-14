@@ -48,6 +48,7 @@ from sdapp.analysis.core.viewport import (
     zoom_viewport_at,
 )
 from sdapp.shared.app_metadata import format_window_title
+from sdapp.shared.diagnostics import stage as perf_stage
 from sdapp.analysis.controllers import (
     AnalysisHostModeController,
     AnalysisModelController,
@@ -199,7 +200,8 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         self.mask_import_dialog = MaskImportDialogService()
         self.autosave_manager = None
 
-        self.setup_ui()
+        with perf_stage("SDSegmentationApp.setup_ui"):
+            self.setup_ui()
         self.window_controller = AnalysisWindowController(self)
         self.host_mode_controller = AnalysisHostModeController(self)
         self.model_controller = AnalysisModelController(self)
@@ -225,8 +227,9 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
             self.root.after(0, self._emit_optional_runtime_dependency_warnings)
         else:
             self._emit_optional_runtime_dependency_warnings()
-        self.inference_manager = InferenceManager(
-            state=self.seg_state,
+        with perf_stage("SDSegmentationApp.InferenceManager.__init__"):
+            self.inference_manager = InferenceManager(
+                state=self.seg_state,
             root=self.root,
             predictor_lock=self.predictor_lock,
             get_sensitivity=lambda: float(self.sensitivity.get()),
@@ -351,7 +354,8 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
             self.entry_frames_per_sec.bind("<Return>", self._on_frames_per_sec_commit, add="+")
         self._refresh_metrics_status_labels()
         self._set_data_controls_enabled(False)
-        self.inference_manager.start()
+        with perf_stage("SDSegmentationApp.inference_manager.start"):
+            self.inference_manager.start()
 
     def _ensure_menu_bar_bound(self, _event=None) -> None:
         menu = getattr(self, "_menu_bar", None)

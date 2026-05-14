@@ -73,6 +73,8 @@ class SDAnalyzerApp:
         self.model_setup_controller = HostModelSetupController(self)
         self.dc_trace_controller = HostDCTraceController(self)
         self.auto_detect_controller = AutoDetectController(self)
+        self._host_modal_dialog_depth = 0
+        self._startup_preflight_completed = False
         self.config = AppConfig.load()
         self.current_event_id: str | None = None
         self.current_frame_idx = 0
@@ -126,7 +128,7 @@ class SDAnalyzerApp:
         if initial_project_path:
             self.root.after(0, lambda p=str(initial_project_path): self.open_project_request(p))
         self._schedule_periodic_cache_gc()
-        self.root.after(0, self._run_model_startup_preflight)
+        self.root.after(250, self._run_model_startup_preflight)
 
     def _resource_root(self) -> Path:
         return Path(__file__).resolve().parents[1] / "resources"
@@ -219,20 +221,24 @@ class SDAnalyzerApp:
 
         nav_row = ttk.Frame(viewer_shell, style="AppSurface.TFrame")
         nav_row.grid(row=3, column=0, sticky="ew")
-        for column in range(4):
-            nav_row.columnconfigure(column, weight=1)
-        ttk.Button(nav_row, text="Prev", command=lambda: self._step_preview(-1), **semantic_button_options("secondary")).grid(
+        # Autodetect is half the size of the other buttons.
+        nav_row.columnconfigure(0, weight=1)
+        for column in range(1, 4):
+            nav_row.columnconfigure(column, weight=2)
+
+        ttk.Button(nav_row, text="Autodetect", command=self.auto_detect_controller.start, **semantic_button_options("secondary")).grid(
             row=0,
             column=0,
             sticky="ew",
+            padx=(0, SPACING.gap),
         )
-        ttk.Button(nav_row, text="Mark SD", command=self._mark_sd, **semantic_button_options("primary")).grid(
+        ttk.Button(nav_row, text="Prev", command=lambda: self._step_preview(-1), **semantic_button_options("secondary")).grid(
             row=0,
             column=1,
             sticky="ew",
-            padx=(SPACING.gap, SPACING.gap),
+            padx=(0, SPACING.gap),
         )
-        ttk.Button(nav_row, text="Auto-detect", command=self.auto_detect_controller.start, **semantic_button_options("secondary")).grid(
+        ttk.Button(nav_row, text="Mark SD", command=self._mark_sd, **semantic_button_options("primary")).grid(
             row=0,
             column=2,
             sticky="ew",
@@ -947,7 +953,18 @@ class SDAnalyzerApp:
         self._get_analysis_launch_controller().analyze_selected_event()
 
     def _run_model_startup_preflight(self) -> None:
-        self._get_model_setup_controller().run_startup_preflight()
+        if bool(getattr(self, "_startup_preflight_completed", False)):
+            return
+        if int(getattr(self, "_host_modal_dialog_depth", 0) or 0) > 0:
+            try:
+                self.root.after(250, self._run_model_startup_preflight)
+            except Exception:
+                pass
+            return
+        try:
+            self._get_model_setup_controller().run_startup_preflight()
+        finally:
+            self._startup_preflight_completed = True
 
     def _refresh_model_gate_ui(self) -> None:
         btn = getattr(self, "btn_open_analysis", None)

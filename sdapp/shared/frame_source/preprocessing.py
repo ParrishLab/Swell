@@ -350,6 +350,69 @@ def compute_visualization_stats(
     )
 
 
+def compute_visualization_stats_for_preview(
+    frame_source,
+    *,
+    preview_scale: float = 0.25,
+    baseline_frames: int = 30,
+    apply_horizontal_bar_denoise: bool = False,
+    apply_smoothing: bool = True,
+    apply_baseline_subtraction: bool = True,
+    apply_global_normalization: bool = True,
+    apply_stabilization: bool = False,
+    should_cancel=None,
+    progress_callback=None,
+) -> VisualizationStats:
+    """Like compute_visualization_stats but operates at reduced resolution for speed.
+
+    Stats are computed on a downsampled copy of the source; the baseline array is
+    then upsampled back to the original frame shape so the result is a drop-in
+    replacement for full-res stats in PreparedFrameSource.
+    """
+    from sdapp.shared.frame_source.downsampled import DownsampledFrameSource
+
+    scale = max(0.01, min(1.0, float(preview_scale)))
+    original_shape = tuple(int(v) for v in tuple(getattr(frame_source, "frame_shape", (0, 0)))[:2])
+
+    if scale >= 1.0 or original_shape[0] <= 0 or original_shape[1] <= 0:
+        return compute_visualization_stats(
+            frame_source,
+            baseline_frames=baseline_frames,
+            apply_horizontal_bar_denoise=apply_horizontal_bar_denoise,
+            apply_smoothing=apply_smoothing,
+            apply_baseline_subtraction=apply_baseline_subtraction,
+            apply_global_normalization=apply_global_normalization,
+            apply_stabilization=apply_stabilization,
+            should_cancel=should_cancel,
+            progress_callback=progress_callback,
+        )
+
+    downsampled = DownsampledFrameSource(frame_source, scale=scale)
+    stats = compute_visualization_stats(
+        downsampled,
+        baseline_frames=baseline_frames,
+        apply_horizontal_bar_denoise=apply_horizontal_bar_denoise,
+        apply_smoothing=apply_smoothing,
+        apply_baseline_subtraction=apply_baseline_subtraction,
+        apply_global_normalization=apply_global_normalization,
+        apply_stabilization=apply_stabilization,
+        should_cancel=should_cancel,
+        progress_callback=progress_callback,
+    )
+
+    # Upsample baseline back to original resolution so the stats are usable for
+    # full-res frame rendering without shape mismatches.
+    if stats.baseline is not None:
+        oh, ow = original_shape
+        stats.baseline = cv2.resize(
+            np.asarray(stats.baseline, dtype=np.float32),
+            (ow, oh),
+            interpolation=cv2.INTER_LINEAR,
+        ).astype(np.float32)
+    stats.frame_shape = original_shape
+    return stats
+
+
 def render_visualization_frame(
     frame_source,
     frame_idx: int,

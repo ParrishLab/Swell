@@ -2,6 +2,31 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.1.7] - 2026-05-14
+
+### Auto-detect and ROI improvements
+- Overhauled the auto-detect window with a dual-pane overview/detail timeline, interactive ROI selection, grid opacity control, and per-cell border rendering for clearer event visualization.
+- Added incremental algorithm rerun scheduling so parameter changes (scale, opacity, ROI) trigger a debounced re-evaluation without blocking the UI.
+- Active-cell overlay and cell-border rendering are now cached by pipeline generation, avoiding redundant recomputation across frame scrubs.
+- Exporter now selects ROI-scoped speed metrics when an ROI is defined, falling back to full-frame metrics otherwise.
+
+### Performance
+- Added `DownsampledFrameSource` (`sdapp/shared/frame_source/downsampled.py`) and `compute_visualization_stats_for_preview` to compute visualization stats at 0.25× resolution during the analysis-launch preview, then upsample the baseline back to full resolution — significantly reducing preview wait time on large stacks.
+- Added `sdapp/shared/diagnostics/` with `OpenPerfTrace`: a lightweight wall-clock stage/mark tracer for the analysis-window open path. Traces are dumped to the app log on completion and silently discarded on failure.
+- Analysis launch flow now wraps the full open sequence in a perf trace, attributing time to import, preview preparation, frame rendering, and options-dialog interactions.
+
+### Model/checkpoint compatibility
+- No checkpoint format or project schema bump in this release; existing managed and local SAM2 model selections remain compatible.
+
+### .sdproj/migration notes
+- No `.sdproj` schema version bump is required; existing projects remain loadable.
+- `_save_project_after_metrics_apply` now persists project state immediately after metrics are applied from the host window, reducing the chance of unsaved metric changes.
+
+### Known segmentation caveats/regressions
+- No new release-blocking segmentation regressions are known from the automated suite (708 tests pass).
+- SAM2 post-processing/native extension availability may still vary by environment.
+- Auto-update behavior still depends on platform packaging/signing state; validate against final signed release artifacts.
+
 ## [0.1.6] - 2026-04-02
 
 ### UI overhaul

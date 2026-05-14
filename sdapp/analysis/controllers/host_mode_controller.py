@@ -7,6 +7,7 @@ from sdapp.analysis.core.frame_source import FrameSequenceView
 from sdapp.shared.frame_source import EventScopedFrameSource, PreparedFrameSource
 from sdapp.shared.frame_source.launch_preparation import build_launch_preparation_cache_key
 from sdapp.shared.services import MODEL_CHECKPOINT_METADATA_KEY
+from sdapp.shared.diagnostics import stage as perf_stage
 
 
 class AnalysisHostModeController:
@@ -468,8 +469,13 @@ class AnalysisHostModeController:
                 finalize()
         if hasattr(self.app, "_reset_viewport_to_fit"):
             self.app._reset_viewport_to_fit(update_display=False)
+        def _first_display_update() -> None:
+            trace = getattr(self.app, "_open_perf_trace", None)
+            if trace is not None:
+                trace.mark("first_display_update")
+            self.app.update_display(update_preview=True)
         if hasattr(self.app.root, "after_idle"):
-            self.app.root.after_idle(lambda: self.app.update_display(update_preview=True))
+            self.app.root.after_idle(_first_display_update)
         self.app.root.after(120, lambda: self.app.update_display(update_preview=True))
         self._log_overlay_snapshot("after_host_open_finalize")
         self.app.log_debug("HostMode", "Host-open finalize complete.")
@@ -477,6 +483,10 @@ class AnalysisHostModeController:
         self._set_host_open_status("Host-bound mode (project managed by SD ID)")
 
     def prepare_host_mode_buffers(self, frame_source, on_ready_message: str | None = None, prefer_async: bool = False):
+        with perf_stage("prepare_host_mode_buffers"):
+            return self._prepare_host_mode_buffers_impl(frame_source, on_ready_message, prefer_async)
+
+    def _prepare_host_mode_buffers_impl(self, frame_source, on_ready_message: str | None = None, prefer_async: bool = False):
         if not hasattr(self.app, "_host_buffer_cache_key"):
             self.app._host_buffer_cache_key = None
         frame_count = int(getattr(frame_source, "frame_count", 0) or 0)
@@ -574,32 +584,35 @@ class AnalysisHostModeController:
             prepared_stats = launch_preparation.get("stats")
 
         def _build_prepared_source() -> PreparedFrameSource:
-            started = time.perf_counter()
-            if reusable_prepared_source is not None:
+            with perf_stage("host_mode.build_prepared_source"):
+                started = time.perf_counter()
+                if reusable_prepared_source is not None:
+                    self.app.log_debug(
+                        "Perf",
+                        f"Host buffer reuse elapsed={(time.perf_counter() - started) * 1000.0:.1f}ms frames={frame_count}",
+                    )
+                    return reusable_prepared_source
+                prepared_source = PreparedFrameSource(
+                    frame_source,
+                    baseline_frames=max(1, int(baseline_count)),
+                    apply_horizontal_bar_denoise=apply_horizontal_bar_denoise,
+                    apply_smoothing=apply_smoothing,
+                    apply_baseline_subtraction=apply_baseline_subtraction,
+                    apply_global_normalization=apply_global_normalization,
+                    apply_stabilization=apply_stabilization,
+                    stats=prepared_stats if prepared_stats is not None else None,
+                )
+                with perf_stage("host_mode.prepared_source.prepare"):
+                    prepared_source.prepare()
                 self.app.log_debug(
                     "Perf",
-                    f"Host buffer reuse elapsed={(time.perf_counter() - started) * 1000.0:.1f}ms frames={frame_count}",
+                    f"Host buffer preparation elapsed={(time.perf_counter() - started) * 1000.0:.1f}ms frames={frame_count}",
                 )
-                return reusable_prepared_source
-            prepared_source = PreparedFrameSource(
-                frame_source,
-                baseline_frames=max(1, int(baseline_count)),
-                apply_horizontal_bar_denoise=apply_horizontal_bar_denoise,
-                apply_smoothing=apply_smoothing,
-                apply_baseline_subtraction=apply_baseline_subtraction,
-                apply_global_normalization=apply_global_normalization,
-                apply_stabilization=apply_stabilization,
-                stats=prepared_stats if prepared_stats is not None else None,
-            )
-            prepared_source.prepare()
-            self.app.log_debug(
-                "Perf",
-                f"Host buffer preparation elapsed={(time.perf_counter() - started) * 1000.0:.1f}ms frames={frame_count}",
-            )
-            return prepared_source
+                return prepared_source
 
         def _apply_prepared_source(prepared_source: PreparedFrameSource) -> None:
-            self._prewarm_initial_window(prepared_source, local_frame_idx)
+            with perf_stage("host_mode.prewarm_initial_window"):
+                self._prewarm_initial_window(prepared_source, local_frame_idx)
             self.app.frame_source = prepared_source
             workspace = getattr(self.app, "analysis_workspace", None)
             if workspace is not None:
@@ -626,11 +639,18 @@ class AnalysisHostModeController:
             or launch_preparation.get("viz_frame") is not None
             or launch_preparation.get("raw_frame") is not None
         )
-        should_queue_async = bool(prefer_async) and callable(getattr(self.app, "_run_thread", None)) and (
-            int(frame_count) > sync_limit or has_preview_seed
-        )
+        should_queue_async = bool(prefer_async) and callable(getattr(self.app, "_run_thread", None))
         if reusable_prepared_source is not None:
             should_queue_async = False
+        trace = getattr(self.app, "_open_perf_trace", None)
+        if trace is not None:
+            trace.annotate(
+                buffer_path="async" if should_queue_async else "sync",
+                frame_count=int(frame_count),
+                sync_limit=int(sync_limit),
+                has_preview_seed=bool(has_preview_seed),
+                reusable_prepared_source=reusable_prepared_source is not None,
+            )
         if should_queue_async:
             generation = int(getattr(self.app, "_host_buffer_generation", 0) or 0) + 1
             self.app._host_buffer_generation = generation

@@ -63,7 +63,7 @@ class ManagedModelWorkflow:
         if not callable(center_window):
             return
         try:
-            center_window(dialog, width=760, height=400)
+            center_window(dialog, width=680, height=360)
         except TypeError:
             center_window(dialog)
 
@@ -91,7 +91,7 @@ class ManagedModelWorkflow:
         dialog.title(self._options.title)
         dialog.transient(self._root)
         dialog.resizable(True, True)
-        self._call_dialog_method(dialog, "geometry", "760x400")
+        self._call_dialog_method(dialog, "geometry", "680x360")
         try:
             apply_theme(dialog)
         except Exception:
@@ -253,7 +253,7 @@ class ManagedModelWorkflow:
         local_btn.configure(command=_select_local)
         _refresh_rows()
         dialog.update_idletasks()
-        dialog.minsize(760, dialog.winfo_height())
+        dialog.minsize(640, dialog.winfo_height())
         self._call_center_window(dialog)
         self._call_dialog_method(dialog, "deiconify")
         dialog.grab_set()

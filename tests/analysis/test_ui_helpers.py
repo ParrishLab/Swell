@@ -10,6 +10,7 @@ class _FakeStyle:
         self.theme_calls = []
         self.config_calls = []
         self.map_calls = []
+        self.layout_calls = []
         self.registered = []
         self.fail_scrollbar_once = False
 
@@ -24,6 +25,9 @@ class _FakeStyle:
 
     def map(self, style_name, **kwargs):
         self.map_calls.append((style_name, kwargs))
+
+    def layout(self, style_name, layout):
+        self.layout_calls.append((style_name, layout))
 
     def _register_ttkstyle(self, style_name):
         self.registered.append(style_name)
@@ -82,6 +86,9 @@ class UiHelpersTests(unittest.TestCase):
         self.assertIn("AppCard.TFrame", configured)
         self.assertIn("AppPreview.TFrame", configured)
         self.assertIn("AppLoading.Horizontal.TProgressbar", configured)
+        self.assertIn("Vertical.TScrollbar", configured)
+        self.assertIn("Horizontal.TScrollbar", configured)
+        self.assertTrue(any(style_name == "Vertical.TScrollbar" for style_name, _ in fake.layout_calls))
         self.assertTrue(fake.map_calls)
 
     def test_apply_theme_falls_back_when_bootstrap_scrollbar_builder_fails(self):

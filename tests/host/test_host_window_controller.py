@@ -120,6 +120,73 @@ def test_apply_preview_action_zero_and_stop() -> None:
     assert np.isnan(stopped[3])
 
 
+def test_save_project_after_metrics_apply_writes_current_sdproj() -> None:
+    calls: dict[str, object] = {"statuses": [], "logs": []}
+
+    class _Session:
+        def set_project_path(self, path: str) -> None:
+            calls["session_path"] = path
+
+    def _save(path: str):
+        calls["saved_path"] = path
+        return SimpleNamespace(project_path="/tmp/session.sdproj")
+
+    app = SimpleNamespace(
+        current_project_path="/tmp/session.sdproj",
+        save_host_session=_save,
+        browser_controller=SimpleNamespace(session=_Session()),
+        _show_warning=lambda *_args: calls.setdefault("warnings", []).append(_args),
+        _set_status=lambda message: calls["statuses"].append(str(message)),
+        _log_info=lambda message: calls["logs"].append(str(message)),
+    )
+
+    assert HostWindowController(app)._save_project_after_metrics_apply() is True
+
+    assert calls["saved_path"] == "/tmp/session.sdproj"
+    assert calls["session_path"] == "/tmp/session.sdproj"
+    assert calls["statuses"][-1] == "Global metrics defaults updated and saved: session.sdproj"
+    assert not calls.get("warnings")
+
+
+def test_save_project_after_metrics_apply_warns_without_project_path() -> None:
+    calls: dict[str, object] = {"statuses": [], "warnings": []}
+    app = SimpleNamespace(
+        current_project_path=None,
+        browser_controller=SimpleNamespace(session=SimpleNamespace(set_project_path=lambda _path: None)),
+        save_host_session=lambda _path: (_ for _ in ()).throw(AssertionError("save should not run")),
+        _show_warning=lambda *args: calls["warnings"].append(args),
+        _set_status=lambda message: calls["statuses"].append(str(message)),
+        _log_info=lambda _message: None,
+    )
+
+    assert HostWindowController(app)._save_project_after_metrics_apply() is False
+
+    assert calls["warnings"][0][0] == "Open Metrics"
+    assert calls["statuses"][-1] == "Metrics updated; project not saved."
+
+
+def test_save_project_after_metrics_apply_warns_when_save_fails() -> None:
+    calls: dict[str, object] = {"statuses": [], "warnings": []}
+
+    def _save(_path: str):
+        raise OSError("disk full")
+
+    app = SimpleNamespace(
+        current_project_path="/tmp/session.sdproj",
+        browser_controller=SimpleNamespace(session=SimpleNamespace(set_project_path=lambda _path: None)),
+        save_host_session=_save,
+        _show_warning=lambda *args: calls["warnings"].append(args),
+        _set_status=lambda message: calls["statuses"].append(str(message)),
+        _log_info=lambda _message: None,
+    )
+
+    assert HostWindowController(app)._save_project_after_metrics_apply() is False
+
+    assert calls["warnings"][0][0] == "Open Metrics"
+    assert "disk full" in calls["warnings"][0][1]
+    assert calls["statuses"][-1] == "Metrics updated; project save failed."
+
+
 def test_restore_snapshot_if_masks_changed_restores_event_sidecar() -> None:
     initial_payload = {
         "masks_committed": np.zeros((3, 6, 6), dtype=np.uint8),

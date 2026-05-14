@@ -261,6 +261,44 @@ def test_center_window_on_screen_positions_geometry_to_screen_center():
     assert win.last_geometry == "1000x700+780+370"
 
 
+def test_startup_preflight_reschedules_while_host_modal_is_open() -> None:
+    app = SDAnalyzerApp.__new__(SDAnalyzerApp)
+    calls: dict[str, object] = {"after": [], "preflight": 0}
+
+    class _Root:
+        def after(self, delay, callback):
+            calls["after"].append((int(delay), callback))
+
+    app.root = _Root()
+    app._host_modal_dialog_depth = 1
+    app._startup_preflight_completed = False
+    app._get_model_setup_controller = lambda: SimpleNamespace(
+        run_startup_preflight=lambda: calls.__setitem__("preflight", calls["preflight"] + 1)
+    )
+
+    app._run_model_startup_preflight()
+
+    assert calls["preflight"] == 0
+    assert calls["after"][0][0] == 250
+    assert app._startup_preflight_completed is False
+
+
+def test_startup_preflight_runs_once_when_no_host_modal_is_open() -> None:
+    app = SDAnalyzerApp.__new__(SDAnalyzerApp)
+    calls = {"preflight": 0}
+    app._host_modal_dialog_depth = 0
+    app._startup_preflight_completed = False
+    app._get_model_setup_controller = lambda: SimpleNamespace(
+        run_startup_preflight=lambda: calls.__setitem__("preflight", calls["preflight"] + 1)
+    )
+
+    app._run_model_startup_preflight()
+    app._run_model_startup_preflight()
+
+    assert calls["preflight"] == 1
+    assert app._startup_preflight_completed is True
+
+
 def test_rename_selected_event_updates_label() -> None:
     event = SimpleNamespace(event_id="event_0001", label="Old Label", flags={}, end_idx=3)
     tree = SimpleNamespace(

@@ -41,7 +41,7 @@ class MaskImportDialogService:
         top.title("Import External Masks")
         top.transient(root)
         top.resizable(False, False)
-        top.geometry("520x180")
+        top.geometry("460x150")
         apply_theme(top)
 
         shell = ttk.Frame(top, padding=SPACING.outer, style="AppShell.TFrame")
@@ -63,7 +63,7 @@ class MaskImportDialogService:
             side="left", padx=(SPACING.inner, 0)
         )
         ttk.Button(btns, text="Cancel", command=top.destroy, **semantic_button_options("secondary")).pack(side="right")
-        center_window_on_screen(top, width=520, height=180)
+        center_window_on_screen(top, width=460, height=150)
         top.deiconify()
         top.grab_set()
         root.wait_window(top)

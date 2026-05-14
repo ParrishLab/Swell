@@ -151,17 +151,25 @@ class HostProjectLifecycleController:
         return result["value"]
 
     def new_project(self) -> None:
-        folder = filedialog.askdirectory(
-            parent=self._dialog_parent(),
-            title="Select Stack Folder",
-            mustexist=True,
-        )
-        if not folder:
-            self.app._log_info("New Project canceled: no input folder selected.")
-            return
-        if not self.prepare_context_switch():
-            return
-        self.load_stack_from_folder(str(folder))
+        self.app._host_modal_dialog_depth = int(getattr(self.app, "_host_modal_dialog_depth", 0) or 0) + 1
+        folder = ""
+        should_load = False
+        try:
+            folder = filedialog.askdirectory(
+                parent=self._dialog_parent(),
+                title="Select Stack Folder",
+                mustexist=True,
+            )
+            if not folder:
+                self.app._log_info("New Project canceled: no input folder selected.")
+                return
+            if not self.prepare_context_switch():
+                return
+            should_load = True
+        finally:
+            self.app._host_modal_dialog_depth = max(0, int(getattr(self.app, "_host_modal_dialog_depth", 1) or 1) - 1)
+        if should_load:
+            self.load_stack_from_folder(str(folder))
 
     def save_project(self) -> None:
         if self.app.stack_info is None:
@@ -355,7 +363,8 @@ class HostProjectLifecycleController:
                 finished.set()
 
         root.after(0, _invoke)
-        finished.wait()
+        if not finished.wait(timeout=30.0):
+            raise RuntimeError("Timed out waiting for the UI thread while preparing the project.")
         if "error" in result:
             raise result["error"]
         return result.get("value")

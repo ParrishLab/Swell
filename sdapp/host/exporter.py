@@ -1043,7 +1043,8 @@ def _export_event_metrics(
             boundaries_roi.append(boundary)
         frame_metrics_roi = compute_frame_metrics(boundaries_roi, min_dist_px=2.0)
 
-    avg_dist_px = np.asarray(frame_metrics_full["avg_dist_px"], dtype=np.float64)
+    speed_metrics = frame_metrics_roi if (has_roi and frame_metrics_roi is not None) else frame_metrics_full
+    avg_dist_px = np.asarray(speed_metrics["avg_dist_px"], dtype=np.float64)
     if has_scale:
         speed_um_per_sec = (avg_dist_px * (1000.0 / float(scale_px_per_mm))) / float(sec_per_frame)
     else:
@@ -1071,7 +1072,7 @@ def _export_event_metrics(
     written: list[str] = []
     metric_tables: list[dict[str, object]] = []
     propagation_gap_warning: dict[str, object] | None = None
-    transition_valid = np.asarray(frame_metrics_full.get("transition_valid", np.zeros_like(avg_dist_px, dtype=bool)), dtype=bool)
+    transition_valid = np.asarray(speed_metrics.get("transition_valid", np.zeros_like(avg_dist_px, dtype=bool)), dtype=bool)
     all_nan_runs = _find_interior_nan_runs(speed_um_per_sec) if bool(include_metric_propagation_speed and has_scale) else []
     zero_runs: list[tuple[int, int]] = []
     gap_runs: list[tuple[int, int]] = []

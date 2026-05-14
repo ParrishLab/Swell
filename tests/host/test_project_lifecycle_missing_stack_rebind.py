@@ -151,3 +151,25 @@ def test_run_on_ui_thread_posts_callback_when_called_off_main_thread() -> None:
 
     assert result == "ok"
     assert app.root.after_calls == [0]
+
+
+def test_run_on_ui_thread_times_out_if_callback_never_runs() -> None:
+    class _Root:
+        def after(self, _delay: int, _callback) -> None:  # noqa: ANN001
+            return None
+
+    app = _build_app()
+    app.root = _Root()
+    controller = HostProjectLifecycleController(app)
+    worker_thread = object()
+
+    with patch("sdapp.host.controllers.project_lifecycle_controller.threading.current_thread", return_value=worker_thread):
+        with patch("sdapp.host.controllers.project_lifecycle_controller.threading.main_thread", return_value=object()):
+            with patch("sdapp.host.controllers.project_lifecycle_controller.threading.Event") as event_cls:
+                event_cls.return_value.wait.return_value = False
+                try:
+                    controller._run_on_ui_thread(lambda: "never")
+                except RuntimeError as exc:
+                    assert "Timed out waiting for the UI thread" in str(exc)
+                else:
+                    raise AssertionError("expected timeout")

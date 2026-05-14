@@ -585,6 +585,101 @@ def test_export_propagation_speed_summary_uses_average_not_median(monkeypatch, t
     assert float(summary["overall_avg_speed_um_per_sec"]) != pytest.approx(100.0)
 
 
+def test_export_propagation_speed_uses_roi_clipped_masks_when_roi_present(monkeypatch, tmp_path: Path) -> None:
+    frames = [np.zeros((8, 8), dtype=np.uint8) for _ in range(4)]
+    reader = FakeReader(frames)
+    events = [_event("event_0001", 0, 3)]
+    masks = np.ones((4, 8, 8), dtype=np.uint8)
+    roi_mask = np.zeros((8, 8), dtype=bool)
+    roi_mask[2:6, 2:6] = True
+
+    full_avg = np.asarray([np.nan, 10.0, 10.0, 10.0], dtype=np.float64)
+    roi_avg = np.asarray([np.nan, 1.0, 1.0, 1.0], dtype=np.float64)
+    calls: list[str] = []
+
+    def _fake_compute_frame_metrics(_boundaries, min_dist_px=2.0):  # noqa: ARG001
+        kind = "full" if not calls else "roi"
+        calls.append(kind)
+        return {
+            "areas_px": np.ones(4, dtype=np.float64),
+            "avg_dist_px": full_avg if kind == "full" else roi_avg,
+            "transition_valid": np.ones(4, dtype=bool),
+        }
+
+    monkeypatch.setattr(exporter, "compute_frame_metrics", _fake_compute_frame_metrics)
+
+    export_analysis(
+        reader=reader,
+        events=events,
+        output_dir=tmp_path,
+        baseline_pre_frames=0,
+        include_event_images=False,
+        include_baseline_images=False,
+        include_metric_propagation_speed=True,
+        analysis_sidecar={
+            "event_0001": {
+                "masks_committed": masks,
+                "metrics_settings": {
+                    "frames_per_sec": 1.0,
+                    "scale_px_per_mm": 1000.0,
+                    "scale_unit": "px_per_mm",
+                    "roi_mask": roi_mask,
+                },
+            }
+        },
+    )
+
+    assert calls == ["full", "roi"]
+    rows = list(csv.DictReader((tmp_path / "event_0001" / "metrics" / "propagation_speed_event_0001.csv").open("r", newline="", encoding="utf-8")))
+    speeds = [float(r["speed_um_per_sec"]) for r in rows if r["speed_um_per_sec"] not in ("", "nan")]
+    assert speeds == pytest.approx([1.0, 1.0, 1.0])
+    summary = json.loads((tmp_path / "event_0001" / "metrics" / "metrics_summary.json").read_text(encoding="utf-8"))
+    assert float(summary["overall_avg_speed_um_per_sec"]) == pytest.approx(1.0)
+
+
+def test_export_propagation_speed_uses_full_masks_when_no_roi(monkeypatch, tmp_path: Path) -> None:
+    frames = [np.zeros((8, 8), dtype=np.uint8) for _ in range(4)]
+    reader = FakeReader(frames)
+    events = [_event("event_0001", 0, 3)]
+    masks = np.ones((4, 8, 8), dtype=np.uint8)
+
+    calls: list[str] = []
+
+    def _fake_compute_frame_metrics(_boundaries, min_dist_px=2.0):  # noqa: ARG001
+        calls.append("call")
+        return {
+            "areas_px": np.ones(4, dtype=np.float64),
+            "avg_dist_px": np.asarray([np.nan, 5.0, 5.0, 5.0], dtype=np.float64),
+            "transition_valid": np.ones(4, dtype=bool),
+        }
+
+    monkeypatch.setattr(exporter, "compute_frame_metrics", _fake_compute_frame_metrics)
+
+    export_analysis(
+        reader=reader,
+        events=events,
+        output_dir=tmp_path,
+        baseline_pre_frames=0,
+        include_event_images=False,
+        include_baseline_images=False,
+        include_metric_propagation_speed=True,
+        analysis_sidecar={
+            "event_0001": {
+                "masks_committed": masks,
+                "metrics_settings": {
+                    "frames_per_sec": 1.0,
+                    "scale_px_per_mm": 1000.0,
+                    "scale_unit": "px_per_mm",
+                },
+            }
+        },
+    )
+
+    assert len(calls) == 1
+    summary = json.loads((tmp_path / "event_0001" / "metrics" / "metrics_summary.json").read_text(encoding="utf-8"))
+    assert float(summary["overall_avg_speed_um_per_sec"]) == pytest.approx(5.0)
+
+
 def test_export_metrics_combined_workbook_includes_summary_and_selected_metric_sheets(tmp_path: Path) -> None:
     frames = [np.full((8, 8), i, dtype=np.uint8) for i in range(10)]
     reader = FakeReader(frames)

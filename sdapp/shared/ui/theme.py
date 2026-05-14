@@ -397,18 +397,30 @@ def apply_theme(root, *, themename: str = "darkly"):
     style.configure("Treeview.Heading", background=palette["surface_bg"], foreground=palette["muted"], font=("TkDefaultFont", 8, "bold"), borderwidth=0)
     _configure_scrollbar_style(
         style,
-        background=palette["surface_bg"],
+        background=palette["control_bg"],
         troughcolor=palette["inset_bg"],
+        bordercolor=palette["inset_bg"],
+        darkcolor=palette["control_bg"],
+        lightcolor=palette["control_bg"],
+        arrowcolor=palette["muted"],
         borderwidth=0,
-        arrowsize=10,
+        relief="flat",
+        width=12,
+        arrowsize=0,
     )
 
     return style
 
 
 def _configure_scrollbar_style(style, **kwargs) -> None:
+    for style_name in ("TScrollbar", "Vertical.TScrollbar", "Horizontal.TScrollbar"):
+        _configure_single_scrollbar_style(style, style_name, **kwargs)
+    _configure_scrollbar_layouts(style)
+
+
+def _configure_single_scrollbar_style(style, style_name: str, **kwargs) -> None:
     try:
-        style.configure("TScrollbar", **kwargs)
+        style.configure(style_name, **kwargs)
         return
     except Exception:
         if not BOOTSTRAP_AVAILABLE:
@@ -416,10 +428,45 @@ def _configure_scrollbar_style(style, **kwargs) -> None:
 
     # ttkbootstrap's auto-style builder can choke on the built-in scrollbar
     # style when the theme has already created the underlying elements.
-    tk_ttk.Style.configure(style, "TScrollbar", **kwargs)
+    tk_ttk.Style.configure(style, style_name, **kwargs)
     register = getattr(style, "_register_ttkstyle", None)
     if callable(register):
         try:
-            register("TScrollbar")
+            register(style_name)
+        except Exception:
+            pass
+
+
+def _configure_scrollbar_layouts(style) -> None:
+    layout = getattr(style, "layout", None)
+    if not callable(layout):
+        return
+    layouts = {
+        "Vertical.TScrollbar": [
+            (
+                "Vertical.Scrollbar.trough",
+                {
+                    "sticky": "ns",
+                    "children": [
+                        ("Vertical.Scrollbar.thumb", {"expand": "1", "sticky": "nswe"}),
+                    ],
+                },
+            )
+        ],
+        "Horizontal.TScrollbar": [
+            (
+                "Horizontal.Scrollbar.trough",
+                {
+                    "sticky": "ew",
+                    "children": [
+                        ("Horizontal.Scrollbar.thumb", {"expand": "1", "sticky": "nswe"}),
+                    ],
+                },
+            )
+        ],
+    }
+    for style_name, style_layout in layouts.items():
+        try:
+            layout(style_name, style_layout)
         except Exception:
             pass
