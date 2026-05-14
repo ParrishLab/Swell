@@ -2,6 +2,26 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.1.8] - 2026-05-14
+
+### Auto-detect and ROI improvements
+- Fixed dialog sizing on Windows: replaced hardcoded `geometry()` calls with `minsize()` across the ROI dialog, scale dialog, auto-detect window, and mark popup so windows open at the correct size without overriding the window manager's placement.
+- `center_window_on_screen` now uses the window's actual size rather than a hardcoded override, fixing off-center placement on Windows.
+
+### Model/checkpoint compatibility
+- No checkpoint format or project schema bump in this release; existing managed and local SAM2 model selections remain compatible.
+
+### Platform/backend limitations
+- Visual sizing and centering fixes are Windows-specific; no behavioral changes on macOS.
+
+### .sdproj/migration notes
+- No `.sdproj` schema version bump is required; existing projects remain loadable.
+
+### Known segmentation caveats/regressions
+- No new release-blocking segmentation regressions are known from the automated suite.
+- SAM2 post-processing/native extension availability may still vary by environment.
+- Auto-update behavior still depends on platform packaging/signing state; validate against final signed release artifacts.
+
 ## [0.1.7] - 2026-05-14
 
 ### Auto-detect and ROI improvements

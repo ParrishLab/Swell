@@ -249,8 +249,7 @@ def open_roi_dialog(
     full_title = f"{config.title} - {image_label}" if image_label else config.title
     popup.title(full_title)
     popup.resizable(True, True)
-    popup.geometry("1120x820")
-    popup.minsize(900, 700)
+    popup.minsize(1120, 820)
     apply_theme(popup)
     popup.columnconfigure(0, weight=1)
     popup.rowconfigure(0, weight=1)
@@ -1010,7 +1009,7 @@ def open_roi_dialog(
     popup.bind("<Key-underscore>", lambda _e: (zoom_out(), "break")[1], add="+")
     popup.bind("<Key-0>", lambda _e: (reset_view(), "break")[1], add="+")
 
-    center_window_on_screen(popup, width=1120, height=820)
+    center_window_on_screen(popup)
     popup.deiconify()
     popup.update_idletasks()
     render_background()

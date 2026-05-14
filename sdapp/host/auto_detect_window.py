@@ -20,7 +20,7 @@ from sdapp.host.analysis_payload_mapper import apply_analysis_scope_flags
 from sdapp.host.config import DEFAULT_BASELINE_PRE_FRAMES
 from sdapp.shared.frame_source import normalize_visual_frame
 from sdapp.shared.ui import BackgroundTaskRunner
-from sdapp.shared.ui.bootstrap import semantic_button_options
+from sdapp.shared.ui.bootstrap import semantic_button_options, center_window_on_screen
 from sdapp.shared.ui.theme import CANVAS_BACKGROUND, SPACING, apply_theme
 
 # Colors drawn directly onto tk.Canvas — must stay in sync with theme.py palette.
@@ -108,9 +108,8 @@ class AutoDetectWindow:
     def open(self) -> None:
         popup = tk.Toplevel(self.app.root)
         popup.title("Auto-detect SDs - Scientific Workbench")
-        popup.geometry(f"{_WINDOW_W}x{_WINDOW_H}")
-        popup.minsize(1000, 600)
         apply_theme(popup)
+        popup.minsize(_WINDOW_W, _WINDOW_H)
         popup.protocol("WM_DELETE_WINDOW", self._on_close)
         self._popup = popup
         self._closed = False
@@ -130,6 +129,7 @@ class AutoDetectWindow:
         self._update_roi_status()
         self._render_viewer_frame(0)
 
+        center_window_on_screen(popup)
         popup.after(0, lambda: (popup.lift(), popup.focus_force()))
 
     def _build_left_pane(self, parent: ttk.Frame) -> None:

@@ -133,7 +133,7 @@ class MarkPopupController:
         popup.withdraw()
         self.app._popup.mark_popup = popup
         popup.title("Mark SD Event" if mode == "new" else f"Edit SD Event ({self._event_display_name(event_id)})")
-        popup.geometry("1200x850")
+        popup.minsize(1200, 850)
         popup.transient(self.app.root)
         apply_theme(popup)
 
@@ -285,7 +285,7 @@ class MarkPopupController:
         popup.bind("<Destroy>", self.on_destroy)
         self.app._bind_popup_keys(popup)
 
-        center_window(popup, width=1200, height=850)
+        center_window(popup)
         popup.deiconify()
         popup.update_idletasks()
         self._begin_popup_session(
