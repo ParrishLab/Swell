@@ -5,7 +5,8 @@ import importlib.util
 from pathlib import Path
 import threading
 import tkinter as tk
-from tkinter import filedialog, messagebox
+from tkinter import filedialog
+from sdapp.shared.ui import dialogs as messagebox
 
 import numpy as np
 
@@ -451,8 +452,8 @@ class HostWindowController:
         dialog.withdraw()
         dialog.title("Export Options")
         dialog.transient(self.app.root)
-        dialog.resizable(False, False)
-        dialog.geometry("680x560")
+        dialog.resizable(True, True)
+        dialog.geometry("680x1")
         apply_theme(dialog)
 
         include_event_var = tk.BooleanVar(value=True)
@@ -668,7 +669,7 @@ class HostWindowController:
         ttk.Button(buttons, text="Cancel", command=_cancel, **semantic_button_options("secondary")).pack(side="right")
         ttk.Button(buttons, text="Export", command=_confirm, **semantic_button_options("primary")).pack(side="right", padx=(0, 8))
         dialog.protocol("WM_DELETE_WINDOW", _cancel)
-        self.center_window_on_screen(dialog, width=680, height=560)
+        self.center_window_on_screen(dialog, width=680)
         dialog.deiconify()
         dialog.grab_set()
         dialog.wait_window()
@@ -891,8 +892,8 @@ class HostWindowController:
         dialog.withdraw()
         dialog.title("Open Metrics")
         dialog.transient(self.app.root)
-        dialog.resizable(False, False)
-        dialog.geometry("560x260")
+        dialog.resizable(True, True)
+        dialog.geometry("560x1")
         apply_theme(dialog)
         self.app._open_metrics_dialog = dialog
 
@@ -1103,7 +1104,7 @@ class HostWindowController:
                 self.app._refresh_open_metrics_dialog = None
 
         dialog.bind("<Destroy>", _on_destroy)
-        self.center_window_on_screen(dialog, width=560, height=260)
+        self.center_window_on_screen(dialog, width=560)
         dialog.deiconify()
         dialog.grab_set()
         dialog.wait_window()
@@ -1112,6 +1113,11 @@ class HostWindowController:
         if self.app.reader is None:
             self.app._log_warn("Export blocked: load a stack first.")
             messagebox.showwarning("Export", "Load a stack first.", parent=self.app.root)
+            return
+        project_controller = getattr(self.app, "_get_project_controller", lambda: None)()
+        ensure_stack = getattr(project_controller, "ensure_active_stack_available", None)
+        if callable(ensure_stack) and not bool(ensure_stack(title="Export")):
+            self.app._log_warn("Export blocked: stack folder is missing.")
             return
 
         output_dir = str(options.get("output_dir", self.app.output_var.get().strip())).strip()

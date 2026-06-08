@@ -10,22 +10,6 @@ if TYPE_CHECKING:
     import pandas as pd
 
 
-def load_binary_masks(mask_dir: str, frame_names: List[str], start_idx: int, end_idx: int) -> List[np.ndarray]:
-    masks: List[np.ndarray] = []
-    for frame_idx in range(start_idx, end_idx + 1):
-        original_name = frame_names[frame_idx]
-        mask_path = os.path.join(mask_dir, f"Mask_{original_name}")
-        if not os.path.exists(mask_path):
-            masks.append(None)
-            continue
-        img = cv2.imread(mask_path, cv2.IMREAD_GRAYSCALE)
-        if img is None:
-            masks.append(None)
-            continue
-        masks.append(img > 0)
-    return masks
-
-
 def extract_primary_boundary(mask: np.ndarray) -> Optional[np.ndarray]:
     if mask is None:
         return None

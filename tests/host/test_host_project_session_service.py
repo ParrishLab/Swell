@@ -63,6 +63,21 @@ def test_project_session_save_project_defaults_to_input_folder_name(tmp_path: Pa
     assert (tmp_path / "input_folder.sdproj").exists()
 
 
+def test_project_session_normal_save_rejects_missing_existing_project(tmp_path: Path) -> None:
+    svc = ProjectSessionService()
+    svc.new_project(_stack_ref("/tmp/input_folder", frame_count=10))
+    original = tmp_path / "original.sdproj"
+    renamed = tmp_path / "renamed.sdproj"
+    svc.save_project(original)
+    original.rename(renamed)
+
+    with pytest.raises(FileNotFoundError, match="no longer exists"):
+        svc.save_project()
+
+    assert renamed.exists()
+    assert not original.exists()
+
+
 def test_analysis_sidecar_is_event_scoped() -> None:
     svc = ProjectSessionService()
     svc.new_project(_stack_ref("/tmp/in_a"))

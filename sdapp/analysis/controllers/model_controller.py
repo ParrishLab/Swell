@@ -3,7 +3,8 @@ from __future__ import annotations
 import os
 from pathlib import Path
 import shutil
-from tkinter import filedialog, messagebox
+from tkinter import filedialog
+from sdapp.shared.ui import dialogs as messagebox
 
 from sdapp.shared.model_copy import (
     TITLE_MANAGE_MODELS,

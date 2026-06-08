@@ -7,7 +7,8 @@ from typing import Optional
 import cv2
 import numpy as np
 import tkinter as tk
-from tkinter import filedialog, messagebox
+from tkinter import filedialog
+from sdapp.shared.ui import dialogs as messagebox
 from PIL import Image, ImageTk
 
 from sdapp.analysis.ui.theme import SPACING, apply_theme
@@ -40,8 +41,8 @@ class MaskImportDialogService:
         top.withdraw()
         top.title("Import External Masks")
         top.transient(root)
-        top.resizable(False, False)
-        top.geometry("460x150")
+        top.resizable(True, True)
+        top.geometry("460x1")
         apply_theme(top)
 
         shell = ttk.Frame(top, padding=SPACING.outer, style="AppShell.TFrame")
@@ -63,7 +64,7 @@ class MaskImportDialogService:
             side="left", padx=(SPACING.inner, 0)
         )
         ttk.Button(btns, text="Cancel", command=top.destroy, **semantic_button_options("secondary")).pack(side="right")
-        center_window_on_screen(top, width=460, height=150)
+        center_window_on_screen(top, width=460)
         top.deiconify()
         top.grab_set()
         root.wait_window(top)

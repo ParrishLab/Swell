@@ -8,7 +8,9 @@ from datetime import datetime
 from pathlib import Path
 from time import perf_counter
 import tkinter as tk
-from tkinter import filedialog, messagebox, simpledialog, ttk
+from tkinter import filedialog, ttk
+from sdapp.shared.ui import dialogs as messagebox
+from sdapp.shared.ui import dialogs as simpledialog
 
 import numpy as np
 from PIL import Image, ImageTk

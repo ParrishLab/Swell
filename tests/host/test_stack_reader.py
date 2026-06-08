@@ -71,6 +71,20 @@ def test_open_stack_png_filters_mismatched_shapes_and_reads_frames(tmp_path: Pat
     assert np.array_equal(f1, b)
 
 
+def test_missing_source_paths_reports_moved_stack_folder(tmp_path: Path) -> None:
+    arr = np.full((6, 7), 10, dtype=np.uint8)
+    _save_png(tmp_path / "a.png", arr)
+    reader = StackReader()
+    reader.open_stack(tmp_path)
+
+    moved = tmp_path.parent / f"{tmp_path.name}_moved"
+    tmp_path.rename(moved)
+
+    missing = reader.missing_source_paths(limit=1)
+
+    assert missing == [tmp_path]
+
+
 def test_open_stack_png_uses_metadata_during_indexing(tmp_path: Path, monkeypatch) -> None:
     arr = np.full((6, 7), 10, dtype=np.uint8)
     _save_png(tmp_path / "a.png", arr)

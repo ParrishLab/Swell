@@ -4,7 +4,8 @@ from pathlib import Path
 import cv2
 import numpy as np
 import tifffile
-from tkinter import filedialog, messagebox
+from tkinter import filedialog
+from sdapp.shared.ui import dialogs as messagebox
 
 from sdapp.analysis.core.frame_source import EagerFrameSource
 from sdapp.shared.frame_source import build_visualization_stack

@@ -8,7 +8,8 @@ import subprocess
 from pathlib import Path
 
 import tkinter as tk
-from tkinter import filedialog, messagebox, ttk
+from tkinter import filedialog, ttk
+from sdapp.shared.ui import dialogs as messagebox
 
 import numpy as np
 
@@ -1668,6 +1669,23 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
     def _recompute_slider_jump_markers(self):
         return overlay_renderer.recompute_slider_jump_markers(self)
 
+    def _recompute_leverage_map(self):
+        from sdapp.analysis.core.leverage import compute_leverage, compute_trouble
+
+        seg_state = getattr(self, "seg_state", None)
+        if seg_state is None:
+            return
+        fc = self._get_frame_count()
+        masks = getattr(seg_state, "masks_cache", {}) or {}
+        if fc <= 0 or not masks:
+            seg_state.set_leverage_map({}, None)
+            return
+        shape = self._get_frame_shape()
+        user = seg_state.get_user_frames(fc)
+        trouble = compute_trouble(masks, fc, shape, user)
+        leverage, suggested = compute_leverage(trouble, fc)
+        seg_state.set_leverage_map(leverage, suggested)
+
     def _find_clicked_marker_frame(self, x_px):
         return overlay_renderer.find_clicked_marker_frame(self, x_px)
 
@@ -1716,6 +1734,7 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
             f"history={sorted(int(i) for i in self._propagated_history_indices)[:20]} "
             f"propagated={sorted(int(i) for i in self.propagated_frame_indices)[:20]}",
         )
+        self._recompute_leverage_map()
         self._recompute_slider_jump_markers()
         if mark_dirty:
             self._mark_project_dirty("propagation_complete")
@@ -1785,6 +1804,7 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         self.selected_point = None
         self.paint_layers.clear()
         self.masks_cache.clear()
+        self.seg_state.set_leverage_map({}, None)
         self.seg_state.invalidate_user_frames()
         self.seg_state.invalidate_final_mask_frames()
         self.undo_stack = []
@@ -1985,11 +2005,12 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
             return
         if status == "started":
             self._propagation_committed_snapshot = self.project_session_service.copy_masks_dict(self.seg_state.masks_cache)
+        preserve_stopped_masks = str(status) == "stopped_preserve"
         transition = self.analysis_workspace.on_propagation_status(
             status=str(status),
             prop_start=int(prop_start),
             prop_end=int(prop_end),
-            committed_snapshot=self._propagation_committed_snapshot,
+            committed_snapshot=None if preserve_stopped_masks else self._propagation_committed_snapshot,
         )
         self.event_records[str(self.active_event_id or "sd_event_001")] = transition.event_record
 
@@ -2000,13 +2021,19 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
             return
         if status in ("stopped", "failed") and transition.restored_masks is not None:
             self.seg_state.masks_cache.clear()
+            self.seg_state.set_leverage_map({}, None)
             for frame_idx, mask in transition.restored_masks.items():
                 self.seg_state.masks_cache[int(frame_idx)] = np.asarray(mask, dtype=bool).copy()
             self.seg_state.invalidate_final_mask_frames()
             if self._ui_alive():
                 self.root.after(0, self._recompute_slider_jump_markers)
                 self.root.after(0, self.update_display)
-        if status in ("stopped", "failed"):
+        if status == "stopped_preserve":
+            self.seg_state.invalidate_final_mask_frames()
+            if self._ui_alive():
+                self.root.after(0, self._recompute_slider_jump_markers)
+                self.root.after(0, self.update_display)
+        if status in ("stopped", "stopped_preserve", "failed"):
             self._propagation_committed_snapshot = None
             self._mark_project_dirty("propagation_draft")
 

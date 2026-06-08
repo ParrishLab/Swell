@@ -1,4 +1,5 @@
-from tkinter import filedialog, messagebox
+from tkinter import filedialog
+from sdapp.shared.ui import dialogs as messagebox
 
 from sdapp.host.app import SDAnalyzerApp
 

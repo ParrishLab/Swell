@@ -4,7 +4,8 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 import tkinter as tk
-from tkinter import messagebox, ttk
+from tkinter import ttk
+from sdapp.shared.ui import dialogs as messagebox
 from typing import Any
 
 from sdapp.shared.model_copy import TITLE_MODEL_DOWNLOAD_FAILED, TITLE_MODEL_FILE_MISSING

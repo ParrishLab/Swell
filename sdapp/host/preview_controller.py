@@ -159,6 +159,29 @@ class HostPreviewController:
                 self.cache_main_render(cache_key, image)
                 setattr(self.app, "_preview_decode_error_shown", False)
             except Exception as exc:
+                project_controller = getattr(self.app, "_get_project_controller", lambda: None)()
+                ensure_stack = getattr(project_controller, "ensure_active_stack_available", None)
+                if callable(ensure_stack) and bool(ensure_stack(title="Preview Load")):
+                    try:
+                        frame = self.get_normalized_reader_frame(frame_idx)
+                        image = self.render_preview_image(
+                            frame,
+                            self.app.preview_label,
+                            fallback_size=(1100, 800),
+                            pre_normalized=True,
+                            contrast_factor=1.0,
+                        )
+                        self.cache_main_render(cache_key, image)
+                        setattr(self.app, "_preview_decode_error_shown", False)
+                    except Exception as retry_exc:
+                        exc = retry_exc
+                    else:
+                        self.app.tk_preview_image = image
+                        self.app.preview_label.configure(image=image)
+                        frame_name = self.app.reader.get_frame_name(frame_idx)
+                        self.app.preview_label_info.set(f"Frame {frame_idx + 1}")
+                        self.app.preview_label_meta.set(str(frame_name or "No file loaded"))
+                        return
                 self.app._set_status("Preview load failed.")
                 self.app._log_error(f"Preview decode failed for frame {frame_idx}: {exc}")
                 if not bool(getattr(self.app, "_preview_decode_error_shown", False)):

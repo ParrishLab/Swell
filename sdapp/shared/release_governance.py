@@ -9,14 +9,6 @@ import tomllib
 RELEASE_TAG_RE = re.compile(r"^v(?P<version>\d+\.\d+\.\d+)(?:-rc\.(?P<rc>[1-9]\d*))?$")
 CHANGELOG_SECTION_RE = re.compile(r"^##\s+\[?v?(?P<version>\d+\.\d+\.\d+)\]?(?:\s+-\s+.*)?\s*$")
 SUBHEADING_RE = re.compile(r"^###\s+(?P<title>.+?)\s*$")
-
-REQUIRED_CHANGELOG_HEADINGS = (
-    "Model/checkpoint compatibility",
-    "Platform/backend limitations",
-    ".sdproj/migration notes",
-    "Known segmentation caveats/regressions",
-)
-
 _NORMALIZED_REQUIRED = {
     "modelcheckpointcompatibility": "Model/checkpoint compatibility",
     "platformbackendlimitations": "Platform/backend limitations",

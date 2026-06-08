@@ -8,4 +8,6 @@ if [ -f ".venv/bin/activate" ]; then
   source ".venv/bin/activate"
 fi
 
+unset MallocStackLogging MallocStackLoggingNoCompact MallocStackLoggingDirectory
+
 python3 -m sdapp.main "$@"

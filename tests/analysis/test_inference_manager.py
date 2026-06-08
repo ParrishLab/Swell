@@ -1,10 +1,14 @@
 from __future__ import annotations
 
 import threading
+import time
+from types import SimpleNamespace
 
 import numpy as np
 
 from sdapp.analysis.core.inference_manager import InferenceManager
+from sdapp.analysis.controllers.runtime_controller import AnalysisRuntimeController
+from sdapp.analysis.core.project_session import ProjectSessionService
 from sdapp.analysis.core.seg_state import SegmentationState
 
 
@@ -51,6 +55,23 @@ class _FakePredictor:
         indices = range(int(start_frame_idx), -1, -1) if reverse else range(int(start_frame_idx), 5)
         for idx in indices:
             yield idx, [1], [_FakeMaskTensor([[1.0]])]
+
+
+class _ControlledPropagationPredictor(_FakePredictor):
+    def __init__(self) -> None:
+        super().__init__()
+        self.ready_for_second_frame = threading.Event()
+        self.allow_second_frame = threading.Event()
+
+    def propagate_in_video(self, _inference_state, *, start_frame_idx: int, reverse: bool):
+        if reverse:
+            yield 0, [1], [_FakeMaskTensor([[1.0]])]
+            return
+        yield 0, [1], [_FakeMaskTensor([[1.0]])]
+        self.ready_for_second_frame.set()
+        self.allow_second_frame.wait(timeout=2.0)
+        yield 1, [1], [_FakeMaskTensor([[1.0]])]
+        yield 2, [1], [_FakeMaskTensor([[1.0]])]
 
 
 def test_pending_point_batch_recomputes_markers_once():
@@ -154,3 +175,117 @@ def test_point_prompts_take_precedence_over_saved_masks_for_propagation():
     assert predictor.point_frames == [1]
     assert predictor.mask_frames == []
     assert slider_frames == [1]
+
+
+def test_pause_and_resume_continue_same_propagation_run():
+    seg_state = SegmentationState()
+    seg_state.set_points(0, [{"x": 1.0, "y": 1.0, "label": 1}])
+    predictor = _ControlledPropagationPredictor()
+    manager, status_events, _slider_frames = _build_propagation_manager(seg_state, predictor, current_frame_idx=1, frame_count=3)
+
+    thread = threading.Thread(target=manager._run_background_propagation, args=(1, 0, 2, 0), daemon=True)
+    manager.propagate_thread = thread
+    thread.start()
+    assert predictor.ready_for_second_frame.wait(timeout=2.0)
+    assert manager.pause_propagation()
+    predictor.allow_second_frame.set()
+    time.sleep(0.1)
+
+    assert manager.is_propagation_paused()
+    assert 1 not in seg_state.masks_cache
+
+    assert manager.resume_propagation()
+    thread.join(timeout=2.0)
+
+    assert not thread.is_alive()
+    assert 1 in seg_state.masks_cache
+    assert ("complete", 0, 2) in status_events
+
+
+def test_stop_while_paused_unblocks_and_reports_preserve_status():
+    seg_state = SegmentationState()
+    seg_state.set_points(0, [{"x": 1.0, "y": 1.0, "label": 1}])
+    predictor = _ControlledPropagationPredictor()
+    manager, status_events, _slider_frames = _build_propagation_manager(seg_state, predictor, current_frame_idx=1, frame_count=3)
+    manager.propagate_thread = threading.Thread(target=manager._run_background_propagation, args=(1, 0, 2, 0), daemon=True)
+    manager.propagate_thread.start()
+    assert predictor.ready_for_second_frame.wait(timeout=2.0)
+    assert manager.pause_propagation()
+
+    assert manager.request_stop_propagation(preserve_generated_masks=True)
+    predictor.allow_second_frame.set()
+    manager.propagate_thread.join(timeout=2.0)
+
+    assert manager.propagate_thread is None
+    assert ("stopped_preserve", 0, 2) in status_events
+
+
+def test_project_session_preserved_stop_keeps_current_masks_incomplete():
+    service = ProjectSessionService()
+    records = {}
+    current_masks = {1: np.ones((2, 2), dtype=bool)}
+
+    transition = service.on_propagation_status(
+        status="stopped_preserve",
+        prop_start=0,
+        prop_end=2,
+        active_event_id="sd_event_001",
+        event_records=records,
+        current_masks=current_masks,
+        committed_snapshot={0: np.zeros((2, 2), dtype=bool)},
+    )
+
+    assert transition.restored_masks is None
+    assert not transition.event_record.metadata.propagation_completed
+    assert 1 in transition.event_record.analysis.masks_committed
+    assert transition.event_record.analysis.masks_draft is None
+
+
+class _Button:
+    def __init__(self) -> None:
+        self.options = {}
+
+    def configure(self, **kwargs):
+        self.options.update(kwargs)
+
+
+def test_runtime_controller_propagation_button_states():
+    class _Manager:
+        running = False
+        paused = False
+
+        def is_propagation_running(self):
+            return self.running
+
+        def is_propagation_paused(self):
+            return self.paused
+
+    manager = _Manager()
+    app = SimpleNamespace(
+        btn_run_propagation=_Button(),
+        btn_pause_propagation=_Button(),
+        btn_resume_propagation=_Button(),
+        btn_stop_propagation=_Button(),
+        inference_manager=manager,
+        _has_loaded_stack=lambda: True,
+    )
+    controller = AnalysisRuntimeController(app)
+
+    controller.sync_propagation_button_state()
+    assert app.btn_run_propagation.options["state"] == "normal"
+    assert app.btn_pause_propagation.options["state"] == "disabled"
+    assert app.btn_resume_propagation.options["state"] == "disabled"
+    assert app.btn_stop_propagation.options["state"] == "disabled"
+
+    manager.running = True
+    controller.sync_propagation_button_state()
+    assert app.btn_run_propagation.options["state"] == "disabled"
+    assert app.btn_pause_propagation.options["state"] == "normal"
+    assert app.btn_resume_propagation.options["state"] == "disabled"
+    assert app.btn_stop_propagation.options["state"] == "normal"
+
+    manager.paused = True
+    controller.sync_propagation_button_state()
+    assert app.btn_pause_propagation.options["state"] == "disabled"
+    assert app.btn_resume_propagation.options["state"] == "normal"
+    assert app.btn_stop_propagation.options["state"] == "normal"

@@ -5,7 +5,6 @@ from typing import Callable
 
 import cv2
 import numpy as np
-from scipy.ndimage import gaussian_filter
 
 
 @dataclass
@@ -75,13 +74,30 @@ def remove_horizontal_bar_artifacts(frame: np.ndarray) -> np.ndarray:
     return corrected.astype(np.float32, copy=False)
 
 
+def _gaussian_blur_2d(frame: np.ndarray, sigma: float = 0.5) -> np.ndarray:
+    """2D Gaussian smoothing via OpenCV (SIMD-accelerated, far faster than scipy).
+
+    BORDER_REFLECT matches scipy's default 'reflect' edge handling, and a zero
+    ksize lets OpenCV derive the kernel size from sigma (radius 2 for sigma=0.5,
+    same as scipy's default truncate=4.0).
+    """
+    arr = np.ascontiguousarray(frame, dtype=np.float32)
+    return cv2.GaussianBlur(
+        arr,
+        (0, 0),
+        sigmaX=float(sigma),
+        sigmaY=float(sigma),
+        borderType=cv2.BORDER_REFLECT,
+    )
+
+
 def _processed_frame(raw: np.ndarray, *, apply_horizontal_bar_denoise: bool, apply_smoothing: bool) -> np.ndarray:
     source = np.asarray(raw, dtype=np.float32, copy=False)
     if bool(apply_horizontal_bar_denoise):
         source = remove_horizontal_bar_artifacts(source)
     if not bool(apply_smoothing):
         return source
-    return gaussian_filter(source, sigma=0.5)
+    return _gaussian_blur_2d(source, 0.5)
 
 
 def _processed_source_frame(
@@ -535,10 +551,12 @@ def build_visualization_stack(
         global_bias = np.median(row_bias, axis=1, keepdims=True).astype(np.float32)
         source_for_sub = (source_for_sub - (row_bias - global_bias)).astype(np.float32)
     if bool(apply_smoothing):
-        # Single gaussian_filter call on (N, H, W) with sigma=(0, 0.5, 0.5) replaces N individual calls.
-        source_for_sub = gaussian_filter(
-            source_for_sub.astype(np.float32, copy=False), sigma=(0, 0.5, 0.5)
-        ).astype(np.float32)
+        # Per-frame OpenCV blur. Identical result to the per-frame render path
+        # (_processed_frame), which the prepared/stack equivalence tests rely on.
+        smoothed = np.empty_like(source_for_sub, dtype=np.float32)
+        for i in range(source_for_sub.shape[0]):
+            smoothed[i] = _gaussian_blur_2d(source_for_sub[i], 0.5)
+        source_for_sub = smoothed
     if callable(progress_callback):
         progress_callback({"stage": "preprocess", "current": int(frame_count * 2), "total": int(total_progress_steps)})
 

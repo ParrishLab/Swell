@@ -7,7 +7,8 @@ from pathlib import Path
 from typing import Any
 
 import tkinter as tk
-from tkinter import filedialog, messagebox
+from tkinter import filedialog
+from sdapp.shared.ui import dialogs as messagebox
 
 from sdapp.analysis.core.frame_source import EagerFrameSource
 from sdapp.analysis.core.project_fingerprint import fingerprints_match
@@ -51,11 +52,29 @@ def setup_project_menu(app) -> None:
     app._menu_bar = build_shared_menu(app.root, app, mode="analysis", host_mode=bool(getattr(app, "_host_mode", False)))
 
 
-def save_project_to_path(app, target_path: str | Path, is_autosave: bool = False) -> None:
+def _require_existing_project_target(target_path: Path) -> None:
+    if not target_path.exists():
+        raise RuntimeError(
+            "The saved project path no longer exists. It may have been renamed, moved, or deleted outside the app.\n"
+            "Use Save As to choose the current project location."
+        )
+    if not target_path.is_file():
+        raise RuntimeError(f"Project save target is not a file: {target_path}")
+
+
+def save_project_to_path(
+    app,
+    target_path: str | Path,
+    is_autosave: bool = False,
+    *,
+    require_existing_target: bool = False,
+) -> None:
     try:
         target_path = Path(target_path).expanduser().resolve()
     except Exception as exc:
         raise RuntimeError(f"Invalid save target path: {target_path}") from exc
+    if require_existing_target:
+        _require_existing_project_target(target_path)
     if bool(getattr(app, "_host_mode", False)) and callable(getattr(app, "_host_project_saver", None)) and not is_autosave:
         if hasattr(app, "_emit_host_sync"):
             app._emit_host_sync(reason="save")
@@ -88,7 +107,7 @@ def save_project_to_path(app, target_path: str | Path, is_autosave: bool = False
 def save_project(app) -> None:
     if app.current_project_path is None:
         return app.save_project_as()
-    save_project_to_path(app, app.current_project_path, is_autosave=False)
+    save_project_to_path(app, app.current_project_path, is_autosave=False, require_existing_target=True)
 
 
 def save_project_as(app) -> None:
@@ -113,7 +132,7 @@ def save_project_as(app) -> None:
     )
     if not target:
         return
-    save_project_to_path(app, target, is_autosave=False)
+    save_project_to_path(app, target, is_autosave=False, require_existing_target=False)
 
 
 def resolve_project_image_paths(app, loaded) -> list[str]:

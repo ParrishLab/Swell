@@ -9,24 +9,47 @@ class AnalysisRuntimeController:
     def __init__(self, app) -> None:
         self.app = app
 
-    def _set_propagation_button_state(self, running: bool) -> None:
-        button = getattr(self.app, "btn_run_propagation", None)
-        if button is None:
-            return
+    def _set_propagation_button_state(self, running: bool, paused: bool = False) -> None:
+        run_button = getattr(self.app, "btn_run_propagation", None)
+        pause_button = getattr(self.app, "btn_pause_propagation", None)
+        resume_button = getattr(self.app, "btn_resume_propagation", None)
+        stop_button = getattr(self.app, "btn_stop_propagation", None)
+        can_run = bool(not running and self.app._has_loaded_stack())
         try:
-            button.configure(
-                text="Running…" if running else "Run Propagation",
-                state="disabled" if running else ("normal" if self.app._has_loaded_stack() else "disabled"),
-            )
+            if run_button is not None:
+                run_button.configure(
+                    text="Running…" if running else "Run Propagation",
+                    state="disabled" if running else ("normal" if can_run else "disabled"),
+                )
+            if pause_button is not None:
+                pause_button.configure(state="normal" if running and not paused else "disabled")
+            if resume_button is not None:
+                resume_button.configure(state="normal" if running and paused else "disabled")
+            if stop_button is not None:
+                stop_button.configure(state="normal" if running else "disabled")
         except Exception:
             return
+
+    def sync_propagation_button_state(self) -> None:
+        manager = getattr(self.app, "inference_manager", None)
+        running = bool(manager is not None and manager.is_propagation_running())
+        paused = bool(manager is not None and manager.is_propagation_paused())
+        self._set_propagation_button_state(running, paused)
 
     def set_runtime_status(self, text: str, color: str) -> None:
         del color
         status = str(text or "")
         if "Propagating" in status:
             self.app._set_activity_message(status)
-            self._set_propagation_button_state(True)
+            self._set_propagation_button_state(True, False)
+            return
+        if status == "Propagation Paused":
+            self.app._set_activity_message(status)
+            self._set_propagation_button_state(True, True)
+            return
+        if status == "Stopping Propagation...":
+            self.app._set_activity_message(status)
+            self._set_propagation_button_state(True, False)
             return
         if status in {"Propagation Complete", "Propagation Stopped", "Propagation Error"}:
             self.app._propagation_progress_active = False
@@ -43,7 +66,7 @@ class AnalysisRuntimeController:
         self.app.lbl_status.configure(text=status_text, foreground=color)
         self.app._set_loading_indicator(bool(is_busy), str(status_text).replace("Status:", "").strip() or "Working...")
         if not is_busy:
-            self._set_propagation_button_state(False)
+            self.sync_propagation_button_state()
         if hasattr(self.app, "btn_save_masks"):
             if is_busy:
                 self.app.btn_save_masks.configure(state="disabled")

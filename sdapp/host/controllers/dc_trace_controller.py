@@ -3,7 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 import threading
 import tkinter as tk
-from tkinter import filedialog, messagebox
+from tkinter import filedialog
+from sdapp.shared.ui import dialogs as messagebox
 from typing import Any
 
 import numpy as np
@@ -345,8 +346,8 @@ class HostDCTraceController:
         dialog.withdraw()
         dialog.title("Import DC Trace")
         dialog.transient(self.app.root)
-        dialog.resizable(False, False)
-        dialog.geometry("620x240")
+        dialog.resizable(True, True)
+        dialog.geometry("620x1")
         apply_theme(dialog)
 
         shell = ttk.Frame(dialog, padding=SPACING.outer, style="AppShell.TFrame")
@@ -418,7 +419,7 @@ class HostDCTraceController:
         actions.pack(fill="x")
         ttk.Button(actions, text="Cancel", command=_cancel, **semantic_button_options("secondary")).pack(side="right")
         ttk.Button(actions, text="Import", command=_apply, **semantic_button_options("primary")).pack(side="right", padx=(0, 8))
-        center_window_on_screen(dialog, width=620, height=240)
+        center_window_on_screen(dialog, width=620)
         dialog.deiconify()
         dialog.grab_set()
         dialog.wait_window()

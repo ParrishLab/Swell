@@ -3,7 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 import threading
 import tkinter as tk
-from tkinter import filedialog, messagebox
+from tkinter import filedialog
+from sdapp.shared.ui import dialogs as messagebox
 
 from sdapp.shared.ui.theme import SPACING, apply_theme
 from sdapp.host.host_models import stack_ref_from_stack_info
@@ -21,9 +22,6 @@ class HostProjectLifecycleController:
         return getattr(self.app, "root", None)
 
     def _resolve_popup_engine(self):
-        legacy = getattr(self.app, "_popup_engine", None)
-        if legacy is not None:
-            return legacy
         popup_state = getattr(self.app, "_popup", None)
         if popup_state is not None:
             engine = getattr(popup_state, "engine", None)
@@ -87,6 +85,27 @@ class HostProjectLifecycleController:
             "No: Use the first channel only."
         )
 
+    def _existing_project_save_target(self, path: str | Path) -> Path | None:
+        try:
+            target = Path(path).expanduser().resolve()
+        except Exception as exc:
+            self.app._show_warning("Save SD Project", f"Invalid project path:\n\n{path}\n\nDetails: {exc}")
+            return None
+        if not target.exists():
+            self.app._show_warning(
+                "Save SD Project",
+                (
+                    "The saved project path no longer exists. It may have been renamed, moved, or deleted outside the app.\n\n"
+                    f"Missing project:\n{target}\n\n"
+                    "Use Save As to choose the current project location."
+                ),
+            )
+            return None
+        if not target.is_file():
+            self.app._show_warning("Save SD Project", f"Project save target is not a file:\n\n{target}")
+            return None
+        return target
+
     def _select_stack_channel_mode(self) -> str:
         def _prompt() -> str:
             use_average = messagebox.askyesno(
@@ -103,6 +122,60 @@ class HostProjectLifecycleController:
 
     def _create_stack_reader(self) -> StackReader:
         return StackReader(channel_mode_resolver=self._select_stack_channel_mode)
+
+    def _stack_missing_reason(self) -> str | None:
+        reader = getattr(self.app, "reader", None)
+        stack_info = getattr(self.app, "stack_info", None)
+        if reader is None or stack_info is None:
+            return None
+        input_dir = Path(str(getattr(stack_info, "input_dir", "") or "")).expanduser()
+        if input_dir and (not input_dir.exists() or not input_dir.is_dir()):
+            return str(input_dir)
+        missing_paths = getattr(reader, "missing_source_paths", None)
+        if callable(missing_paths):
+            try:
+                missing = list(missing_paths(limit=1))
+            except Exception:
+                missing = []
+            if missing:
+                return str(missing[0])
+        return None
+
+    def ensure_active_stack_available(self, *, title: str = "Image Stack Missing") -> bool:
+        missing = self._stack_missing_reason()
+        if not missing:
+            return True
+        replacement = self._prompt_rebind_missing_stack_folder(str(missing))
+        if not replacement:
+            self.app._show_warning(title, f"Stack folder is missing and was not rebound:\n\n{missing}")
+            return False
+        reader = self._create_stack_reader()
+        stack_info = reader.open_stack(replacement)
+        self.app.reader = reader
+        self.app.stack_info = stack_info
+        self.app.browser_controller.bind_frame_source(reader)
+        self.app.browser_controller.session.set_stack_ref(stack_ref_from_stack_info(stack_info))
+        self._set_popup_reader(reader)
+        if hasattr(self.app, "input_var"):
+            try:
+                self.app.input_var.set(str(stack_info.input_dir))
+            except Exception:
+                pass
+        for cache_name in ("_main_render_cache", "_normalized_frame_u8_cache", "_analysis_preview_cache"):
+            cache = getattr(self.app, cache_name, None)
+            clear = getattr(cache, "clear", None)
+            if callable(clear):
+                clear()
+        try:
+            self.app.preview_scale.configure(from_=0, to=max(0, int(stack_info.frame_count) - 1))
+            self.app.current_frame_idx = max(0, min(int(getattr(self.app, "current_frame_idx", 0) or 0), int(stack_info.frame_count) - 1))
+            self.app.preview_scale.set(self.app.current_frame_idx)
+            self.app._update_preview(self.app.current_frame_idx)
+        except Exception:
+            pass
+        self.app._set_status(f"Rebound stack folder: {Path(stack_info.input_dir).name}")
+        self.app._log_info(f"Rebound missing stack folder to {stack_info.input_dir}.")
+        return True
 
     def _prompt_three_way_action(
         self,
@@ -179,6 +252,10 @@ class HostProjectLifecycleController:
         if target is None:
             self.save_project_as()
             return
+        target_path = self._existing_project_save_target(target)
+        if target_path is None:
+            return
+        target = str(target_path)
         self.app._set_status("Saving project...")
 
         def on_done(state) -> None:
@@ -315,6 +392,12 @@ class HostProjectLifecycleController:
                 self.app.browser_controller.bind_frame_source(reader)
                 self.app.browser_controller.session.set_stack_ref(stack_ref_from_stack_info(stack_info))
                 self._set_popup_reader(reader)
+                for cache_name in ("_main_render_cache", "_normalized_frame_u8_cache", "_analysis_preview_cache"):
+                    cache = getattr(self.app, cache_name, None)
+                    clear_fn = getattr(cache, "clear", None)
+                    if callable(clear_fn):
+                        clear_fn()
+                self._clear_popup_processed_cache()
                 self.app.preview_scale.configure(from_=0, to=max(0, int(stack_info.frame_count) - 1))
                 frame_idx = 0
                 active_event = self.app.browser_controller.selected_event()

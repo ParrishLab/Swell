@@ -6,6 +6,13 @@
       "download_url": "https://dl.fbaipublicfiles.com/segment_anything_2/092824/sam2.1_hiera_base_plus.pt",
       "sha256": null,
       "default": true
+    },
+    {
+      "id": "MedSAM2_sam2.1_hiera_tiny",
+      "filename": "MedSAM2_latest.pt",
+      "download_url": "https://huggingface.co/wanglab/MedSAM2/resolve/main/MedSAM2_latest.pt",
+      "sha256": null,
+      "default": false
     }
   ]
 }

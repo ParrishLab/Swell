@@ -1,5 +1,5 @@
 import tkinter as tk
-from tkinter import messagebox, simpledialog
+from sdapp.shared.ui import dialogs as messagebox
 
 import cv2
 import numpy as np
@@ -689,7 +689,7 @@ def open_scale_dialog(
     except Exception:
         pass
 
-    center_window_on_screen(popup)
+    center_window_on_screen(popup, width=1120, height=820)
     popup.deiconify()
     popup.grab_set()
     popup.wait_window()

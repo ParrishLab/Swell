@@ -33,7 +33,7 @@ def test_exporter_roi_mask_failure(mock_roi_mask, mock_normalize):
         
     assert "Failed to generate ROI mask" in str(exc_info.value)
 
-@patch('tkinter.messagebox.showerror')
+@patch('sdapp.analysis.core.inference_manager.messagebox.showerror')
 def test_inference_failure_propagation_single_frame(mock_showerror):
     # Construct InferenceManager with dummy arguments
     manager = InferenceManager(

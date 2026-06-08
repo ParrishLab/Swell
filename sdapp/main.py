@@ -2,11 +2,25 @@ from __future__ import annotations
 
 import importlib
 import multiprocessing
+import os
 import sys
 from typing import Sequence
 
 SingleInstanceBridge = None
 run_host_app = None
+
+_MACOS_MALLOC_DEBUG_ENV_VARS = (
+    "MallocStackLogging",
+    "MallocStackLoggingNoCompact",
+    "MallocStackLoggingDirectory",
+)
+
+
+def _sanitize_macos_debug_env() -> None:
+    if sys.platform != "darwin":
+        return
+    for name in _MACOS_MALLOC_DEBUG_ENV_VARS:
+        os.environ.pop(name, None)
 
 
 def _parse_launch_project_path(argv: Sequence[str]) -> str | None:
@@ -61,6 +75,7 @@ def _run_smoke_test(importer=importlib.import_module, *, include_model_runtime: 
 def main(argv: Sequence[str] | None = None) -> int:
     global SingleInstanceBridge
     global run_host_app
+    _sanitize_macos_debug_env()
     multiprocessing.freeze_support()
     args = list(argv) if argv is not None else list(sys.argv)
     smoke_test, smoke_model_runtime, launch_project_path = _parse_main_args(args)

@@ -3,7 +3,7 @@ from __future__ import annotations
 """External mask import workflow for the analysis window."""
 
 import numpy as np
-from tkinter import messagebox
+from sdapp.shared.ui import dialogs as messagebox
 
 from sdapp.analysis.core.mask_import import guess_mask_mapping
 

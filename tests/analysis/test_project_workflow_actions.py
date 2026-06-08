@@ -1,5 +1,6 @@
 import unittest
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
 from sdapp.analysis.core import project_workflow
 
@@ -70,6 +71,27 @@ class ProjectWorkflowActionsTests(unittest.TestCase):
 
         with self.assertRaises(RuntimeError):
             project_workflow.save_project_to_path(_App(), "bad\0path.sdproj", is_autosave=False)
+
+    def test_save_project_rejects_missing_current_project_path(self):
+        calls = []
+
+        class _App:
+            _host_mode = True
+            current_project_path = None
+            _host_project_saver = staticmethod(lambda path: calls.append(path))
+
+            @staticmethod
+            def save_project_as():
+                raise AssertionError("missing existing project path should not silently switch targets")
+
+        with TemporaryDirectory() as tmp:
+            app = _App()
+            app.current_project_path = str(Path(tmp) / "renamed_elsewhere.sdproj")
+
+            with self.assertRaisesRegex(RuntimeError, "no longer exists"):
+                project_workflow.save_project(app)
+
+        self.assertEqual(calls, [])
 
 if __name__ == "__main__":
     unittest.main()

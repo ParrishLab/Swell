@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -59,3 +60,18 @@ def test_save_as_initialfile_normalizes_project_suffix_only(current_path: str, e
 
     assert kwargs.get("initialfile") == expected
     assert kwargs.get("defaultextension") == ".sdproj"
+
+
+def test_save_project_rejects_missing_current_project_path(tmp_path: Path) -> None:
+    calls: list[str] = []
+    app = _build_app_stub(current_project_path=str(tmp_path / "renamed_elsewhere.sdproj"))
+    app.save_host_session = lambda path=None: calls.append(str(path))
+    app._set_status = lambda _text: None
+    app.browser_controller = SimpleNamespace(session=SimpleNamespace(set_project_path=lambda _path: None))
+    controller = HostProjectLifecycleController(app)
+
+    controller.save_project()
+
+    assert calls == []
+    assert app.warnings
+    assert "no longer exists" in app.warnings[-1][1]

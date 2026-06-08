@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import threading
-from tkinter import messagebox
+from sdapp.shared.ui import dialogs as messagebox
 
 from sdapp.shared.config import AppConfig
 from sdapp.shared.services.update_service import UpdateCheckResult, UpdateService

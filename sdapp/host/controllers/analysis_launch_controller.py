@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections import OrderedDict
 import time
 import tkinter as tk
-from tkinter import messagebox
+from sdapp.shared.ui import dialogs as messagebox
 
 import numpy as np
 from PIL import Image, ImageTk
@@ -274,8 +274,8 @@ class AnalysisLaunchController:
         dialog.withdraw()
         dialog.title(f"Open Analysis Options - {self._event_display_name(str(event_id))}")
         dialog.transient(self.app.root)
-        dialog.resizable(False, False)
-        dialog.geometry("640x500")
+        dialog.resizable(True, True)
+        dialog.geometry("640x1")
         apply_theme(dialog)
 
         shell = ttk.Frame(dialog, padding=SPACING.outer, style="AppShell.TFrame")
@@ -329,7 +329,7 @@ class AnalysisLaunchController:
         )
 
         preview_frame = ttk.Frame(shell, padding=SPACING.card, style="AppSurface.TFrame", width=460, height=260)
-        preview_frame.pack(fill="x", pady=(0, SPACING.gap))
+        preview_frame.pack(fill="both", expand=True, pady=(0, SPACING.gap))
         preview_frame.pack_propagate(False)
         ttk.Label(preview_frame, text="Preview", style="AppSectionTitle.TLabel").pack(anchor="w", pady=(0, SPACING.gap))
         preview_body = ttk.Frame(preview_frame, padding=SPACING.gap, style="AppInset.TFrame")
@@ -509,8 +509,10 @@ class AnalysisLaunchController:
         ttk.Button(buttons, text="Open Analysis", command=_open, **semantic_button_options("primary")).pack(side="right", padx=(0, 8))
         ttk.Button(buttons, text="Show Preview", command=_refresh_preview, **semantic_button_options("secondary")).pack(side="left")
 
-        self.center_window_on_screen(dialog, width=640, height=500)
+        self.center_window_on_screen(dialog, width=640)
         dialog.deiconify()
+        dialog.lift()
+        dialog.focus_force()
         dialog.grab_set()
         self.app.root.wait_window(dialog)
         return result if bool(result.get("ok")) else None
@@ -565,6 +567,11 @@ class AnalysisLaunchController:
         if self.app.reader is None or self.app.stack_info is None:
             self.app._show_warning("Open Analysis", "Load a stack first.")
             _dump_trace("no_stack_loaded")
+            return
+        project_controller = self.app._get_project_controller()
+        ensure_stack = getattr(project_controller, "ensure_active_stack_available", None)
+        if callable(ensure_stack) and not bool(ensure_stack(title="Open Analysis")):
+            _dump_trace("stack_missing")
             return
         active_event_id = self.app._active_event_id()
         if active_event_id is None:
@@ -698,8 +705,10 @@ class AnalysisLaunchController:
                 return
             self.center_window_on_screen(win)
             win.deiconify()
+            win.lift()
+            win.focus_force()
             trace.mark("window_visible")
-            win.after_idle(lambda w=win: self.center_window_on_screen(w))
+            win.after_idle(lambda w=win: (self.center_window_on_screen(w), w.lift(), w.focus_force()))
             win.after_idle(lambda: (trace.mark("after_idle"), _dump_trace("ok")))
             self.app.analysis_window_manager.open_event_window(window_scope, active_event_id, win, analysis_app)
             self.app._analysis_windows.append((win, analysis_app))

@@ -1,11 +1,6 @@
 class SDAppError(Exception):
     """Base exception for all SDApp custom errors."""
     pass
-
-class UserInputError(SDAppError):
-    """Raised when the user provides invalid input that cannot be processed."""
-    pass
-
 class DataCorruptionError(SDAppError):
     """Raised when data loaded from disk or memory is corrupted or invalid."""
     pass

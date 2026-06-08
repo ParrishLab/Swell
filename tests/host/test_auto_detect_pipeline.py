@@ -43,9 +43,13 @@ def _app(root):
     )
 
 
+def _open_hidden(window: AutoDetectWindow) -> None:
+    window.open(show=False)
+
+
 def test_auto_detect_review_populates_and_selects_first_candidate(tk_root) -> None:
     window = AutoDetectWindow(_app(tk_root))
-    window.open()
+    _open_hidden(window)
     try:
         window._review_candidates = [
             {"start_frame": 1, "end_frame": 3, "peak_frame": 2, "lag1_corr": 0.9},
@@ -63,7 +67,7 @@ def test_auto_detect_review_populates_and_selects_first_candidate(tk_root) -> No
 
 def test_auto_detect_completion_callbacks_ignore_closed_window(tk_root) -> None:
     window = AutoDetectWindow(_app(tk_root))
-    window.open()
+    _open_hidden(window)
     window._on_close()
 
     window._review_candidates = []
@@ -76,11 +80,11 @@ def test_auto_detect_completion_callbacks_ignore_closed_window(tk_root) -> None:
 
 def test_auto_detect_window_is_not_modal_or_transient(tk_root) -> None:
     window = AutoDetectWindow(_app(tk_root))
-    window.open()
+    _open_hidden(window)
     try:
         assert window._popup is not None
         assert window._popup.transient() == ""
-        assert tk_root.grab_current() is None
+        assert window._popup.grab_status() is None
     finally:
         window._on_close()
 
@@ -270,7 +274,7 @@ def test_auto_detect_roi_change_repaints_grid_and_invalidates_cached_pipeline_wi
     from sdapp.analysis.ui import roi_dialog
 
     window = AutoDetectWindow(_app(tk_root))
-    window.open()
+    _open_hidden(window)
     try:
         new_roi = np.zeros((8, 8), dtype=bool)
         new_roi[:, :4] = True
@@ -314,7 +318,7 @@ def test_auto_detect_roi_change_repaints_grid_and_invalidates_cached_pipeline_wi
 
 def test_auto_detect_grid_change_repaints_and_invalidates_without_rerun(tk_root, monkeypatch) -> None:
     window = AutoDetectWindow(_app(tk_root))
-    window.open()
+    _open_hidden(window)
     try:
         window._cached_traces = np.ones((1, 5), dtype=np.float32)
         window._cached_frame_indices = np.arange(5)
@@ -344,7 +348,7 @@ def test_auto_detect_grid_change_repaints_and_invalidates_without_rerun(tk_root,
 
 def test_auto_detect_algorithm_slider_does_not_run_without_cached_pipeline(tk_root, monkeypatch) -> None:
     window = AutoDetectWindow(_app(tk_root))
-    window.open()
+    _open_hidden(window)
     try:
         runs = []
         monkeypatch.setattr(window, "_on_run", lambda *args, **kwargs: runs.append(True))
@@ -362,7 +366,7 @@ def test_auto_detect_algorithm_slider_does_not_run_without_cached_pipeline(tk_ro
 
 def test_auto_detect_algorithm_slider_debounces_cached_find_stage(tk_root, monkeypatch) -> None:
     window = AutoDetectWindow(_app(tk_root))
-    window.open()
+    _open_hidden(window)
     try:
         window._dirty_traces = False
         window._cached_detrended = np.ones((1, 5), dtype=np.float32)
@@ -384,7 +388,7 @@ def test_auto_detect_algorithm_slider_debounces_cached_find_stage(tk_root, monke
 
 def test_auto_detect_algorithm_slider_coalesces_while_pipeline_is_running(tk_root, monkeypatch) -> None:
     window = AutoDetectWindow(_app(tk_root))
-    window.open()
+    _open_hidden(window)
     try:
         window._runner = SimpleNamespace(is_running=lambda _key: True)
         window._dirty_traces = False
@@ -407,7 +411,7 @@ def test_auto_detect_algorithm_slider_coalesces_while_pipeline_is_running(tk_roo
 
 def test_auto_detect_coherence_slider_reruns_cached_gate_stage_only(tk_root, monkeypatch) -> None:
     window = AutoDetectWindow(_app(tk_root))
-    window.open()
+    _open_hidden(window)
     try:
         window._dirty_traces = False
         window._dirty_find = False
@@ -431,7 +435,7 @@ def test_auto_detect_coherence_slider_reruns_cached_gate_stage_only(tk_root, mon
 
 def test_auto_detect_split_checkbox_marks_stale_without_rerun(tk_root, monkeypatch) -> None:
     window = AutoDetectWindow(_app(tk_root))
-    window.open()
+    _open_hidden(window)
     try:
         window._dirty_traces = False
         window._cached_detrended = np.ones((1, 5), dtype=np.float32)
@@ -449,7 +453,7 @@ def test_auto_detect_split_checkbox_marks_stale_without_rerun(tk_root, monkeypat
 
 def test_auto_detect_stale_selection_is_ignored(tk_root) -> None:
     window = AutoDetectWindow(_app(tk_root))
-    window.open()
+    _open_hidden(window)
     try:
         window._review_candidates = []
         window._current_idx = 3

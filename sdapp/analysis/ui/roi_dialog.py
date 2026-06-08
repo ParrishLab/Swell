@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import tkinter as tk
-from tkinter import messagebox
+from sdapp.shared.ui import dialogs as messagebox
 from typing import Any
 
 import cv2
@@ -1009,7 +1009,7 @@ def open_roi_dialog(
     popup.bind("<Key-underscore>", lambda _e: (zoom_out(), "break")[1], add="+")
     popup.bind("<Key-0>", lambda _e: (reset_view(), "break")[1], add="+")
 
-    center_window_on_screen(popup)
+    center_window_on_screen(popup, width=1120, height=820)
     popup.deiconify()
     popup.update_idletasks()
     render_background()

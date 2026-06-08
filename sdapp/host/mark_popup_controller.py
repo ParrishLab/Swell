@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import tkinter as tk
-from tkinter import messagebox
+from sdapp.shared.ui import dialogs as messagebox
 
 from sdapp.shared.ui.theme import SPACING, apply_theme
 from sdapp.host.analysis_payload_mapper import apply_analysis_scope_flags
@@ -285,7 +285,7 @@ class MarkPopupController:
         popup.bind("<Destroy>", self.on_destroy)
         self.app._bind_popup_keys(popup)
 
-        center_window(popup)
+        center_window(popup, width=1200, height=850)
         popup.deiconify()
         popup.update_idletasks()
         self._begin_popup_session(

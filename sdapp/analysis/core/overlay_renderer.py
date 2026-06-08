@@ -7,6 +7,62 @@ import time
 import tkinter as tk
 
 
+_LEVERAGE_CMAP = None
+
+
+def _leverage_hex(norm: float) -> str:
+    """Map a leverage value in [0,1] to a hex color.
+
+    High leverage -> red ("edit here"); low/zero -> green ("settled").
+    """
+    global _LEVERAGE_CMAP
+    if _LEVERAGE_CMAP is None:
+        from matplotlib import pyplot as plt
+
+        _LEVERAGE_CMAP = plt.get_cmap("RdYlGn")
+    # RdYlGn: 0.0 = red, 1.0 = green. Invert so high leverage = red.
+    rgba = _LEVERAGE_CMAP(1.0 - max(0.0, min(1.0, float(norm))))
+    r, g, b = (int(round(float(c) * 255.0)) for c in rgba[:3])
+    return f"#{r:02x}{g:02x}{b:02x}"
+
+
+def _draw_leverage_heatmap(app, canvas, w, h, total) -> None:
+    """Render the per-frame leverage strip along the bottom of the slider overlay.
+
+    Absolute scale: leverage below the floor reads green; a uniformly green strip
+    means nothing is worth correcting.
+    """
+    from sdapp.analysis.core.leverage import LEVERAGE_FLOOR
+
+    seg_state = getattr(app, "seg_state", None)
+    cache = getattr(seg_state, "leverage_cache", None) if seg_state is not None else None
+    if not cache:
+        return
+    floor = float(LEVERAGE_FLOOR)
+    denom = max(1e-6, 1.0 - floor)
+    for idx, value in cache.items():
+        value = float(value)
+        norm = 0.0 if value < floor else (value - floor) / denom
+        left_raw = app._frame_to_overlay_x(idx - 0.5, width=w, total_frames=total)
+        right_raw = app._frame_to_overlay_x(idx + 0.5, width=w, total_frames=total)
+        left = max(0.0, min(left_raw, right_raw))
+        right = min(float(w), max(left_raw, right_raw))
+        if right - left < 1.0:
+            right = min(float(w), left + 1.0)
+        canvas.create_rectangle(left, h - 4, right, h, fill=_leverage_hex(norm), outline="")
+        app._slider_overlay_regions.append((left, right, f"Leverage {value:.2f} (frame {idx + 1})"))
+
+    suggested = getattr(seg_state, "leverage_suggested_frame", None)
+    if suggested is not None:
+        x = app._frame_to_overlay_x(int(suggested), width=w, total_frames=total)
+        left = max(0.0, x - 2.0)
+        right = min(float(w), x + 2.0)
+        canvas.create_rectangle(left, h - 7, right, h, fill="#ffffff", outline="")
+        app._slider_overlay_regions.append(
+            (left, right, f"Suggested correction: frame {int(suggested) + 1}")
+        )
+
+
 def _debug_log(app, message: str) -> None:
     logger = getattr(app, "log_debug", None)
     if callable(logger):
@@ -185,6 +241,9 @@ def redraw_slider_overlay(app) -> None:
     if total <= 0:
         _debug_log(app, "Slider overlay redraw aborted: total<=0")
         return
+
+    _draw_leverage_heatmap(app, canvas, w, h, total)
+
     marker_positions = []
     for frame_idx, marker_type in sorted(app.slider_jump_markers.items()):
         x = app._frame_to_overlay_x(frame_idx, width=w, total_frames=total)

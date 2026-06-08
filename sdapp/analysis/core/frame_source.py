@@ -7,6 +7,7 @@ from typing import Iterator
 
 import numpy as np
 from sdapp.shared.frame_source.protocols import FrameSource
+from sdapp.shared.ui import dialogs as messagebox
 
 
 @dataclass
@@ -99,7 +100,6 @@ class EagerFrameSource:
     def get_subtracted_frame(self, idx: int) -> np.ndarray:
         if not self.subtracted_frames:
             if not getattr(self, "_warned_subtracted", False):
-                import tkinter.messagebox as messagebox
                 messagebox.showwarning(
                     "Feature Not Available",
                     "Subtracted frames are not available for this session. Falling back to raw frames."
@@ -111,7 +111,6 @@ class EagerFrameSource:
     def get_visual_frame(self, idx: int) -> np.ndarray:
         if not self.visual_frames:
             if not getattr(self, "_warned_visual", False):
-                import tkinter.messagebox as messagebox
                 messagebox.showwarning(
                     "Feature Not Available",
                     "Visualization frames are not available for this session. Falling back to raw frames."

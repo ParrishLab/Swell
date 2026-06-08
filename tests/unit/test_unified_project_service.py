@@ -115,3 +115,22 @@ def test_unified_service_save_project_defaults_to_input_folder_name(tmp_path: Pa
 
     assert state.project_path == "input_folder.sdproj"
     assert (tmp_path / "input_folder.sdproj").exists()
+
+
+def test_unified_service_normal_save_rejects_missing_existing_project(tmp_path: Path) -> None:
+    service = UnifiedProjectService()
+    service.new_project(_stack_ref("input_folder"))
+    original = tmp_path / "original.sdproj"
+    renamed = tmp_path / "renamed.sdproj"
+    service.save_project(str(original))
+    original.rename(renamed)
+
+    try:
+        service.save_project()
+    except FileNotFoundError as exc:
+        assert "no longer exists" in str(exc)
+    else:
+        raise AssertionError("expected missing project path to be rejected")
+
+    assert renamed.exists()
+    assert not original.exists()

@@ -4,7 +4,8 @@ from pathlib import Path
 import cv2
 import numpy as np
 from scipy.ndimage import map_coordinates
-from tkinter import filedialog, messagebox
+from tkinter import filedialog
+from sdapp.shared.ui import dialogs as messagebox
 
 from sdapp.analysis.core.analysis_context import AnalysisContext
 from sdapp.analysis.core.metrics import compute_scale

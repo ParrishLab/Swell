@@ -41,6 +41,7 @@ def test_open_analysis_full_stack_fallback_cancelled_before_preview() -> None:
     )
     app = SimpleNamespace(
         _get_model_setup_controller=lambda: model_setup,
+        _get_project_controller=lambda: SimpleNamespace(ensure_active_stack_available=lambda **kwargs: True),
         _show_warning=lambda *_args: None,
         root=object(),
         reader=object(),
@@ -99,6 +100,7 @@ def test_open_analysis_full_stack_fallback_creates_event_before_preview() -> Non
     )
     app = SimpleNamespace(
         _get_model_setup_controller=lambda: model_setup,
+        _get_project_controller=lambda: SimpleNamespace(ensure_active_stack_available=lambda **kwargs: True),
         _show_warning=lambda *_args: None,
         _log_info=lambda *_args: None,
         root=object(),
@@ -142,6 +144,7 @@ def test_open_analysis_selected_event_skips_full_stack_confirmation() -> None:
     )
     app = SimpleNamespace(
         _get_model_setup_controller=lambda: model_setup,
+        _get_project_controller=lambda: SimpleNamespace(ensure_active_stack_available=lambda **kwargs: True),
         _show_warning=lambda *_args: None,
         _log_info=lambda *_args: None,
         root=object(),

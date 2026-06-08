@@ -4,7 +4,8 @@ import os
 import threading
 from pathlib import Path
 import tkinter as tk
-from tkinter import filedialog, messagebox, ttk
+from tkinter import filedialog, ttk
+from sdapp.shared.ui import dialogs as messagebox
 
 from sdapp.shared.model_copy import (
     STATUS_MODEL_DISABLED,

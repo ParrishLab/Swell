@@ -8,6 +8,34 @@ from sdapp.analysis.ui.widgets import build_preview_overlay
 from sdapp.shared.ui.bootstrap import semantic_button_options, ttk
 
 
+def _attach_tooltip(widget, text: str) -> None:
+    tip = {"window": None}
+
+    def show(event):
+        if tip["window"] is not None:
+            return
+        top = tk.Toplevel(widget)
+        top.withdraw()
+        top.overrideredirect(True)
+        label = ttk.Label(top, text=str(text), padding=(6, 3), style="AppMeta.TLabel")
+        label.pack()
+        top.geometry(f"+{int(event.x_root) + 10}+{int(event.y_root) + 10}")
+        top.deiconify()
+        tip["window"] = top
+
+    def hide(_event=None):
+        top = tip.get("window")
+        tip["window"] = None
+        if top is not None:
+            try:
+                top.destroy()
+            except Exception:
+                pass
+
+    widget.bind("<Enter>", show, add="+")
+    widget.bind("<Leave>", hide, add="+")
+
+
 class LayoutBuilder:
     def setup_ui(self):
         apply_theme(self.root)
@@ -186,12 +214,15 @@ class LayoutBuilder:
         segmented.grid(row=1, column=0, columnspan=3, sticky="ew")
         for seg_col in range(3):
             segmented.columnconfigure(seg_col, weight=1)
-        self.btn_tool_select = ttk.Button(segmented, text="Select (V)", command=lambda: self._set_tool_mode("select"), style="AppSegmentedActive.TButton")
+        self.btn_tool_select = ttk.Button(segmented, text="Select", command=lambda: self._set_tool_mode("select"), style="AppSegmentedActive.TButton")
         self.btn_tool_select.grid(row=0, column=0, sticky="ew")
-        self.btn_tool_point_pos = ttk.Button(segmented, text="Point (+) (+)", command=lambda: self._set_tool_mode("point_pos"), style="AppSegmented.TButton")
+        _attach_tooltip(self.btn_tool_select, "Select (V)")
+        self.btn_tool_point_pos = ttk.Button(segmented, text="Point (+)", command=lambda: self._set_tool_mode("point_pos"), style="AppSegmented.TButton")
         self.btn_tool_point_pos.grid(row=0, column=1, sticky="ew", padx=(1, 1))
-        self.btn_tool_point_neg = ttk.Button(segmented, text="Point (-) (-)", command=lambda: self._set_tool_mode("point_neg"), style="AppSegmented.TButton")
+        _attach_tooltip(self.btn_tool_point_pos, "Point (+)  (+)")
+        self.btn_tool_point_neg = ttk.Button(segmented, text="Point (-)", command=lambda: self._set_tool_mode("point_neg"), style="AppSegmented.TButton")
         self.btn_tool_point_neg.grid(row=0, column=2, sticky="ew")
+        _attach_tooltip(self.btn_tool_point_neg, "Point (-)  (-)")
 
         sensitivity_row = ttk.Frame(frame, style="AppSubpanel.TFrame")
         sensitivity_row.grid(row=2, column=0, columnspan=3, sticky="ew", pady=(SPACING.gap, 0))
@@ -215,10 +246,12 @@ class LayoutBuilder:
         brush_row.grid(row=3, column=0, columnspan=3, sticky="ew", pady=(SPACING.inner, 0))
         brush_row.columnconfigure(0, weight=1)
         brush_row.columnconfigure(1, weight=1)
-        self.btn_tool_brush = ttk.Button(brush_row, text="Brush (+) (B)", command=lambda: self._set_tool_mode("brush"), style="AppSegmented.TButton")
+        self.btn_tool_brush = ttk.Button(brush_row, text="Brush (+)", command=lambda: self._set_tool_mode("brush"), style="AppSegmented.TButton")
         self.btn_tool_brush.grid(row=0, column=0, sticky="ew", padx=(0, 1))
-        self.btn_tool_eraser = ttk.Button(brush_row, text="Brush (-) (E)", command=lambda: self._set_tool_mode("eraser"), style="AppSegmented.TButton")
+        _attach_tooltip(self.btn_tool_brush, "Brush (+)  (B)")
+        self.btn_tool_eraser = ttk.Button(brush_row, text="Brush (-)", command=lambda: self._set_tool_mode("eraser"), style="AppSegmented.TButton")
         self.btn_tool_eraser.grid(row=0, column=1, sticky="ew")
+        _attach_tooltip(self.btn_tool_eraser, "Brush (-)  (E)")
 
         brush_size_row = ttk.Frame(frame, style="AppSubpanel.TFrame")
         brush_size_row.grid(row=4, column=0, columnspan=3, sticky="ew", pady=(SPACING.inner, 0))
@@ -279,6 +312,34 @@ class LayoutBuilder:
             sticky="ew",
             pady=(SPACING.inner, 0),
         )
+
+        prop_control_row = ttk.Frame(frame, style="AppSubpanel.TFrame")
+        prop_control_row.grid(row=4, column=0, columnspan=4, sticky="ew", pady=(SPACING.gap, 0))
+        for control_col in range(3):
+            prop_control_row.columnconfigure(control_col, weight=1)
+        self.btn_pause_propagation = ttk.Button(
+            prop_control_row,
+            text="Pause",
+            command=self._pause_background_propagation,
+            **semantic_button_options("secondary"),
+        )
+        self.btn_pause_propagation.grid(row=0, column=0, sticky="ew", padx=(0, SPACING.gap))
+        self.btn_resume_propagation = ttk.Button(
+            prop_control_row,
+            text="Resume",
+            command=self._resume_background_propagation,
+            **semantic_button_options("secondary"),
+        )
+        self.btn_resume_propagation.grid(row=0, column=1, sticky="ew", padx=(0, SPACING.gap))
+        self.btn_stop_propagation = ttk.Button(
+            prop_control_row,
+            text="Stop",
+            command=self._stop_background_propagation,
+            **semantic_button_options("danger"),
+        )
+        self.btn_stop_propagation.grid(row=0, column=2, sticky="ew")
+        for button in (self.btn_pause_propagation, self.btn_resume_propagation, self.btn_stop_propagation):
+            button.configure(state="disabled")
         self.propagation_range_canvas.bind("<Configure>", lambda _event: self._redraw_propagation_range_bar(), add="+")
         self._redraw_propagation_range_bar()
         return frame

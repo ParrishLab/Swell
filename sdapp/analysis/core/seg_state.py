@@ -10,6 +10,8 @@ class SegmentationState:
         self.points: dict[int, list[dict]] = {}
         self.paint_layers: dict[int, dict[str, np.ndarray]] = {}
         self.masks_cache: dict[int, np.ndarray] = {}
+        self.leverage_cache: dict[int, float] = {}
+        self.leverage_suggested_frame: int | None = None
 
         self.frames_with_valid_points: set[int] = set()
         self.frames_with_user_input: set[int] = set()
@@ -84,6 +86,10 @@ class SegmentationState:
     def clear_mask(self, frame_idx: int):
         self.masks_cache.pop(frame_idx, None)
         self.dirty_final_mask_frames = True
+
+    def set_leverage_map(self, leverage: dict[int, float], suggested: int | None):
+        self.leverage_cache = dict(leverage)
+        self.leverage_suggested_frame = suggested
 
     def prune_invalid_points(self):
         to_delete = []

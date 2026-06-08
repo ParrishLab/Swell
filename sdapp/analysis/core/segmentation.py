@@ -10,7 +10,8 @@ from pathlib import Path
 from types import MethodType
 
 import numpy as np
-from tkinter import filedialog, messagebox
+from tkinter import filedialog
+from sdapp.shared.ui import dialogs as messagebox
 
 from sdapp.shared.model_copy import (
     STATUS_MODEL_DISABLED,
@@ -64,6 +65,29 @@ def _build_sam2_frame_cache_key_fn():
     from sdapp.analysis.model.sam2_frame_cache import build_sam2_frame_cache_key
 
     return build_sam2_frame_cache_key
+
+
+def _disable_sam2_hole_filling_without_extension(predictor, log_warn=None) -> bool:
+    try:
+        extension_available = importlib.util.find_spec("sam2._C") is not None
+    except (ImportError, AttributeError, ValueError):
+        extension_available = False
+    if extension_available:
+        return False
+    fill_hole_area = getattr(predictor, "fill_hole_area", 0)
+    try:
+        enabled = int(fill_hole_area) > 0
+    except (TypeError, ValueError):
+        enabled = bool(fill_hole_area)
+    if not enabled:
+        return False
+    setattr(predictor, "fill_hole_area", 0)
+    if callable(log_warn):
+        log_warn(
+            "Model",
+            "SAM2 native extension is unavailable; disabled mask hole-filling post-processing.",
+        )
+    return True
 
 
 @dataclass(frozen=True)
@@ -805,6 +829,7 @@ class SegmentationActions:
                     try:
                         init_t0 = time.perf_counter()
                         predictor = build_sam2_video_predictor(cname, normalized_model_path, device=device)
+                        _disable_sam2_hole_filling_without_extension(predictor, self.log_warn)
                         self.predictor = predictor
                         if device == "mps":
                             self._apply_mps_sam2_dtype_guard()
@@ -955,3 +980,26 @@ class SegmentationActions:
             return
 
         self.inference_manager.trigger_propagation(prop_start, prop_end, self.current_frame_idx)
+
+    def _pause_background_propagation(self):
+        manager = getattr(self, "inference_manager", None)
+        if manager is None:
+            return
+        manager.pause_propagation()
+
+    def _resume_background_propagation(self):
+        manager = getattr(self, "inference_manager", None)
+        if manager is None:
+            return
+        manager.resume_propagation()
+
+    def _stop_background_propagation(self):
+        manager = getattr(self, "inference_manager", None)
+        if manager is None or not manager.is_propagation_running():
+            return
+        preserve = messagebox.askyesno(
+            "Stop Propagation",
+            "Preserve masks generated so far?",
+            parent=self.root,
+        )
+        manager.request_stop_propagation(preserve_generated_masks=bool(preserve))

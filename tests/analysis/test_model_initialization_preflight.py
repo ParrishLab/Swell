@@ -7,7 +7,11 @@ from pathlib import Path
 import numpy as np
 
 from sdapp.analysis.app import SDSegmentationApp
-from sdapp.analysis.core.segmentation import CheckpointOnboardingResult, _candidate_model_config_names
+from sdapp.analysis.core.segmentation import (
+    CheckpointOnboardingResult,
+    _candidate_model_config_names,
+    _disable_sam2_hole_filling_without_extension,
+)
 
 
 class _RuntimeStub:
@@ -162,3 +166,32 @@ def test_candidate_model_configs_respect_model_size_hints() -> None:
         checkpoint_id="sam2.1_hiera_large",
     )
     assert candidates[0] in {"sam2.1_hiera_l.yaml", "sam2_hiera_l.yaml"}
+
+
+def test_sam2_hole_filling_disabled_when_native_extension_missing(monkeypatch) -> None:
+    predictor = type("Predictor", (), {"fill_hole_area": 8})()
+    warnings: list[tuple[str, str]] = []
+
+    monkeypatch.setattr("sdapp.analysis.core.segmentation.importlib.util.find_spec", lambda name: None)
+
+    changed = _disable_sam2_hole_filling_without_extension(
+        predictor,
+        lambda context, message: warnings.append((context, message)),
+    )
+
+    assert changed is True
+    assert predictor.fill_hole_area == 0
+    assert warnings == [
+        ("Model", "SAM2 native extension is unavailable; disabled mask hole-filling post-processing.")
+    ]
+
+
+def test_sam2_hole_filling_kept_when_native_extension_available(monkeypatch) -> None:
+    predictor = type("Predictor", (), {"fill_hole_area": 8})()
+
+    monkeypatch.setattr("sdapp.analysis.core.segmentation.importlib.util.find_spec", lambda name: object())
+
+    changed = _disable_sam2_hole_filling_without_extension(predictor)
+
+    assert changed is False
+    assert predictor.fill_hole_area == 8

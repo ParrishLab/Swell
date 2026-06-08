@@ -6,8 +6,9 @@ import io
 import queue
 import threading
 import time
+from collections import OrderedDict
 from typing import Callable, Optional
-import tkinter.messagebox as messagebox
+from sdapp.shared.ui import dialogs as messagebox
 
 import numpy as np
 
@@ -80,12 +81,20 @@ class InferenceManager:
         self._sensitivity_debounce_job = None
         self._pending_marker_batch_frames = set()
 
+        # Cache of raw mask logits per frame so a pure sensitivity (threshold)
+        # change can re-threshold without re-running the network forward pass.
+        self._logits_cache: "OrderedDict[int, tuple[tuple, np.ndarray]]" = OrderedDict()
+        self._logits_cache_lock = threading.Lock()
+        self._logits_cache_max = 32
+
         self.propagate_thread = None
         self._prop_stop_event = threading.Event()
+        self._prop_pause_event = threading.Event()
         self._prop_thread_lock = threading.Lock()
         self._active_propagation_generation = 0
         self._prop_start_retry_job = None
         self._prop_restart_wait_count = 0
+        self._preserve_generated_masks_on_stop = False
 
     def _log_debug(self, context: str, message: str):
         self.log("DEBUG", context, message)
@@ -147,6 +156,56 @@ class InferenceManager:
 
     def _is_propagation_cancelled(self, generation):
         return self._prop_stop_event.is_set() or generation != self._active_propagation_generation
+
+    def is_propagation_running(self) -> bool:
+        with self._prop_thread_lock:
+            return self.propagate_thread is not None and self.propagate_thread.is_alive()
+
+    def is_propagation_paused(self) -> bool:
+        return self.is_propagation_running() and self._prop_pause_event.is_set()
+
+    def _wait_if_propagation_paused(self, generation) -> bool:
+        while self._prop_pause_event.is_set():
+            if self._is_propagation_cancelled(generation):
+                return False
+            time.sleep(0.05)
+        return not self._is_propagation_cancelled(generation)
+
+    def pause_propagation(self) -> bool:
+        if not self.is_propagation_running():
+            return False
+        self._prop_pause_event.set()
+        self._log_info("Propagation", "Propagation paused.")
+        if self.is_ui_alive():
+            self.root.after(0, lambda: self.set_status("Propagation Paused", "orange"))
+        return True
+
+    def resume_propagation(self) -> bool:
+        if not self.is_propagation_running() or not self._prop_pause_event.is_set():
+            return False
+        self._prop_pause_event.clear()
+        self._log_info("Propagation", "Propagation resumed.")
+        if self.is_ui_alive():
+            self.root.after(0, lambda: self.set_status("Propagating...", "purple"))
+        return True
+
+    def request_stop_propagation(self, *, preserve_generated_masks: bool = False) -> bool:
+        with self._prop_thread_lock:
+            thread = self.propagate_thread
+            if thread is None or not thread.is_alive():
+                return False
+            self._preserve_generated_masks_on_stop = bool(preserve_generated_masks)
+            self._prop_stop_event.set()
+            self._prop_pause_event.clear()
+        self._log_info(
+            "Propagation",
+            "Stopping propagation and preserving generated masks."
+            if preserve_generated_masks
+            else "Stopping propagation and restoring previous masks.",
+        )
+        if self.is_ui_alive():
+            self.root.after(0, lambda: self.set_status("Stopping Propagation...", "orange"))
+        return True
 
     def _frame_shape_hw(self) -> tuple[int, int] | None:
         try:
@@ -254,6 +313,7 @@ class InferenceManager:
             self._infer_stale_skip_count = 0
             self._infer_max_queue_depth = 0
             self._pending_marker_batch_frames.clear()
+        self._clear_logits_cache()
         self._infer_worker_thread = threading.Thread(target=self._inference_worker_loop, daemon=True)
         self._infer_worker_thread.start()
         self._log_debug("Model", "Started inference worker thread.")
@@ -291,6 +351,7 @@ class InferenceManager:
     def _stop_propagation_thread(self, clear_event=False, timeout=1.0):
         with self._prop_thread_lock:
             self._prop_stop_event.set()
+            self._prop_pause_event.clear()
             if self._prop_start_retry_job is not None and self.is_ui_alive():
                 try:
                     self.root.after_cancel(self._prop_start_retry_job)
@@ -312,6 +373,7 @@ class InferenceManager:
                 self.propagate_thread = None
             if clear_event and (self.propagate_thread is None or not self.propagate_thread.is_alive()):
                 self._prop_stop_event.clear()
+                self._preserve_generated_masks_on_stop = False
 
     def enqueue_pending_point_frames(self, frame_indices):
         if not self.model_ready:
@@ -365,7 +427,62 @@ class InferenceManager:
 
     def _fire_sensitivity_inference(self, frame_idx):
         self._sensitivity_debounce_job = None
+        # A sensitivity change only moves the threshold applied to the mask
+        # logits; if we still hold the logits from the last forward pass for
+        # the same point prompts, re-threshold instead of re-running the model.
+        if self._try_rethreshold_from_cache(frame_idx):
+            return
         self.enqueue_frame_inference(frame_idx, reason="sensitivity")
+
+    def _points_signature(self, frame_idx):
+        pt_list = self.state.points.get(frame_idx)
+        if not pt_list:
+            return None
+        try:
+            return tuple(
+                (float(p["x"]), float(p["y"]), int(p["label"])) for p in pt_list
+            )
+        except Exception:
+            return None
+
+    def _store_frame_logits(self, frame_idx, signature, logits_np):
+        if signature is None or logits_np is None:
+            return
+        with self._logits_cache_lock:
+            self._logits_cache[frame_idx] = (signature, logits_np)
+            self._logits_cache.move_to_end(frame_idx)
+            while len(self._logits_cache) > self._logits_cache_max:
+                self._logits_cache.popitem(last=False)
+
+    def _clear_logits_cache(self):
+        with self._logits_cache_lock:
+            self._logits_cache.clear()
+
+    def _try_rethreshold_from_cache(self, frame_idx) -> bool:
+        if not self.model_ready:
+            return False
+        self.state.prune_invalid_points()
+        if frame_idx not in self.state.get_valid_point_frames():
+            return False
+        signature = self._points_signature(frame_idx)
+        if signature is None:
+            return False
+        with self._logits_cache_lock:
+            cached = self._logits_cache.get(frame_idx)
+            if cached is not None:
+                self._logits_cache.move_to_end(frame_idx)
+        if cached is None:
+            return False
+        cached_signature, logits_np = cached
+        if cached_signature != signature:
+            return False
+        thresh = float(self.get_sensitivity())
+        self.state.set_mask(frame_idx, (logits_np > thresh).squeeze())
+        with self._infer_state_lock:
+            defer_markers = int(frame_idx) in self._pending_marker_batch_frames
+        self._notify_mask_updated(recompute_markers=not defer_markers)
+        self._log_debug("Model", f"Re-thresholded frame {frame_idx + 1} from cached logits (sensitivity).")
+        return True
 
     def _inference_worker_loop(self):
         while not self._infer_worker_stop.is_set():
@@ -447,7 +564,10 @@ class InferenceManager:
                 return
 
             thresh = float(self.get_sensitivity())
-            self.state.set_mask(frame_idx, (out_mask_logits[0] > thresh).cpu().numpy().squeeze())
+            raw_logit = out_mask_logits[0]
+            logits_np = (raw_logit.detach() if hasattr(raw_logit, "detach") else raw_logit).cpu().numpy()
+            self.state.set_mask(frame_idx, (logits_np > thresh).squeeze())
+            self._store_frame_logits(frame_idx, self._points_signature(frame_idx), logits_np)
             with self._infer_state_lock:
                 defer_markers = int(frame_idx) in self._pending_marker_batch_frames
             self._notify_mask_updated(recompute_markers=not defer_markers)
@@ -473,7 +593,9 @@ class InferenceManager:
 
         with self._prop_thread_lock:
             if self.propagate_thread is not None and self.propagate_thread.is_alive():
+                self._preserve_generated_masks_on_stop = False
                 self._prop_stop_event.set()
+                self._prop_pause_event.clear()
                 self._prop_restart_wait_count += 1
                 self._log_debug("Propagation", "Waiting for existing propagation thread to stop before restart.")
                 if self._prop_start_retry_job is None and self.is_ui_alive():
@@ -484,6 +606,8 @@ class InferenceManager:
                 return
 
             self._prop_stop_event.clear()
+            self._prop_pause_event.clear()
+            self._preserve_generated_masks_on_stop = False
             self._active_propagation_generation += 1
             generation = self._active_propagation_generation
             self.propagate_thread = threading.Thread(
@@ -497,6 +621,11 @@ class InferenceManager:
     def _run_background_propagation(self, propagation_generation, prop_start, prop_end, anchor_frame):
         start_ts = time.perf_counter()
         prop_log_run_id = None
+        inject_ms = 0.0
+        forward_ms = 0.0
+        backward_ms = 0.0
+        forward_durations: list[float] = []
+        backward_durations: list[float] = []
         try:
             if self._is_propagation_cancelled(propagation_generation):
                 return
@@ -579,7 +708,11 @@ class InferenceManager:
                             sorted_frames = sorted(list(frames_with_input))
                             self._log_info("Propagation", f"Injecting prompts for {len(sorted_frames)} frame(s).")
 
+                            inject_t0 = time.perf_counter()
                             for f_idx in sorted_frames:
+                                if not self._wait_if_propagation_paused(propagation_generation):
+                                    was_stopped = True
+                                    break
                                 if self._is_propagation_cancelled(propagation_generation):
                                     was_stopped = True
                                     break
@@ -643,12 +776,22 @@ class InferenceManager:
                                         labels=labels,
                                     )
 
+                            inject_ms = (time.perf_counter() - inject_t0) * 1000.0
+
                             if not was_stopped:
                                 forward_generator = self.predictor.propagate_in_video(
                                     self.inference_state, start_frame_idx=anchor_frame, reverse=False
                                 )
 
+                                fwd_t0 = time.perf_counter()
+                                fwd_tick = fwd_t0
                                 for out_frame_idx, out_obj_ids, out_mask_logits in forward_generator:
+                                    now = time.perf_counter()
+                                    forward_durations.append((now - fwd_tick) * 1000.0)
+                                    fwd_tick = now
+                                    if not self._wait_if_propagation_paused(propagation_generation):
+                                        was_stopped = True
+                                        break
                                     if self._is_propagation_cancelled(propagation_generation):
                                         was_stopped = True
                                         break
@@ -665,12 +808,22 @@ class InferenceManager:
                                         if out_frame_idx == self.get_current_frame_idx() and self.is_ui_alive():
                                             self.root.after(0, self.update_display)
 
+                                forward_ms = (time.perf_counter() - fwd_t0) * 1000.0
+
                             if not was_stopped:
                                 backward_generator = self.predictor.propagate_in_video(
                                     self.inference_state, start_frame_idx=anchor_frame, reverse=True
                                 )
 
+                                bwd_t0 = time.perf_counter()
+                                bwd_tick = bwd_t0
                                 for out_frame_idx, out_obj_ids, out_mask_logits in backward_generator:
+                                    now = time.perf_counter()
+                                    backward_durations.append((now - bwd_tick) * 1000.0)
+                                    bwd_tick = now
+                                    if not self._wait_if_propagation_paused(propagation_generation):
+                                        was_stopped = True
+                                        break
                                     if self._is_propagation_cancelled(propagation_generation):
                                         was_stopped = True
                                         break
@@ -687,11 +840,15 @@ class InferenceManager:
                                         if out_frame_idx == self.get_current_frame_idx() and self.is_ui_alive():
                                             self.root.after(0, self.update_display)
 
+                                backward_ms = (time.perf_counter() - bwd_t0) * 1000.0
+
             cleanup()
             if was_stopped or self._is_propagation_cancelled(propagation_generation):
+                preserve_on_stop = bool(self._preserve_generated_masks_on_stop)
+                stop_status = "stopped_preserve" if preserve_on_stop else "stopped"
                 self.prop_log_finish("stopped", run_id=prop_log_run_id)
                 if self.on_propagation_status is not None:
-                    self.on_propagation_status("stopped", int(prop_start), int(prop_end))
+                    self.on_propagation_status(stop_status, int(prop_start), int(prop_end))
                 if self.is_ui_alive():
                     self.root.after(0, self.recompute_markers)
                     self.root.after(0, lambda: self.set_status("Propagation Stopped", "orange"))
@@ -729,10 +886,30 @@ class InferenceManager:
                 traceback.print_exc()
         finally:
             elapsed_ms = (time.perf_counter() - start_ts) * 1000.0
+
+            def _per_frame(total_ms: float, durations: list[float]) -> str:
+                # Drop the first sample: it includes generator setup, not frame work.
+                samples = durations[1:] if len(durations) > 1 else durations
+                count = len(samples)
+                if count == 0:
+                    return "0 frames"
+                avg = sum(samples) / count
+                growth = ""
+                if count >= 6:
+                    third = count // 3
+                    head = sum(samples[:third]) / third
+                    tail = sum(samples[-third:]) / third
+                    if head > 0:
+                        growth = f" growth={tail / head:.2f}x"
+                return f"{count} frames {total_ms:.0f}ms ({avg:.1f}ms/frame{growth})"
+
             self._log_debug(
                 "Perf",
                 (
                     f"Propagation run elapsed={elapsed_ms:.1f}ms "
+                    f"inject={inject_ms:.0f}ms "
+                    f"forward=[{_per_frame(forward_ms, forward_durations)}] "
+                    f"backward=[{_per_frame(backward_ms, backward_durations)}] "
                     f"restart_waits={self._prop_restart_wait_count} "
                     f"stale_skips={self._infer_stale_skip_count} "
                     f"max_queue_depth={self._infer_max_queue_depth}"
@@ -741,6 +918,9 @@ class InferenceManager:
             with self._prop_thread_lock:
                 if self.propagate_thread is threading.current_thread():
                     self.propagate_thread = None
+                if self.propagate_thread is None:
+                    self._prop_pause_event.clear()
+                    self._preserve_generated_masks_on_stop = False
                 if self._prop_start_retry_job is not None and self.is_ui_alive():
                     try:
                         self.root.after_cancel(self._prop_start_retry_job)

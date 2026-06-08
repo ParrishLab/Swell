@@ -44,7 +44,11 @@ def _build_app():
     return SimpleNamespace(
         root=_ImmediateRoot(),
         browser_controller=browser_controller,
-        _popup_engine=SimpleNamespace(set_reader=lambda reader: popup_readers.append(reader)),
+        _popup=SimpleNamespace(
+            engine=SimpleNamespace(set_reader=lambda reader: popup_readers.append(reader)),
+            mark_processed_cache=SimpleNamespace(clear=lambda: None),
+            mark_popup=SimpleNamespace(winfo_exists=lambda: False),
+        ),
         preview_scale=SimpleNamespace(configure=lambda **_kwargs: None, set=lambda _value: None),
         analysis_launch_controller=SimpleNamespace(prewarm_analysis_app_class_async=lambda: None),
         _show_warning=lambda title, text: warnings.append((str(title), str(text))),
@@ -138,6 +142,68 @@ def test_open_project_warns_when_missing_stack_folder_is_not_rebound(tmp_path: P
     assert app.session_calls["set_stack_ref"] == []
     assert len(app.warnings) == 1
     assert "missing and was not rebound" in app.warnings[0][1]
+
+
+def test_active_stack_rebinds_when_loaded_folder_moves(tmp_path: Path) -> None:
+    app = _build_app()
+    controller = HostProjectLifecycleController(app)
+    missing_dir = tmp_path / "old_stack"
+    replacement_dir = tmp_path / "replacement"
+    replacement_dir.mkdir()
+    stack_info = SimpleNamespace(
+        input_dir=str(replacement_dir),
+        frame_count=5,
+        frame_height=8,
+        frame_width=9,
+        dtype="uint8",
+    )
+    opened_dirs: list[str] = []
+
+    class _Reader:
+        def open_stack(self, folder: str):
+            opened_dirs.append(str(folder))
+            return stack_info
+
+    app.reader = SimpleNamespace(missing_source_paths=lambda limit=1: [missing_dir])
+    app.stack_info = SimpleNamespace(input_dir=str(missing_dir), frame_count=5)
+    app.input_var = SimpleNamespace(set=lambda value: setattr(app, "input_value", value))
+    app._main_render_cache = {}
+    app._normalized_frame_u8_cache = {}
+    app._analysis_preview_cache = {}
+
+    with patch("sdapp.host.controllers.project_lifecycle_controller.messagebox.askyesno", return_value=True):
+        with patch(
+            "sdapp.host.controllers.project_lifecycle_controller.filedialog.askdirectory",
+            return_value=str(replacement_dir),
+        ):
+            with patch("sdapp.host.controllers.project_lifecycle_controller.StackReader", return_value=_Reader()):
+                ok = controller.ensure_active_stack_available()
+
+    assert ok is True
+    assert opened_dirs == [str(replacement_dir)]
+    assert app.stack_info is stack_info
+    assert app.reader is not None
+    assert app.session_calls["set_stack_ref"]
+    assert str(app.session_calls["set_stack_ref"][-1].input_dir) == str(replacement_dir)
+    assert app.input_value == str(replacement_dir)
+
+
+def test_active_stack_missing_without_rebind_warns_and_keeps_existing_state(tmp_path: Path) -> None:
+    app = _build_app()
+    controller = HostProjectLifecycleController(app)
+    missing_dir = tmp_path / "old_stack"
+    stale_reader = SimpleNamespace(missing_source_paths=lambda limit=1: [missing_dir])
+    app.reader = stale_reader
+    app.stack_info = SimpleNamespace(input_dir=str(missing_dir), frame_count=5)
+
+    with patch("sdapp.host.controllers.project_lifecycle_controller.messagebox.askyesno", return_value=False):
+        ok = controller.ensure_active_stack_available(title="Open Analysis")
+
+    assert ok is False
+    assert app.reader is stale_reader
+    assert app.session_calls["set_stack_ref"] == []
+    assert app.warnings
+    assert "missing and was not rebound" in app.warnings[-1][1]
 
 
 def test_run_on_ui_thread_posts_callback_when_called_off_main_thread() -> None:

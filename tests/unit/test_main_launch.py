@@ -40,6 +40,22 @@ def test_parse_main_args_detects_model_runtime_smoke_flag(monkeypatch) -> None:
     assert project_path == "/tmp/example.sdproj"
 
 
+def test_sanitize_macos_debug_env_removes_stack_logging_vars(monkeypatch) -> None:
+    main_mod = _load_main_module(monkeypatch)
+    monkeypatch.setattr(main_mod.sys, "platform", "darwin")
+    monkeypatch.setenv("MallocStackLogging", "0")
+    monkeypatch.setenv("MallocStackLoggingNoCompact", "0")
+    monkeypatch.setenv("MallocStackLoggingDirectory", "/tmp/malloc")
+    monkeypatch.setenv("MallocNanoZone", "0")
+
+    main_mod._sanitize_macos_debug_env()
+
+    assert "MallocStackLogging" not in main_mod.os.environ
+    assert "MallocStackLoggingNoCompact" not in main_mod.os.environ
+    assert "MallocStackLoggingDirectory" not in main_mod.os.environ
+    assert main_mod.os.environ["MallocNanoZone"] == "0"
+
+
 def test_main_forwards_open_request_to_running_instance(monkeypatch) -> None:
     main_mod = _load_main_module(monkeypatch)
 

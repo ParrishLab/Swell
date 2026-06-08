@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from tkinter import messagebox
+from sdapp.shared.ui import dialogs as messagebox
 
 import numpy as np
 

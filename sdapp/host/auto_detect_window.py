@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import tkinter as tk
 from pathlib import Path
-from tkinter import messagebox, ttk
+from tkinter import ttk
 from typing import Any
 
 import numpy as np
@@ -26,7 +26,6 @@ from sdapp.shared.ui.theme import CANVAS_BACKGROUND, SPACING, apply_theme
 # Colors drawn directly onto tk.Canvas — must stay in sync with theme.py palette.
 _C_ACCENT      = "#1b75bc"
 _C_BORDER      = "#2a3139"
-_C_CONTROL     = "#313842"
 _C_TEXT        = "#edf1f3"
 _C_MUTED       = "#8d97a2"
 _C_MUTED_SOFT  = "#aeb7bf"
@@ -105,8 +104,10 @@ class AutoDetectWindow:
 
         self._load_project_roi()
 
-    def open(self) -> None:
+    def open(self, *, show: bool = True) -> None:
         popup = tk.Toplevel(self.app.root)
+        if not show:
+            popup.withdraw()
         popup.title("Auto-detect SDs - Scientific Workbench")
         apply_theme(popup)
         popup.minsize(_WINDOW_W, _WINDOW_H)
@@ -129,8 +130,9 @@ class AutoDetectWindow:
         self._update_roi_status()
         self._render_viewer_frame(0)
 
-        center_window_on_screen(popup)
-        popup.after(0, lambda: (popup.lift(), popup.focus_force()))
+        if show:
+            center_window_on_screen(popup, width=_WINDOW_W, height=_WINDOW_H)
+            popup.after(0, lambda: (popup.lift(), popup.focus_force()))
 
     def _build_left_pane(self, parent: ttk.Frame) -> None:
         left = ttk.Frame(parent, padding=SPACING.outer, style="AppSidebar.TFrame")

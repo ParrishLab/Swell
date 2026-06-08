@@ -25,6 +25,7 @@ def _build_frame_source(frame_count: int = 8) -> EagerFrameSource:
 def _build_app(frame_source: EagerFrameSource) -> SimpleNamespace:
     return SimpleNamespace(
         browser_controller=SimpleNamespace(get_frame_source=lambda: frame_source),
+        _get_project_controller=lambda: SimpleNamespace(ensure_active_stack_available=lambda **kwargs: True),
         root=object(),
         _analysis_preview_cache=OrderedDict(),
         _log_info=lambda *_args: None,
@@ -194,6 +195,7 @@ def test_focus_existing_analysis_window_status_uses_event_label() -> None:
             get_event=lambda event_id: SimpleNamespace(event_id=str(event_id), label="Visible Event"),
             event_display_name=lambda _event_id: "Visible Event",
         ),
+        _get_project_controller=lambda: SimpleNamespace(ensure_active_stack_available=lambda **kwargs: True),
         analysis_window_manager=SimpleNamespace(focus_event_window=lambda _scope, _event_id: True),
         reader=object(),
         stack_info=SimpleNamespace(frame_count=3),

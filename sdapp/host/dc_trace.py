@@ -134,10 +134,6 @@ def _apply_active_mask(values: list[str], active_mask: list[bool] | None, n_chan
     return _normalize_channel_values(normalized, n_channels, default_prefix)
 
 
-def _coerce_segments(handle: Any) -> list[tuple[int, int]]:
-    return []
-
-
 def _sorted_sweep_names(handle: Any) -> list[str]:
     try:
         keys = list(handle.keys())

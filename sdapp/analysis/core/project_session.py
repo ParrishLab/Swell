@@ -327,6 +327,7 @@ class ProjectSessionService:
         if bool(record.analysis.use_draft) and record.analysis.masks_draft is not None:
             source_masks = record.analysis.masks_draft
         seg_state.masks_cache.clear()
+        seg_state.set_leverage_map({}, None)
         for frame_idx, mask in source_masks.items():
             seg_state.masks_cache[int(frame_idx)] = np.asarray(mask, dtype=bool).copy()
 
@@ -515,6 +516,13 @@ class ProjectSessionService:
             record.analysis.masks_draft = None
             record.analysis.use_draft = False
             record.metadata.propagation_completed = True
+        elif status == "stopped_preserve":
+            record.analysis.masks_committed = self.copy_masks_dict(current_masks)
+            record.analysis.masks_draft = None
+            record.analysis.use_draft = False
+            record.metadata.propagation_completed = False
+            record.metadata.start_idx = int(prop_start)
+            record.metadata.end_idx = int(prop_end)
         elif status in ("stopped", "failed"):
             record.analysis.masks_draft = self.copy_masks_dict(current_masks)
             record.analysis.use_draft = False
@@ -522,13 +530,3 @@ class ProjectSessionService:
             if committed_snapshot is not None:
                 restored = self.copy_masks_dict(committed_snapshot)
         return PropagationTransition(event_record=record, restored_masks=restored)
-
-    # Compatibility adapters for legacy event-state callers.
-    def sync_active_event_state(self, *, frame_count: int, active_event_id: str, seg_state: SegmentationState, event_states: dict[str, Any]) -> dict[str, dict[str, Any]]:
-        records = self.coerce_event_records(event_states, frame_count)
-        self.sync_workspace_into_event(frame_count=frame_count, event_id=active_event_id, seg_state=seg_state, event_records=records)
-        return self.event_records_to_legacy_dict(records)
-
-    def load_event_into_seg_state(self, *, event_id: str, event_states: dict[str, Any], seg_state: SegmentationState) -> None:
-        records = self.coerce_event_records(event_states, max(1, len(event_states) or 1))
-        self.load_event_into_workspace(event_id=event_id, event_records=records, seg_state=seg_state)

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from pathlib import Path
 from typing import Any, Callable
 
 from sdapp.shared.models import (
@@ -149,6 +150,19 @@ class UnifiedProjectService:
         return self.state()
 
     def save_project(self, path: str | None = None) -> UnifiedProjectState:
+        if path is None and self._state.project_path:
+            current = str(self._state.project_path)
+            try:
+                current_path = Path(current).expanduser().resolve()
+            except Exception as exc:
+                raise RuntimeError(f"Invalid saved project path: {current}") from exc
+            if not current_path.exists():
+                raise FileNotFoundError(
+                    "The saved project path no longer exists. It may have been renamed, moved, or deleted outside the app. "
+                    "Use Save As to choose the current project location."
+                )
+            if not current_path.is_file():
+                raise ValueError(f"Project save target is not a file: {current_path}")
         target = str(
             path
             or self._state.project_path

@@ -43,6 +43,15 @@ class ProjectSessionService:
 
     def save_project(self, path: str | Path | None = None) -> HostSessionState:
         state = self.state()
+        if path is None and state.project_path:
+            current = Path(state.project_path).expanduser().resolve()
+            if not current.exists():
+                raise FileNotFoundError(
+                    "The saved project path no longer exists. It may have been renamed, moved, or deleted outside the app. "
+                    "Use Save As to choose the current project location."
+                )
+            if not current.is_file():
+                raise ValueError(f"Project save target is not a file: {current}")
         target = Path(
             path
             or state.project_path

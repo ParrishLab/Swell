@@ -142,6 +142,27 @@ class StackReader:
     def get_frame_ref(self, frame_idx: int) -> FrameRef:
         return self._frame_refs[frame_idx]
 
+    def missing_source_paths(self, *, limit: int | None = None) -> list[Path]:
+        missing: list[Path] = []
+        seen: set[Path] = set()
+        info = self._stack_info
+        if info is not None:
+            input_dir = Path(info.input_dir)
+            if not input_dir.exists() or not input_dir.is_dir():
+                missing.append(input_dir)
+                return missing[: max(0, int(limit))] if limit is not None else missing
+        for ref in self._frame_refs:
+            path = Path(ref.source_path)
+            if path in seen:
+                continue
+            seen.add(path)
+            if path.exists() and path.is_file():
+                continue
+            missing.append(path)
+            if limit is not None and len(missing) >= int(limit):
+                break
+        return missing
+
     @property
     def channel_mode(self) -> str:
         return str(self._channel_mode)
