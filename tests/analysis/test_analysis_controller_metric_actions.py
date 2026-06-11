@@ -6,6 +6,7 @@ import numpy as np
 
 from sdapp.analysis.core.analysis_controller import AnalysisController
 from sdapp.analysis.core.analysis_context import AnalysisContext
+from sdapp.analysis.controllers.window_controller import AnalysisWindowController
 
 
 def _make_controller():
@@ -178,3 +179,121 @@ def test_reset_local_roi_override_clears_event_local_keys() -> None:
 
     assert state["cleared_local"] == [("reset_local_roi", ["roi_points", "roi_polygons", "roi_mask"])]
     assert state["autosaves"] == ["reset_local_roi"]
+
+
+class _Var:
+    def __init__(self, value=None):
+        self.value = value
+
+    def get(self):
+        return self.value
+
+    def set(self, value):
+        self.value = value
+
+
+def _make_metrics_preview_window_controller(*, frame_count=1, raw_masks=None, composed_masks=None, include_compose=True):
+    app = type("App", (), {})()
+    app.metrics_preview_var = _Var("")
+    app.frames_per_sec_var = _Var(1.0)
+    app.scale_px_per_mm = None
+    app.roi_mask = None
+    app.masks_cache = dict(raw_masks or {})
+    app._ui_alive = lambda: False
+    app._get_frame_count = lambda: int(frame_count)
+    if include_compose:
+        masks = dict(composed_masks or {})
+        app._compose_final_mask_for_frame = lambda idx: masks.get(int(idx))
+    return AnalysisWindowController(app), app
+
+
+def _capture_boundary(captured):
+    def _extract(mask):
+        captured["mask"] = np.asarray(mask, dtype=bool).copy()
+        return np.array([[0.0, 0.0]])
+
+    return _extract
+
+
+def test_metrics_preview_uses_composed_final_masks_for_region_only_preview(monkeypatch) -> None:
+    region_only = np.zeros((6, 6), dtype=bool)
+    region_only[1:5, 1:5] = True
+    controller, app = _make_metrics_preview_window_controller(
+        raw_masks={},
+        composed_masks={0: region_only},
+    )
+    captured = {}
+
+    monkeypatch.setattr(
+        "sdapp.analysis.core.metrics.extract_primary_boundary",
+        _capture_boundary(captured),
+    )
+    monkeypatch.setattr(
+        "sdapp.analysis.core.metrics.compute_frame_metrics",
+        lambda boundaries: {"areas_px": np.array([float(np.count_nonzero(captured["mask"]))]), "avg_dist_px": np.array([])},
+    )
+
+    controller.compute_metrics_preview()
+
+    assert np.array_equal(captured["mask"], region_only)
+    assert app.metrics_preview_var.get() == "Max Area: 16 px"
+
+
+def test_metrics_preview_uses_composed_final_masks_for_paint_only_preview(monkeypatch) -> None:
+    paint_only = np.zeros((6, 6), dtype=bool)
+    paint_only[2:4, 2:5] = True
+    controller, app = _make_metrics_preview_window_controller(
+        raw_masks={},
+        composed_masks={0: paint_only},
+    )
+    captured = {}
+
+    monkeypatch.setattr(
+        "sdapp.analysis.core.metrics.extract_primary_boundary",
+        _capture_boundary(captured),
+    )
+    monkeypatch.setattr(
+        "sdapp.analysis.core.metrics.compute_frame_metrics",
+        lambda boundaries: {"areas_px": np.array([float(np.count_nonzero(captured["mask"]))]), "avg_dist_px": np.array([])},
+    )
+
+    controller.compute_metrics_preview()
+
+    assert np.array_equal(captured["mask"], paint_only)
+    assert app.metrics_preview_var.get() == "Max Area: 6 px"
+
+
+def test_metrics_preview_reports_no_masks_when_composed_masks_are_empty() -> None:
+    empty = np.zeros((6, 6), dtype=bool)
+    controller, app = _make_metrics_preview_window_controller(
+        raw_masks={0: np.ones((6, 6), dtype=bool)},
+        composed_masks={0: empty},
+    )
+
+    controller.compute_metrics_preview()
+
+    assert app.metrics_preview_var.get() == "Preview: No active masks to measure."
+
+
+def test_metrics_preview_falls_back_to_raw_masks_without_compose_helper(monkeypatch) -> None:
+    raw = np.zeros((6, 6), dtype=bool)
+    raw[1:3, 1:4] = True
+    controller, app = _make_metrics_preview_window_controller(
+        raw_masks={0: raw},
+        include_compose=False,
+    )
+    captured = {}
+
+    monkeypatch.setattr(
+        "sdapp.analysis.core.metrics.extract_primary_boundary",
+        _capture_boundary(captured),
+    )
+    monkeypatch.setattr(
+        "sdapp.analysis.core.metrics.compute_frame_metrics",
+        lambda boundaries: {"areas_px": np.array([float(np.count_nonzero(captured["mask"]))]), "avg_dist_px": np.array([])},
+    )
+
+    controller.compute_metrics_preview()
+
+    assert np.array_equal(captured["mask"], raw)
+    assert app.metrics_preview_var.get() == "Max Area: 6 px"

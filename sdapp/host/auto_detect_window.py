@@ -743,6 +743,8 @@ class AutoDetectWindow:
         flags["diff_k_mad"] = float(self._params["diff_k_mad"])
         flags["coherence_threshold"] = float(self._params["coherence_threshold"])
         flags["grid_density"] = int(self._n_grid)
+        flags["polarity"] = self._params.get("polarity", "positive")
+        flags["persistence_frames"] = int(self._params.get("persistence_frames", 1))
         self.app.browser_controller.create_event(start_idx=int(cand["start_frame"]), end_idx=int(cand["end_frame"]), frame_count=int(self.app.stack_info.frame_count), flags=flags)
         self.app._sync_event_projections()
 
@@ -857,12 +859,21 @@ class AutoDetectWindow:
 
         active_threshold = float(self._params.get("coherence_active_threshold_mad", 10.0))
         quiet_pre_frames = int(self._params.get("quiet_pre_frames", 200))
-        cache_key = ("combined", int(idx), start_idx, end_idx, active_threshold, quiet_pre_frames, float(self._params.get("diff_k_mad", 2.5)), id(detrended), id(frame_indices))
+        polarity = self._params.get("polarity", "positive")
+        persistence_frames = int(self._params.get("persistence_frames", 1))
+        cache_key = ("combined", int(idx), start_idx, end_idx, active_threshold, quiet_pre_frames, float(self._params.get("diff_k_mad", 2.5)), polarity, persistence_frames, id(detrended), id(frame_indices))
         cached = self._active_cell_cache.get(cache_key)
         if cached is None:
             mad = _detector.quiet_mad(detrended, start_idx, quiet_pre_frames=quiet_pre_frames)
             norm = detrended[:, start_idx : end_idx + 1] / mad[:, np.newaxis]
-            participation_window = norm > active_threshold
+            if polarity == "positive":
+                participation_window = norm > active_threshold
+            elif polarity == "negative":
+                participation_window = norm < -active_threshold
+            elif polarity in ("absolute", "both"):
+                participation_window = np.abs(norm) > active_threshold
+            else:
+                participation_window = norm > active_threshold
             onset_window = self._onset_active_window(detrended, start_idx, end_idx)
             active_window = participation_window | onset_window
             cached = (start_idx, end_idx, active_window)
@@ -881,7 +892,25 @@ class AutoDetectWindow:
             return np.zeros((int(detrended.shape[0]), window_len), dtype=bool)
         diff_center = np.nanmedian(diffs, axis=1, keepdims=True)
         mads = np.nanmedian(np.abs(diffs - diff_center), axis=1)
-        active_diffs = diffs > (float(self._params.get("diff_k_mad", 2.5)) * mads[:, np.newaxis])
+        
+        polarity = self._params.get("polarity", "positive")
+        k_mad = float(self._params.get("diff_k_mad", 2.5))
+        persistence_frames = int(self._params.get("persistence_frames", 1))
+
+        if polarity == "positive":
+            active_diffs = diffs > (k_mad * mads[:, np.newaxis])
+        elif polarity == "negative":
+            active_diffs = diffs < -(k_mad * mads[:, np.newaxis])
+        elif polarity in ("absolute", "both"):
+            active_diffs = np.abs(diffs) > (k_mad * mads[:, np.newaxis])
+        else:
+            active_diffs = diffs > (k_mad * mads[:, np.newaxis])
+
+        if persistence_frames > 1:
+            from scipy.ndimage import binary_erosion
+            structure = np.ones((1, persistence_frames), dtype=bool)
+            active_diffs = binary_erosion(active_diffs, structure=structure)
+
         active_window = np.zeros((int(detrended.shape[0]), window_len), dtype=bool)
         for out_idx, frame_pos in enumerate(range(int(start_idx), int(end_idx) + 1)):
             diff_idx = frame_pos - 1
@@ -1386,7 +1415,23 @@ class AutoDetectWindow:
 
 
 def _find_with_params(detrended: np.ndarray, frame_indices: np.ndarray, params: dict) -> list[dict]:
-    return _detector.find_candidates(detrended, frame_indices, diff_k_mad=float(params["diff_k_mad"]), peak_height_fraction=float(params["peak_height_fraction"]), split_broad_windows=bool(params["split_broad_windows"]))
+    return _detector.find_candidates(
+        detrended,
+        frame_indices,
+        diff_k_mad=float(params["diff_k_mad"]),
+        peak_height_fraction=float(params["peak_height_fraction"]),
+        split_broad_windows=bool(params["split_broad_windows"]),
+        polarity=params.get("polarity", "positive"),
+        persistence_frames=int(params.get("persistence_frames", 1)),
+    )
 
 def _gate_with_params(candidates: list[dict], detrended: np.ndarray, frame_indices: np.ndarray, params: dict) -> list[dict]:
-    return _detector.apply_coherence_gate(candidates, detrended, frame_indices, active_threshold_mad=float(params.get("coherence_active_threshold_mad", 10.0)), coherence_threshold=float(params.get("coherence_threshold", 0.8257435331730181)), quiet_pre_frames=int(params.get("quiet_pre_frames", 200)))
+    return _detector.apply_coherence_gate(
+        candidates,
+        detrended,
+        frame_indices,
+        active_threshold_mad=float(params.get("coherence_active_threshold_mad", 10.0)),
+        coherence_threshold=float(params.get("coherence_threshold", 0.8257435331730181)),
+        quiet_pre_frames=int(params.get("quiet_pre_frames", 200)),
+        polarity=params.get("polarity", "positive"),
+    )

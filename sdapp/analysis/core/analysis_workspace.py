@@ -162,10 +162,12 @@ class AnalysisWorkspaceController:
         local_event_start: int | None = None,
         local_event_end: int | None = None,
         origin_hint: object = None,
-    ) -> tuple[dict[int, list[dict[str, Any]]], dict[int, dict[str, np.ndarray]]]:
+    ) -> tuple[dict[int, list[dict[str, Any]]], dict[int, list[float]], list[dict], dict[int, dict[str, np.ndarray]]]:
         tmp = SegmentationState()
         tmp.load_prompts_json(prompts_payload, base_shape=frame_shape)
         points: dict[int, list[dict[str, Any]]] = {}
+        boxes: dict[int, list[float]] = {}
+        persistent_regions: list[dict] = []
         paint_layers: dict[int, dict[str, np.ndarray]] = {}
         for frame_idx, point_list in tmp.points.items():
             local = self._normalize_frame_idx_to_local(
@@ -180,6 +182,48 @@ class AnalysisWorkspaceController:
             if local is None:
                 continue
             points.setdefault(local, []).extend([dict(p) for p in list(point_list or [])])
+        for frame_idx, box in tmp.boxes.items():
+            local = self._normalize_frame_idx_to_local(
+                int(frame_idx),
+                frame_count=frame_count,
+                scope_start=scope_start,
+                scope_end=scope_end,
+                local_event_start=local_event_start,
+                local_event_end=local_event_end,
+                origin_hint=origin_hint,
+            )
+            if local is None:
+                continue
+            normalized = SegmentationState._normalize_box(box)
+            if normalized is not None:
+                boxes[local] = normalized
+        for region in tmp.persistent_regions:
+            normalized = tmp._normalize_persistent_region(region)
+            if normalized is None:
+                continue
+            start = self._normalize_frame_idx_to_local(
+                int(normalized["frame_start"]),
+                frame_count=frame_count,
+                scope_start=scope_start,
+                scope_end=scope_end,
+                local_event_start=local_event_start,
+                local_event_end=local_event_end,
+                origin_hint=origin_hint,
+            )
+            end = self._normalize_frame_idx_to_local(
+                int(normalized["frame_end"]),
+                frame_count=frame_count,
+                scope_start=scope_start,
+                scope_end=scope_end,
+                local_event_start=local_event_start,
+                local_event_end=local_event_end,
+                origin_hint=origin_hint,
+            )
+            if start is None or end is None:
+                continue
+            normalized["frame_start"] = min(start, end)
+            normalized["frame_end"] = max(start, end)
+            persistent_regions.append(normalized)
         for frame_idx, layer in tmp.paint_layers.items():
             local = self._normalize_frame_idx_to_local(
                 int(frame_idx),
@@ -202,7 +246,7 @@ class AnalysisWorkspaceController:
             else:
                 existing["plus"] = np.logical_or(existing["plus"], plus)
                 existing["minus"] = np.logical_or(existing["minus"], minus)
-        return points, paint_layers
+        return points, boxes, persistent_regions, paint_layers
 
     def _normalize_masks_to_local(
         self,
@@ -441,7 +485,7 @@ class AnalysisWorkspaceController:
             if record is not None:
                 prompts = initial_state.get("prompts")
                 if isinstance(prompts, dict):
-                    points, paint_layers = self._normalize_prompts_to_local(
+                    points, boxes, persistent_regions, paint_layers = self._normalize_prompts_to_local(
                         prompts,
                         frame_count=frame_count,
                         frame_shape=frame_shape,
@@ -452,6 +496,8 @@ class AnalysisWorkspaceController:
                         origin_hint=initial_state.get("prompts_frame_origin"),
                     )
                     record.analysis.points = self.session_service.copy_points_dict(points)
+                    record.analysis.boxes = self.session_service.copy_boxes_dict(boxes)
+                    record.analysis.persistent_regions = self.session_service.copy_persistent_regions(persistent_regions)
                     record.analysis.paint_layers = self.session_service.copy_paint_layers(paint_layers)
                 masks_committed = initial_state.get("masks_committed")
                 if masks_committed is not None:
@@ -562,7 +608,10 @@ class AnalysisWorkspaceController:
         frame_count, frame_shape = self._resolved_frame_count_and_shape()
         prompts_state = SegmentationState()
         prompts_state.points = self.session_service.copy_points_dict(record.analysis.points)
+        prompts_state.boxes = self.session_service.copy_boxes_dict(record.analysis.boxes)
+        prompts_state.persistent_regions = self.session_service.copy_persistent_regions(record.analysis.persistent_regions)
         prompts_state.paint_layers = self.session_service.copy_paint_layers(record.analysis.paint_layers)
+        prompts_state.ground_truth_frames = set(record.analysis.ground_truth_frames)
         return {
             "event_id": event_id,
             "prompts": prompts_state.to_prompts_json(event_id),

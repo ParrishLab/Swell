@@ -352,11 +352,18 @@ def apply_theme(root, *, themename: str = "darkly"):
         "padding": (0, 2),
     }
     style.configure("TCheckbutton", background=palette["app_bg"], **check_common)
+    style.configure("AppStrip.TCheckbutton", background=palette["strip_bg"], **check_common)
     style.configure("AppSurface.TCheckbutton", background=palette["surface_bg"], **check_common)
     style.configure("AppSubpanel.TCheckbutton", background=palette["subpanel_bg"], **check_common)
     style.map(
         "TCheckbutton",
         background=[("active", palette["app_bg"]), ("selected", palette["app_bg"])],
+        foreground=[("disabled", palette["muted"])],
+        indicatorbackground=[("selected", palette["accent"]), ("active", palette["control_active"])],
+    )
+    style.map(
+        "AppStrip.TCheckbutton",
+        background=[("active", palette["strip_bg"]), ("selected", palette["strip_bg"])],
         foreground=[("disabled", palette["muted"])],
         indicatorbackground=[("selected", palette["accent"]), ("active", palette["control_active"])],
     )
@@ -372,8 +379,43 @@ def apply_theme(root, *, themename: str = "darkly"):
         foreground=[("disabled", palette["muted"])],
         indicatorbackground=[("selected", palette["accent"]), ("active", palette["control_active"])],
     )
-    style.configure("TRadiobutton", background=palette["subpanel_bg"], foreground=palette["text"], font=("TkDefaultFont", 9))
-    style.map("TRadiobutton", foreground=[("disabled", palette["muted"])])
+    radio_common = {
+        "foreground": palette["text"],
+        "font": ("TkDefaultFont", 9),
+        "focuscolor": palette["control_bg"],
+        "indicatorbackground": palette["control_bg"],
+        "indicatorforeground": palette["text"],
+        "indicatormargin": (0, 0, 6, 0),
+        "padding": (0, 2),
+    }
+    style.configure("TRadiobutton", background=palette["app_bg"], **radio_common)
+    style.configure("AppStrip.TRadiobutton", background=palette["strip_bg"], **radio_common)
+    style.configure("AppSurface.TRadiobutton", background=palette["surface_bg"], **radio_common)
+    style.configure("AppSubpanel.TRadiobutton", background=palette["subpanel_bg"], **radio_common)
+    style.map(
+        "TRadiobutton",
+        background=[("active", palette["app_bg"]), ("selected", palette["app_bg"])],
+        foreground=[("disabled", palette["muted"])],
+        indicatorbackground=[("selected", palette["accent"]), ("active", palette["control_active"])],
+    )
+    style.map(
+        "AppStrip.TRadiobutton",
+        background=[("active", palette["strip_bg"]), ("selected", palette["strip_bg"])],
+        foreground=[("disabled", palette["muted"])],
+        indicatorbackground=[("selected", palette["accent"]), ("active", palette["control_active"])],
+    )
+    style.map(
+        "AppSurface.TRadiobutton",
+        background=[("active", palette["surface_bg"]), ("selected", palette["surface_bg"])],
+        foreground=[("disabled", palette["muted"])],
+        indicatorbackground=[("selected", palette["accent"]), ("active", palette["control_active"])],
+    )
+    style.map(
+        "AppSubpanel.TRadiobutton",
+        background=[("active", palette["subpanel_bg"]), ("selected", palette["subpanel_bg"])],
+        foreground=[("disabled", palette["muted"])],
+        indicatorbackground=[("selected", palette["accent"]), ("active", palette["control_active"])],
+    )
     style.configure(
         "AppCompact.TCombobox",
         fieldbackground=palette["control_bg"],

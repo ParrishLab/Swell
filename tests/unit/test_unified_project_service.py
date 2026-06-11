@@ -134,3 +134,31 @@ def test_unified_service_normal_save_rejects_missing_existing_project(tmp_path: 
 
     assert renamed.exists()
     assert not original.exists()
+
+
+def test_unified_service_preserves_analysis_frame_origins_on_save_load(tmp_path: Path) -> None:
+    service = UnifiedProjectService()
+    service.new_project(_stack_ref("set"))
+    service.upsert_event(EventMeta(event_id="event_0001", label="E", start_idx=2, end_idx=4, flags={}))
+    service.update_event_analysis(
+        "event_0001",
+        {
+            "prompts": {"event_id": "event_0001", "frames": {}, "persistent_regions": []},
+            "prompts_frame_origin": "analysis_scope_local",
+            "masks_committed": np.zeros((4, 32, 32), dtype=np.uint8),
+            "masks_committed_frame_origin": "analysis_scope_local",
+            "masks_draft": np.zeros((4, 32, 32), dtype=np.uint8),
+            "masks_draft_frame_origin": "analysis_scope_local",
+        },
+    )
+    path = tmp_path / "origins.sdproj"
+
+    service.save_project(str(path))
+    loaded = UnifiedProjectService()
+    loaded.open_project(str(path))
+    payload = loaded.get_event_analysis_payload("event_0001")
+
+    assert payload is not None
+    assert payload["prompts_frame_origin"] == "analysis_scope_local"
+    assert payload["masks_committed_frame_origin"] == "analysis_scope_local"
+    assert payload["masks_draft_frame_origin"] == "analysis_scope_local"

@@ -300,7 +300,12 @@ def benchmark_dataset(
         research_candidates = research_validate.detect_events(dataset, data_root=tmp_root, **detector_kwargs)
 
     with timings.measure("vendored_find_candidates"):
-        vendored_raw_candidates = vendored_detector.find_candidates(vendored_detrended, frame_indices)
+        vendored_raw_candidates = vendored_detector.find_candidates(
+            vendored_detrended,
+            frame_indices,
+            polarity="positive",
+            persistence_frames=1,
+        )
 
     with timings.measure("research_coherence_gate"):
         research_accepted, research_lag1 = _research_gate(
@@ -322,6 +327,7 @@ def benchmark_dataset(
             active_threshold_mad=vendored_detector.PRESET["coherence_active_threshold_mad"],
             coherence_threshold=vendored_detector.PRESET["coherence_threshold"],
             quiet_pre_frames=vendored_detector.PRESET["quiet_pre_frames"],
+            polarity="positive",
         )
 
     raw_trace_diff = float(np.max(np.abs(np.asarray(research_raw) - np.asarray(vendored_raw))))

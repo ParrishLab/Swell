@@ -52,6 +52,8 @@ PRESET: dict[str, Any] = {
     "coherence_threshold": 0.8257435331730181,
     # Coherence quiet baseline (from explore_spatial_coherence.py)
     "quiet_pre_frames": 200,
+    "polarity": "both",
+    "persistence_frames": 1,
 }
 
 
@@ -239,6 +241,7 @@ def detect_events(
     lookback_frames: int = 150,
     lookahead_frames: int = 250,
     min_duration_frames: int = 40,
+    persistence_frames: int = 1,
     legacy_exact: bool = True,
     overlap_mode: str = "skip",
     split_broad_windows: bool = True,
@@ -250,6 +253,7 @@ def detect_events(
     split_quiet_gap_frames: int | None = None,
     split_refractory_frames: int | None = None,
     split_max_segments: int = 3,
+    polarity: str = "positive",
 ) -> list[dict[str, Any]]:
     """Detect candidate event windows from pre-computed detrended traces.
 
@@ -276,7 +280,21 @@ def detect_events(
     if not legacy_exact:
         fallback = np.nanmedian(mads[np.isfinite(mads) & (mads > 0)]) if np.any(np.isfinite(mads) & (mads > 0)) else 1.0
         mads = np.where(np.isfinite(mads) & (mads > 0), mads, fallback)
-    active_matrix = diffs > (float(diff_k_mad) * mads[:, np.newaxis])
+
+    if polarity == "positive":
+        active_matrix = diffs > (float(diff_k_mad) * mads[:, np.newaxis])
+    elif polarity == "negative":
+        active_matrix = diffs < -(float(diff_k_mad) * mads[:, np.newaxis])
+    elif polarity in ("absolute", "both"):
+        active_matrix = np.abs(diffs) > (float(diff_k_mad) * mads[:, np.newaxis])
+    else:
+        raise ValueError(f"Unsupported polarity: {polarity}")
+
+    if int(persistence_frames) > 1:
+        from scipy.ndimage import binary_erosion
+        structure = np.ones((1, int(persistence_frames)), dtype=bool)
+        active_matrix = binary_erosion(active_matrix, structure=structure)
+
     active_counts = np.sum(active_matrix, axis=0)
 
     smooth_win = max(1, int(smoothing_window))
@@ -403,6 +421,7 @@ def compute_lag1_corr(
     *,
     active_threshold_mad: float = 10.0,
     quiet_pre_frames: int = 200,
+    polarity: str = "positive",
 ) -> float:
     """Compute lag-1 autocorrelation of active-cell-count signal within window.
 
@@ -411,7 +430,7 @@ def compute_lag1_corr(
       1. mad = quiet_mad(traces, start_idx) — per-cell MAD over the 200 quiet
          frames immediately before the window.
       2. norm = traces[:, win] / mad[:, None]
-      3. active_matrix = norm > active_threshold_mad
+      3. active_matrix = norm > active_threshold_mad (polarity-aware)
       4. active_count = active_matrix.sum(axis=0) per frame within the window
       5. return np.corrcoef(active_count[:-1], active_count[1:])[0, 1]
     """
@@ -438,9 +457,39 @@ def compute_lag1_corr(
     if end_idx < start_idx:
         return float("nan")
 
+    if polarity == "both":
+        corr_pos = compute_lag1_corr(
+            detrended,
+            frame_indices,
+            candidate,
+            active_threshold_mad=active_threshold_mad,
+            quiet_pre_frames=quiet_pre_frames,
+            polarity="positive",
+        )
+        corr_neg = compute_lag1_corr(
+            detrended,
+            frame_indices,
+            candidate,
+            active_threshold_mad=active_threshold_mad,
+            quiet_pre_frames=quiet_pre_frames,
+            polarity="negative",
+        )
+        if np.isnan(corr_pos):
+            return corr_neg
+        if np.isnan(corr_neg):
+            return corr_pos
+        return max(corr_pos, corr_neg)
+
     mad = quiet_mad(detrended, start_idx, quiet_pre_frames=quiet_pre_frames)
     norm = detrended[:, start_idx : end_idx + 1] / mad[:, np.newaxis]
-    active_matrix = norm > float(active_threshold_mad)
+    if polarity == "positive":
+        active_matrix = norm > float(active_threshold_mad)
+    elif polarity == "negative":
+        active_matrix = norm < -float(active_threshold_mad)
+    elif polarity == "absolute":
+        active_matrix = np.abs(norm) > float(active_threshold_mad)
+    else:
+        raise ValueError(f"Unsupported polarity: {polarity}")
     active_counts = active_matrix.sum(axis=0).astype(float)
 
     if len(active_counts) < 2:
@@ -458,6 +507,7 @@ def apply_coherence_gate(
     active_threshold_mad: float = 10.0,
     coherence_threshold: float = 0.8257435331730181,
     quiet_pre_frames: int = 200,
+    polarity: str = "positive",
 ) -> list[dict]:
     """Filter candidates by lag-1 coherence; adds 'lag1_corr' to each accepted dict."""
     accepted: list[dict] = []
@@ -468,6 +518,7 @@ def apply_coherence_gate(
             cand,
             active_threshold_mad=active_threshold_mad,
             quiet_pre_frames=quiet_pre_frames,
+            polarity=polarity,
         )
         if not np.isfinite(lag1) or lag1 < float(coherence_threshold):
             continue
@@ -507,6 +558,8 @@ def find_candidates(
         "split_quiet_gap_frames": PRESET["split_quiet_gap_frames"],
         "split_refractory_frames": PRESET["split_refractory_frames"],
         "split_max_segments": PRESET["split_max_segments"],
+        "polarity": PRESET["polarity"],
+        "persistence_frames": PRESET["persistence_frames"],
     }
     params.update({k: v for k, v in overrides.items() if k in params})
     return detect_events(detrended, frame_indices, **params)

@@ -1,6 +1,7 @@
 import unittest
 
 from sdapp.analysis.app import SDSegmentationApp
+from sdapp.analysis.core.region_tools import REGION_EXCLUDE_TOOL, REGION_INCLUDE_TOOL
 
 
 class _ToolModeVar:
@@ -69,12 +70,68 @@ class HotkeysTests(unittest.TestCase):
         self.assertEqual(app.tool_mode.get(), "eraser")
         self.assertEqual(app.update_calls, 1)
 
+    def test_k_sets_box_when_not_typing(self):
+        app = self._make_app("Canvas")
+        out = app._set_tool_box_hotkey()
+        self.assertEqual(out, "break")
+        self.assertEqual(app.tool_mode.get(), "box")
+        self.assertEqual(app.update_calls, 1)
+
+    def test_g_sets_fill_when_not_typing(self):
+        app = self._make_app("Canvas")
+        out = app._set_tool_fill_hotkey()
+        self.assertEqual(out, "break")
+        self.assertEqual(app.tool_mode.get(), "fill")
+        self.assertEqual(app.update_calls, 1)
+
+    def test_shift_g_sets_fill_erase_when_not_typing(self):
+        app = self._make_app("Canvas")
+        out = app._set_tool_fill_erase_hotkey()
+        self.assertEqual(out, "break")
+        self.assertEqual(app.tool_mode.get(), "fill_erase")
+        self.assertEqual(app.update_calls, 1)
+
+    def test_r_sets_include_region_when_not_typing(self):
+        app = self._make_app("Canvas")
+        app._reset_region_options_to_default_range = lambda: None
+        out = app._set_tool_region_hotkey()
+        self.assertEqual(out, "break")
+        self.assertEqual(app.tool_mode.get(), REGION_INCLUDE_TOOL)
+        self.assertEqual(app.update_calls, 1)
+
+    def test_shift_r_sets_exclude_region_when_not_typing(self):
+        app = self._make_app("Canvas")
+        app._reset_region_options_to_default_range = lambda: None
+        out = app._set_tool_region_exclude_hotkey()
+        self.assertEqual(out, "break")
+        self.assertEqual(app.tool_mode.get(), REGION_EXCLUDE_TOOL)
+        self.assertEqual(app.update_calls, 1)
+
+    def test_l_toggles_ground_truth_when_not_typing(self):
+        app = self._make_app("Canvas")
+        app.gt_calls = 0
+        app.toggle_ground_truth_current_frame = lambda: setattr(app, "gt_calls", app.gt_calls + 1)
+        out = app._toggle_ground_truth_hotkey()
+        self.assertEqual(out, "break")
+        self.assertEqual(app.gt_calls, 1)
+
+    def test_l_ignored_while_typing(self):
+        app = self._make_app("Entry")
+        app.gt_calls = 0
+        app.toggle_ground_truth_current_frame = lambda: setattr(app, "gt_calls", app.gt_calls + 1)
+        self.assertIsNone(app._toggle_ground_truth_hotkey())
+        self.assertEqual(app.gt_calls, 0)
+
     def test_hotkeys_ignored_while_typing(self):
         app = self._make_app("Entry")
+        app._reset_region_options_to_default_range = lambda: None
         out = app._set_tool_brush_hotkey()
         self.assertIsNone(out)
         self.assertEqual(app.tool_mode.get(), "select")
         self.assertEqual(app.update_calls, 0)
+        self.assertIsNone(app._set_tool_region_hotkey())
+        self.assertIsNone(app._set_tool_region_exclude_hotkey())
+        self.assertEqual(app.tool_mode.get(), "select")
 
     def test_zoom_hotkeys_delegate_to_shared_viewport(self):
         app = self._make_app("Canvas")
@@ -93,6 +150,16 @@ class HotkeysTests(unittest.TestCase):
         out = app._reset_zoom_hotkey()
         self.assertEqual(out, "break")
         self.assertEqual(app.reset_zoom_calls, 1)
+
+    def test_save_current_masks_hotkey_invokes_save(self):
+        app = self._make_app("Entry")
+        app.save_calls = 0
+        app.save_current_masks = lambda: setattr(app, "save_calls", app.save_calls + 1)
+
+        out = app._save_current_masks_hotkey()
+
+        self.assertEqual(out, "break")
+        self.assertEqual(app.save_calls, 1)
 
     def test_mouse_wheel_zooms_hovered_canvas(self):
         app = self._make_app("Canvas")

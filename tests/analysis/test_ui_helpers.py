@@ -86,10 +86,14 @@ class UiHelpersTests(unittest.TestCase):
         self.assertIn("AppCard.TFrame", configured)
         self.assertIn("AppPreview.TFrame", configured)
         self.assertIn("AppLoading.Horizontal.TProgressbar", configured)
+        self.assertIn("AppStrip.TRadiobutton", configured)
+        self.assertIn("AppStrip.TCheckbutton", configured)
         self.assertIn("Vertical.TScrollbar", configured)
         self.assertIn("Horizontal.TScrollbar", configured)
         self.assertTrue(any(style_name == "Vertical.TScrollbar" for style_name, _ in fake.layout_calls))
-        self.assertTrue(fake.map_calls)
+        mapped = {name for name, _ in fake.map_calls}
+        self.assertIn("AppStrip.TRadiobutton", mapped)
+        self.assertIn("AppStrip.TCheckbutton", mapped)
 
     def test_apply_theme_falls_back_when_bootstrap_scrollbar_builder_fails(self):
         fake = _FakeStyle(None)

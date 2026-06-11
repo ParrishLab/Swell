@@ -55,7 +55,9 @@ class AnalysisRuntimeController:
             self.app._propagation_progress_active = False
             self.app._set_activity_message(status)
             self._set_propagation_button_state(False)
-            if self.app._loading_task_count <= 0 and hasattr(self.app, "loading_bar"):
+            if self.app._loading_task_count <= 0 and hasattr(self.app, "_clear_timeline_progress"):
+                self.app._clear_timeline_progress()
+            elif self.app._loading_task_count <= 0 and hasattr(self.app, "loading_bar"):
                 self.app.loading_bar.stop()
                 if self.app.loading_bar.winfo_ismapped():
                     self.app.loading_bar.grid_remove()

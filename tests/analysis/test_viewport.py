@@ -1,6 +1,7 @@
 import math
 import unittest
 
+from sdapp.analysis.app import SDSegmentationApp
 from sdapp.analysis.core.viewport import (
     ViewportState,
     clamp_viewport_center,
@@ -9,6 +10,22 @@ from sdapp.analysis.core.viewport import (
     pan_viewport,
     zoom_viewport_at,
 )
+
+
+class _Canvas:
+    def __init__(self, width, height, exists=True):
+        self.width = width
+        self.height = height
+        self.exists = exists
+
+    def winfo_width(self):
+        return self.width
+
+    def winfo_height(self):
+        return self.height
+
+    def winfo_exists(self):
+        return self.exists
 
 
 class ViewportTests(unittest.TestCase):
@@ -70,6 +87,19 @@ class ViewportTests(unittest.TestCase):
         self.assertTrue(math.isclose(left_center[0], 60.0, abs_tol=1e-6))
         self.assertTrue(math.isclose(left_center[1], 45.0, abs_tol=1e-6))
         self.assertEqual(left_center, preview_center)
+
+    def test_app_viewport_sizes_include_live_reference_popout_only(self):
+        app = SDSegmentationApp.__new__(SDSegmentationApp)
+        app.canvas_left = _Canvas(100, 80)
+        app.canvas_right = _Canvas(50, 40)
+        app.canvas_reference_popout = _Canvas(300, 200)
+        app.canvas_preview = _Canvas(20, 20)
+
+        self.assertEqual(app._iter_viewport_canvas_sizes(exclude_preview=True), [(100, 80), (50, 40), (300, 200)])
+
+        app.canvas_reference_popout.exists = False
+
+        self.assertEqual(app._iter_viewport_canvas_sizes(exclude_preview=True), [(100, 80), (50, 40)])
 
 
 if __name__ == "__main__":

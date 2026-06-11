@@ -79,6 +79,9 @@ def encode_analysis_sidecar(sidecar: dict[str, Any], zf) -> dict[str, Any]:
         for key_name in (
             "propagation_completed",
             "analysis_output_dir",
+            "prompts_frame_origin",
+            "masks_committed_frame_origin",
+            "masks_draft_frame_origin",
             "encoding",
             "frame_count",
             "shape",

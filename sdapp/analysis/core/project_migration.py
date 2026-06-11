@@ -28,6 +28,17 @@ def migrate_project_state(state: Dict[str, Any]) -> Dict[str, Any]:
                 ev.setdefault("analysis_output_dir", None)
         migrated["schema_version"] = 3
         version = 3
+    if version < 4:
+        migrated["schema_version"] = 4
+        version = 4
+    if version < 5:
+        migrated["schema_version"] = 5
+        version = 5
+    if version < 6:
+        # v6 adds optional per-event prompts.json "ground_truth_frames"; older
+        # projects simply have none (loaders default to an empty set).
+        migrated["schema_version"] = 6
+        version = 6
 
     if version > SCHEMA_VERSION:
         raise ValueError(f"Unsupported schema_version={version}; app supports <= {SCHEMA_VERSION}")

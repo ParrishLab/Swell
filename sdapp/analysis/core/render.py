@@ -9,6 +9,12 @@ from sdapp.shared.image_overlay import apply_mask_overlay, frame_to_rgb_u8
 from sdapp.analysis.core.viewport import compute_fit_scale
 
 
+CANVAS_FILL_RGB = (12, 16, 21)
+CANVAS_FILL_HEX = "#0c1015"
+
+GHOST_CONTOUR_THICKNESS = 2
+
+
 class RenderActions:
     _DISPLAY_PHOTO_CACHE_MAX = 12
 
@@ -128,7 +134,7 @@ class RenderActions:
                 self.canvas_left,
                 img_arr,
                 resample=Image.Resampling.LANCZOS,
-                fill_value=(241, 241, 241),
+                fill_value=CANVAS_FILL_RGB,
             )
             self.tk_img_left = ImageTk.PhotoImage(img_pil_left)
             self.canvas_left.delete("all")
@@ -139,7 +145,7 @@ class RenderActions:
                 self.canvas_right,
                 frame_to_rgb_u8(img_arr_gray),
                 resample=Image.Resampling.LANCZOS,
-                fill_value=(241, 241, 241),
+                fill_value=CANVAS_FILL_RGB,
             )
             self.tk_img_right = ImageTk.PhotoImage(right_pil)
             self.canvas_right.delete("all")
@@ -153,6 +159,8 @@ class RenderActions:
             return
 
         for canvas in (self.canvas_left, self.canvas_right, self.canvas_preview):
+            if canvas is None:
+                continue
             canvas.delete("all")
             canvas.create_text(
                 max(40, int(canvas.winfo_width()) // 2),
@@ -160,6 +168,75 @@ class RenderActions:
                 text="Preparing frames...",
                 fill="gray",
             )
+
+    def _iter_reference_canvases(self):
+        for name in ("canvas_right", "canvas_reference_popout"):
+            canvas = getattr(self, name, None)
+            if canvas is not None:
+                yield canvas
+
+    def _render_reference_canvas(self, canvas, idx: int, img_arr_gray, visual_token: tuple) -> None:
+        img_arr_right = frame_to_rgb_u8(img_arr_gray)
+        attr_name = "tk_img_reference_popout" if canvas is getattr(self, "canvas_reference_popout", None) else "tk_img_right"
+        photo, _ = self._cached_canvas_photo(
+            canvas,
+            img_arr_right,
+            resample=Image.Resampling.LANCZOS,
+            fill_value=CANVAS_FILL_RGB,
+            token=("reference", str(attr_name), int(idx), visual_token),
+        )
+        setattr(self, attr_name, photo)
+        canvas.delete("all")
+        canvas.create_image(0, 0, image=photo, anchor="nw")
+
+    def _ghost_cache_entry(self, ghost_idx, ghost_mask, h, w):
+        """Return cached {contours, bbox} for a ghost frame, computing on miss.
+
+        ``bbox`` is the (y0, y1, x0, x1) extent of the contour strokes so the
+        per-redraw blend runs cv2.addWeighted on just that ROI instead of the
+        whole frame — keeping ghosts cheap to redraw while painting against them.
+        """
+        token = self._array_content_token(ghost_mask)
+        key = (int(ghost_idx), token, (int(h), int(w)))
+        entry = self._ghost_contours_cache.get(key)
+        if entry is None:
+            mask_uint8 = (np.asarray(ghost_mask, dtype=bool) * 255).astype(np.uint8)
+            contours, _ = cv2.findContours(mask_uint8, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            approx_contours = []
+            for c in contours:
+                peri = cv2.arcLength(c, True)
+                approx_contours.append(cv2.approxPolyDP(c, 0.002 * peri, True))
+            bbox = None
+            if approx_contours:
+                line = np.zeros((int(h), int(w)), dtype=np.uint8)
+                cv2.drawContours(line, approx_contours, -1, 1, GHOST_CONTOUR_THICKNESS)
+                ys, xs = np.where(line)
+                if ys.size:
+                    bbox = (int(ys.min()), int(ys.max()) + 1, int(xs.min()), int(xs.max()) + 1)
+            entry = {"contours": approx_contours, "bbox": bbox}
+            self._ghost_contours_cache[key] = entry
+        return token, entry
+
+    def _draw_ghost_contour(self, img_arr, ghost_idx, color, alpha):
+        """Alpha-blend one ghost frame's contour into img_arr in place.
+
+        Returns the (ghost_idx, content-token) pair used for display-cache
+        invalidation; token is None when the ghost frame has no mask.
+        """
+        h, w = img_arr.shape[:2]
+        ghost_mask = self.seg_state.compose_final_mask(ghost_idx, (h, w))
+        if ghost_mask is None or not np.any(ghost_mask):
+            return (int(ghost_idx), None)
+        token, entry = self._ghost_cache_entry(ghost_idx, ghost_mask, h, w)
+        bbox = entry["bbox"]
+        contours = entry["contours"]
+        if bbox is not None and contours:
+            y0, y1, x0, x1 = bbox
+            roi = img_arr[y0:y1, x0:x1]
+            overlay = roi.copy()
+            cv2.drawContours(overlay, contours, -1, color, GHOST_CONTOUR_THICKNESS, offset=(-x0, -y0))
+            cv2.addWeighted(roi, 1.0 - alpha, overlay, alpha, 0, dst=roi)
+        return (int(ghost_idx), token)
 
     def on_slider_move(self, val):
         self.current_frame_idx = int(float(val))
@@ -188,6 +265,8 @@ class RenderActions:
             self.frame_meta_var.set(fname or "No file loaded")
         if hasattr(self, "slider_value"):
             self.slider_value.set(str(display_idx))
+        if hasattr(self, "_update_slider_playhead"):
+            self._update_slider_playhead()
 
         img_arr_gray = self._get_visual_frame(idx) if hasattr(self, "_get_visual_frame") else None
         if img_arr_gray is None:
@@ -197,11 +276,12 @@ class RenderActions:
         visual_token = self._array_content_token(img_arr_gray)
         img_arr = frame_to_rgb_u8(img_arr_gray)
 
-        final_mask = None
-        if idx in self.masks_cache and self.masks_cache[idx] is not None:
-            final_mask = self.masks_cache[idx].astype(bool)
-        else:
+        final_mask = self.seg_state.compose_final_mask(idx, img_arr.shape[:2])
+        if final_mask is None:
             final_mask = np.zeros(img_arr.shape[:2], dtype=bool)
+
+        if hasattr(self, "_refresh_ground_truth_controls"):
+            self._refresh_ground_truth_controls(has_mask=bool(np.any(final_mask)))
 
         # Guard against stale mask sizes after re-import
         if final_mask.shape != img_arr.shape[:2]:
@@ -214,31 +294,45 @@ class RenderActions:
             self._recompute_slider_jump_markers()
             final_mask = np.zeros(img_arr.shape[:2], dtype=bool)
 
-        if idx in self.paint_layers:
-            plus = self.paint_layers[idx]["plus"]
-            minus = self.paint_layers[idx]["minus"]
-            if plus.shape != img_arr.shape[:2] or minus.shape != img_arr.shape[:2]:
-                self.log_warn(
-                    "Render",
-                    f"Paint layer shape mismatch for frame {idx + 1} ({plus.shape} vs {img_arr.shape[:2]}). Clearing.",
-                )
-                self.seg_state.clear_paint_layer(idx)
-                self._recompute_slider_jump_markers()
-            else:
-                final_mask = (final_mask | plus) & ~minus
-
         final_mask_any = bool(np.any(final_mask))
         final_mask_token = ("mask",) + self._array_content_token(final_mask) if final_mask_any else ("mask-empty", tuple(final_mask.shape))
-        if final_mask_any:
+        mask_peek = bool(getattr(self, "_mask_peek", False))
+        if final_mask_any and not mask_peek:
             img_arr = apply_mask_overlay(img_arr, final_mask)
+
+        # Ghost outlines implementation
+        ghost_enabled = False
+        if getattr(self, "ghost_outlines_enabled_var", None) is not None and self.ghost_outlines_enabled_var.get():
+            ghost_enabled = True
+
+        ghost_tokens = []
+        if ghost_enabled:
+            n_frames = int(self.ghost_range_var.get()) if getattr(self, "ghost_range_var", None) is not None else 2
+            if n_frames > 0:
+                if not hasattr(self, "_ghost_contours_cache"):
+                    self._ghost_contours_cache = {}
+                if len(self._ghost_contours_cache) > 200:
+                    self._ghost_contours_cache.clear()
+                # Boolean indexing below writes into img_arr; ensure it is writable.
+                if not img_arr.flags.writeable:
+                    img_arr = img_arr.copy()
+
+                for offset in range(n_frames, 0, -1):
+                    alpha = max(0.1, 0.6 * (1.0 - (offset - 1) / n_frames))
+                    past_idx = idx - offset
+                    if past_idx >= 0:
+                        ghost_tokens.append(self._draw_ghost_contour(img_arr, past_idx, (0, 191, 255), alpha))
+                    future_idx = idx + offset
+                    if future_idx < frame_count:
+                        ghost_tokens.append(self._draw_ghost_contour(img_arr, future_idx, (255, 0, 128), alpha))
 
         left_resample = Image.Resampling.NEAREST if self.is_dragging and self.tool_mode.get() in ["brush", "eraser"] else Image.Resampling.LANCZOS
         self.tk_img_left, left_transform = self._cached_canvas_photo(
             self.canvas_left,
             img_arr,
             resample=left_resample,
-            fill_value=(241, 241, 241),
-            token=("left", int(idx), visual_token, final_mask_token, bool(self.is_dragging), str(self.tool_mode.get())),
+            fill_value=CANVAS_FILL_RGB,
+            token=("left", int(idx), visual_token, final_mask_token, bool(self.is_dragging), str(self.tool_mode.get()), mask_peek, ghost_enabled, tuple(ghost_tokens)),
         )
         self.canvas_left.delete("all")
         self.canvas_left.create_image(0, 0, image=self.tk_img_left, anchor="nw")
@@ -267,18 +361,10 @@ class RenderActions:
             else:
                 self.canvas_preview.delete("all")
 
-        if not self.is_dragging and self._canvas_is_visible(self.canvas_right):
-            img_arr_right = frame_to_rgb_u8(img_arr_gray)
-            self.tk_img_right, _ = self._cached_canvas_photo(
-                self.canvas_right,
-                img_arr_right,
-                resample=Image.Resampling.LANCZOS,
-                fill_value=(241, 241, 241),
-                token=("right", int(idx), visual_token),
-            )
-            self.canvas_right.delete("all")
-            self.canvas_right.create_image(0, 0, image=self.tk_img_right, anchor="nw")
-            self._draw_analysis_overlay_on_right(idx)
+        if not self.is_dragging:
+            for canvas in self._iter_reference_canvases():
+                if self._canvas_is_visible(canvas):
+                    self._render_reference_canvas(canvas, idx, img_arr_gray, visual_token)
         elapsed_ms = (time.perf_counter() - t0) * 1000.0
         self.log_debug("Perf", f"Display redraw elapsed={elapsed_ms:.2f}ms")
 
@@ -322,6 +408,104 @@ class RenderActions:
                     self.canvas_left.create_oval(cx - 5, cy - 5, cx + 5, cy + 5, fill=color, outline="yellow", width=2)
                 else:
                     self.canvas_left.create_oval(cx - 3, cy - 3, cx + 3, cy + 3, fill=color, outline="white")
+
+        boxes = getattr(self, "boxes", {}) or {}
+        box = boxes.get(idx)
+        if box is not None:
+            try:
+                x0, y0, x1, y1 = (float(v) for v in box)
+            except (TypeError, ValueError):
+                pass
+            cx0, cy0 = transform.image_to_canvas(x0, y0)
+            cx1, cy1 = transform.image_to_canvas(x1, y1)
+            is_selected = False
+            if self.selected_point:
+                s_idx, s_kind = self.selected_point
+                is_selected = s_idx == idx and s_kind == "box"
+            self.canvas_left.create_rectangle(
+                cx0,
+                cy0,
+                cx1,
+                cy1,
+                outline="yellow" if is_selected else "white",
+                width=3 if is_selected else 2,
+            )
+            if is_selected:
+                handle_radius = 4
+                mid_x = (cx0 + cx1) / 2.0
+                mid_y = (cy0 + cy1) / 2.0
+                handle_points = (
+                    (cx0, cy0),
+                    (mid_x, cy0),
+                    (cx1, cy0),
+                    (cx1, mid_y),
+                    (cx1, cy1),
+                    (mid_x, cy1),
+                    (cx0, cy1),
+                    (cx0, mid_y),
+                )
+                for hx, hy in handle_points:
+                    self.canvas_left.create_rectangle(
+                        hx - handle_radius,
+                        hy - handle_radius,
+                        hx + handle_radius,
+                        hy + handle_radius,
+                        fill=CANVAS_FILL_HEX,
+                        outline="yellow",
+                        width=1,
+                    )
+
+        regions = list(getattr(self.seg_state, "persistent_regions", []) or [])
+        selected_region_id = getattr(self, "selected_region_id", None)
+        for region in regions:
+            normalized = self.seg_state._normalize_persistent_region(region)
+            if normalized is None or not bool(normalized.get("visible", True)):
+                continue
+            if not (int(normalized["frame_start"]) <= int(idx) <= int(normalized["frame_end"])):
+                continue
+            points = []
+            for x, y in normalized.get("polygon") or []:
+                cx, cy = transform.image_to_canvas(x, y)
+                points.extend([cx, cy])
+            if len(points) < 6:
+                continue
+            is_selected = str(normalized["id"]) == str(selected_region_id)
+            color = "#ff5c5c" if str(normalized.get("mode")) == "exclude" else "#1b75bc"
+            outline = "yellow" if is_selected else color
+            width = 3 if is_selected else 2
+            self.canvas_left.create_line(*points, points[0], points[1], fill=outline, width=width, dash=() if is_selected else (5, 3))
+            if is_selected:
+                handle_radius = 4
+                for hx, hy in zip(points[0::2], points[1::2]):
+                    self.canvas_left.create_rectangle(
+                        hx - handle_radius,
+                        hy - handle_radius,
+                        hx + handle_radius,
+                        hy + handle_radius,
+                        fill=CANVAS_FILL_HEX,
+                        outline="yellow",
+                        width=1,
+                    )
+
+        draft_points = []
+        draft_closed = False
+        controller = getattr(self, "interaction_controller", None)
+        if controller is not None and hasattr(controller, "get_region_draft_points"):
+            draft_points = controller.get_region_draft_points()
+            if hasattr(controller, "is_region_draft_closed"):
+                draft_closed = bool(controller.is_region_draft_closed())
+        if draft_points:
+            points = []
+            for x, y in draft_points:
+                cx, cy = transform.image_to_canvas(x, y)
+                points.extend([cx, cy])
+            if len(points) >= 4:
+                line_points = list(points)
+                if draft_closed and len(points) >= 6:
+                    line_points.extend([points[0], points[1]])
+                self.canvas_left.create_line(*line_points, fill="#ffd24d", width=2, dash=(4, 3))
+            for hx, hy in zip(points[0::2], points[1::2]):
+                self.canvas_left.create_rectangle(hx - 3, hy - 3, hx + 3, hy + 3, fill=CANVAS_FILL_HEX, outline="#ffd24d")
 
     def _draw_analysis_overlay_on_right(self, idx):
         raw_frame = self._get_raw_frame(idx) if hasattr(self, "_get_raw_frame") else None

@@ -6,7 +6,7 @@ from typing import Any, Dict
 from sdapp.shared.persistence.event_path import sanitize_event_path_segment
 
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 6
 
 
 def utc_now_iso() -> str:

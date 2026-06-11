@@ -74,16 +74,25 @@ class DeterministicCpuFallbackPredictor:
         inference_state: FallbackInferenceState,
         frame_idx: int,
         obj_id: int,
-        points: np.ndarray,
-        labels: np.ndarray,
+        points: np.ndarray | None = None,
+        labels: np.ndarray | None = None,
+        box: np.ndarray | None = None,
         clear_old_points: bool = True,
     ) -> tuple[int, list[int], list[_ArrayTensor]]:
         _ = clear_old_points
         idx = int(frame_idx)
         h, w = inference_state.frame_shape
         mask = np.zeros((h, w), dtype=np.float32)
-        pts = np.asarray(points, dtype=np.float32)
-        lbl = np.asarray(labels, dtype=np.int32)
+        if box is not None:
+            x0, y0, x1, y1 = (float(v) for v in np.asarray(box, dtype=np.float32).reshape(-1)[:4])
+            left = max(0, min(w - 1, int(round(min(x0, x1)))))
+            right = max(0, min(w - 1, int(round(max(x0, x1)))))
+            top = max(0, min(h - 1, int(round(min(y0, y1)))))
+            bottom = max(0, min(h - 1, int(round(max(y0, y1)))))
+            if right > left and bottom > top:
+                mask[top : bottom + 1, left : right + 1] = 1.0
+        pts = np.asarray(points if points is not None else [], dtype=np.float32).reshape(-1, 2)
+        lbl = np.asarray(labels if labels is not None else [], dtype=np.int32).reshape(-1)
         radius = max(3, int(round(min(h, w) * 0.025)))
         for (x, y), lab in zip(pts, lbl):
             cx = int(round(float(x)))

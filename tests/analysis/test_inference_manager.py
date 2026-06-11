@@ -39,12 +39,14 @@ class _FakePredictor:
     def __init__(self) -> None:
         self.mask_frames: list[int] = []
         self.point_frames: list[int] = []
+        self.point_or_box_calls: list[dict] = []
 
     def reset_state(self, _state):
         return None
 
     def add_new_points_or_box(self, **_kwargs):
         self.point_frames.append(int(_kwargs.get("frame_idx", -1)))
+        self.point_or_box_calls.append(dict(_kwargs))
         return None, None, [_FakeMaskTensor([[1.0]])]
 
     def add_new_mask(self, **_kwargs):
@@ -74,6 +76,31 @@ class _ControlledPropagationPredictor(_FakePredictor):
         yield 2, [1], [_FakeMaskTensor([[1.0]])]
 
 
+class _NoBoxPredictor(_FakePredictor):
+    def add_new_points_or_box(
+        self,
+        *,
+        inference_state,
+        frame_idx: int,
+        obj_id: int,
+        points=None,
+        labels=None,
+        clear_old_points: bool = True,
+    ):
+        self.point_frames.append(int(frame_idx))
+        self.point_or_box_calls.append(
+            {
+                "inference_state": inference_state,
+                "frame_idx": frame_idx,
+                "obj_id": obj_id,
+                "points": points,
+                "labels": labels,
+                "clear_old_points": clear_old_points,
+            }
+        )
+        return None, None, [_FakeMaskTensor([[1.0]])]
+
+
 def test_pending_point_batch_recomputes_markers_once():
     seg_state = SegmentationState()
     seg_state.points = {
@@ -97,7 +124,7 @@ def test_pending_point_batch_recomputes_markers_once():
         recompute_markers=lambda: recompute_calls.append("recompute"),
         set_propagated_frames=lambda _frames: None,
         set_status=lambda _text, _color: None,
-        prop_log_start=lambda _total, _label: 1,
+        prop_log_start=lambda _total, _label, **_kwargs: 1,
         prop_log_tick=lambda **_kwargs: None,
         prop_log_finish=lambda _status, **_kwargs: None,
         on_propagation_status=None,
@@ -117,6 +144,111 @@ def test_pending_point_batch_recomputes_markers_once():
     assert set(seg_state.masks_cache.keys()) == {1, 3}
 
 
+def test_single_frame_inference_accepts_box_only_prompt():
+    seg_state = SegmentationState()
+    seg_state.set_box(2, [1.0, 2.0, 8.0, 9.0])
+    root = _ImmediateRoot()
+    predictor = _FakePredictor()
+    manager = InferenceManager(
+        state=seg_state,
+        root=root,
+        predictor_lock=threading.Lock(),
+        get_sensitivity=lambda: 0.5,
+        get_current_frame_idx=lambda: 2,
+        get_frame_count=lambda: 5,
+        get_frame_shape=lambda: (10, 10),
+        set_slider_frame=lambda _idx: None,
+        update_display=lambda: None,
+        recompute_markers=lambda: None,
+        set_propagated_frames=lambda _frames: None,
+        set_status=lambda _text, _color: None,
+        prop_log_start=lambda _total, _label, **_kwargs: 1,
+        prop_log_tick=lambda **_kwargs: None,
+        prop_log_finish=lambda _status, **_kwargs: None,
+        on_propagation_status=None,
+        log=lambda *_args: None,
+        is_ui_alive=lambda: True,
+    )
+    manager.on_model_ready(predictor, object())
+
+    manager._run_single_frame_inference_core(2, None)
+
+    call = predictor.point_or_box_calls[-1]
+    assert call["points"] is None
+    assert call["labels"] is None
+    assert np.array_equal(call["box"], np.array([1.0, 2.0, 8.0, 9.0], dtype=np.float32))
+    assert 2 in seg_state.masks_cache
+
+
+def test_single_frame_inference_retries_without_box_for_legacy_predictor():
+    seg_state = SegmentationState()
+    seg_state.set_box(2, [1.0, 2.0, 8.0, 9.0])
+    predictor = _NoBoxPredictor()
+    manager = InferenceManager(
+        state=seg_state,
+        root=_ImmediateRoot(),
+        predictor_lock=threading.Lock(),
+        get_sensitivity=lambda: 0.5,
+        get_current_frame_idx=lambda: 2,
+        get_frame_count=lambda: 5,
+        get_frame_shape=lambda: (10, 10),
+        set_slider_frame=lambda _idx: None,
+        update_display=lambda: None,
+        recompute_markers=lambda: None,
+        set_propagated_frames=lambda _frames: None,
+        set_status=lambda _text, _color: None,
+        prop_log_start=lambda _total, _label, **_kwargs: 1,
+        prop_log_tick=lambda **_kwargs: None,
+        prop_log_finish=lambda _status, **_kwargs: None,
+        on_propagation_status=None,
+        log=lambda *_args: None,
+        is_ui_alive=lambda: True,
+    )
+    manager.on_model_ready(predictor, object())
+
+    manager._run_single_frame_inference_core(2, None)
+
+    call = predictor.point_or_box_calls[-1]
+    assert "box" not in call
+    assert call["points"] is None
+    assert call["labels"] is None
+    assert 2 in seg_state.masks_cache
+
+
+def test_single_frame_inference_omits_box_none_for_legacy_predictor_points_only():
+    seg_state = SegmentationState()
+    seg_state.set_points(2, [{"x": 1.0, "y": 2.0, "label": 1}])
+    predictor = _NoBoxPredictor()
+    manager = InferenceManager(
+        state=seg_state,
+        root=_ImmediateRoot(),
+        predictor_lock=threading.Lock(),
+        get_sensitivity=lambda: 0.5,
+        get_current_frame_idx=lambda: 2,
+        get_frame_count=lambda: 5,
+        get_frame_shape=lambda: (10, 10),
+        set_slider_frame=lambda _idx: None,
+        update_display=lambda: None,
+        recompute_markers=lambda: None,
+        set_propagated_frames=lambda _frames: None,
+        set_status=lambda _text, _color: None,
+        prop_log_start=lambda _total, _label, **_kwargs: 1,
+        prop_log_tick=lambda **_kwargs: None,
+        prop_log_finish=lambda _status, **_kwargs: None,
+        on_propagation_status=None,
+        log=lambda *_args: None,
+        is_ui_alive=lambda: True,
+    )
+    manager.on_model_ready(predictor, object())
+
+    manager._run_single_frame_inference_core(2, None)
+
+    call = predictor.point_or_box_calls[-1]
+    assert "box" not in call
+    assert np.array_equal(call["points"], np.array([[1.0, 2.0]], dtype=np.float32))
+    assert np.array_equal(call["labels"], np.array([1], dtype=np.int32))
+
+
 def _build_propagation_manager(seg_state, predictor, *, current_frame_idx=2, frame_count=5):
     root = _ImmediateRoot()
     status_events: list[tuple[str, int, int]] = []
@@ -134,7 +266,7 @@ def _build_propagation_manager(seg_state, predictor, *, current_frame_idx=2, fra
         recompute_markers=lambda: None,
         set_propagated_frames=lambda _frames: None,
         set_status=lambda _text, _color: None,
-        prop_log_start=lambda _total, _label: 1,
+        prop_log_start=lambda _total, _label, **_kwargs: 1,
         prop_log_tick=lambda **_kwargs: None,
         prop_log_finish=lambda _status, **_kwargs: None,
         on_propagation_status=lambda status, start, end: status_events.append((str(status), int(start), int(end))),
@@ -175,6 +307,80 @@ def test_point_prompts_take_precedence_over_saved_masks_for_propagation():
     assert predictor.point_frames == [1]
     assert predictor.mask_frames == []
     assert slider_frames == [1]
+
+
+def test_box_prompt_seeds_propagation_and_passes_box_payload():
+    seg_state = SegmentationState()
+    seg_state.set_box(2, [1.0, 1.0, 7.0, 8.0])
+    predictor = _FakePredictor()
+    manager, _status_events, slider_frames = _build_propagation_manager(seg_state, predictor, current_frame_idx=2, frame_count=5)
+
+    manager._run_background_propagation(1, 1, 4, 3)
+
+    assert predictor.point_frames == [2]
+    assert predictor.mask_frames == []
+    assert slider_frames == [2]
+    call = predictor.point_or_box_calls[-1]
+    assert call["points"] is None
+    assert call["labels"] is None
+    assert np.array_equal(call["box"], np.array([1.0, 1.0, 7.0, 8.0], dtype=np.float32))
+
+
+def test_points_and_box_prompt_pass_together_for_propagation():
+    seg_state = SegmentationState()
+    seg_state.set_points(1, [{"x": 2.0, "y": 3.0, "label": 1}])
+    seg_state.set_box(1, [1.0, 1.0, 7.0, 8.0])
+    predictor = _FakePredictor()
+    manager, _status_events, _slider_frames = _build_propagation_manager(seg_state, predictor, current_frame_idx=1, frame_count=5)
+
+    manager._run_background_propagation(1, 1, 4, 1)
+
+    call = predictor.point_or_box_calls[-1]
+    assert np.array_equal(call["points"], np.array([[2.0, 3.0]], dtype=np.float32))
+    assert np.array_equal(call["labels"], np.array([1], dtype=np.int32))
+    assert np.array_equal(call["box"], np.array([1.0, 1.0, 7.0, 8.0], dtype=np.float32))
+
+
+def test_ground_truth_frame_seeds_propagation_as_mask_prompt():
+    seg_state = SegmentationState()
+    for frame_idx in (1, 2, 3, 4):
+        seg_state.set_mask(frame_idx, np.array([[True]], dtype=bool))
+    # No points/box/paint anywhere; only an explicit ground-truth lock seeds.
+    seg_state.set_ground_truth(3, True)
+    predictor = _FakePredictor()
+    manager, _status_events, slider_frames = _build_propagation_manager(
+        seg_state, predictor, current_frame_idx=2, frame_count=5
+    )
+
+    manager._run_background_propagation(1, 1, 4, 2)
+
+    assert predictor.mask_frames == [3]
+    assert predictor.point_frames == []
+    assert slider_frames == [3]
+
+
+class _AllFalsePropagationPredictor(_FakePredictor):
+    def propagate_in_video(self, _inference_state, *, start_frame_idx: int, reverse: bool):
+        indices = range(int(start_frame_idx), -1, -1) if reverse else range(int(start_frame_idx), 5)
+        for idx in indices:
+            yield idx, [1], [_FakeMaskTensor([[0.0]])]
+
+
+def test_ground_truth_frame_is_protected_from_generated_overwrite():
+    seg_state = SegmentationState()
+    seg_state.set_mask(3, np.array([[True]], dtype=bool))
+    seg_state.set_ground_truth(3, True)
+    predictor = _AllFalsePropagationPredictor()
+    manager, _status_events, _slider_frames = _build_propagation_manager(
+        seg_state, predictor, current_frame_idx=3, frame_count=5
+    )
+
+    manager._run_background_propagation(1, 1, 4, 3)
+
+    # The locked seed frame keeps its mask; a non-seed frame is overwritten.
+    assert bool(np.any(seg_state.masks_cache[3]))
+    assert not bool(np.any(seg_state.masks_cache[4]))
+    assert predictor.mask_frames == [3]
 
 
 def test_pause_and_resume_continue_same_propagation_run():

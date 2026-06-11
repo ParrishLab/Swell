@@ -24,10 +24,13 @@ class EventMetadata:
 @dataclass
 class EventAnalysisState:
     points: dict[int, list[dict]] = field(default_factory=dict)
+    boxes: dict[int, list[float]] = field(default_factory=dict)
+    persistent_regions: list[dict] = field(default_factory=list)
     paint_layers: dict[int, dict[str, np.ndarray]] = field(default_factory=dict)
     masks_committed: dict[int, np.ndarray] = field(default_factory=dict)
     masks_draft: dict[int, np.ndarray] | None = None
     use_draft: bool = False
+    ground_truth_frames: set[int] = field(default_factory=set)
 
 
 @dataclass
@@ -93,6 +96,30 @@ class ProjectSessionService:
             for pt in pt_list:
                 copied.append({"x": float(pt["x"]), "y": float(pt["y"]), "label": int(pt["label"])})
             out[int(frame_idx)] = copied
+        return out
+
+    def copy_boxes_dict(self, boxes: dict[int, list[float]]) -> dict[int, list[float]]:
+        out = {}
+        for frame_idx, box in boxes.items():
+            normalized = SegmentationState._normalize_box(box)
+            if normalized is not None:
+                out[int(frame_idx)] = list(normalized)
+        return out
+
+    def copy_persistent_regions(self, regions: list[dict]) -> list[dict]:
+        tmp = SegmentationState()
+        out: list[dict] = []
+        seen: set[str] = set()
+        for raw in list(regions or []):
+            normalized = tmp._normalize_persistent_region(raw)
+            if normalized is None:
+                continue
+            region_id = str(normalized.get("id"))
+            if region_id in seen:
+                normalized["id"] = tmp._new_region_id()
+                region_id = str(normalized["id"])
+            seen.add(region_id)
+            out.append(normalized)
         return out
 
     def copy_masks_dict(self, masks: dict[int, np.ndarray]) -> dict[int, np.ndarray]:
@@ -223,10 +250,13 @@ class ProjectSessionService:
             )
             analysis = an if isinstance(an, EventAnalysisState) else EventAnalysisState(
                 points=self.copy_points_dict(an.get("points", {})),
+                boxes=self.copy_boxes_dict(an.get("boxes", {})),
+                persistent_regions=self.copy_persistent_regions(an.get("persistent_regions", [])),
                 paint_layers=self.copy_paint_layers(an.get("paint_layers", {})),
                 masks_committed=self.copy_masks_dict(an.get("masks_committed", {})),
                 masks_draft=self.copy_masks_dict(an.get("masks_draft", {})) if an.get("masks_draft") is not None else None,
                 use_draft=bool(an.get("use_draft", False)),
+                ground_truth_frames={int(f) for f in an.get("ground_truth_frames", set()) or set()},
             )
             return EventRecord(metadata=metadata, analysis=analysis)
         raw = dict(raw or {})
@@ -241,10 +271,13 @@ class ProjectSessionService:
             ),
             analysis=EventAnalysisState(
                 points=self.copy_points_dict(raw.get("points", {})),
+                boxes=self.copy_boxes_dict(raw.get("boxes", {})),
+                persistent_regions=self.copy_persistent_regions(raw.get("persistent_regions", [])),
                 paint_layers=self.copy_paint_layers(raw.get("paint_layers", {})),
                 masks_committed=self.copy_masks_dict(raw.get("masks_committed", {})),
                 masks_draft=self.copy_masks_dict(raw.get("masks_draft", {})) if raw.get("masks_draft") is not None else None,
                 use_draft=bool(raw.get("use_draft", False)),
+                ground_truth_frames={int(f) for f in raw.get("ground_truth_frames", set()) or set()},
             ),
         )
 
@@ -261,6 +294,8 @@ class ProjectSessionService:
             "id": record.metadata.event_id,
             "label": record.metadata.label,
             "points": self.copy_points_dict(record.analysis.points),
+            "boxes": self.copy_boxes_dict(record.analysis.boxes),
+            "persistent_regions": self.copy_persistent_regions(record.analysis.persistent_regions),
             "paint_layers": self.copy_paint_layers(record.analysis.paint_layers),
             "masks_committed": self.copy_masks_dict(record.analysis.masks_committed),
             "masks_draft": self.copy_masks_dict(record.analysis.masks_draft or {}) if record.analysis.masks_draft is not None else None,
@@ -284,7 +319,10 @@ class ProjectSessionService:
     ) -> dict[str, EventRecord]:
         record = self.ensure_event_record(event_id, frame_count, event_records)
         record.analysis.points = self.copy_points_dict(seg_state.points)
+        record.analysis.boxes = self.copy_boxes_dict(seg_state.boxes)
+        record.analysis.persistent_regions = self.copy_persistent_regions(seg_state.persistent_regions)
         record.analysis.paint_layers = self.copy_paint_layers(seg_state.paint_layers)
+        record.analysis.ground_truth_frames = set(seg_state.ground_truth_frames)
         if bool(record.analysis.use_draft) and not bool(record.metadata.propagation_completed):
             record.analysis.masks_draft = self.copy_masks_dict(seg_state.masks_cache)
             record.analysis.masks_committed = self.copy_masks_dict(record.analysis.masks_committed)
@@ -316,6 +354,15 @@ class ProjectSessionService:
                 {"x": float(pt["x"]), "y": float(pt["y"]), "label": int(pt["label"])} for pt in pt_list
             ]
 
+        seg_state.boxes.clear()
+        for frame_idx, box in record.analysis.boxes.items():
+            normalized = SegmentationState._normalize_box(box)
+            if normalized is not None:
+                seg_state.boxes[int(frame_idx)] = normalized
+
+        seg_state.persistent_regions.clear()
+        seg_state.persistent_regions.extend(self.copy_persistent_regions(record.analysis.persistent_regions))
+
         seg_state.paint_layers.clear()
         for frame_idx, layer in record.analysis.paint_layers.items():
             seg_state.paint_layers[int(frame_idx)] = {
@@ -330,6 +377,10 @@ class ProjectSessionService:
         seg_state.set_leverage_map({}, None)
         for frame_idx, mask in source_masks.items():
             seg_state.masks_cache[int(frame_idx)] = np.asarray(mask, dtype=bool).copy()
+
+        seg_state.ground_truth_frames = {
+            int(f) for f in record.analysis.ground_truth_frames if int(f) in seg_state.masks_cache
+        }
 
         seg_state.invalidate_user_frames()
         seg_state.invalidate_final_mask_frames()
@@ -395,7 +446,10 @@ class ProjectSessionService:
         for event_id, record in event_records.items():
             prompts_state = SegmentationState()
             prompts_state.points = self.copy_points_dict(record.analysis.points)
+            prompts_state.boxes = self.copy_boxes_dict(record.analysis.boxes)
+            prompts_state.persistent_regions = self.copy_persistent_regions(record.analysis.persistent_regions)
             prompts_state.paint_layers = self.copy_paint_layers(record.analysis.paint_layers)
+            prompts_state.ground_truth_frames = set(record.analysis.ground_truth_frames)
             prompts = prompts_state.to_prompts_json(event_id)
             committed = self.copy_masks_dict(record.analysis.masks_committed)
             draft = record.analysis.masks_draft
@@ -465,10 +519,15 @@ class ProjectSessionService:
                 ),
                 analysis=EventAnalysisState(
                     points=self.copy_points_dict(tmp_state.points),
+                    boxes=self.copy_boxes_dict(tmp_state.boxes),
+                    persistent_regions=self.copy_persistent_regions(tmp_state.persistent_regions),
                     paint_layers=self.copy_paint_layers(tmp_state.paint_layers),
                     masks_committed=committed,
                     masks_draft=draft,
                     use_draft=use_draft,
+                    ground_truth_frames={
+                        int(f) for f in tmp_state.ground_truth_frames if int(f) in committed
+                    },
                 ),
             )
         if not event_records:

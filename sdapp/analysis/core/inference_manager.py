@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import contextlib
 import gc
+import inspect
 import io
 import queue
 import threading
@@ -36,7 +37,7 @@ class InferenceManager:
         recompute_markers: Callable[[], None],
         set_propagated_frames: Callable[[set[int]], None],
         set_status: Callable[[str, str], None],
-        prop_log_start: Callable[[int, str], int],
+        prop_log_start: Callable[..., int],
         prop_log_tick: Callable[..., None],
         prop_log_finish: Callable[..., None],
         on_propagation_status: Callable[[str, int, int], None] | None,
@@ -120,6 +121,61 @@ class InferenceManager:
         if labels.shape[0] != points.shape[0]:
             return False, f"labels rows={labels.shape[0]} do not match points rows={points.shape[0]}"
         return True, ""
+
+    def _normalize_box_prompt(self, frame_idx: int) -> np.ndarray | None:
+        boxes = getattr(self.state, "boxes", {}) or {}
+        raw_box = boxes.get(frame_idx) if isinstance(boxes, dict) else None
+        box = self.state._normalize_box(raw_box) if raw_box is not None else None
+        if box is None:
+            return None
+        return np.asarray(box, dtype=np.float32).reshape(4)
+
+    def _predictor_accepts_box_prompt(self) -> bool:
+        method = getattr(self.predictor, "add_new_points_or_box", None)
+        if method is None:
+            return False
+        try:
+            sig = inspect.signature(method)
+        except (TypeError, ValueError):
+            return True
+        for param in sig.parameters.values():
+            if param.kind == inspect.Parameter.VAR_KEYWORD or param.name == "box":
+                return True
+        return False
+
+    @staticmethod
+    def _is_box_kwarg_type_error(exc: TypeError) -> bool:
+        message = str(exc).lower()
+        return "box" in message and ("unexpected" in message or "keyword" in message)
+
+    def _add_new_points_or_box_compatible(
+        self,
+        *,
+        frame_idx: int,
+        points,
+        labels,
+        box,
+        clear_old_points: bool | None = None,
+    ):
+        kwargs = {
+            "inference_state": self.inference_state,
+            "frame_idx": frame_idx,
+            "obj_id": 1,
+            "points": points,
+            "labels": labels,
+        }
+        if clear_old_points is not None:
+            kwargs["clear_old_points"] = bool(clear_old_points)
+        if box is not None or self._predictor_accepts_box_prompt():
+            kwargs["box"] = box
+        try:
+            return self.predictor.add_new_points_or_box(**kwargs)
+        except TypeError as exc:
+            if "box" in kwargs and self._is_box_kwarg_type_error(exc):
+                kwargs.pop("box", None)
+                self._log_warn("Model", "Predictor does not accept box prompts; retrying without box.")
+                return self.predictor.add_new_points_or_box(**kwargs)
+            raise
 
     def _inference_queue_depth(self):
         try:
@@ -248,6 +304,9 @@ class InferenceManager:
         return False
 
     def _has_nonempty_cached_mask(self, frame_idx: int) -> bool:
+        # Raw committed masks are allowed here because propagation can fall back
+        # to an existing mask seed when no prompt anchors exist. Persistent
+        # regions intentionally do not create propagation anchors.
         try:
             cached = self.state.masks_cache.get(int(frame_idx))
         except Exception:
@@ -393,7 +452,7 @@ class InferenceManager:
         if not self.model_ready or self.predictor is None or self.inference_state is None:
             return
 
-        valid_frames = self.state.get_valid_point_frames()
+        valid_frames = self.state.get_valid_point_frames() | self.state.get_valid_box_frames()
         if frame_idx not in valid_frames:
             self.state.clear_mask(frame_idx)
             should_recompute = self._finish_pending_marker_batch_frame(frame_idx)
@@ -434,16 +493,20 @@ class InferenceManager:
             return
         self.enqueue_frame_inference(frame_idx, reason="sensitivity")
 
-    def _points_signature(self, frame_idx):
+    def _prompt_signature(self, frame_idx):
         pt_list = self.state.points.get(frame_idx)
-        if not pt_list:
-            return None
+        boxes = getattr(self.state, "boxes", {}) or {}
+        raw_box = boxes.get(frame_idx) if isinstance(boxes, dict) else None
+        box = self.state._normalize_box(raw_box) if raw_box is not None else None
         try:
-            return tuple(
-                (float(p["x"]), float(p["y"]), int(p["label"])) for p in pt_list
+            points_sig = tuple(
+                (float(p["x"]), float(p["y"]), int(p["label"])) for p in list(pt_list or [])
             )
         except Exception:
             return None
+        if not points_sig and box is None:
+            return None
+        return points_sig, tuple(box) if box is not None else None
 
     def _store_frame_logits(self, frame_idx, signature, logits_np):
         if signature is None or logits_np is None:
@@ -462,9 +525,15 @@ class InferenceManager:
         if not self.model_ready:
             return False
         self.state.prune_invalid_points()
-        if frame_idx not in self.state.get_valid_point_frames():
+        point_frames = set(self.state.get_valid_point_frames() or [])
+        get_box_frames = getattr(self.state, "get_valid_box_frames", None)
+        try:
+            box_frames = set(get_box_frames() or []) if callable(get_box_frames) else set()
+        except Exception:
+            box_frames = set()
+        if frame_idx not in (point_frames | box_frames):
             return False
-        signature = self._points_signature(frame_idx)
+        signature = self._prompt_signature(frame_idx)
         if signature is None:
             return False
         with self._logits_cache_lock:
@@ -528,7 +597,13 @@ class InferenceManager:
 
     def _run_single_frame_inference_core(self, frame_idx, generation):
         self.state.prune_invalid_points()
-        valid_frames = self.state.get_valid_point_frames()
+        point_frames = set(self.state.get_valid_point_frames() or [])
+        get_box_frames = getattr(self.state, "get_valid_box_frames", None)
+        try:
+            box_frames = set(get_box_frames() or []) if callable(get_box_frames) else set()
+        except Exception:
+            box_frames = set()
+        valid_frames = point_frames | box_frames
         if frame_idx not in valid_frames:
             return
         if not self.model_ready or self.predictor is None or self.inference_state is None:
@@ -539,20 +614,25 @@ class InferenceManager:
                 if self._infer_worker_stop.is_set() or self._prop_stop_event.is_set():
                     return
                 self.predictor.reset_state(self.inference_state)
-                pt_list = self.state.points[frame_idx]
-                points = np.array([[p["x"], p["y"]] for p in pt_list], dtype=np.float32)
-                labels = np.array([p["label"] for p in pt_list], dtype=np.int32)
-                valid_arrays, reason = self._validate_point_prompt_arrays(points, labels)
-                if not valid_arrays:
-                    self._log_warn("Model", f"Skipping inference prompt on frame {frame_idx + 1}: {reason}.")
+                pt_list = list(self.state.points.get(frame_idx) or [])
+                points = None
+                labels = None
+                if pt_list:
+                    points = np.array([[p["x"], p["y"]] for p in pt_list], dtype=np.float32)
+                    labels = np.array([p["label"] for p in pt_list], dtype=np.int32)
+                    valid_arrays, reason = self._validate_point_prompt_arrays(points, labels)
+                    if not valid_arrays:
+                        self._log_warn("Model", f"Skipping inference prompt on frame {frame_idx + 1}: {reason}.")
+                        return
+                box_arr = self._normalize_box_prompt(frame_idx)
+                if points is None and box_arr is None:
                     return
 
-                _, _, out_mask_logits = self.predictor.add_new_points_or_box(
-                    inference_state=self.inference_state,
+                _, _, out_mask_logits = self._add_new_points_or_box_compatible(
                     frame_idx=frame_idx,
-                    obj_id=1,
                     points=points,
                     labels=labels,
+                    box=box_arr,
                     clear_old_points=True,
                 )
 
@@ -567,7 +647,7 @@ class InferenceManager:
             raw_logit = out_mask_logits[0]
             logits_np = (raw_logit.detach() if hasattr(raw_logit, "detach") else raw_logit).cpu().numpy()
             self.state.set_mask(frame_idx, (logits_np > thresh).squeeze())
-            self._store_frame_logits(frame_idx, self._points_signature(frame_idx), logits_np)
+            self._store_frame_logits(frame_idx, self._prompt_signature(frame_idx), logits_np)
             with self._infer_state_lock:
                 defer_markers = int(frame_idx) in self._pending_marker_batch_frames
             self._notify_mask_updated(recompute_markers=not defer_markers)
@@ -638,13 +718,15 @@ class InferenceManager:
             prop_end = max(0, min(int(prop_end), total_frames - 1))
             anchor_frame = max(prop_start, min(int(anchor_frame), prop_end))
             in_range = range(prop_start, prop_end + 1)
-            point_frames = {idx for idx in in_range if idx in self.state.get_valid_point_frames()}
+            valid_prompt_frames = self.state.get_valid_point_frames() | self.state.get_valid_box_frames()
+            prompt_frames = {idx for idx in in_range if idx in valid_prompt_frames}
             paint_frames = {idx for idx in in_range if self.state.has_nonempty_paint(idx)}
             frame_shape = self._frame_shape_hw()
             mask_only_frames = {
                 idx for idx in in_range if self._has_nonempty_cached_mask(idx)
             }
-            user_seed_frames = point_frames | paint_frames
+            anchor_frames = self.state.get_prompt_anchor_frames(total_frames)
+            user_seed_frames = {idx for idx in in_range if idx in anchor_frames}
             mask_seed_frames: set[int] = set()
             frames_with_input = set(user_seed_frames)
 
@@ -665,6 +747,15 @@ class InferenceManager:
                         f"No point/paint prompts found; using committed mask on frame {nearest_mask + 1} as the seed.",
                     )
 
+            # Ground-truth frames are explicit, first-class mask seeds: they are
+            # already anchors (get_prompt_anchor_frames), so they sit in
+            # frames_with_input and are protected from overwrite; routing them
+            # through mask_seed_frames re-injects their mask as a SAM prompt.
+            gt_seed_frames = {idx for idx in in_range if self.state.is_ground_truth_frame(idx)}
+            if gt_seed_frames:
+                mask_seed_frames = set(mask_seed_frames) | gt_seed_frames
+                frames_with_input = set(frames_with_input) | gt_seed_frames
+
             if not frames_with_input:
                 self._log_warn("Propagation", "No valid point prompts, paint edits, or committed masks found in selected range; stopping.")
                 return
@@ -682,7 +773,13 @@ class InferenceManager:
             forward_expected = max(0, prop_end - anchor_frame + 1)
             backward_expected = max(0, anchor_frame - prop_start + 1)
             total_expected = forward_expected + backward_expected
-            prop_log_run_id = self.prop_log_start(total_expected, "Propagation")
+            prop_log_run_id = self.prop_log_start(
+                total_expected,
+                "Propagation",
+                prop_start=prop_start,
+                prop_end=prop_end,
+                anchor=anchor_frame,
+            )
             if self.is_ui_alive():
                 self.root.after(0, lambda: self.set_status("Propagating...", "purple"))
 
@@ -743,7 +840,9 @@ class InferenceManager:
                                     if frame_shape is None:
                                         self._log_warn("Propagation", "Skipping mask prompt injection: invalid frame shape.")
                                         continue
-                                    final_mask = self.state.compose_final_mask(f_idx, frame_shape)
+                                    final_mask = self.state.compose_final_mask(
+                                        f_idx, frame_shape, apply_persistent_regions=False
+                                    )
                                     if final_mask is None or not np.any(final_mask):
                                         self._log_warn("Propagation", f"Skipping frame {f_idx + 1}: empty mask prompt.")
                                         continue
@@ -756,24 +855,30 @@ class InferenceManager:
                                     self.state.set_mask(f_idx, np.asarray(final_mask, dtype=bool))
 
                                 else:
-                                    if f_idx not in self.state.get_valid_point_frames():
-                                        self._log_warn("Propagation", f"Skipping frame {f_idx + 1}: no valid point prompts.")
+                                    if f_idx not in valid_prompt_frames:
+                                        self._log_warn("Propagation", f"Skipping frame {f_idx + 1}: no valid point or box prompts.")
                                         continue
-                                    pt_list = self.state.points[f_idx]
-                                    points = np.array([[p["x"], p["y"]] for p in pt_list], dtype=np.float32)
-                                    labels = np.array([p["label"] for p in pt_list], dtype=np.int32)
-                                    valid_arrays, reason = self._validate_point_prompt_arrays(points, labels)
-                                    if not valid_arrays:
-                                        self._log_warn(
-                                            "Propagation", f"Skipping frame {f_idx + 1}: invalid point prompt ({reason})."
-                                        )
+                                    pt_list = list(self.state.points.get(f_idx) or [])
+                                    points = None
+                                    labels = None
+                                    if pt_list:
+                                        points = np.array([[p["x"], p["y"]] for p in pt_list], dtype=np.float32)
+                                        labels = np.array([p["label"] for p in pt_list], dtype=np.int32)
+                                        valid_arrays, reason = self._validate_point_prompt_arrays(points, labels)
+                                        if not valid_arrays:
+                                            self._log_warn(
+                                                "Propagation", f"Skipping frame {f_idx + 1}: invalid point prompt ({reason})."
+                                            )
+                                            continue
+                                    box_arr = self._normalize_box_prompt(f_idx)
+                                    if points is None and box_arr is None:
+                                        self._log_warn("Propagation", f"Skipping frame {f_idx + 1}: no valid point or box prompts.")
                                         continue
-                                    self.predictor.add_new_points_or_box(
-                                        inference_state=self.inference_state,
+                                    self._add_new_points_or_box_compatible(
                                         frame_idx=f_idx,
-                                        obj_id=1,
                                         points=points,
                                         labels=labels,
+                                        box=box_arr,
                                     )
 
                             inject_ms = (time.perf_counter() - inject_t0) * 1000.0
@@ -785,6 +890,7 @@ class InferenceManager:
 
                                 fwd_t0 = time.perf_counter()
                                 fwd_tick = fwd_t0
+                                forward_done = 0
                                 for out_frame_idx, out_obj_ids, out_mask_logits in forward_generator:
                                     now = time.perf_counter()
                                     forward_durations.append((now - fwd_tick) * 1000.0)
@@ -798,7 +904,14 @@ class InferenceManager:
                                     if out_frame_idx > prop_end:
                                         break
 
-                                    self.prop_log_tick(run_id=prop_log_run_id)
+                                    forward_done += 1
+                                    self.prop_log_tick(
+                                        run_id=prop_log_run_id,
+                                        phase="forward",
+                                        direction="forward",
+                                        phase_done=forward_done,
+                                        phase_total=forward_expected,
+                                    )
                                     if len(out_obj_ids) > 0:
                                         if out_frame_idx in frames_with_input:
                                             continue
@@ -817,6 +930,7 @@ class InferenceManager:
 
                                 bwd_t0 = time.perf_counter()
                                 bwd_tick = bwd_t0
+                                backward_done = 0
                                 for out_frame_idx, out_obj_ids, out_mask_logits in backward_generator:
                                     now = time.perf_counter()
                                     backward_durations.append((now - bwd_tick) * 1000.0)
@@ -830,7 +944,14 @@ class InferenceManager:
                                     if out_frame_idx < prop_start:
                                         break
 
-                                    self.prop_log_tick(run_id=prop_log_run_id)
+                                    backward_done += 1
+                                    self.prop_log_tick(
+                                        run_id=prop_log_run_id,
+                                        phase="backward",
+                                        direction="backward",
+                                        phase_done=backward_done,
+                                        phase_total=backward_expected,
+                                    )
                                     if len(out_obj_ids) > 0:
                                         if out_frame_idx in frames_with_input:
                                             continue

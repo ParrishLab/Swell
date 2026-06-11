@@ -97,6 +97,34 @@ def _event(
     )
 
 
+def _region_only_sidecar(shape: tuple[int, int] = (8, 8)) -> dict:
+    h, w = shape
+    return {
+        "shape": [h, w],
+        "prompts_frame_origin": "analysis_scope_local",
+        "prompts": {
+            "persistent_regions": [
+                {
+                    "id": "include_a",
+                    "mode": "include",
+                    "enabled": True,
+                    "frame_start": 0,
+                    "frame_end": 1,
+                    "polygon": [[1, 1], [5, 1], [5, 5], [1, 5]],
+                },
+                {
+                    "id": "exclude_a",
+                    "mode": "exclude",
+                    "enabled": True,
+                    "frame_start": 1,
+                    "frame_end": 1,
+                    "polygon": [[3, 3], [6, 3], [6, 6], [3, 6]],
+                },
+            ]
+        },
+    }
+
+
 def test_export_without_trace_skips_trace_artifacts(tmp_path: Path) -> None:
     frames = [np.full((8, 8), i, dtype=np.uint8) for i in range(5)]
     reader = FakeReader(frames)
@@ -386,6 +414,129 @@ def test_export_binary_masks_only_is_allowed(tmp_path: Path) -> None:
     assert result["frames_exported"] == 0
     assert result["masks_exported"] == 1
     assert (tmp_path / "event_0001" / "binary_masks" / "000002_event_mask.tiff").exists()
+
+
+def test_event_global_mask_map_applies_prompt_persistent_regions() -> None:
+    event = _event(
+        "event_0001",
+        2,
+        4,
+        flags={
+            "analysis_scope_start_idx": 1,
+            "analysis_scope_end_idx": 4,
+            "analysis_local_event_start_idx": 1,
+            "analysis_local_event_end_idx": 3,
+        },
+    )
+    masks = np.zeros((4, 8, 8), dtype=np.uint8)
+    masks[2, 1:7, 1:7] = 1
+    sidecar = {
+        "masks_committed": masks,
+        "masks_committed_frame_origin": "analysis_scope_local",
+        "prompts_frame_origin": "analysis_scope_local",
+        "prompts": {
+            "persistent_regions": [
+                {
+                    "id": "include_a",
+                    "mode": "include",
+                    "enabled": True,
+                    "frame_start": 1,
+                    "frame_end": 3,
+                    "polygon": [[1, 1], [6, 1], [6, 6], [1, 6]],
+                },
+                {
+                    "id": "exclude_a",
+                    "mode": "exclude",
+                    "enabled": True,
+                    "frame_start": 2,
+                    "frame_end": 2,
+                    "polygon": [[3, 3], [7, 3], [7, 7], [3, 7]],
+                },
+            ]
+        },
+    }
+
+    mask_map = _build_event_global_mask_map(
+        event=event,
+        masks_payload=masks,
+        baseline_pre_frames=1,
+        analysis_sidecar_payload=sidecar,
+    )
+
+    assert mask_map[2][2, 2]
+    assert mask_map[3][2, 2]
+    assert not mask_map[3][4, 4]
+    assert mask_map[4][2, 2]
+
+
+def test_event_global_mask_map_applies_region_only_prompts_without_committed_masks() -> None:
+    event = _event("event_0001", 2, 5)
+    sidecar = {
+        "shape": [8, 8],
+        "prompts_frame_origin": "analysis_scope_local",
+        "prompts": {
+            "persistent_regions": [
+                {
+                    "id": "include_a",
+                    "mode": "include",
+                    "enabled": True,
+                    "frame_start": 0,
+                    "frame_end": 2,
+                    "polygon": [[1, 1], [6, 1], [6, 6], [1, 6]],
+                },
+                {
+                    "id": "exclude_a",
+                    "mode": "exclude",
+                    "enabled": True,
+                    "frame_start": 1,
+                    "frame_end": 1,
+                    "polygon": [[3, 3], [7, 3], [7, 7], [3, 7]],
+                },
+            ]
+        },
+    }
+
+    mask_map = _build_event_global_mask_map(
+        event=event,
+        masks_payload=None,
+        baseline_pre_frames=0,
+        analysis_sidecar_payload=sidecar,
+    )
+
+    assert sorted(mask_map) == [2, 3, 4]
+    assert mask_map[2][2, 2]
+    assert mask_map[3][2, 2]
+    assert not mask_map[3][4, 4]
+    assert mask_map[4][2, 2]
+
+
+def test_event_global_mask_map_does_not_create_masks_for_region_only_exclude() -> None:
+    event = _event("event_0001", 2, 5)
+    sidecar = {
+        "shape": [8, 8],
+        "prompts_frame_origin": "analysis_scope_local",
+        "prompts": {
+            "persistent_regions": [
+                {
+                    "id": "exclude_a",
+                    "mode": "exclude",
+                    "enabled": True,
+                    "frame_start": 0,
+                    "frame_end": 2,
+                    "polygon": [[1, 1], [6, 1], [6, 6], [1, 6]],
+                },
+            ]
+        },
+    }
+
+    mask_map = _build_event_global_mask_map(
+        event=event,
+        masks_payload=None,
+        baseline_pre_frames=0,
+        analysis_sidecar_payload=sidecar,
+    )
+
+    assert mask_map == {}
 
 
 def test_export_metrics_only_writes_per_event_metrics_outputs(tmp_path: Path) -> None:
@@ -1546,6 +1697,159 @@ def test_export_binary_masks_writes_mask_images_when_available(tmp_path: Path) -
     exported_masks = sorted(p.name for p in masks_dir.glob("*.tiff"))
     assert exported_masks == ["000003_baseline_mask.tiff", "000005_event_mask.tiff"]
     assert result["masks_exported"] == 2
+
+
+def test_export_binary_masks_writes_region_only_prompt_masks(tmp_path: Path) -> None:
+    frames = [np.full((8, 8), i, dtype=np.uint8) for i in range(8)]
+    reader = FakeReader(frames)
+    events = [_event("event_0001", 2, 4)]
+
+    result = export_analysis(
+        reader=reader,
+        events=events,
+        output_dir=tmp_path,
+        baseline_pre_frames=0,
+        include_event_images=False,
+        include_baseline_images=False,
+        include_binary_masks=True,
+        analysis_sidecar={
+            "event_0001": {
+                "shape": [8, 8],
+                "prompts_frame_origin": "analysis_scope_local",
+                "prompts": {
+                    "persistent_regions": [
+                        {
+                            "id": "include_a",
+                            "mode": "include",
+                            "enabled": True,
+                            "frame_start": 0,
+                            "frame_end": 1,
+                            "polygon": [[1, 1], [5, 1], [5, 5], [1, 5]],
+                        },
+                        {
+                            "id": "exclude_a",
+                            "mode": "exclude",
+                            "enabled": True,
+                            "frame_start": 1,
+                            "frame_end": 1,
+                            "polygon": [[3, 3], [6, 3], [6, 6], [3, 6]],
+                        },
+                    ]
+                },
+            }
+        },
+    )
+
+    masks_dir = tmp_path / "event_0001" / "binary_masks"
+    exported_masks = sorted(p.name for p in masks_dir.glob("*.tiff"))
+    assert exported_masks == ["000002_event_mask.tiff", "000003_event_mask.tiff"]
+    assert result["masks_exported"] == 2
+
+    frame_2 = tifffile.imread(str(masks_dir / "000002_event_mask.tiff"))
+    frame_3 = tifffile.imread(str(masks_dir / "000003_event_mask.tiff"))
+    assert frame_2[2, 2] > 0
+    assert frame_3[2, 2] > 0
+    assert frame_3[4, 4] == 0
+
+
+def test_export_overlays_use_region_only_final_mask_map(tmp_path: Path) -> None:
+    frames = [np.full((8, 8), 100, dtype=np.uint8) for _ in range(8)]
+    reader = FakeReader(frames)
+    event = _event(
+        "event_0001",
+        2,
+        4,
+        flags={
+            "analysis_processing": {"horizontal_bar_denoise": False},
+            "analysis_scope_start_idx": 2,
+            "analysis_scope_end_idx": 4,
+        },
+    )
+
+    result = export_analysis(
+        reader=reader,
+        events=[event],
+        output_dir=tmp_path,
+        baseline_pre_frames=0,
+        include_event_images=False,
+        include_baseline_images=False,
+        include_mask_overlay_images=True,
+        include_analysis_overlay_images=True,
+        analysis_sidecar={"event_0001": _region_only_sidecar()},
+    )
+
+    raw_dir = tmp_path / "event_0001" / "mask_overlays"
+    analysis_dir = tmp_path / "event_0001" / "analysis_mask_overlays"
+    assert sorted(p.name for p in raw_dir.glob("*.tif")) == [
+        "000002_event_overlay_frame_0002.tif",
+        "000003_event_overlay_frame_0003.tif",
+    ]
+    assert sorted(p.name for p in analysis_dir.glob("*.tif")) == [
+        "000002_event_analysis_overlay_frame_0002.tif",
+        "000003_event_analysis_overlay_frame_0003.tif",
+    ]
+    frame_3 = tifffile.imread(str(raw_dir / "000003_event_overlay_frame_0003.tif"))
+    assert tuple(int(v) for v in frame_3[2, 2]) == (70, 146, 146)
+    assert tuple(int(v) for v in frame_3[4, 4]) == (100, 100, 100)
+    assert result["mask_overlay_images_exported"] == 2
+    assert result["analysis_overlay_images_exported"] == 2
+
+
+def test_export_contour_map_uses_region_only_final_mask_map(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(exporter, "_contour_map_colors", lambda count: [(255, 0, 0), (0, 255, 0)][:count])
+    frames = [np.full((8, 8), 50, dtype=np.uint8) for _ in range(8)]
+    reader = FakeReader(frames)
+
+    result = export_analysis(
+        reader=reader,
+        events=[_event("event_0001", 2, 4)],
+        output_dir=tmp_path,
+        baseline_pre_frames=0,
+        include_event_images=False,
+        include_baseline_images=False,
+        include_contour_map=True,
+        analysis_sidecar={"event_0001": _region_only_sidecar()},
+    )
+
+    contour_path = tmp_path / "event_0001" / "contour_map" / "contour_map_event_0001.png"
+    assert contour_path.exists()
+    image = np.asarray(Image.open(contour_path).convert("RGB"), dtype=np.uint8)
+    assert np.count_nonzero(np.all(image == np.asarray([255, 0, 0], dtype=np.uint8), axis=2)) > 0
+    assert np.count_nonzero(np.all(image == np.asarray([0, 255, 0], dtype=np.uint8), axis=2)) > 0
+    assert result["contour_maps_exported"] == 1
+
+
+def test_export_metrics_use_region_only_final_mask_map(tmp_path: Path) -> None:
+    frames = [np.full((8, 8), 20, dtype=np.uint8) for _ in range(8)]
+    reader = FakeReader(frames)
+    sidecar = _region_only_sidecar()
+    sidecar["metrics_settings"] = {
+        "frames_per_sec": 1.0,
+        "scale_px_per_mm": 1.0,
+        "scale_unit": "px_per_mm",
+        "roi_mask": np.ones((8, 8), dtype=bool),
+    }
+
+    result = export_analysis(
+        reader=reader,
+        events=[_event("event_0001", 2, 4)],
+        output_dir=tmp_path,
+        baseline_pre_frames=0,
+        include_event_images=False,
+        include_baseline_images=False,
+        include_metric_area_recruited=True,
+        analysis_sidecar={"event_0001": sidecar},
+    )
+
+    metrics_path = tmp_path / "event_0001" / "metrics" / "area_recruited_event_0001.csv"
+    rows = list(csv.DictReader(metrics_path.open("r", newline="", encoding="utf-8")))
+    assert float(rows[0]["area_mm2"]) > 0.0
+    assert float(rows[1]["area_mm2"]) > 0.0
+    assert rows[2]["area_mm2"] == ""
+    assert int(result["metrics_files_exported"]) > 0
 
 
 def test_export_mask_overlay_images_match_analysis_overlay_tint(tmp_path: Path) -> None:

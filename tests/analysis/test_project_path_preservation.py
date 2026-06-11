@@ -1,6 +1,46 @@
 import unittest
 
+import numpy as np
+
 from sdapp.analysis.app import SDSegmentationApp
+from sdapp.analysis.core.seg_state import SegmentationState
+
+
+class ResetInteractionStateTests(unittest.TestCase):
+    def test_reset_clears_boxes_along_with_other_prompts(self):
+        app = SDSegmentationApp.__new__(SDSegmentationApp)
+        app.seg_state = SegmentationState()
+        # Mirror the real app's aliases onto seg_state collections.
+        app.points = app.seg_state.points
+        app.boxes = app.seg_state.boxes
+        app.paint_layers = app.seg_state.paint_layers
+        app.masks_cache = app.seg_state.masks_cache
+
+        app.seg_state.set_box(5, [10, 10, 40, 40])
+        app.points[5] = [{"x": 1, "y": 2, "label": 1}]
+        app.masks_cache[5] = np.ones((4, 4), dtype=bool)
+
+        app._reset_interaction_state()
+
+        # Stale box prompts must not survive into a freshly imported stack.
+        self.assertEqual(app.boxes, {})
+        self.assertEqual(app.seg_state.boxes, {})
+        self.assertEqual(app.points, {})
+        self.assertEqual(app.masks_cache, {})
+
+    def test_reset_clears_seg_state_boxes_without_alias(self):
+        app = SDSegmentationApp.__new__(SDSegmentationApp)
+        app.seg_state = SegmentationState()
+        app.points = app.seg_state.points
+        app.paint_layers = app.seg_state.paint_layers
+        app.masks_cache = app.seg_state.masks_cache
+
+        app.seg_state.set_box(5, [10, 10, 40, 40])
+
+        app._reset_interaction_state()
+
+        self.assertEqual(app.seg_state.boxes, {})
+        self.assertIs(app.boxes, app.seg_state.boxes)
 
 
 class ProjectPathPreservationTests(unittest.TestCase):

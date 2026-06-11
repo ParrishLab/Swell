@@ -23,6 +23,8 @@ from sdapp.analysis.core.metrics import (
     roi_mask_from_points,
     smooth_boundary_fft,
 )
+from sdapp.analysis.core.seg_state import SegmentationState
+from sdapp.host.analysis_payload_mapper import EventBounds, normalize_sidecar_index, scope_metadata
 from sdapp.analysis.core.object_tracking import TrackingConfig, build_object_lineage
 from sdapp.shared.frame_source import EventScopedFrameSource, PreparedFrameSource, SDStackFrameSource
 from sdapp.shared.image_overlay import apply_mask_overlay
@@ -1534,10 +1536,19 @@ def _build_event_global_mask_map(
     baseline_pre_frames: int,
     analysis_sidecar_payload: dict[str, object] | None = None,
 ) -> dict[int, np.ndarray]:
+    """Build the host-side final-mask map used by every export artifact.
+
+    This is the supported export boundary for committed masks plus prompt-side
+    final-mask constraints such as persistent include/exclude regions. Export
+    paths should not read sidecar masks directly unless they are intentionally
+    preserving raw committed payloads.
+    """
     out: dict[int, np.ndarray] = {}
-    if masks_payload is None:
-        return out
     sidecar = dict(analysis_sidecar_payload or {})
+    if masks_payload is None:
+        shape_hw = _infer_mask_map_shape(out, sidecar)
+        _apply_prompt_regions_to_global_mask_map(out, event=event, sidecar=sidecar, shape_hw=shape_hw)
+        return out
     if isinstance(masks_payload, dict):
         flags = dict(getattr(event, "flags", {}) or {})
         try:
@@ -1579,6 +1590,8 @@ def _build_event_global_mask_map(
             if arr.ndim != 2 or global_idx is None:
                 continue
             out[int(global_idx)] = arr.copy()
+        shape_hw = _infer_mask_map_shape(out, sidecar)
+        _apply_prompt_regions_to_global_mask_map(out, event=event, sidecar=sidecar, shape_hw=shape_hw)
         return out
 
     arr = np.asarray(masks_payload)
@@ -1618,6 +1631,7 @@ def _build_event_global_mask_map(
             mask = np.asarray(arr[local_idx], dtype=bool)
             if mask.ndim == 2:
                 out[int(global_idx)] = mask.copy()
+        _apply_prompt_regions_to_global_mask_map(out, event=event, sidecar=sidecar, shape_hw=tuple(arr.shape[1:3]))
         return out
 
     if origin_hint == "event_local" or (event_len > 0 and frame_count == event_len):
@@ -1626,6 +1640,7 @@ def _build_event_global_mask_map(
             mask = np.asarray(arr[local_idx], dtype=bool)
             if mask.ndim == 2:
                 out[int(global_idx)] = mask.copy()
+        _apply_prompt_regions_to_global_mask_map(out, event=event, sidecar=sidecar, shape_hw=tuple(arr.shape[1:3]))
         return out
 
     # If payload looks global, keep indices as-is; otherwise treat it as event-scope local.
@@ -1634,6 +1649,7 @@ def _build_event_global_mask_map(
             mask = np.asarray(arr[idx], dtype=bool)
             if mask.ndim == 2:
                 out[int(idx)] = mask.copy()
+        _apply_prompt_regions_to_global_mask_map(out, event=event, sidecar=sidecar, shape_hw=tuple(arr.shape[1:3]))
         return out
 
     for local_idx in range(frame_count):
@@ -1641,7 +1657,100 @@ def _build_event_global_mask_map(
         mask = np.asarray(arr[local_idx], dtype=bool)
         if mask.ndim == 2:
             out[int(global_idx)] = mask.copy()
+    _apply_prompt_regions_to_global_mask_map(out, event=event, sidecar=sidecar, shape_hw=tuple(arr.shape[1:3]))
     return out
+
+
+def _infer_mask_map_shape(mask_map: dict[int, np.ndarray], sidecar: dict[str, object]) -> tuple[int, int] | None:
+    for mask in mask_map.values():
+        arr = np.asarray(mask)
+        if arr.ndim == 2:
+            return int(arr.shape[0]), int(arr.shape[1])
+    shape = sidecar.get("shape")
+    if isinstance(shape, (list, tuple)) and len(shape) >= 2:
+        try:
+            h = int(shape[0])
+            w = int(shape[1])
+        except (TypeError, ValueError):
+            return None
+        if h > 0 and w > 0:
+            return h, w
+    return None
+
+
+def _apply_prompt_regions_to_global_mask_map(
+    mask_map: dict[int, np.ndarray],
+    *,
+    event: EventCandidate,
+    sidecar: dict[str, object],
+    shape_hw: tuple[int, int] | None,
+) -> None:
+    if shape_hw is None:
+        return
+    prompts = sidecar.get("prompts")
+    if not isinstance(prompts, dict):
+        return
+    raw_regions = prompts.get("persistent_regions")
+    if not isinstance(raw_regions, list) or not raw_regions:
+        return
+
+    h, w = int(shape_hw[0]), int(shape_hw[1])
+    if h <= 0 or w <= 0:
+        return
+    state = SegmentationState()
+    bounds = EventBounds(
+        start_idx=int(event.start_idx),
+        end_idx=int(event.end_idx),
+        flags=dict(getattr(event, "flags", {}) or {}),
+    )
+    scope = scope_metadata(bounds)
+    origin_hint = sidecar.get("prompts_frame_origin")
+    regions_by_frame: dict[int, list[dict]] = {}
+    for raw_region in raw_regions:
+        normalized = state._normalize_persistent_region(raw_region)
+        if normalized is None or not bool(normalized.get("enabled", True)):
+            continue
+        start = normalize_sidecar_index(
+            normalized["frame_start"],
+            scope=scope,
+            event_start=int(event.start_idx),
+            event_end=int(event.end_idx),
+            origin_hint=origin_hint,
+        )
+        end = normalize_sidecar_index(
+            normalized["frame_end"],
+            scope=scope,
+            event_start=int(event.start_idx),
+            event_end=int(event.end_idx),
+            origin_hint=origin_hint,
+        )
+        if start is None or end is None:
+            continue
+        normalized["frame_start"] = min(int(start), int(end))
+        normalized["frame_end"] = max(int(start), int(end))
+        for frame_idx in range(int(normalized["frame_start"]), int(normalized["frame_end"]) + 1):
+            regions_by_frame.setdefault(frame_idx, []).append(normalized)
+
+    for frame_idx, regions in regions_by_frame.items():
+        include_mask = np.zeros((h, w), dtype=bool)
+        exclude_mask = np.zeros((h, w), dtype=bool)
+        for region in regions:
+            region_mask = state.rasterize_persistent_region(region, (h, w))
+            if region_mask is None:
+                continue
+            if str(region.get("mode")) == "exclude":
+                exclude_mask |= region_mask
+            else:
+                include_mask |= region_mask
+        if not np.any(include_mask) and not np.any(exclude_mask):
+            continue
+        existing = mask_map.get(int(frame_idx))
+        if existing is None and not np.any(include_mask):
+            continue
+        base = np.asarray(existing if existing is not None else np.zeros((h, w), dtype=bool), dtype=bool)
+        if base.shape != (h, w):
+            continue
+        mask_map[int(frame_idx)] = ((base | include_mask) & ~exclude_mask).copy()
 
 
 def _export_frame(

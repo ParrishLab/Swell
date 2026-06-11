@@ -83,8 +83,13 @@ class AnalysisWindowController:
 
             boundaries = []
             masks_cache = getattr(self.app, "masks_cache", {})
+            compose_final = getattr(self.app, "_compose_final_mask_for_frame", None)
             for i in range(frame_count):
-                mask = masks_cache.get(i)
+                mask = None
+                if callable(compose_final):
+                    mask = compose_final(i)
+                else:
+                    mask = masks_cache.get(i)
                 if mask is not None and np.any(mask):
                     boundaries.append(extract_primary_boundary(np.asarray(mask, dtype=bool)))
                 else:

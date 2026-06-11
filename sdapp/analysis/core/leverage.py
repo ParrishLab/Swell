@@ -8,12 +8,13 @@ from sdapp.analysis.core.overlay_state import frame_spans
 
 # --- Tunable constants (calibrate on real SD events) ---------------------
 TROUBLE_FLOOR = 0.25       # frames below this are "calm", excluded from regions
-LEVERAGE_FLOOR = 0.30      # leverage below this reads as "settled"
+LEVERAGE_FLOOR = 0.30      # calibration reference for "clearly actionable" leverage
 IOU_WEIGHT = 0.5
 CENTROID_WEIGHT = 0.3
 AREA_WEIGHT = 0.2
 PEAK_BIAS = 0.35           # fraction-of-region offset of the peak, upstream of center
 REF_LEN = 8.0              # region length at which the length factor saturates
+LENGTH_FLOOR = 0.6         # min length-factor so short sharp jumps aren't crushed
 TROUBLE_SAMPLE_MAX = 256   # cap mask dimension for the instability computation
 
 
@@ -88,11 +89,16 @@ def compute_trouble(
     if not sample:
         return {}
     diag = math.hypot(*next(iter(sample.values())).shape) or 1.0
+    nonempty = {int(f) for f, mask in sample.items() if _mask_stats(mask) is not None}
+    if not nonempty:
+        return {}
 
     pair_cache: dict[tuple[int, int], float] = {}
 
     def pair(i: int, j: int) -> float | None:
         if i not in sample or j not in sample:
+            return None
+        if i not in nonempty or j not in nonempty:
             return None
         key = (i, j)
         if key not in pair_cache:
@@ -103,13 +109,17 @@ def compute_trouble(
     for f in sample:
         if not (0 <= int(f) < frame_count):
             continue
+        if int(f) not in nonempty:
+            continue
         if int(f) in user_frames:
             trouble[int(f)] = 0.0
             continue
         scores = [s for s in (pair(f - 1, f), pair(f, f + 1)) if s is not None]
         if not scores:
             continue
-        trouble[int(f)] = float(sum(scores) / len(scores))
+        # A frame is as troubled as its worst transition: a clean one-frame jump
+        # is a genuine correction site even though the opposite neighbor is calm.
+        trouble[int(f)] = float(max(scores))
     return trouble
 
 
@@ -140,7 +150,9 @@ def compute_leverage(
         length = end - start + 1
         span_scores = [trouble.get(f, 0.0) for f in range(start, end + 1)]
         mean_trouble = sum(span_scores) / length
-        length_factor = min(1.0, length / REF_LEN)
+        # Length boosts sustained instability but never crushes a short sharp
+        # region below LENGTH_FLOOR of its trouble.
+        length_factor = LENGTH_FLOOR + (1.0 - LENGTH_FLOOR) * min(1.0, length / REF_LEN)
         region_leverage = mean_trouble * length_factor
 
         peak = start + int(round((length - 1) * (0.5 - PEAK_BIAS)))
@@ -158,6 +170,6 @@ def compute_leverage(
             best_region_leverage = region_leverage
             suggested = peak
 
-    if best_region_leverage < LEVERAGE_FLOOR:
-        suggested = None
+    # Regions only form from frames above TROUBLE_FLOOR, so the best region is
+    # always a real correction site — surface it as the suggested frame.
     return leverage, suggested

@@ -40,6 +40,7 @@ from sdapp.analysis.core.preview_resize import stop_resize_preview as do_stop_re
 from sdapp.analysis.core.propagation_progress import PropagationProgressLogger
 from sdapp.analysis.core.app_context import AppContext
 from sdapp.analysis.core import project_workflow
+from sdapp.analysis.core.region_tools import REGION_EXCLUDE_TOOL, REGION_INCLUDE_TOOL, region_tool_mode_for_region_mode
 from sdapp.analysis.core.viewport import (
     ViewportState,
     clamp_viewport_center,
@@ -123,7 +124,9 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         self.current_frame_idx = 0
         self.seg_state = SegmentationState()
         self.points = self.seg_state.points
+        self.boxes = self.seg_state.boxes
         self.selected_point = None
+        self.selected_region_id = None
         self.paint_layers = self.seg_state.paint_layers
 
         self.display_ratio = 1.0
@@ -131,6 +134,9 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         self.img_offset_y = 0
         self.viewport_state = ViewportState(center_x=0.5, center_y=0.5, zoom_factor=1.0)
         self._space_pan_requested = False
+        self._mask_peek_hold_requested = False
+        self._mask_peek = False
+        self.mask_peek_sticky_var = tk.BooleanVar(value=False)
         self._viewport_pan_active = False
         self._viewport_pan_canvas = None
         self._viewport_pan_last_x = None
@@ -184,7 +190,20 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         self._last_prewarm_frame_idx = None
         self._pending_display_update = False
         self._pending_display_preview = True
+        self._pending_leverage_recompute_job = None
+        self._propagation_progress_active = False
+        self._timeline_progress_state = None
+        self._timeline_progress_item_ids = {}
+        self._timeline_loading_animation_job = None
+        self._timeline_loading_animation_phase = 0.0
         self._initial_frame_nav_ts = None
+
+        self.ghost_outlines_enabled_var = tk.BooleanVar(value=False)
+        self.ghost_range_var = tk.IntVar(value=2)
+        self.leverage_visibility_var = tk.BooleanVar(value=True)
+        self.ghost_outlines_enabled_var.trace_add("write", lambda *_: self._queue_display_update(True))
+        self.ghost_range_var.trace_add("write", lambda *_: self._queue_display_update(True))
+        self.leverage_visibility_var.trace_add("write", lambda *_: self._redraw_slider_overlay())
 
         self.config = AppConfig.load()
         self.set_input_source_hint("Host-provided SD event scope")
@@ -302,6 +321,7 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         self.interaction_controller = InteractionController(
             seg_state=self.seg_state,
             points=self.points,
+            boxes=self.boxes,
             paint_layers=self.paint_layers,
             masks_cache=self.masks_cache,
             get_current_frame_idx=lambda: self.current_frame_idx,
@@ -322,15 +342,25 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
             set_paint_snapshot_before=lambda v: setattr(self, "paint_snapshot_before", v),
             tool_mode=self.tool_mode,
             brush_size=self.brush_size,
+            fill_tolerance=self.fill_tolerance,
+            region_mode=self.region_mode,
+            region_start_var=self.region_start_var,
+            region_end_var=self.region_end_var,
+            get_selected_region_id=lambda: self.selected_region_id,
+            set_selected_region_id=self._set_selected_region_id,
+            refresh_region_controls=self._refresh_region_controls,
             canvas_left=self.canvas_left,
             slider=self.slider,
             lbl_brush_val=self.lbl_brush_val,
             get_frame_count=self._get_frame_count,
             get_frame_shape_for_idx=self._get_frame_shape_for_idx,
+            get_visual_frame=self._get_visual_frame,
             get_display_transform=self._get_display_transform,
             update_display=self.update_display,
             draw_paint_preview_segment=self._draw_paint_preview_segment_on_canvas,
             clear_paint_preview=self._clear_paint_preview_on_canvas,
+            draw_box_preview=self._draw_box_preview_on_canvas,
+            clear_box_preview=self._clear_box_preview_on_canvas,
             draw_brush_cursor=self._draw_brush_cursor_on_canvas,
             recompute_slider_jump_markers=self._recompute_slider_jump_markers,
             update_mask_prediction=self._update_mask_prediction,
@@ -825,27 +855,18 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
             self.analysis_workspace._on_event_opened = self._on_workspace_event_opened
 
     def _set_loading_indicator(self, loading: bool, text: str = "Working...") -> None:
-        if not hasattr(self, "loading_status_var") or not hasattr(self, "loading_bar"):
-            return
+        if hasattr(self, "loading_status_var"):
+            self.loading_status_var.set(str(text or "Working...") if loading else "Idle")
         if bool(getattr(self, "_propagation_progress_active", False)):
-            if loading:
-                self.loading_status_var.set(str(text or "Working..."))
-            elif int(getattr(self, "_loading_task_count", 0) or 0) <= 0:
-                self.loading_bar.stop()
-                if self.loading_bar.winfo_ismapped():
-                    self.loading_bar.grid_remove()
             return
         if bool(loading):
-            self.loading_status_var.set(str(text or "Working..."))
-            self.loading_bar.configure(mode="indeterminate")
-            self.loading_bar.configure(value=0, maximum=100)
-            if not self.loading_bar.winfo_ismapped():
-                self.loading_bar.grid()
-            self.loading_bar.start(8)
+            self._timeline_progress_state = {"active": True, "kind": "loading", "label": str(text or "Working...")}
+            self._schedule_timeline_loading_animation()
             return
-        self.loading_bar.stop()
-        if self.loading_bar.winfo_ismapped():
-            self.loading_bar.grid_remove()
+        self._cancel_timeline_loading_animation()
+        if str((getattr(self, "_timeline_progress_state", {}) or {}).get("kind") or "") == "loading":
+            self._timeline_progress_state = None
+        self._clear_timeline_progress_items()
 
     def _set_activity_message(self, text: str) -> None:
         if not hasattr(self, "loading_status_var"):
@@ -853,39 +874,72 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         if not bool(getattr(self, "_propagation_progress_active", False)):
             self.loading_status_var.set(str(text or "Idle"))
 
-    def _apply_propagation_progress_update(self, *, active: bool, done: int, total: int, label: str, status: str, run_id: int) -> None:
+    def _apply_propagation_progress_update(
+        self,
+        *,
+        active: bool,
+        done: int,
+        total: int,
+        label: str,
+        status: str,
+        run_id: int,
+        prop_start=None,
+        prop_end=None,
+        anchor=None,
+        phase=None,
+        direction=None,
+        phase_done: int = 0,
+        phase_total: int = 0,
+        forward_done: int = 0,
+        forward_total: int = 0,
+        backward_done: int = 0,
+        backward_total: int = 0,
+    ) -> None:
         del run_id
-        if not hasattr(self, "loading_status_var") or not hasattr(self, "loading_bar"):
-            return
         total_steps = max(0, int(total))
         done_steps = max(0, min(int(done), total_steps if total_steps > 0 else int(done)))
         if bool(active):
             self._propagation_progress_active = True
-            self.loading_bar.stop()
-            self.loading_bar.configure(mode="determinate")
-            self.loading_bar.configure(maximum=max(1, total_steps), value=done_steps)
             pct = 100 if total_steps <= 0 else int(round((done_steps / max(1, total_steps)) * 100))
-            self.loading_status_var.set(f"{label} {pct}% ({done_steps}/{total_steps})")
-            if not self.loading_bar.winfo_ismapped():
-                self.loading_bar.grid()
+            if hasattr(self, "loading_status_var"):
+                self.loading_status_var.set(f"{label} {pct}% ({done_steps}/{total_steps})")
+            frame_count = int(self._get_frame_count()) if hasattr(self, "_get_frame_count") else 0
+            self._timeline_progress_state = {
+                "active": True,
+                "kind": "propagation",
+                "done": done_steps,
+                "total": total_steps,
+                "label": str(label or "Propagation"),
+                "status": str(status or "progress"),
+                "prop_start": 0 if prop_start is None else int(prop_start),
+                "prop_end": max(0, frame_count - 1) if prop_end is None else int(prop_end),
+                "anchor": 0 if anchor is None else int(anchor),
+                "phase": None if phase is None else str(phase),
+                "direction": None if direction is None else str(direction),
+                "phase_done": int(phase_done or 0),
+                "phase_total": int(phase_total or 0),
+                "forward_done": int(forward_done or 0),
+                "forward_total": int(forward_total or 0),
+                "backward_done": int(backward_done or 0),
+                "backward_total": int(backward_total or 0),
+            }
+            self._update_timeline_progress_layer()
             return
 
         self._propagation_progress_active = False
-        self.loading_bar.stop()
-        self.loading_bar.configure(mode="determinate")
-        self.loading_bar.configure(value=0, maximum=max(1, total_steps))
+        if str((getattr(self, "_timeline_progress_state", {}) or {}).get("kind") or "") == "propagation":
+            self._timeline_progress_state = None
+        self._clear_timeline_progress_items()
         terminal_messages = {
             "complete": "Propagation complete",
             "stopped": "Propagation stopped",
             "failed": "Propagation failed",
         }
-        if status in terminal_messages:
+        if status in terminal_messages and hasattr(self, "loading_status_var"):
             self.loading_status_var.set(terminal_messages[status])
         if int(getattr(self, "_loading_task_count", 0) or 0) > 0:
             self._set_loading_indicator(True, str(self.loading_status_var.get() or "Working..."))
             return
-        if self.loading_bar.winfo_ismapped():
-            self.loading_bar.grid_remove()
 
     def _on_propagation_progress_update(self, **payload) -> None:
         if not self._ui_alive():
@@ -908,6 +962,50 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         self._loading_task_count = max(0, int(getattr(self, "_loading_task_count", 0)) - 1)
         if self._loading_task_count == 0:
             self._set_loading_indicator(False)
+
+    def _redraw_timeline_progress(self) -> None:
+        overlay_renderer.redraw_timeline_progress(self)
+
+    def _update_timeline_progress_layer(self) -> None:
+        state = getattr(self, "_timeline_progress_state", None)
+        if not state:
+            self._clear_timeline_progress_items()
+            return
+        if str(state.get("kind") or "") == "loading":
+            overlay_renderer.update_timeline_loading_progress(self)
+        else:
+            overlay_renderer.update_timeline_propagation_progress(self)
+
+    def _schedule_timeline_loading_animation(self) -> None:
+        if not self._ui_alive():
+            return
+        self._update_timeline_progress_layer()
+        if getattr(self, "_timeline_loading_animation_job", None) is not None:
+            return
+
+        def _tick():
+            self._timeline_loading_animation_job = None
+            state = getattr(self, "_timeline_progress_state", None)
+            if not state or str(state.get("kind") or "") != "loading" or not bool(state.get("active", False)):
+                return
+            self._update_timeline_progress_layer()
+            if self._ui_alive():
+                self._timeline_loading_animation_job = self.root.after(33, _tick)
+
+        self._timeline_loading_animation_job = self.root.after(33, _tick)
+
+    def _cancel_timeline_loading_animation(self) -> None:
+        job = getattr(self, "_timeline_loading_animation_job", None)
+        if job is None:
+            return
+        self._timeline_loading_animation_job = None
+        try:
+            self.root.after_cancel(job)
+        except Exception:
+            pass
+
+    def _clear_timeline_progress_items(self) -> None:
+        overlay_renderer.clear_timeline_progress_items(self)
 
     def _refresh_log_tree(self) -> None:
         tree = getattr(self, "log_tree", None)
@@ -1083,13 +1181,15 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
 
     def _iter_viewport_canvas_sizes(self, *, exclude_preview: bool = False) -> list[tuple[int, int]]:
         sizes: list[tuple[int, int]] = []
-        for name in ("canvas_left", "canvas_right", "canvas_preview"):
+        for name in ("canvas_left", "canvas_right", "canvas_reference_popout", "canvas_preview"):
             if bool(exclude_preview) and name == "canvas_preview":
                 continue
             canvas = getattr(self, name, None)
             if canvas is None:
                 continue
             try:
+                if hasattr(canvas, "winfo_exists") and not bool(canvas.winfo_exists()):
+                    continue
                 sizes.append((max(1, int(canvas.winfo_width())), max(1, int(canvas.winfo_height()))))
             except Exception:
                 continue
@@ -1207,6 +1307,40 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         self._space_pan_requested = False
         self._sync_viewport_cursor_states()
         return "break" if event is not None else None
+
+    def _refresh_mask_peek_state(self) -> bool:
+        sticky = False
+        var = getattr(self, "mask_peek_sticky_var", None)
+        if var is not None:
+            try:
+                sticky = bool(var.get())
+            except Exception:
+                sticky = False
+        next_value = bool(getattr(self, "_mask_peek_hold_requested", False) or sticky)
+        changed = next_value != bool(getattr(self, "_mask_peek", False))
+        self._mask_peek = next_value
+        if changed and self._ui_alive():
+            self._queue_display_update(True)
+        return changed
+
+    def _set_mask_peek_hold_active(self, event=None):
+        if self._focus_is_text_input():
+            return None
+        if bool(getattr(self, "_mask_peek_hold_requested", False)):
+            return "break" if event is not None else None
+        self._mask_peek_hold_requested = True
+        self._refresh_mask_peek_state()
+        return "break" if event is not None else None
+
+    def _clear_mask_peek_hold_active(self, event=None):
+        if not bool(getattr(self, "_mask_peek_hold_requested", False)):
+            return "break" if event is not None else None
+        self._mask_peek_hold_requested = False
+        self._refresh_mask_peek_state()
+        return "break" if event is not None else None
+
+    def _on_mask_peek_sticky_toggled(self):
+        self._refresh_mask_peek_state()
 
     def _sync_viewport_cursor_states(self) -> None:
         active_canvas = getattr(self, "_viewport_pan_canvas", None) if bool(getattr(self, "_viewport_pan_active", False)) else None
@@ -1634,7 +1768,7 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         first_raw_shape = None
         if frames_raw is not None and len(frames_raw) > 0 and frames_raw[0] is not None:
             first_raw_shape = getattr(frames_raw[0], "shape", None)
-        frames = self.seg_state.get_nonempty_final_mask_frames(frame_count, frame_shape)
+        frames = self.seg_state.get_exportable_mask_frames(frame_count, frame_shape)
         self.log_debug(
             "Overlay",
             f"_collect_nonempty_final_mask_frames frame_count={frame_count} frame_shape={frame_shape} "
@@ -1649,7 +1783,13 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         frame_count = self._get_frame_count()
         if frame_count <= 0:
             return set()
-        return self.seg_state.get_user_frames(frame_count)
+        return self.seg_state.get_prompt_anchor_frames(frame_count)
+
+    def _collect_nonempty_mask_frames_without_regions(self):
+        frame_count = self._get_frame_count()
+        if frame_count <= 0:
+            return set()
+        return self.seg_state.get_timeline_extent_frames(frame_count, self._get_frame_shape())
 
     def _build_frame_spans(self, indices):
         return frame_spans(indices)
@@ -1676,15 +1816,41 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         if seg_state is None:
             return
         fc = self._get_frame_count()
-        masks = getattr(seg_state, "masks_cache", {}) or {}
-        if fc <= 0 or not masks:
+        if fc <= 0:
             seg_state.set_leverage_map({}, None)
             return
         shape = self._get_frame_shape()
-        user = seg_state.get_user_frames(fc)
+        candidates = seg_state.get_exportable_mask_frames(fc, shape)
+        if not candidates:
+            seg_state.set_leverage_map({}, None)
+            return
+        masks = {}
+        for frame_idx in sorted(candidates):
+            mask = seg_state.compose_final_mask(frame_idx, shape)
+            if mask is not None:
+                masks[int(frame_idx)] = np.asarray(mask, dtype=bool)
+        user = seg_state.get_prompt_anchor_frames(fc)
         trouble = compute_trouble(masks, fc, shape, user)
         leverage, suggested = compute_leverage(trouble, fc)
         seg_state.set_leverage_map(leverage, suggested)
+
+    def _schedule_leverage_recompute(self, delay_ms: int = 120):
+        existing = getattr(self, "_pending_leverage_recompute_job", None)
+        if existing is not None:
+            try:
+                self.root.after_cancel(existing)
+            except Exception:
+                pass
+        if not self._ui_alive():
+            self._recompute_leverage_map()
+            return
+
+        def _run():
+            self._pending_leverage_recompute_job = None
+            self._recompute_leverage_map()
+            self._redraw_slider_overlay()
+
+        self._pending_leverage_recompute_job = self.root.after(max(0, int(delay_ms)), _run)
 
     def _find_clicked_marker_frame(self, x_px):
         return overlay_renderer.find_clicked_marker_frame(self, x_px)
@@ -1742,11 +1908,14 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
     def _redraw_slider_overlay(self):
         return overlay_renderer.redraw_slider_overlay(self)
 
+    def _update_slider_playhead(self):
+        return overlay_renderer.update_slider_playhead(self)
+
     def _render_progress_line(self, done, total):
         return self.progress_logger.render_progress_line(done, total)
 
-    def _prop_log_start(self, total_steps, label="Propagation"):
-        return self.progress_logger.start(total_steps=total_steps, label=label)
+    def _prop_log_start(self, total_steps, label="Propagation", **kwargs):
+        return self.progress_logger.start(total_steps=total_steps, label=label, **kwargs)
 
     def _prop_log_tick(self, increment=1, run_id=None):
         self.progress_logger.tick(increment=increment, run_id=run_id)
@@ -1802,8 +1971,13 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
     def _reset_interaction_state(self):
         self.points.clear()
         self.selected_point = None
+        self.seg_state.boxes.clear()
+        self.boxes = self.seg_state.boxes
+        self.selected_region_id = None
         self.paint_layers.clear()
         self.masks_cache.clear()
+        self.seg_state.ground_truth_frames.clear()
+        self.seg_state.clear_persistent_regions()
         self.seg_state.set_leverage_map({}, None)
         self.seg_state.invalidate_user_frames()
         self.seg_state.invalidate_final_mask_frames()
@@ -2191,6 +2365,190 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
     def _clear_paint_preview_on_canvas(self):
         self.canvas_left.delete("paint_preview")
 
+    def _draw_box_preview_on_canvas(self, x0, y0, x1, y1):
+        self.canvas_left.delete("box_preview")
+        self.canvas_left.create_rectangle(
+            x0,
+            y0,
+            x1,
+            y1,
+            outline="#1b75bc",
+            width=2,
+            dash=(4, 3),
+            tags="box_preview",
+        )
+
+    def _clear_box_preview_on_canvas(self):
+        self.canvas_left.delete("box_preview")
+
+    def _refresh_region_controls(self):
+        if hasattr(self, "_refresh_regions_dock"):
+            self._refresh_regions_dock()
+        if hasattr(self, "_sync_tool_options"):
+            self._sync_tool_options()
+
+    def _set_selected_region_id(self, region_id):
+        self.selected_region_id = None if region_id is None else str(region_id)
+        self._sync_region_options_from_selection()
+        if hasattr(self, "_refresh_regions_dock"):
+            self._refresh_regions_dock()
+        if hasattr(self, "_sync_tool_options"):
+            self._sync_tool_options()
+
+    def _default_region_frame_range(self) -> tuple[int, int]:
+        frame_count = max(0, int(self._get_frame_count())) if hasattr(self, "_get_frame_count") else 0
+        max_idx = max(0, frame_count - 1)
+        start, end = 0, max_idx
+        for attr, fallback in (("spin_prop_start", 1), ("spin_prop_end", max_idx + 1)):
+            widget = getattr(self, attr, None)
+            try:
+                value = int(float(widget.get())) - 1
+            except Exception:
+                value = int(fallback) - 1
+            if attr == "spin_prop_start":
+                start = value
+            else:
+                end = value
+        start = max(0, min(max_idx, start))
+        end = max(0, min(max_idx, end))
+        if end < start:
+            start, end = end, start
+        return start, end
+
+    def _reset_region_options_to_default_range(self):
+        start, end = self._default_region_frame_range()
+        if hasattr(self, "region_start_var"):
+            self.region_start_var.set(str(start + 1))
+        if hasattr(self, "region_end_var"):
+            self.region_end_var.set(str(end + 1))
+
+    def _sync_region_options_from_selection(self):
+        region_id = getattr(self, "selected_region_id", None)
+        region = self.seg_state.get_persistent_region(region_id) if region_id else None
+        if region is None:
+            return
+        if hasattr(self, "region_start_var"):
+            self.region_start_var.set(str(int(region.get("frame_start", 0)) + 1))
+        if hasattr(self, "region_end_var"):
+            self.region_end_var.set(str(int(region.get("frame_end", 0)) + 1))
+
+    def commit_region_draft(self):
+        changed = bool(self.interaction_controller.commit_region_draft())
+        if changed:
+            self._schedule_leverage_recompute()
+            self._mark_project_dirty("region_add")
+        return changed
+
+    def cancel_region_draft(self):
+        changed = bool(self.interaction_controller.cancel_region_draft())
+        if changed:
+            self._mark_project_dirty("region_draft_cancel")
+        return changed
+
+    def close_region_draft(self):
+        return bool(self.interaction_controller.close_region_draft())
+
+    def apply_selected_region_options(self):
+        changed = bool(self.interaction_controller.apply_selected_region_options())
+        if changed:
+            self._schedule_leverage_recompute()
+            self._mark_project_dirty("region_options")
+        return changed
+
+    def _apply_selected_region_options_event(self, event=None):
+        if not getattr(self, "selected_region_id", None):
+            return None
+        changed = self.apply_selected_region_options()
+        return "break" if changed and event is not None else None
+
+    def convert_selected_region_mode(self):
+        region_id = getattr(self, "selected_region_id", None)
+        region = self.seg_state.get_persistent_region(region_id) if region_id else None
+        if region is None:
+            return False
+        current = str(region.get("mode", "include"))
+        next_mode = "include" if current == "exclude" else "exclude"
+        changed = bool(self.interaction_controller.set_selected_region_mode(next_mode))
+        if changed:
+            self.tool_mode.set(region_tool_mode_for_region_mode(next_mode))
+            self._schedule_leverage_recompute()
+            self._mark_project_dirty("region_convert")
+        return changed
+
+    def delete_selected_region(self):
+        changed = bool(self.interaction_controller.delete_selected_region())
+        if changed:
+            self._schedule_leverage_recompute()
+            self._mark_project_dirty("region_delete")
+        return changed
+
+    def duplicate_selected_region(self):
+        changed = bool(self.interaction_controller.duplicate_selected_region())
+        if changed:
+            self._schedule_leverage_recompute()
+            self._mark_project_dirty("region_duplicate")
+        return changed
+
+    def _set_region_enabled(self, region_id, value):
+        changed = bool(self.interaction_controller.set_region_flag(str(region_id), "enabled", bool(value)))
+        if changed:
+            self._schedule_leverage_recompute()
+            self._mark_project_dirty("region_enabled")
+        return changed
+
+    def _set_region_visible(self, region_id, value):
+        changed = bool(self.interaction_controller.set_region_flag(str(region_id), "visible", bool(value)))
+        if changed:
+            self._mark_project_dirty("region_visible")
+        return changed
+
+    def fill_current_frame_holes(self):
+        changed = bool(self.interaction_controller.fill_current_frame_holes())
+        if changed:
+            self._schedule_leverage_recompute()
+            self._mark_project_dirty("fill_holes")
+        return changed
+
+    def _current_frame_has_nonempty_mask(self) -> bool:
+        shape = self._get_frame_shape_for_idx(self.current_frame_idx)
+        mask = self.seg_state.compose_final_mask(self.current_frame_idx, shape)
+        return bool(mask is not None and np.any(mask))
+
+    def is_current_frame_ground_truth(self) -> bool:
+        return self.seg_state.is_ground_truth_frame(self.current_frame_idx)
+
+    def _refresh_ground_truth_controls(self, has_mask=None):
+        button = getattr(self, "btn_ground_truth", None)
+        if button is None:
+            return
+        locked = self.is_current_frame_ground_truth()
+        if has_mask is None:
+            has_mask = self._current_frame_has_nonempty_mask()
+        text = "Unlock current ground truth" if locked else "Lock current frame as ground truth"
+        state = "normal" if locked or bool(has_mask) else "disabled"
+        try:
+            button.configure(text=text, state=state)
+        except Exception:
+            pass
+
+    def toggle_ground_truth_current_frame(self):
+        idx = int(self.current_frame_idx)
+        locked = self.seg_state.is_ground_truth_frame(idx)
+        if not locked and not self._current_frame_has_nonempty_mask():
+            self.log_info("Ground Truth", "Current frame has no mask to lock.")
+            self._refresh_ground_truth_controls(has_mask=False)
+            return False
+        before = locked
+        after = not locked
+        self.seg_state.set_ground_truth(idx, after)
+        self.record_action("ground_truth", idx, before, after)
+        self._refresh_ground_truth_controls()
+        self._recompute_slider_jump_markers()
+        self._schedule_leverage_recompute()
+        self.update_display()
+        self._mark_project_dirty("ground_truth")
+        return True
+
     def on_mouse_leave(self, event):
         self.interaction_controller.on_mouse_leave(event)
 
@@ -2267,6 +2625,55 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
             return None
         self.tool_mode.set("point_neg")
         self.update_display()
+        return "break"
+
+    def _set_tool_box_hotkey(self, event=None):
+        if self._focus_is_text_input():
+            return None
+        self.tool_mode.set("box")
+        self.update_display()
+        return "break"
+
+    def _set_tool_fill_hotkey(self, event=None):
+        if self._focus_is_text_input():
+            return None
+        self.tool_mode.set("fill")
+        self.update_display()
+        return "break"
+
+    def _set_tool_fill_erase_hotkey(self, event=None):
+        if self._focus_is_text_input():
+            return None
+        self.tool_mode.set("fill_erase")
+        self.update_display()
+        return "break"
+
+    def _set_tool_region_hotkey(self, event=None):
+        if self._focus_is_text_input():
+            return None
+        if not getattr(self, "selected_region_id", None):
+            self._reset_region_options_to_default_range()
+        self.tool_mode.set(REGION_INCLUDE_TOOL)
+        self.update_display()
+        return "break"
+
+    def _set_tool_region_exclude_hotkey(self, event=None):
+        if self._focus_is_text_input():
+            return None
+        if not getattr(self, "selected_region_id", None):
+            self._reset_region_options_to_default_range()
+        self.tool_mode.set(REGION_EXCLUDE_TOOL)
+        self.update_display()
+        return "break"
+
+    def _toggle_ground_truth_hotkey(self, event=None):
+        if self._focus_is_text_input():
+            return None
+        self.toggle_ground_truth_current_frame()
+        return "break"
+
+    def _save_current_masks_hotkey(self, event=None):
+        self.save_current_masks()
         return "break"
 
     def _step_brush_size(self, direction: int) -> None:
