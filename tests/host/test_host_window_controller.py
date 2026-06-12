@@ -72,6 +72,15 @@ def test_combined_metric_spreadsheet_requires_at_least_one_metric_selection() ->
         )
         is True
     )
+    assert (
+        HostWindowController._can_export_combined_metric_spreadsheet(
+            include_metric_propagation_speed=False,
+            include_metric_area_recruited=False,
+            include_metric_relative_area_recruited=False,
+            include_metric_intensity=True,
+        )
+        is True
+    )
 
 
 def test_combined_metric_spreadsheet_requires_openpyxl(monkeypatch) -> None:
@@ -329,7 +338,9 @@ def test_run_export_passes_contour_map_option(monkeypatch, tmp_path) -> None:
             "include_event_images": False,
             "include_baseline_images": False,
             "include_contour_map": True,
+            "include_metric_intensity": True,
         },
     )
 
     assert captured["include_contour_map"] is True
+    assert captured["include_metric_intensity"] is True

@@ -4,9 +4,51 @@ from typing import Any
 
 import numpy as np
 
+from sdapp.shared.frame_source.stack_files import list_stack_files
 from sdapp.shared.persistence.event_path import allocate_event_path_segment
 from sdapp.shared.persistence.zip_io import read_json, read_npz, write_json, write_npz
-from .schema import METADATA_GLOBAL_METRICS_DEFAULTS_KEY, METRICS_SETTINGS_KEY
+from .schema import (
+    EMBEDDED_IMAGES_DIR,
+    EMBEDDED_IMAGES_INDEX_KEY,
+    METADATA_GLOBAL_METRICS_DEFAULTS_KEY,
+    METRICS_SETTINGS_KEY,
+)
+
+
+def encode_embedded_images(input_dir: Any, zf, *, require_sources: bool = False) -> dict[str, Any] | None:
+    """Embed the stack's source image files verbatim into the project zip.
+
+    Mirrors the analysis-side ``embed_images`` behaviour: each unique source file is
+    written under ``images/`` and indexed by its filename. Returns the index manifest
+    (``{"embedded": {name: arcname}}``) or ``None`` when nothing was embedded and
+    ``require_sources`` is false.
+    """
+    embedded: dict[str, str] = {}
+    used_arcnames: set[str] = set()
+    files = list_stack_files(input_dir)
+    for src in files:
+        if not src.exists() or not src.is_file():
+            continue
+        arcname = f"{EMBEDDED_IMAGES_DIR}/{src.name}"
+        if arcname in used_arcnames:
+            continue
+        used_arcnames.add(arcname)
+        zf.write(src, arcname=arcname)
+        embedded[src.name] = arcname
+    if not embedded:
+        if require_sources:
+            source = str(input_dir or "").strip() or "<empty>"
+            if not files:
+                raise FileNotFoundError(
+                    "Embedding source images is enabled, but no supported image files were found in "
+                    f"the stack folder: {source}"
+                )
+            raise OSError(
+                "Embedding source images is enabled, but none of the supported source files could be "
+                f"read from: {source}"
+            )
+        return None
+    return {EMBEDDED_IMAGES_INDEX_KEY: embedded}
 
 
 def encode_metadata_for_write(metadata: dict[str, Any], zf) -> dict[str, Any]:

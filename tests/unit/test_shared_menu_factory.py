@@ -17,12 +17,16 @@ class _FakeMenu:
     def __init__(self, *_args, **_kwargs):
         self.commands = []
         self.cascades = []
+        self.checkbuttons = []
 
     def add_command(self, label, command=None, state="normal"):
         self.commands.append({"label": label, "state": state, "command": command})
 
     def add_separator(self):
         self.commands.append({"label": None, "state": "separator"})
+
+    def add_checkbutton(self, label, variable=None, command=None):
+        self.checkbuttons.append({"label": label, "variable": variable, "command": command})
 
     def add_cascade(self, label, menu):
         self.cascades.append({"label": label, "menu": menu})
@@ -155,3 +159,34 @@ def test_analysis_menu_omits_help_menu_update_action():
         menu = build_shared_menu(root, app, mode="analysis", host_mode=True)
     labels = {item["label"] for item in menu.cascades}
     assert "Help" not in labels
+
+
+class _EmbedApp(_App):
+    def __init__(self):
+        self.embed_images_menu_var = object()
+
+    def toggle_embed_source_images(self):
+        return None
+
+
+def test_host_menu_adds_embed_images_checkbutton():
+    root = _FakeRoot()
+    app = _EmbedApp()
+    with patch("sdapp.shared.menu.factory.tk.Menu", _FakeMenu):
+        menu = build_shared_menu(root, app, mode="host", host_mode=False)
+    file_menu = _file_menu(menu)
+    checkbuttons = {cb["label"]: cb for cb in file_menu.checkbuttons}
+    assert "Embed Source Images In Project File" in checkbuttons
+    entry = checkbuttons["Embed Source Images In Project File"]
+    assert entry["variable"] is app.embed_images_menu_var
+    assert entry["command"] == app.toggle_embed_source_images
+
+
+def test_analysis_menu_omits_embed_images_checkbutton():
+    root = _FakeRoot()
+    app = _EmbedApp()
+    with patch("sdapp.shared.menu.factory.tk.Menu", _FakeMenu):
+        menu = build_shared_menu(root, app, mode="analysis", host_mode=True)
+    file_menu = _file_menu(menu)
+    labels = {cb["label"] for cb in file_menu.checkbuttons}
+    assert "Embed Source Images In Project File" not in labels

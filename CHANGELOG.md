@@ -2,6 +2,33 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.2.0] - 2026-06-12
+
+### Host project persistence
+- Added `.sdproj` container schema 3 with optional embedded source images (`images_embedded.json` plus `images/`) so projects can remain usable when the original stack folder moves.
+- Embedded fallback loads now preserve the original recorded stack folder in `stack.json`; extracted temp directories are used only as live read sources and are not persisted as source folders.
+- Saving with embedding enabled now fails clearly if no source image files can be embedded, instead of silently producing a project without its image payload.
+- Saving a project from embedded fallback with embedding disabled is blocked until the user re-enables embedding or rebinds to a real source folder.
+- Embedded extraction cleanup now runs after successful close saves or successful context replacement, and live extraction dirs are protected by an active marker.
+
+### Export metrics
+- Added the intensity export metric, including per-frame mean ROI intensity, baseline intensity, relative `delta_i_over_baseline_i`, plots, summaries, and workbook output.
+
+### Model/checkpoint compatibility
+- No checkpoint format or model selection change in this release; existing managed and local SAM2 model selections remain compatible.
+
+### Platform/backend limitations
+- Embedding source images can substantially increase `.sdproj` size; save-time confirmation reports the source stack size before copying frames into the project.
+
+### .sdproj/migration notes
+- Host `.sdproj` writers now emit schema 3. Schema 2 projects remain loadable.
+- SDApp 0.1.9 may open schema 3 projects but does not understand embedded source images; if a 0.1.9 build re-saves such a project, the embedded image payload can be dropped. Use 0.2.0 or later for projects that rely on embedded source images.
+
+### Known segmentation caveats/regressions
+- No new release-blocking segmentation regressions are known from the automated suite.
+- SAM2 post-processing/native extension availability may still vary by environment.
+- Auto-update behavior still depends on platform packaging/signing state; validate against final signed release artifacts.
+
 ## [0.1.9] - 2026-06-12
 
 ### Analysis window and tools UI

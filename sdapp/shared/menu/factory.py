@@ -52,7 +52,22 @@ def build_shared_menu(root, app, *, mode: str, host_mode: bool = False) -> tk.Me
     mode_allow = {
         "Import External Masks...": {"analysis"},
     }
+    embed_var = getattr(app, "embed_images_menu_var", None)
+    embed_cmd = _resolve_command(app, ("toggle_embed_source_images",))
+    embed_available = mode != "analysis" and embed_var is not None and embed_cmd is not None
+
+    def _add_embed_checkbutton() -> None:
+        file_menu.add_checkbutton(
+            label="Embed Source Images In Project File",
+            variable=embed_var,
+            command=embed_cmd,
+        )
+
     for label, names in file_items:
+        # Insert the embed toggle just above the DC trace section, between dividers.
+        if embed_available and label == "Import DC Trace...":
+            _add_embed_checkbutton()
+            file_menu.add_separator()
         if label is None:
             file_menu.add_separator()
             continue

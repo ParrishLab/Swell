@@ -1,28 +1,39 @@
-# SDApp
+# SDApp: Spreading Depression Analysis Tool
 
-SDApp is a desktop tool for identifying SD events in image stacks and running event-level segmentation analysis in a dedicated analysis workspace.
+Welcome to the documentation for **SDApp**, a unified desktop application designed for identifying Spreading Depression (SD) events in image stacks and performing event-level segmentation analysis in a dedicated workspace.
 
-It is organized as a two-stage workflow:
+## Two-Stage Architecture
 
-- **Host window** — load a stack, mark SD events, manage project-level actions.
-- **Analysis window** — open one event and run segmentation/mask workflows.
+SDApp is organized around a dual-window workflow designed to keep project organization separate from pixel-level annotation tasks:
 
-## What it does
+```mermaid
+graph TD
+    A[Host Window: Project Browser] -->|Select Event & Open Analysis| B[Analysis Window: Workspace]
+    B -->|Save Current Masks| A
+    A -->|Export Results| C[Excel / CSV / Images]
+    A -->|Save Project| D[.sdproj File]
+```
 
-- Import an image stack and inspect frames.
-- Mark, edit, and manage SD event ranges.
-- Open an event in an analysis workspace for segmentation.
-- Run propagation and save masks back to the project.
-- Export event outputs and metrics.
-- Save and reopen work as `.sdproj` project files.
+1. **Host Window (Project Browser)**: Coordinates project-level state. You load an entire image stack, mark chronological SD event frame ranges, manage global settings, and export final metrics, masks, and spreadsheets.
+2. **Analysis Window (Event Segmentation)**: Opens as a child window for a selected event. Here, you use interactive select, point, brush, fill, and region tools along with SAM-2 model propagation to segment the SD wavefront across the event's frames.
 
-## Where to start
+---
 
-- New users: [Installation](installation.md) → [Quickstart](quickstart.md).
-- Looking up a specific button or menu: [GUI reference](gui/host-window.md).
-- Reproducing manuscript results or citing the tool: [Citation](citation.md).
+## Key Capabilities
 
-## Getting help
+* **Multi-Format Image Support**: Load image sequences from PNG, JPG, BMP, TIFF, or multi-page TIFF stacks.
+* **Unified Project Model (`.sdproj`)**: Save your entire workspace—including original image references, marked events, interactive prompts, and binary masks—in a single, portable file.
+* **Interactive Tool Rail**: Annotate events using positive/negative points, bounding boxes, brushes, erasers, flood fill, and persistent include/exclude polygon regions.
+* **SAM-2 Propagation**: Run automated mask propagation forwards and backwards across frames, with real-time progress indicators.
+* **Diagnostic Overlays**: Track frame-to-frame mask changes using **ghost outlines** and identify regions needing corrections with a localized **leverage heatmap**.
+* **Comprehensive Export**: Output event-level images, binary masks, overlay visualizations, temporal propagation speed, area graphs, and consolidated multi-sheet Excel reports.
 
-- Issues and bug reports: [GitHub Issues](https://github.com/ClayDunford/Combined-tool-test/issues).
-- Common problems: [Troubleshooting](troubleshooting.md).
+---
+
+## Where to Start
+
+* **Getting Setup**: Go to the [Installation](installation.md) page to set up SDApp and download the necessary segmentation model weights.
+* **Step-by-Step Workflow**: Read the [User Guide](user-guide.md) to walk through creating a project, marking events, segmenting wavefronts, and exporting results.
+* **UI Controls & Shortcuts**: Check the [GUI Reference](gui/host-window.md) to look up specific buttons, menu items, or keyboard hotkeys.
+* **Troubleshooting**: Visit [Troubleshooting](troubleshooting.md) for help with common installation, runtime, or model-loading issues.
+* **Citing the Project**: Refer to [Citation](citation.md) for BibTeX citations to include in academic work.

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from collections import OrderedDict
 from pathlib import Path
-import re
 from threading import Lock
 from typing import Callable, Optional
 
@@ -10,7 +9,9 @@ import numpy as np
 from PIL import Image
 import tifffile
 
-from .config import FrameRef, MAX_PREVIEW_CACHE, SUPPORTED_EXTENSIONS, StackInfo
+from sdapp.shared.frame_source.stack_files import list_stack_files
+
+from .config import FrameRef, MAX_PREVIEW_CACHE, StackInfo
 
 
 class StackReader:
@@ -36,10 +37,7 @@ class StackReader:
         if not input_path.exists() or not input_path.is_dir():
             raise FileNotFoundError(f"Input directory not found: {input_path}")
 
-        files = sorted(
-            [p for p in input_path.iterdir() if _is_supported_stack_file(p)],
-            key=_natural_sort_key,
-        )
+        files = list_stack_files(input_path)
         if not files:
             raise ValueError("No supported image files found in selected folder.")
 
@@ -339,15 +337,6 @@ def _to_grayscale(arr: np.ndarray, channel_mode: str = "average") -> np.ndarray:
     raise ValueError(f"Unsupported frame shape: {arr.shape}")
 
 
-def _is_supported_stack_file(path: Path) -> bool:
-    if not path.is_file():
-        return False
-    name = path.name
-    if name.startswith(".") or name.startswith("._"):
-        return False
-    return path.suffix.lower() in SUPPORTED_EXTENSIONS
-
-
 def _normalized_frame_shape_from_shape(raw_shape) -> tuple[int, int] | None:
     try:
         shape = tuple(int(v) for v in tuple(raw_shape))
@@ -386,14 +375,3 @@ def _pil_dtype_str(image: Image.Image) -> str:
     if mode == "F":
         return "float32"
     return "uint8"
-
-
-def _natural_sort_key(path: Path) -> tuple:
-    parts = re.split(r"(\d+)", path.name.lower())
-    key: list[int | str] = []
-    for part in parts:
-        if part.isdigit():
-            key.append(int(part))
-        else:
-            key.append(part)
-    return tuple(key)

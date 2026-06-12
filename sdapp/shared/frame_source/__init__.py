@@ -12,6 +12,12 @@ from sdapp.shared.frame_source.preprocessing import (
 )
 from sdapp.shared.frame_source.protocols import FrameSource
 from sdapp.shared.frame_source.stack_frame_source import SDStackFrameSource
+from sdapp.shared.frame_source.stack_files import (
+    SUPPORTED_STACK_EXTENSIONS,
+    is_supported_stack_file,
+    list_stack_files,
+    natural_stack_sort_key,
+)
 
 __all__ = [
     "DownsampledFrameSource",
@@ -19,11 +25,15 @@ __all__ = [
     "FrameSource",
     "PreparedFrameSource",
     "SDStackFrameSource",
+    "SUPPORTED_STACK_EXTENSIONS",
     "VisualizationCancelled",
     "VisualizationStats",
     "build_visualization_stack",
     "compute_visualization_stats",
     "compute_visualization_stats_for_preview",
+    "is_supported_stack_file",
+    "list_stack_files",
+    "natural_stack_sort_key",
     "normalize_visual_frame",
     "render_visualization_frame",
 ]

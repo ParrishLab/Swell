@@ -1,79 +1,53 @@
-# Troubleshooting
+# Troubleshooting & Diagnostic Guide
 
-## Purpose
-- **Scope of troubleshooting**: This guide covers common issues related to installation, image loading, project persistence, and analysis errors.
-- **Where to report bugs**: Please report issues on the project GitHub repository with a copy of your session logs.
+Use this guide to identify and resolve common issues with installation, startup, project loading, segmentation models, and performance.
 
-## How To Use This Page
-- For each issue: identify the **Symptom** -> verify the **Likely Root Cause** -> apply the **Fix** -> follow **Prevention** steps to avoid it in the future.
+---
 
-## Installation Issues
+## 1. Structured Troubleshooting Reference
 
-### Problem: `ModuleNotFoundError: No module named 'torch'`
-- **Symptoms**: The application launches but the analysis window shows a "Model Not Loaded" error or crashes when starting propagation.
-- **Likely root causes**: PyTorch was not installed in the active Python environment, or the installation is corrupted.
-- **How to verify**: Run `python -c "import torch; print(torch.__version__)"` in your terminal.
-- **Fix**: Reinstall PyTorch using the instructions in `installation.md`.
-- **Prevention**: Use the provided `requirements.txt` or environment setup scripts to ensure all dependencies are met.
+For each issue, map the **Symptom** to its **Root Cause**, apply the **Fix**, and follow the **Prevention** steps to avoid it in the future.
 
-## Launch/Startup Issues
+### Installation & Launch
 
-### Problem: `Failed to load model checkpoint`
-- **Symptoms**: Error dialog on startup or when opening the analysis window.
-- **Likely root causes**: Model weights (SAM-2 checkpoints) are missing from the `sdapp/resources/models` directory.
-- **How to verify**: Check if the `.pt` files specified in `checkpoints_catalog.json` exist.
-- **Fix**: Download the required checkpoints and place them in the correct resources folder.
+| Symptom | Likely Root Cause | Fix | Prevention |
+|---|---|---|---|
+| **`ModuleNotFoundError: No module named 'torch'`** | PyTorch was not installed in the active virtual environment, or the installation is corrupt. | Run `pip install -e ".[model]"` inside your active virtual environment. | Always use `.[model]` or `.[dev,docs,model]` when installing from source if you need automated propagation. |
+| **C compiler errors during `sam-2` install** | A working C++ compilation toolchain is missing on your system. | Install compiler tools: Xcode Command Line Tools on macOS (`xcode-select --install`) or MSVC Build Tools on Windows. | Verify compilation tools are installed before running `pip install`. |
+| **`Failed to load model checkpoint`** | The SAM-2 weight files are missing or have mismatched SHA-256 hashes. | Open the Model Manager under **Model → Manage Models...** and click **Yes** to re-download. | Do not manually rename or tamper with files inside the managed models folder. |
+| **macOS blocks application launch** | The packaged application is unsigned and not notarized (Gatekeeper security block). | Right-click `SDApp.app`, choose **Open**, and click **Open Anyway**. | Refer to the [Installation](installation.md#packaged-desktop-release-recommended) guide for Gatekeeper overrides. |
 
-## Project/Open/Save Issues
+### Project & State Sync
 
-### Problem: `ProjectLoadError: Missing required stack reference`
-- **Symptoms**: Project fails to open with a "malformed project" error.
-- **Likely root causes**: The `.sdproj` file is corrupt or was saved with an incompatible version of the software.
-- **How to verify**: Open the `.sdproj` file (it is a ZIP) and check if `stack.json` is present and valid.
-- **Fix**: Re-import the source images and recreate the project, or manually repair the `stack.json` file.
+| Symptom | Likely Root Cause | Fix | Prevention |
+|---|---|---|---|
+| **`ProjectLoadError: Missing required stack reference`** | The original image folder referenced in `stack.json` was deleted, renamed, or moved. | Edit the project's `stack.json` file inside the zip container to correct the path, or re-import the images as a new project. | Maintain relative path layout if moving project files and image stacks across machines. |
+| **`ValueError: Unsupported persistence owner`** | The `.sdproj` package was saved by an incompatible external program, or is corrupt. | Verify you are loading a file created by SDApp. Restore the file from an autosave. | Avoid editing JSON files inside the ZIP archive manually without validating schemas. |
+| **`STACK_MISMATCH` or `SESSION_MISMATCH` on save** | The active image stack was changed in the host window while an analysis session was still open. | Close the analysis window, reload the correct stack, and open analysis again. Syncs from mismatched stacks are rejected. | Avoid changing stack context in the Host Window while you have an active event segmentation workspace open. |
 
-## Analysis/Segmentation Issues
+### Segmentation & Propagation
 
-### Problem: `Propagation produces empty or incorrect masks`
-- **Symptoms**: Propagation runs but no masks appear on subsequent frames.
-- **Likely root causes**: Poor initial point prompts, low sensitivity settings, or the object moves too fast/changes appearance too drastically.
-- **How to verify**: Check the "Sensitivity" slider in the analysis window; check if the first frame mask correctly covers the object.
-- **Fix**: Add more positive/negative prompts to the anchor frame and re-run propagation. Increase the sensitivity slider.
-- **Prevention**: Ensure anchor frames have high-quality masks before propagating.
+| Symptom | Likely Root Cause | Fix | Prevention |
+|---|---|---|---|
+| **Propagation outputs blank or incorrect masks** | Low model sensitivity settings or poor initial anchor frame prompt guidance. | Increase the sensitivity slider in the options bar. Add more positive/negative point prompts on problem frames. | Ensure first-frame masks are high quality before running propagation. |
+| **`Inference Fallback: GPU Out of Memory`** | The active GPU does not have enough VRAM to handle the image dimensions or sequence length. | The app will automatically fall back to CPU mode. Close other GPU-intensive apps to free up VRAM. | Downsample large image dimensions or process shorter event ranges. |
+| **Accelerator crashes or rendering artifacts** | Hardware accelerator (MPS/CUDA) driver conflict or hardware instability. | Force CPU execution by setting the `SDAPP_DEVICE=cpu` environment variable in your terminal before launching. | Set environment variable defaults in your shell config if your machine has unstable GPU drivers. |
+| **UI freezes during long propagation runs** | Large image stacks exceeding available system RAM cache limits. | Break massive image sequences into smaller folders and process as separate projects. | Monitor system RAM usage in Task Manager / Activity Monitor during propagation. |
 
-### Problem: `Inference Fallback: GPU Out of Memory`
-- **Symptoms**: A warning appears stating the app is switching to "CPU fallback."
-- **Likely root causes**: The GPU does not have enough VRAM to handle the image dimensions or model size.
-- **How to verify**: Check GPU memory usage using `nvidia-smi` or Activity Monitor (macOS).
-- **Fix**: Close other GPU-intensive applications. If the error persists, the app will continue to run on the CPU (though slower).
-- **Prevention**: Use smaller image resolutions or higher-tier GPU hardware.
+---
 
-## Export/Metrics Issues
+## 2. Environment Diagnostics for Bug Reports
 
-### Problem: `Silent metric export failure`
-- **Symptoms**: Export completes but CSV files contain NaNs or empty values.
-- **Likely root causes**: The analysis produced invalid masks (e.g., zero area) or the ROI mask was not properly defined.
-- **How to verify**: Open the exported masks in an image viewer to see if they are blank.
-- **Fix**: Re-run the analysis for the affected event and ensure valid masks are generated before exporting.
+If you encounter an issue not covered in this guide, please file a bug report on the [GitHub Repository](https://github.com/ClayDunford/Combined-tool-test/issues) and include the following diagnostic information:
 
-## Performance/Memory Issues
-
-### Problem: `Application becomes unresponsive during long propagation`
-- **Symptoms**: UI freezes or the progress bar stops moving.
-- **Likely root causes**: Large image stacks (thousands of frames) exceeding available system RAM.
-- **How to verify**: Monitor system memory (RAM) usage during the operation.
-- **Fix**: Break large stacks into smaller sub-directories or process fewer frames at a time.
-- **Prevention**: Use the "Memory Management" settings (if available) to limit cache size.
-
-## Environment Collection for Bug Reports
-When reporting a bug, please include:
-- **OS + version**: (e.g., macOS 14.4, Windows 11)
-- **Python version**: (e.g., 3.12.2)
-- **Install method**: (e.g., source checkout, packaged installer)
-- **Repro steps**: Step-by-step instructions to reproduce the issue.
-- **Full traceback/logs**: Copy the text from the terminal or the log window.
-- **Sample project/input details**: Image dimensions, bit depth, and number of frames.
-
-## Known Limitations
-- **Current constraints**: Multi-channel images must be converted to grayscale for analysis.
-- **Planned fixes**: Native multi-channel support and real-time metrics preview in the analysis window.
+1. **System Metadata**:
+    * Operating System and version (e.g., macOS 14.5, Windows 11 x64).
+    * Python version (e.g., Python 3.12.3) if running from source.
+    * Installation method (packaged ZIP vs source checkout).
+2. **Replication Steps**:
+    * Detailed, step-by-step description of actions taken leading to the error.
+3. **Application Logs**:
+    * Copy the traceback or error dialog text.
+    * Check console output or logs printed in the terminal.
+4. **Stack Parameters**:
+    * Image dimensions (width, height), number of frames, and file format (e.g., `.tif`, `.png`).

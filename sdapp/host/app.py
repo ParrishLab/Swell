@@ -44,7 +44,18 @@ from sdapp.shared.services import AnalysisWindowManager, CheckpointRuntimeServic
 from sdapp.shared.menu.factory import build_shared_menu
 from sdapp.shared.app_metadata import format_window_title
 from sdapp.shared.frame_source import normalize_visual_frame
+from sdapp.shared.persistence.schema import METADATA_EMBED_IMAGES_KEY
 from sdapp.shared.ui.bootstrap import center_window_on_screen, semantic_button_options
+
+
+def format_bytes(num_bytes: int) -> str:
+    """Human-readable size, e.g. 512 B, 4.2 MB, 1.8 GB."""
+    size = float(max(0, int(num_bytes)))
+    for unit in ("B", "KB", "MB", "GB"):
+        if size < 1024 or unit == "GB":
+            return f"{int(size)} {unit}" if unit == "B" else f"{size:.1f} {unit}"
+        size /= 1024
+    return f"{size:.1f} GB"
 
 
 class SDAnalyzerApp:
@@ -94,6 +105,8 @@ class SDAnalyzerApp:
         self._model_setup_reason = "Model setup required."
         self.input_var = tk.StringVar()
         self.output_var = tk.StringVar(value=str(Path.cwd() / "output"))
+        self.embed_images_menu_var = tk.BooleanVar(value=False)
+        self._embedded_extract_dir: str | None = None
 
         self.tk_preview_image: ImageTk.PhotoImage | None = None
         self.max_log_lines = 500
@@ -121,6 +134,7 @@ class SDAnalyzerApp:
         self._log_summary_var = tk.StringVar(value="Ready")
         self.preview_label_meta = tk.StringVar(value="")
 
+        self._sweep_stale_embedded_extract_dirs()
         self._build_ui()
         self._refresh_model_gate_ui()
         self._build_menu()
@@ -131,6 +145,14 @@ class SDAnalyzerApp:
             self.root.after(0, lambda p=str(initial_project_path): self.open_project_request(p))
         self._schedule_periodic_cache_gc()
         self.root.after(250, self._run_model_startup_preflight)
+
+    def _sweep_stale_embedded_extract_dirs(self) -> None:
+        try:
+            from sdapp.shared.persistence.zip_io import cleanup_stale_extract_dirs
+
+            cleanup_stale_extract_dirs()
+        except Exception:
+            pass
 
     def _resource_root(self) -> Path:
         return Path(__file__).resolve().parents[1] / "resources"
@@ -600,8 +622,66 @@ class SDAnalyzerApp:
                 return
         self._hide_main_overlay_tooltip()
 
+    def _active_embedded_extract_dir(self) -> str | None:
+        path = str(getattr(self, "_embedded_extract_dir", "") or "").strip()
+        if not path:
+            return None
+        try:
+            candidate = Path(path).expanduser()
+        except Exception:
+            return None
+        if candidate.exists() and candidate.is_dir():
+            return str(candidate)
+        return None
+
+    def _embedded_images_source_dir(self) -> str | None:
+        active_extract = self._active_embedded_extract_dir()
+        if active_extract:
+            return active_extract
+        input_dir = getattr(getattr(self, "stack_info", None), "input_dir", None)
+        if input_dir:
+            return str(input_dir)
+        input_var = getattr(self, "input_var", None)
+        getter = getattr(input_var, "get", None)
+        if callable(getter):
+            raw = str(getter() or "").strip()
+            if raw:
+                return raw
+        return None
+
+    def _session_embed_images_enabled(self) -> bool:
+        try:
+            metadata = dict(self.browser_controller.session.state().metadata or {})
+        except Exception:
+            return False
+        return bool(metadata.get(METADATA_EMBED_IMAGES_KEY, False))
+
+    def _validate_host_session_save_allowed(self) -> None:
+        active_extract = self._active_embedded_extract_dir()
+        if not active_extract or self._session_embed_images_enabled():
+            return
+        try:
+            stack_ref = self.browser_controller.session.state().stack_ref
+        except Exception:
+            stack_ref = None
+        source_dir = str(getattr(stack_ref, "input_dir", "") or "").strip()
+        source_missing = True
+        if source_dir:
+            try:
+                source_missing = not Path(source_dir).expanduser().is_dir()
+            except Exception:
+                source_missing = True
+        if source_missing:
+            raise RuntimeError(
+                "This project is currently using embedded fallback images because the original stack folder is missing. "
+                "Re-enable source-image embedding or rebind the stack folder before saving; otherwise the project would "
+                "reference a temporary folder that will be deleted."
+            )
+
     def save_host_session(self, path: str | None = None):
-        return self.browser_controller.save_session(path)
+        self._validate_host_session_save_allowed()
+        embedded_source = self._embedded_images_source_dir() if self._session_embed_images_enabled() else None
+        return self.browser_controller.save_session(path, embedded_images_input_dir=embedded_source)
 
     def _new_project(self) -> None:
         self._get_project_controller().new_project()
@@ -611,6 +691,51 @@ class SDAnalyzerApp:
 
     def _save_project_as(self) -> None:
         self._get_project_controller().save_project_as()
+
+    def toggle_embed_source_images(self) -> None:
+        value = bool(self.embed_images_menu_var.get())
+        if value and not self._confirm_embed_source_images():
+            self.embed_images_menu_var.set(False)
+            return
+        self.browser_controller.session.set_metadata(embed_source_images=value)
+        state = "embed source images in the project file" if value else "store images by folder reference only"
+        self._set_status(f"Save will now {state}.")
+
+    def _embedded_images_size_estimate(self, input_dir: str | Path | None = None) -> tuple[int, int]:
+        """Return (file_count, total_bytes) for the current stack's source files."""
+        from sdapp.shared.frame_source.stack_files import list_stack_files
+
+        input_dir = input_dir or self._embedded_images_source_dir()
+        if not input_dir:
+            return 0, 0
+        count = 0
+        total = 0
+        for path in list_stack_files(input_dir):
+            try:
+                total += int(path.stat().st_size)
+                count += 1
+            except OSError:
+                continue
+        return count, total
+
+    def _confirm_embed_source_images(self) -> bool:
+        count, total = self._embedded_images_size_estimate()
+        if count:
+            added = f"about {format_bytes(total)} across {count} frame(s)"
+        else:
+            added = "the full size of the source image stack"
+        return bool(
+            messagebox.askyesno(
+                "Embed Source Images",
+                (
+                    "Embedding copies the source frames into the .sdproj file so the project "
+                    "stays usable if the original folder moves.\n\n"
+                    f"This will increase the saved project size by {added}.\n\n"
+                    "Enable embedding?"
+                ),
+                parent=self.root,
+            )
+        )
 
     def update_project_model_to_active(self) -> None:
         self.model_setup_controller.update_project_model_to_active()
@@ -1866,6 +1991,12 @@ class SDAnalyzerApp:
         messagebox.showinfo("Export", f"Output written to:\n{result['output_dir']}", parent=self.root)
 
     def _gc_runtime_caches(self, aggressive: bool = False, run_python_gc: bool = False) -> None:
+        try:
+            from sdapp.shared.persistence.zip_io import touch_extract_dir_marker
+
+            touch_extract_dir_marker(self._active_embedded_extract_dir())
+        except Exception:
+            pass
         self._main_render_cache.gc(aggressive=aggressive)
         self._popup.mark_processed_cache.gc(aggressive=aggressive)
         self._normalized_frame_u8_cache.gc(aggressive=aggressive)

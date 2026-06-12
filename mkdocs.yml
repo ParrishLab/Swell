@@ -57,11 +57,15 @@ plugins:
 nav:
   - Home: index.md
   - Installation: installation.md
-  - Quickstart: quickstart.md
+  - User Guide: user-guide.md
   - GUI Reference:
       - Host window: gui/host-window.md
       - Analysis window: gui/analysis-window.md
   - File formats: file-formats.md
+  - Developer Guide: developer-guide.md
+  - Maintenance:
+      - Overview: maintenance.md
+      - Release Checklist: release-checklist.md
   - Troubleshooting: troubleshooting.md
   - Citation: citation.md
   - Changelog: changelog.md

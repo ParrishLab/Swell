@@ -95,6 +95,7 @@ def export_analysis(
     include_metric_propagation_speed: bool = False,
     include_metric_area_recruited: bool = False,
     include_metric_relative_area_recruited: bool = False,
+    include_metric_intensity: bool = False,
     include_metric_lineage_object_metrics: bool = False,
     include_metric_lineage_track_tables: bool = False,
     include_metric_combined_spreadsheet: bool = False,
@@ -112,6 +113,7 @@ def export_analysis(
         bool(include_metric_propagation_speed)
         or bool(include_metric_area_recruited)
         or bool(include_metric_relative_area_recruited)
+        or bool(include_metric_intensity)
         or bool(include_metric_lineage_object_metrics)
     )
     include_any_mask_exports = (
@@ -137,7 +139,9 @@ def export_analysis(
         include_metric_propagation_speed=bool(include_metric_propagation_speed),
         include_metric_area_recruited=bool(include_metric_area_recruited),
         include_metric_relative_area_recruited=bool(include_metric_relative_area_recruited),
+        include_metric_intensity=bool(include_metric_intensity),
         include_metric_lineage_object_metrics=bool(include_metric_lineage_object_metrics),
+        baseline_pre_frames=int(baseline_pre_frames),
     )
 
     out_dir = Path(output_dir).expanduser().resolve()
@@ -382,11 +386,13 @@ def export_analysis(
                     include_metric_propagation_speed=bool(include_metric_propagation_speed),
                     include_metric_area_recruited=bool(include_metric_area_recruited),
                     include_metric_relative_area_recruited=bool(include_metric_relative_area_recruited),
+                    include_metric_intensity=bool(include_metric_intensity),
                     include_metric_lineage_object_metrics=bool(include_metric_lineage_object_metrics),
                     include_metric_lineage_track_tables=bool(include_metric_lineage_track_tables),
                     include_metric_combined_spreadsheet=bool(include_metric_combined_spreadsheet),
                     propagation_gap_decision=propagation_gap_decision,
                     analysis_sidecar_payload=event_sidecar,
+                    baseline_pre_frames=int(baseline_pre_frames),
                 )
                 metrics_files_exported += int(metric_result.get("files_written", 0))
 
@@ -466,6 +472,21 @@ def _metrics_need_scale(
     )
 
 
+def _metrics_need_roi(
+    *,
+    include_metric_area_recruited: bool,
+    include_metric_relative_area_recruited: bool,
+    include_metric_intensity: bool,
+    include_metric_lineage_object_metrics: bool,
+) -> bool:
+    return (
+        bool(include_metric_area_recruited)
+        or bool(include_metric_relative_area_recruited)
+        or bool(include_metric_intensity)
+        or bool(include_metric_lineage_object_metrics)
+    )
+
+
 def _require_metric_fps(metrics_settings: dict[str, object], *, event_id: str) -> float:
     fps = _safe_float(metrics_settings.get("frames_per_sec"), default=None)
     if fps is None or fps <= 0:
@@ -490,18 +511,27 @@ def _validate_metric_export_prerequisites(
     include_metric_propagation_speed: bool,
     include_metric_area_recruited: bool,
     include_metric_relative_area_recruited: bool,
+    include_metric_intensity: bool,
     include_metric_lineage_object_metrics: bool,
+    baseline_pre_frames: int,
 ) -> None:
     if not (
         bool(include_metric_propagation_speed)
         or bool(include_metric_area_recruited)
         or bool(include_metric_relative_area_recruited)
+        or bool(include_metric_intensity)
         or bool(include_metric_lineage_object_metrics)
     ):
         return
     need_scale = _metrics_need_scale(
         include_metric_propagation_speed=bool(include_metric_propagation_speed),
         include_metric_area_recruited=bool(include_metric_area_recruited),
+        include_metric_lineage_object_metrics=bool(include_metric_lineage_object_metrics),
+    )
+    need_roi = _metrics_need_roi(
+        include_metric_area_recruited=bool(include_metric_area_recruited),
+        include_metric_relative_area_recruited=bool(include_metric_relative_area_recruited),
+        include_metric_intensity=bool(include_metric_intensity),
         include_metric_lineage_object_metrics=bool(include_metric_lineage_object_metrics),
     )
     for event in events:
@@ -514,6 +544,13 @@ def _validate_metric_export_prerequisites(
         _require_metric_fps(metrics_settings, event_id=event_id)
         if need_scale:
             _require_px_per_mm_scale(metrics_settings, event_id=event_id)
+        if need_roi and not MetricsSettingsResolver.has_valid_roi(metrics_settings):
+            raise ValueError(f"Event {event_id} selected ROI-based metrics require a valid ROI.")
+        if bool(include_metric_intensity):
+            baseline_end = int(event.start_idx) - 1
+            baseline_start = max(0, baseline_end - int(baseline_pre_frames) + 1)
+            if baseline_end < 0 or baseline_start > baseline_end:
+                raise ValueError(f"Event {event_id} intensity export requires at least one pre-event baseline frame.")
 
 
 def _resolve_roi_mask(metrics_settings: dict[str, object], frame_shape: tuple[int, int]) -> np.ndarray | None:
@@ -581,6 +618,72 @@ def _rows_table(sheet_name: str, *, columns: list[str], rows: list[dict[str, obj
         "columns": [str(v) for v in columns],
         "rows": [[row.get(str(key), "") for key in columns] for row in rows],
     }
+
+
+def _frame_to_intensity_2d(frame: np.ndarray) -> np.ndarray:
+    arr = np.asarray(frame)
+    if arr.ndim < 2:
+        raise ValueError("Frame must be at least 2D for intensity export.")
+    values = arr.astype(np.float64, copy=False)
+    if values.ndim > 2:
+        axes = tuple(range(2, values.ndim))
+        values = np.mean(values, axis=axes)
+    if values.ndim != 2:
+        raise ValueError("Frame intensity data must resolve to a 2D array.")
+    return np.asarray(values, dtype=np.float64)
+
+
+def _mean_intensity_in_roi(reader: StackReader, frame_idx: int, roi_mask: np.ndarray, frame_shape: tuple[int, int]) -> float:
+    frame = _frame_to_intensity_2d(reader.read_frame(int(frame_idx), use_cache=True))
+    if frame.shape != frame_shape:
+        raise ValueError(f"Frame {int(frame_idx)} shape {frame.shape} does not match ROI shape {frame_shape}.")
+    values = frame[np.asarray(roi_mask, dtype=bool)]
+    if values.size <= 0:
+        return float("nan")
+    return float(np.nanmean(values))
+
+
+def _intensity_rows(
+    *,
+    reader: StackReader,
+    event: EventCandidate,
+    baseline_pre_frames: int,
+    roi_mask: np.ndarray,
+    frame_shape: tuple[int, int],
+    sec_per_frame: float,
+) -> tuple[list[dict[str, object]], np.ndarray, list[float], float]:
+    baseline_end = int(event.start_idx) - 1
+    baseline_start = max(0, baseline_end - int(baseline_pre_frames) + 1)
+    if baseline_end < 0 or baseline_start > baseline_end:
+        raise ValueError(f"Event {event.event_id} intensity export requires at least one pre-event baseline frame.")
+    baseline_indices = list(range(int(baseline_start), int(baseline_end) + 1))
+    event_indices = list(range(int(event.start_idx), int(event.end_idx) + 1))
+    frame_indices = baseline_indices + event_indices
+    phases = ["baseline"] * len(baseline_indices) + ["event"] * len(event_indices)
+    mean_values = np.asarray(
+        [_mean_intensity_in_roi(reader, int(frame_idx), roi_mask, frame_shape) for frame_idx in frame_indices],
+        dtype=np.float64,
+    )
+    baseline_values = mean_values[: len(baseline_indices)]
+    baseline_i = float(np.nanmean(baseline_values)) if baseline_values.size > 0 else float("nan")
+    if not np.isfinite(baseline_i) or baseline_i == 0.0:
+        raise ValueError(f"Event {event.event_id} intensity export requires finite non-zero baseline intensity.")
+    delta = (mean_values - baseline_i) / baseline_i
+    time_sec = [(int(frame_idx) - int(event.start_idx)) * float(sec_per_frame) for frame_idx in frame_indices]
+    rows: list[dict[str, object]] = []
+    for frame_idx, t_sec, phase, mean_value, delta_value in zip(frame_indices, time_sec, phases, mean_values, delta):
+        rows.append(
+            {
+                "frame_index": int(frame_idx),
+                "frame_display": int(frame_idx) + 1,
+                "time_sec": float(t_sec),
+                "phase": str(phase),
+                "intensity": "" if not np.isfinite(mean_value) else float(mean_value),
+                "baseline_intensity": float(baseline_i),
+                "delta_i_over_baseline_i": "" if not np.isfinite(delta_value) else float(delta_value),
+            }
+        )
+    return rows, delta, time_sec, baseline_i
 
 
 def _write_metric_plot(path: Path, time_sec: list[float], values: np.ndarray, title: str, ylabel: str) -> None:
@@ -927,6 +1030,8 @@ def _write_metrics_combined_workbook(
         ("Overall max speed (um/sec)", summary.get("overall_max_speed_um_per_sec")),
         ("Max area (mm^2)", summary.get("max_area_mm2")),
         ("Max relative area (%)", summary.get("max_relative_area_pct")),
+        ("Baseline intensity", summary.get("baseline_intensity")),
+        ("Max DeltaI/BaselineI", summary.get("max_delta_i_over_baseline_i")),
         ("Written files", summary.get("written_files")),
     ]
     lineage_summary = summary.get("object_lineage_summary")
@@ -975,9 +1080,11 @@ def _export_event_metrics(
     include_metric_propagation_speed: bool,
     include_metric_area_recruited: bool,
     include_metric_relative_area_recruited: bool,
+    include_metric_intensity: bool,
     include_metric_lineage_object_metrics: bool,
     include_metric_lineage_track_tables: bool,
     include_metric_combined_spreadsheet: bool,
+    baseline_pre_frames: int,
     propagation_gap_decision: Optional[Callable[[dict[str, object]], list[str]]] = None,
     analysis_sidecar_payload: Optional[dict[str, object]] = None,
 ) -> dict[str, object]:
@@ -1073,6 +1180,8 @@ def _export_event_metrics(
     files_written = 0
     written: list[str] = []
     metric_tables: list[dict[str, object]] = []
+    baseline_intensity: float | None = None
+    intensity_delta_i_over_baseline_i = np.asarray([], dtype=np.float64)
     propagation_gap_warning: dict[str, object] | None = None
     transition_valid = np.asarray(speed_metrics.get("transition_valid", np.zeros_like(avg_dist_px, dtype=bool)), dtype=bool)
     all_nan_runs = _find_interior_nan_runs(speed_um_per_sec) if bool(include_metric_propagation_speed and has_scale) else []
@@ -1242,6 +1351,47 @@ def _export_event_metrics(
         )
         files_written += 2
         written.extend([f"relative_area_recruited{suffix}.csv", "relative_area_recruited.png"])
+
+    if include_metric_intensity and has_roi and roi_mask is not None:
+        intensity_rows, intensity_delta_i_over_baseline_i, intensity_time_sec, baseline_i = _intensity_rows(
+            reader=reader,
+            event=event,
+            baseline_pre_frames=int(baseline_pre_frames),
+            roi_mask=np.asarray(roi_mask, dtype=bool),
+            frame_shape=frame_shape,
+            sec_per_frame=float(sec_per_frame),
+        )
+        baseline_intensity = float(baseline_i)
+        intensity_columns = [
+            "frame_index",
+            "frame_display",
+            "time_sec",
+            "phase",
+            "intensity",
+            "baseline_intensity",
+            "delta_i_over_baseline_i",
+        ]
+        _write_rows_csv(
+            metrics_dir / f"intensity{suffix}.csv",
+            columns=intensity_columns,
+            rows=intensity_rows,
+        )
+        _write_metric_plot(
+            metrics_dir / "intensity_delta_i_over_baseline_i.png",
+            intensity_time_sec,
+            intensity_delta_i_over_baseline_i,
+            "Intensity",
+            "DeltaI/BaselineI",
+        )
+        metric_tables.append(
+            _rows_table(
+                "Intensity",
+                columns=intensity_columns,
+                rows=intensity_rows,
+            )
+        )
+        files_written += 2
+        written.extend([f"intensity{suffix}.csv", "intensity_delta_i_over_baseline_i.png"])
 
     lineage_summary: dict[str, object] | None = None
     if include_metric_lineage_object_metrics and has_roi:
@@ -1501,6 +1651,7 @@ def _export_event_metrics(
             "propagation_speed": bool(include_metric_propagation_speed),
             "area_recruited": bool(include_metric_area_recruited),
             "relative_area_recruited": bool(include_metric_relative_area_recruited),
+            "intensity": bool(include_metric_intensity),
             "lineage_object_metrics": bool(include_metric_lineage_object_metrics),
         },
         "propagation_gap_warning": dict(propagation_gap_warning) if propagation_gap_warning is not None else None,
@@ -1510,6 +1661,12 @@ def _export_event_metrics(
         "overall_max_speed_um_per_sec": float(np.nanmax(speed_um_per_sec)) if np.isfinite(speed_um_per_sec).any() else None,
         "max_area_mm2": float(np.nanmax(area_mm2)) if np.isfinite(area_mm2).any() else None,
         "max_relative_area_pct": float(np.nanmax(relative_area_pct)) if np.isfinite(relative_area_pct).any() else None,
+        "baseline_intensity": baseline_intensity,
+        "max_delta_i_over_baseline_i": (
+            float(np.nanmax(intensity_delta_i_over_baseline_i))
+            if intensity_delta_i_over_baseline_i.size > 0 and np.isfinite(intensity_delta_i_over_baseline_i).any()
+            else None
+        ),
     }
     if include_metric_combined_spreadsheet and metric_tables:
         xlsx_name = f"metrics_combined{suffix}.xlsx"
@@ -2423,6 +2580,8 @@ def _write_metrics_summary_markdown(path: Path, summary: dict[str, object], *, e
         _markdown_bullet("Overall max speed (um/sec)", summary.get("overall_max_speed_um_per_sec")),
         _markdown_bullet("Max area (mm^2)", summary.get("max_area_mm2")),
         _markdown_bullet("Max relative area (%)", summary.get("max_relative_area_pct")),
+        _markdown_bullet("Baseline intensity", summary.get("baseline_intensity")),
+        _markdown_bullet("Max DeltaI/BaselineI", summary.get("max_delta_i_over_baseline_i")),
         _markdown_bullet("Written files", summary.get("written_files")),
     ]
     lineage_summary = summary.get("object_lineage_summary")

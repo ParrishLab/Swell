@@ -9,6 +9,7 @@ from sdapp.shared.ui import dialogs as messagebox
 from sdapp.shared.ui.theme import SPACING, apply_theme
 from sdapp.host.host_models import stack_ref_from_stack_info
 from sdapp.host.stack_reader import StackReader
+from sdapp.shared.persistence.schema import METADATA_EMBED_IMAGES_KEY
 from sdapp.shared.project_naming import derive_sdproj_name
 from sdapp.shared.ui import BackgroundTaskRunner
 from sdapp.shared.ui.bootstrap import semantic_button_options, ttk
@@ -255,6 +256,9 @@ class HostProjectLifecycleController:
         target_path = self._existing_project_save_target(target)
         if target_path is None:
             return
+        if not self._confirm_save_embedding_cost():
+            self.app._set_status("Save canceled.")
+            return
         target = str(target_path)
         self.app._set_status("Saving project...")
 
@@ -294,6 +298,9 @@ class HostProjectLifecycleController:
             initialfile=initial_name,
         )
         if not path:
+            return
+        if not self._confirm_save_embedding_cost():
+            self.app._set_status("Save canceled.")
             return
         self.app._set_status("Saving project...")
 
@@ -358,24 +365,46 @@ class HostProjectLifecycleController:
             stack_info = None
             reader = None
             warning = None
+            extracted_dir = None
+            used_embedded = False
             stack_ref = state.stack_ref
             if stack_ref is not None and str(stack_ref.input_dir or ""):
                 input_dir = str(stack_ref.input_dir)
                 if Path(input_dir).exists():
+                    # On-disk source preferred: no extraction even if images are embedded.
                     reader = self._create_stack_reader()
                     stack_info = reader.open_stack(input_dir)
                 else:
-                    replacement = self._run_on_ui_thread(lambda: self._prompt_rebind_missing_stack_folder(input_dir))
-                    if replacement:
+                    # Source folder moved/deleted: fall back to embedded images if present,
+                    # otherwise prompt the user to rebind a replacement folder.
+                    extracted_dir = self._extract_embedded_stack(path)
+                    if extracted_dir:
                         reader = self._create_stack_reader()
-                        stack_info = reader.open_stack(replacement)
-                    else:
-                        warning = f"Stack folder is missing and was not rebound:\n\n{input_dir}"
+                        stack_info = reader.open_stack(extracted_dir)
+                        if self._stack_info_matches_ref(stack_info, stack_ref):
+                            used_embedded = True
+                        else:
+                            self._cleanup_extract_dir_path(extracted_dir)
+                            extracted_dir = None
+                            reader = None
+                            stack_info = None
+                            log_warn = getattr(self.app, "_log_warn", None)
+                            if callable(log_warn):
+                                log_warn("Embedded image fallback was ignored because extracted stack dimensions did not match the saved project.")
+                    if reader is None or stack_info is None:
+                        replacement = self._run_on_ui_thread(lambda: self._prompt_rebind_missing_stack_folder(input_dir))
+                        if replacement:
+                            reader = self._create_stack_reader()
+                            stack_info = reader.open_stack(replacement)
+                        else:
+                            warning = f"Stack folder is missing and was not rebound:\n\n{input_dir}"
             return {
                 "state": state,
                 "stack_info": stack_info,
                 "reader": reader,
                 "warning": warning,
+                "extracted_dir": extracted_dir,
+                "used_embedded": used_embedded,
                 "path": path,
             }
 
@@ -384,13 +413,20 @@ class HostProjectLifecycleController:
             stack_info = payload["stack_info"]
             reader = payload["reader"]
             warning = payload["warning"]
+            extracted_dir = payload.get("extracted_dir")
+            used_embedded = bool(payload.get("used_embedded"))
             self.app.current_project_path = state.project_path
             self.app.browser_controller.session.set_project_path(self.app.current_project_path)
+            self._set_embedded_extract_dir(extracted_dir if reader is not None and stack_info is not None else None)
+            if extracted_dir and reader is not None and stack_info is not None:
+                self.app._log_info(f"Loaded stack from embedded images (source folder missing): {extracted_dir}.")
+            self._sync_embed_images_menu_var()
             if reader is not None and stack_info is not None:
                 self.app.reader = reader
                 self.app.stack_info = stack_info
                 self.app.browser_controller.bind_frame_source(reader)
-                self.app.browser_controller.session.set_stack_ref(stack_ref_from_stack_info(stack_info))
+                if not used_embedded:
+                    self.app.browser_controller.session.set_stack_ref(stack_ref_from_stack_info(stack_info))
                 self._set_popup_reader(reader)
                 for cache_name in ("_main_render_cache", "_normalized_frame_u8_cache", "_analysis_preview_cache"):
                     cache = getattr(self.app, cache_name, None)
@@ -474,6 +510,107 @@ class HostProjectLifecycleController:
         )
         raw = str(selected or "").strip()
         return raw or None
+
+    def _extract_embedded_stack(self, project_path: str) -> str | None:
+        """Extract embedded source frames from the project to a temp dir, or None."""
+        from sdapp.shared.persistence import UnifiedProjectStore
+
+        try:
+            return UnifiedProjectStore().extract_embedded_images(project_path)
+        except Exception as exc:  # noqa: BLE001
+            log_warn = getattr(self.app, "_log_warn", None)
+            if callable(log_warn):
+                log_warn(f"Embedded image extraction failed: {exc}")
+            return None
+
+    def _set_embedded_extract_dir(self, path: str | None) -> None:
+        """Track the active embedded-image extraction dir, cleaning up any prior one."""
+        self._cleanup_embedded_extract_dir()
+        self.app._embedded_extract_dir = str(path) if path else None
+        if path:
+            try:
+                from sdapp.shared.persistence.zip_io import touch_extract_dir_marker
+
+                touch_extract_dir_marker(path)
+            except Exception:
+                pass
+
+    def _cleanup_embedded_extract_dir(self) -> None:
+        prev = getattr(self.app, "_embedded_extract_dir", None)
+        self._cleanup_extract_dir_path(prev)
+        self.app._embedded_extract_dir = None
+
+    @staticmethod
+    def _cleanup_extract_dir_path(path: str | None) -> None:
+        if path:
+            import shutil
+
+            shutil.rmtree(path, ignore_errors=True)
+
+    @staticmethod
+    def _stack_info_matches_ref(stack_info, stack_ref) -> bool:
+        for attr in ("frame_count", "frame_height", "frame_width"):
+            ref_value = getattr(stack_ref, attr, None)
+            info_value = getattr(stack_info, attr, None)
+            if ref_value is None or info_value is None:
+                continue
+            if int(ref_value) != int(info_value):
+                return False
+        return True
+
+    def _confirm_save_embedding_cost(self) -> bool:
+        if not callable(getattr(self.app, "_session_embed_images_enabled", None)):
+            return True
+        if not self.app._session_embed_images_enabled():
+            return True
+        source_dir = None
+        resolver = getattr(self.app, "_embedded_images_source_dir", None)
+        if callable(resolver):
+            source_dir = resolver()
+        estimator = getattr(self.app, "_embedded_images_size_estimate", None)
+        if callable(estimator):
+            try:
+                count, total = estimator(source_dir)
+            except TypeError:
+                count, total = estimator()
+        else:
+            count, total = (0, 0)
+        if count:
+            added = f"about {self._format_bytes(total)} across {count} source file(s)"
+        else:
+            added = "the full size of the source image stack"
+        return bool(
+            messagebox.askyesno(
+                "Save SD Project",
+                (
+                    "Source-image embedding is enabled for this project.\n\n"
+                    f"Saving will copy {added} into the .sdproj file.\n\n"
+                    "Continue saving?"
+                ),
+                parent=self._dialog_parent(),
+            )
+        )
+
+    @staticmethod
+    def _format_bytes(num_bytes: int) -> str:
+        size = float(max(0, int(num_bytes)))
+        for unit in ("B", "KB", "MB", "GB"):
+            if size < 1024 or unit == "GB":
+                return f"{int(size)} {unit}" if unit == "B" else f"{size:.1f} {unit}"
+            size /= 1024
+        return f"{size:.1f} GB"
+
+    def _sync_embed_images_menu_var(self) -> None:
+        """Reflect the loaded project's embed flag in the menu checkbox, if present."""
+        var = getattr(self.app, "embed_images_menu_var", None)
+        setter = getattr(var, "set", None)
+        if not callable(setter):
+            return
+        try:
+            metadata = dict(self.app.browser_controller.session.state().metadata or {})
+            setter(bool(metadata.get(METADATA_EMBED_IMAGES_KEY, False)))
+        except Exception:
+            pass
 
     def on_analysis_sync(self, payload: dict) -> None:
         result = self.app.browser_controller.apply_analysis_sync(payload)
@@ -645,6 +782,8 @@ class HostProjectLifecycleController:
         self.app._log_info(f"Analysis set host project save target to {resolved}.")
 
     def save_project_from_analysis(self, project_path: str) -> dict:
+        if not self._run_on_ui_thread(self._confirm_save_embedding_cost):
+            return {"ok": False, "reason": "save_canceled"}
         state = self.app.save_host_session(project_path)
         try:
             resolved = str(Path(state.project_path).expanduser().resolve())
@@ -726,9 +865,12 @@ class HostProjectLifecycleController:
             )
             if response is None:
                 return {"ok": False, "reason": "host_canceled"}
+            if response is True and not self._confirm_save_embedding_cost():
+                return {"ok": False, "reason": "host_save_canceled"}
             if response is True and not self._save_host_project_for_close():
                 return {"ok": False, "reason": "host_save_canceled"}
 
+        self._cleanup_embedded_extract_dir()
         if self.app._instance_bridge is not None:
             self.app._instance_bridge.stop()
         try:
@@ -758,6 +900,7 @@ class HostProjectLifecycleController:
 
     def on_stack_loaded(self, reader: StackReader, info) -> None:
         self.app.reader = reader
+        self._set_embedded_extract_dir(None)
         self._set_popup_reader(reader)
         self.app.stack_info = info
         self.app.trace = None
@@ -766,6 +909,7 @@ class HostProjectLifecycleController:
         self.app.browser_controller.on_stack_loaded(reader, info)
         self.app.current_project_path = None
         self.app.browser_controller.session.set_project_path(None)
+        self._sync_embed_images_menu_var()
         self.app.current_event_id = None
         self.app.current_frame_idx = 0
         self.app._main_render_cache.clear()

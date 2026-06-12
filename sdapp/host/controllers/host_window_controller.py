@@ -361,10 +361,35 @@ class HostWindowController:
         return MetricsSettingsResolver.has_valid_roi(metrics_settings)
 
     def resolve_export_metric_prerequisites(self, event_ids: list[str]) -> dict[str, dict[str, object]]:
-        return MetricsSettingsResolver.prerequisites_for_events(
+        ready = MetricsSettingsResolver.prerequisites_for_events(
             event_ids=list(event_ids or []),
             metrics_loader=lambda event_id: self.app.browser_controller.resolve_event_metrics_settings(event_id),
         )
+        intensity_ready = dict(ready.get("intensity", {}) or {})
+        if bool(intensity_ready.get("enabled")):
+            baseline_flags: list[bool] = []
+            baseline_pre = int(getattr(self.app, "baseline_pre_frames", 0) or 0)
+            for event_id in [str(v) for v in list(event_ids or [])]:
+                try:
+                    event = self.app.browser_controller.get_event(event_id)
+                except Exception:
+                    event = None
+                try:
+                    start_idx = int(getattr(event, "start_idx"))
+                except Exception:
+                    start_idx = -1
+                baseline_flags.append(bool(baseline_pre > 0 and start_idx > 0))
+            all_baseline = bool(baseline_flags) and all(baseline_flags)
+            any_baseline = any(baseline_flags)
+            if not all_baseline:
+                intensity_ready["enabled"] = False
+                intensity_ready["reason"] = (
+                    "Some selected events are missing pre-event baseline frames."
+                    if any_baseline
+                    else "No selected events have pre-event baseline frames."
+                )
+                ready["intensity"] = intensity_ready
+        return ready
 
     def _analysis_image_export_cache(self) -> OrderedDict:
         cache = getattr(self.app, "_analysis_image_export_cache", None)
@@ -435,6 +460,7 @@ class HostWindowController:
         include_metric_propagation_speed: bool,
         include_metric_area_recruited: bool,
         include_metric_relative_area_recruited: bool,
+        include_metric_intensity: bool = False,
         include_metric_lineage_object_metrics: bool = False,
     ) -> bool:
         return bool(
@@ -443,6 +469,7 @@ class HostWindowController:
                 include_metric_propagation_speed
                 or include_metric_area_recruited
                 or include_metric_relative_area_recruited
+                or include_metric_intensity
                 or include_metric_lineage_object_metrics
             )
         )
@@ -466,6 +493,7 @@ class HostWindowController:
         include_metric_speed_var = tk.BooleanVar(value=True)
         include_metric_area_var = tk.BooleanVar(value=True)
         include_metric_rel_area_var = tk.BooleanVar(value=True)
+        include_metric_intensity_var = tk.BooleanVar(value=True)
         include_metric_lineage_var = tk.BooleanVar(value=False)
         include_metric_lineage_tables_var = tk.BooleanVar(value=False)
         include_metric_combined_spreadsheet_var = tk.BooleanVar(value=False)
@@ -534,6 +562,10 @@ class HostWindowController:
             checks, text="Relative Area Recruited", variable=include_metric_rel_area_var
         )
         metric_rel_area_check.pack(anchor="w")
+        metric_intensity_check = ttk.Checkbutton(
+            checks, text="Intensity", variable=include_metric_intensity_var
+        )
+        metric_intensity_check.pack(anchor="w")
         metric_lineage_check = ttk.Checkbutton(
             checks,
             text="Lineage-aware Object Metrics",
@@ -577,6 +609,14 @@ class HostWindowController:
                 metric_rel_area_check,
                 str(metric_ready["relative_area_recruited"]["reason"]),
             )
+        if not bool(metric_ready.get("intensity", {}).get("enabled")):
+            include_metric_intensity_var.set(False)
+            metric_intensity_check.configure(state="disabled")
+            self.attach_disabled_tooltip(
+                dialog,
+                metric_intensity_check,
+                str(metric_ready.get("intensity", {}).get("reason", "Intensity export is unavailable.")),
+            )
         lineage_reason = ""
         lineage_enabled = bool(has_masks and metric_ready["relative_area_recruited"]["enabled"])
         if not has_masks:
@@ -596,6 +636,7 @@ class HostWindowController:
                 include_metric_propagation_speed=bool(include_metric_speed_var.get()),
                 include_metric_area_recruited=bool(include_metric_area_var.get()),
                 include_metric_relative_area_recruited=bool(include_metric_rel_area_var.get()),
+                include_metric_intensity=bool(include_metric_intensity_var.get()),
                 include_metric_lineage_object_metrics=bool(include_metric_lineage_var.get()),
             )
             if enabled:
@@ -615,6 +656,7 @@ class HostWindowController:
         include_metric_speed_var.trace_add("write", _refresh_combined_metrics_spreadsheet_state)
         include_metric_area_var.trace_add("write", _refresh_combined_metrics_spreadsheet_state)
         include_metric_rel_area_var.trace_add("write", _refresh_combined_metrics_spreadsheet_state)
+        include_metric_intensity_var.trace_add("write", _refresh_combined_metrics_spreadsheet_state)
         include_metric_lineage_var.trace_add("write", _refresh_combined_metrics_spreadsheet_state)
         include_metric_lineage_var.trace_add("write", _refresh_lineage_tables_state)
         _refresh_combined_metrics_spreadsheet_state()
@@ -639,6 +681,7 @@ class HostWindowController:
                 or bool(include_metric_speed_var.get())
                 or bool(include_metric_area_var.get())
                 or bool(include_metric_rel_area_var.get())
+                or bool(include_metric_intensity_var.get())
                 or bool(include_metric_lineage_var.get())
             )
             if not include_any:
@@ -660,6 +703,7 @@ class HostWindowController:
                 "include_metric_propagation_speed": bool(include_metric_speed_var.get()),
                 "include_metric_area_recruited": bool(include_metric_area_var.get()),
                 "include_metric_relative_area_recruited": bool(include_metric_rel_area_var.get()),
+                "include_metric_intensity": bool(include_metric_intensity_var.get()),
                 "include_metric_lineage_object_metrics": bool(include_metric_lineage_var.get()),
                 "include_metric_lineage_track_tables": bool(include_metric_lineage_tables_var.get()),
                 "include_metric_combined_spreadsheet": bool(include_metric_combined_spreadsheet_var.get()),
@@ -1144,6 +1188,7 @@ class HostWindowController:
             f"metric_propagation_speed={bool(options.get('include_metric_propagation_speed'))}, "
             f"metric_area_recruited={bool(options.get('include_metric_area_recruited'))}, "
             f"metric_relative_area_recruited={bool(options.get('include_metric_relative_area_recruited'))}, "
+            f"metric_intensity={bool(options.get('include_metric_intensity'))}, "
             f"metric_lineage_object_metrics={bool(options.get('include_metric_lineage_object_metrics'))}, "
             f"metric_lineage_track_tables={bool(options.get('include_metric_lineage_track_tables'))}, "
             f"metric_combined_spreadsheet={bool(options.get('include_metric_combined_spreadsheet'))}."
@@ -1218,6 +1263,7 @@ class HostWindowController:
                     include_metric_propagation_speed=bool(options.get("include_metric_propagation_speed")),
                     include_metric_area_recruited=bool(options.get("include_metric_area_recruited")),
                     include_metric_relative_area_recruited=bool(options.get("include_metric_relative_area_recruited")),
+                    include_metric_intensity=bool(options.get("include_metric_intensity")),
                     include_metric_lineage_object_metrics=bool(options.get("include_metric_lineage_object_metrics")),
                     include_metric_lineage_track_tables=bool(options.get("include_metric_lineage_track_tables")),
                     include_metric_combined_spreadsheet=bool(options.get("include_metric_combined_spreadsheet")),

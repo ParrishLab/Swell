@@ -41,7 +41,12 @@ class ProjectSessionService:
         self._service.open_project(str(p))
         return self.state()
 
-    def save_project(self, path: str | Path | None = None) -> HostSessionState:
+    def save_project(
+        self,
+        path: str | Path | None = None,
+        *,
+        embedded_images_input_dir: str | Path | None = None,
+    ) -> HostSessionState:
         state = self.state()
         if path is None and state.project_path:
             current = Path(state.project_path).expanduser().resolve()
@@ -62,7 +67,7 @@ class ProjectSessionService:
         ).expanduser().resolve()
         if target.suffix.lower() != ".sdproj":
             target = target.with_suffix(".sdproj")
-        self._service.save_project(str(target))
+        self._service.save_project(str(target), embedded_images_input_dir=embedded_images_input_dir)
         return self.state()
 
     def set_events(self, events: list[EventMeta], active_event_id: str | None, mark_dirty: bool = True) -> None:

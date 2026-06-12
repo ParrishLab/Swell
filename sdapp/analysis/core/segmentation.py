@@ -12,6 +12,7 @@ from types import MethodType
 import numpy as np
 from tkinter import filedialog
 from sdapp.shared.ui import dialogs as messagebox
+from sdapp.shared.torch_device import resolve_torch_device
 
 from sdapp.shared.model_copy import (
     STATUS_MODEL_DISABLED,
@@ -795,9 +796,7 @@ class SegmentationActions:
                 else:
                     raise RuntimeError("SAM2 frame cache service is unavailable.")
 
-                device = "mps" if torch.backends.mps.is_available() else "cpu"
-                if device == "cpu" and torch.cuda.is_available():
-                    device = "cuda"
+                device = resolve_torch_device()
                 self.log_info("Model", f"Initializing SAM2 on {device}...")
                 self.log_info(
                     "Model",

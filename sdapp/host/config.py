@@ -4,8 +4,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional
 
+from sdapp.shared.frame_source.stack_files import SUPPORTED_STACK_EXTENSIONS
+
 APP_TITLE = "IOS SD Event Marker"
-SUPPORTED_EXTENSIONS = (".tif", ".tiff", ".png", ".jpg", ".jpeg", ".bmp")
+SUPPORTED_EXTENSIONS = SUPPORTED_STACK_EXTENSIONS
 DEFAULT_BASELINE_PRE_FRAMES = 30
 MAX_PREVIEW_CACHE = 16
 

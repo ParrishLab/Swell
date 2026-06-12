@@ -899,6 +899,157 @@ def test_export_metrics_combined_workbook_includes_summary_and_selected_metric_s
     assert speed_rows[0][2] == 0
 
 
+def test_export_intensity_writes_csv_plot_summary_and_workbook(tmp_path: Path) -> None:
+    frames = [np.full((4, 4), value, dtype=np.uint8) for value in [10, 20, 30, 45]]
+    reader = FakeReader(frames)
+    events = [_event("event_0001", 2, 3)]
+
+    result = export_analysis(
+        reader=reader,
+        events=events,
+        output_dir=tmp_path,
+        baseline_pre_frames=2,
+        include_event_images=False,
+        include_baseline_images=False,
+        include_metric_intensity=True,
+        include_metric_combined_spreadsheet=True,
+        analysis_sidecar={
+            "event_0001": {
+                "metrics_settings": {
+                    "frames_per_sec": 2.0,
+                    "roi_mask": np.ones((4, 4), dtype=bool),
+                },
+            }
+        },
+    )
+
+    metrics_dir = tmp_path / "event_0001" / "metrics"
+    assert int(result["metrics_files_exported"]) >= 5
+    assert (metrics_dir / "intensity_event_0001.csv").exists()
+    assert (metrics_dir / "intensity_delta_i_over_baseline_i.png").exists()
+
+    rows = list(csv.DictReader((metrics_dir / "intensity_event_0001.csv").open("r", newline="", encoding="utf-8")))
+    assert [int(row["frame_index"]) for row in rows] == [0, 1, 2, 3]
+    assert [row["phase"] for row in rows] == ["baseline", "baseline", "event", "event"]
+    assert [float(row["time_sec"]) for row in rows] == [-1.0, -0.5, 0.0, 0.5]
+    assert [float(row["intensity"]) for row in rows] == [10.0, 20.0, 30.0, 45.0]
+    assert [float(row["baseline_intensity"]) for row in rows] == [15.0, 15.0, 15.0, 15.0]
+    assert [float(row["delta_i_over_baseline_i"]) for row in rows] == pytest.approx(
+        [-1.0 / 3.0, 1.0 / 3.0, 1.0, 2.0]
+    )
+
+    summary = json.loads((metrics_dir / "metrics_summary.json").read_text(encoding="utf-8"))
+    assert summary["selected_metrics"]["intensity"] is True
+    assert float(summary["baseline_intensity"]) == 15.0
+    assert float(summary["max_delta_i_over_baseline_i"]) == pytest.approx(2.0)
+    assert "intensity_event_0001.csv" in summary["written_files"]
+
+    summary_md = (metrics_dir / "metrics_summary.md").read_text(encoding="utf-8")
+    assert "Selected metrics: intensity" in summary_md
+    assert "Baseline intensity: 15" in summary_md
+    assert "Max DeltaI/BaselineI: 2" in summary_md
+
+    workbook = load_workbook(metrics_dir / "metrics_combined_event_0001.xlsx", data_only=True)
+    assert "Intensity" in workbook.sheetnames
+    summary_rows = {
+        str(row[0]): row[1]
+        for row in workbook["Summary"].iter_rows(min_row=2, values_only=True)
+        if row and row[0] is not None
+    }
+    assert summary_rows["Baseline intensity"] in {"15", "15.0"}
+    assert summary_rows["Max DeltaI/BaselineI"] in {"2", "2.0"}
+
+
+def test_export_intensity_averages_multichannel_frames(tmp_path: Path) -> None:
+    frames = [
+        np.full((2, 2, 3), [6, 9, 12], dtype=np.uint8),
+        np.full((2, 2, 3), [12, 15, 18], dtype=np.uint8),
+    ]
+    reader = FakeReader(frames, source_ext=".png")
+
+    export_analysis(
+        reader=reader,
+        events=[_event("event_0001", 1, 1)],
+        output_dir=tmp_path,
+        baseline_pre_frames=1,
+        include_event_images=False,
+        include_baseline_images=False,
+        include_metric_intensity=True,
+        analysis_sidecar={
+            "event_0001": {
+                "metrics_settings": {
+                    "frames_per_sec": 1.0,
+                    "roi_mask": np.ones((2, 2), dtype=bool),
+                },
+            }
+        },
+    )
+
+    csv_path = tmp_path / "event_0001" / "metrics" / "intensity_event_0001.csv"
+    rows = list(csv.DictReader(csv_path.open("r", newline="", encoding="utf-8")))
+    assert [float(row["intensity"]) for row in rows] == [9.0, 15.0]
+    assert [float(row["delta_i_over_baseline_i"]) for row in rows] == pytest.approx([0.0, 2.0 / 3.0])
+
+
+@pytest.mark.parametrize(
+    ("metrics_settings", "event", "baseline_pre_frames", "match"),
+    [
+        ({"roi_mask": np.ones((4, 4), dtype=bool)}, _event("event_0001", 1, 1), 1, "frames_per_sec"),
+        ({"frames_per_sec": 1.0}, _event("event_0001", 1, 1), 1, "valid ROI"),
+        ({"frames_per_sec": 1.0, "roi_mask": np.ones((4, 4), dtype=bool)}, _event("event_0001", 0, 1), 1, "baseline frame"),
+        ({"frames_per_sec": 1.0, "roi_mask": np.ones((4, 4), dtype=bool)}, _event("event_0001", 1, 1), 0, "baseline frame"),
+    ],
+)
+def test_export_intensity_requires_fps_roi_and_baseline(
+    tmp_path: Path,
+    metrics_settings: dict,
+    event: EventCandidate,
+    baseline_pre_frames: int,
+    match: str,
+) -> None:
+    reader = FakeReader([np.ones((4, 4), dtype=np.uint8) for _ in range(2)])
+
+    with pytest.raises(ValueError, match=match):
+        export_analysis(
+            reader=reader,
+            events=[event],
+            output_dir=tmp_path / "out",
+            baseline_pre_frames=baseline_pre_frames,
+            include_event_images=False,
+            include_baseline_images=False,
+            include_metric_intensity=True,
+            analysis_sidecar={"event_0001": {"metrics_settings": metrics_settings}},
+        )
+
+
+def test_export_intensity_requires_nonzero_baseline_intensity(tmp_path: Path) -> None:
+    reader = FakeReader(
+        [
+            np.zeros((4, 4), dtype=np.uint8),
+            np.full((4, 4), 5, dtype=np.uint8),
+        ]
+    )
+
+    with pytest.raises(ValueError, match="non-zero baseline intensity"):
+        export_analysis(
+            reader=reader,
+            events=[_event("event_0001", 1, 1)],
+            output_dir=tmp_path,
+            baseline_pre_frames=1,
+            include_event_images=False,
+            include_baseline_images=False,
+            include_metric_intensity=True,
+            analysis_sidecar={
+                "event_0001": {
+                    "metrics_settings": {
+                        "frames_per_sec": 1.0,
+                        "roi_mask": np.ones((4, 4), dtype=bool),
+                    },
+                }
+            },
+        )
+
+
 def test_export_metrics_combined_workbook_is_not_written_when_option_is_disabled(tmp_path: Path) -> None:
     frames = [np.full((8, 8), i, dtype=np.uint8) for i in range(8)]
     reader = FakeReader(frames)

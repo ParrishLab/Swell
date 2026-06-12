@@ -215,9 +215,9 @@ class BrowserController:
             )
         return out
 
-    def save_session(self, path: str | None = None):
+    def save_session(self, path: str | None = None, *, embedded_images_input_dir: str | None = None):
         self._sync_session()
-        return self.session.save_project(path)
+        return self.session.save_project(path, embedded_images_input_dir=embedded_images_input_dir)
 
     def open_session(self, path: str):
         state = self.session.open_project(path)

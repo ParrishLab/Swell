@@ -1,61 +1,129 @@
-# Installation
+# Installation & Onboarding
 
-SDApp runs on macOS and Windows. Python 3.12 or newer is required.
+This page covers system requirements, installation steps for both packaged binaries and source setups, and first-time segmentation model configuration.
 
-## Packaged release (recommended for end users)
+---
 
-Download the latest release from the [Releases page](https://github.com/ClayDunford/Combined-tool-test/releases).
+## System Requirements
 
-!!! warning "macOS Gatekeeper"
-    Current macOS release builds are intentionally unsigned and not notarized. You may need to right-click the app and choose **Open** the first time, or grant permission in **System Settings → Privacy & Security**.
+* **Operating System**: macOS 13+ (Apple Silicon or Intel), Windows 10/11 (x64).
+* **Python (Source Install)**: Python 3.12 or newer.
+* **Hardware Acceleration**:
+    * **CPU**: Always supported and serves as the guaranteed fallback.
+    * **Apple Silicon (macOS)**: Uses Metal Performance Shaders (MPS) automatically when available.
+    * **NVIDIA GPU (Windows/Linux source only)**: Can run on CUDA if PyTorch is installed with CUDA support. Packaged Windows binaries default to CPU execution.
+* **Disk Space**: ~1.5 GB for dependencies and model checkpoints.
 
-## From source
+---
 
+## Packaged Desktop Release (Recommended)
+
+Packaged builds allow you to run SDApp without setting up Python locally.
+
+1. Download the latest release zip for your platform from the [GitHub Releases](https://github.com/ClayDunford/Combined-tool-test/releases) page.
+2. Extract the archive contents:
+    * **macOS**: Extract `sdapp-macos-arm64.zip` (Apple Silicon) or `sdapp-macos-x86_64.zip` (Intel). Move `SDApp.app` to your `/Applications` directory.
+    * **Windows**: Extract `sdapp-windows-x64.zip` to a folder of your choice.
+3. Launch the application:
+    * **macOS**: Double-click `SDApp.app`.
+    * **Windows**: Double-click `SDApp.exe`.
+
+> [!WARNING]
+> **macOS Gatekeeper Warning**
+> Packaged macOS builds are unsigned and not notarized. Upon first launch, macOS will block execution. To bypass:
+> 1. Right-click (or Control-click) `SDApp.app` and choose **Open**.
+> 2. In the warning dialog that appears, click **Open** again.
+> 3. Alternatively, navigate to **System Settings → Privacy & Security**, scroll down, and select **Open Anyway** under the security section.
+
+---
+
+## Installing from Source
+
+If you prefer to run or modify the code directly, set up a local Python environment.
+
+### 1. Clone the Repository
 ```bash
 git clone https://github.com/ClayDunford/Combined-tool-test.git
 cd Combined-tool-test
+```
+
+### 2. Set Up Virtual Environment
+On macOS/Linux:
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+```
+On Windows (Command Prompt):
+```cmd
 python -m venv .venv
-source .venv/bin/activate   # Windows: .venv\Scripts\activate
+.venv\Scripts\activate.bat
+```
+
+### 3. Install Dependencies
+Install the package in editable mode:
+```bash
 pip install -e .
 ```
 
-Launch:
-
-```bash
-python -m sdapp.main
-```
-
-Or on macOS:
-
-```bash
-./run_mac.command
-```
-
-## Segmentation model (optional)
-
-The automated propagation feature uses SAM 2. It is an optional extra because `torch` is a large dependency.
-
+To include the SAM-2 automated segmentation engine (which installs PyTorch):
 ```bash
 pip install -e ".[model]"
 ```
 
-!!! note
-    The `sam-2` dependency is pinned to a specific commit. If installation fails, check that you have git and a working C compiler toolchain.
+> [!NOTE]
+> The `sam-2` package is compiled from a specific commit. If compilation fails, ensure you have a working C compiler toolchain installed (`clang` or Xcode Command Line Tools on macOS, MSVC Build Tools on Windows).
 
-## Smoke test
+For developers wanting to run tests and build documentation:
+```bash
+pip install -e ".[dev,docs,model]"
+```
 
-To verify the install launches cleanly without opening a full window:
+### 4. Launch from Terminal
+```bash
+python -m sdapp.main
+```
+
+---
+
+## First-Run Model Onboarding
+
+SDApp requires weights (checkpoints) for the SAM-2 model to propagate segmentations. To prevent bloated downloads, these weights are **not** bundled with the application.
+
+On your very first launch (or when opening the Analysis Window without a resolved checkpoint), you will be prompted with the **Model Onboarding Dialog**:
+
+```text
+No local SAM2 model file is available.
+
+Yes = Download approved default model file
+No = Select a local model file
+Cancel = Keep model-based tools disabled
+```
+
+### Option A: Automatic Download (Recommended)
+Click **Yes**. SDApp will automatically fetch the default model (`sam2.1_hiera_base_plus.pt`) from Hugging Face and verify its SHA-256 integrity hash (`1620c3a8...`).
+* **Download Directory**:
+    * macOS: `~/Library/Application Support/sdapp/models/`
+    * Windows: `%APPDATA%\sdapp\models\`
+* **Custom Models Directory**: You can override the download path by setting the `SDAPP_MODELS_DIR` environment variable before starting the application.
+
+### Option B: Local File Association
+If you are working offline, click **No** and select a pre-downloaded `.pt` file on your filesystem. 
+
+### Option C: Review-Only Mode
+Click **Cancel** to keep the model disabled. You will still be able to open projects, view frames, draw manual masks, and export existing data, but automated propagation will be unavailable.
+
+---
+
+## Verifying the Installation
+
+To run a non-interactive startup check that verifies all modules load correctly:
 
 ```bash
 python -m sdapp.main --smoke-test
 ```
 
-## Development install
-
-For contributors:
-
-```bash
-pip install -e ".[dev,docs,model]"
+If the environment is fully working, it will print:
+```text
+SMOKE_TEST:PASS
 ```
-
-This adds `pytest` and the documentation toolchain.
+If a dependency is missing or corrupt, it will print a traceback and exit with code `1`.

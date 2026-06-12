@@ -151,7 +151,12 @@ class UnifiedProjectService:
         self._notify("project_opened", {"path": str(path)})
         return self.state()
 
-    def save_project(self, path: str | None = None) -> UnifiedProjectState:
+    def save_project(
+        self,
+        path: str | None = None,
+        *,
+        embedded_images_input_dir: str | Path | None = None,
+    ) -> UnifiedProjectState:
         if path is None and self._state.project_path:
             current = str(self._state.project_path)
             try:
@@ -174,7 +179,7 @@ class UnifiedProjectService:
             )
         )
         self._normalize_loaded_state()
-        self.store.save(target, self._state)
+        self.store.save(target, self._state, embedded_images_input_dir=embedded_images_input_dir)
         self._state.project_path = target
         self._state.dirty = False
         self._notify("project_saved", {"path": target})

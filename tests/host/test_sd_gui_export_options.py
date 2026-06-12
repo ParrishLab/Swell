@@ -107,10 +107,12 @@ def test_resolve_export_metric_prerequisites_disables_when_scale_or_roi_missing(
     assert "missing scale" in str(ready["propagation_speed"]["reason"]).lower()
     assert ready["area_recruited"]["enabled"] is False
     assert ready["relative_area_recruited"]["enabled"] is False
+    assert ready["intensity"]["enabled"] is False
 
 
 def test_resolve_export_metric_prerequisites_enables_when_all_have_scale_and_roi() -> None:
     app = SDAnalyzerApp.__new__(SDAnalyzerApp)
+    app.baseline_pre_frames = 2
     by_event = {
         "event_0001": {
             "frames_per_sec": 1.0,
@@ -126,7 +128,10 @@ def test_resolve_export_metric_prerequisites_enables_when_all_have_scale_and_roi
     app.browser_controller = type(
         "BC",
         (),
-        {"resolve_event_metrics_settings": lambda self, event_id: dict(by_event.get(str(event_id), {}))},
+        {
+            "resolve_event_metrics_settings": lambda self, event_id: dict(by_event.get(str(event_id), {})),
+            "get_event": lambda self, event_id: type("E", (), {"start_idx": 5})(),
+        },
     )()
 
     ready = app._resolve_export_metric_prerequisites(["event_0001", "event_0002"])
@@ -134,6 +139,28 @@ def test_resolve_export_metric_prerequisites_enables_when_all_have_scale_and_roi
     assert ready["propagation_speed"]["enabled"] is True
     assert ready["area_recruited"]["enabled"] is True
     assert ready["relative_area_recruited"]["enabled"] is True
+    assert ready["intensity"]["enabled"] is True
+
+
+def test_resolve_export_metric_prerequisites_disables_intensity_without_baseline() -> None:
+    app = SDAnalyzerApp.__new__(SDAnalyzerApp)
+    app.baseline_pre_frames = 2
+    app.browser_controller = type(
+        "BC",
+        (),
+        {
+            "resolve_event_metrics_settings": lambda self, event_id: {
+                "frames_per_sec": 1.0,
+                "roi_mask": np.ones((4, 4), dtype=bool),
+            },
+            "get_event": lambda self, event_id: type("E", (), {"start_idx": 0})(),
+        },
+    )()
+
+    ready = app._resolve_export_metric_prerequisites(["event_0001"])
+
+    assert ready["intensity"]["enabled"] is False
+    assert "baseline" in str(ready["intensity"]["reason"]).lower()
 
 
 def test_on_export_progress_updates_status_for_analysis_prepare() -> None:

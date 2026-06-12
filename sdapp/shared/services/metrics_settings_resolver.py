@@ -238,14 +238,23 @@ class MetricsSettingsResolver:
                 "propagation_speed": {"enabled": False, "reason": "No events selected."},
                 "area_recruited": {"enabled": False, "reason": "No events selected."},
                 "relative_area_recruited": {"enabled": False, "reason": "No events selected."},
+                "intensity": {"enabled": False, "reason": "No events selected."},
             }
+        has_fps_flags: list[bool] = []
         has_scale_flags: list[bool] = []
         has_roi_flags: list[bool] = []
         for event_id in [str(v) for v in event_ids]:
             metrics = cls.normalize(metrics_loader(str(event_id)) or {})
+            fps = metrics.get("frames_per_sec")
+            try:
+                has_fps_flags.append(float(fps) > 0)
+            except (TypeError, ValueError):
+                has_fps_flags.append(False)
             has_scale_flags.append(bool(cls.has_valid_scale(metrics)))
             has_roi_flags.append(bool(cls.has_valid_roi(metrics)))
 
+        all_fps = all(has_fps_flags)
+        any_fps = any(has_fps_flags)
         all_scale = all(has_scale_flags)
         all_roi = all(has_roi_flags)
         any_scale = any(has_scale_flags)
@@ -280,5 +289,21 @@ class MetricsSettingsResolver:
             "relative_area_recruited": {
                 "enabled": bool(all_roi),
                 "reason": "" if all_roi else _reason_all_or_mixed(any_roi, "ROI"),
+            },
+            "intensity": {
+                "enabled": bool(all_fps and all_roi),
+                "reason": (
+                    ""
+                    if all_fps and all_roi
+                    else (
+                        "Some selected events are missing frames/sec and ROI."
+                        if (any_fps and any_roi and not all_fps and not all_roi)
+                        else (
+                            _reason_all_or_mixed(any_fps, "frames/sec")
+                            if not all_fps
+                            else _reason_all_or_mixed(any_roi, "ROI")
+                        )
+                    )
+                ),
             },
         }

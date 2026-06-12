@@ -11,10 +11,13 @@ from sdapp.shared.models import EventMeta, StackRef, UnifiedProjectState
 from sdapp.shared.persistence.schema import (
     ACTIVE_EVENT_ID_FIELD,
     ANALYSIS_SIDECAR_FILENAME,
+    EMBEDDED_IMAGES_FILENAME,
+    EMBEDDED_IMAGES_INDEX_KEY,
     EVENTS_FILENAME,
     HOST_PERSISTENCE_OWNER,
     HOST_PROJECT_SCHEMA_VERSION,
     MANIFEST_FILENAME,
+    METADATA_EMBED_IMAGES_KEY,
     METADATA_FIELD,
     PERSISTENCE_BLOCK_FIELD,
     PERSISTENCE_OWNER_FIELD,
@@ -25,10 +28,11 @@ from sdapp.shared.persistence.serialization import (
     decode_analysis_sidecar,
     decode_metadata_from_read,
     encode_analysis_sidecar,
+    encode_embedded_images,
     encode_metadata_for_write,
 )
 from sdapp.shared.errors import ProjectLoadError
-from sdapp.shared.persistence.zip_io import read_json, read_npz, write_json, write_npz
+from sdapp.shared.persistence.zip_io import read_json, read_npz, touch_extract_dir_marker, write_json, write_npz
 
 
 def _coerce_stack_ref(raw: dict[str, Any] | None) -> StackRef | None:
@@ -94,7 +98,13 @@ def _coerce_events(raw: Any) -> list[EventMeta]:
 class UnifiedProjectStore:
     persistence_owner = HOST_PERSISTENCE_OWNER
 
-    def save(self, target_path: str | Path, state: UnifiedProjectState) -> None:
+    def save(
+        self,
+        target_path: str | Path,
+        state: UnifiedProjectState,
+        *,
+        embedded_images_input_dir: str | Path | None = None,
+    ) -> None:
         target = Path(target_path).expanduser().resolve()
         if target.suffix.lower() != ".sdproj":
             target = target.with_suffix(".sdproj")
@@ -113,6 +123,10 @@ class UnifiedProjectStore:
                 }
                 write_json(zf, MANIFEST_FILENAME, manifest)
                 write_json(zf, STACK_FILENAME, asdict(state.stack_ref) if state.stack_ref is not None else None)
+                if state.metadata.get(METADATA_EMBED_IMAGES_KEY) and state.stack_ref is not None:
+                    source_dir = embedded_images_input_dir or state.stack_ref.input_dir
+                    embed_manifest = encode_embedded_images(source_dir, zf, require_sources=True)
+                    write_json(zf, EMBEDDED_IMAGES_FILENAME, embed_manifest)
                 write_json(
                     zf,
                     EVENTS_FILENAME,
@@ -140,6 +154,15 @@ class UnifiedProjectStore:
             manifest = read_json(zf, MANIFEST_FILENAME, default={})
             if not isinstance(manifest, dict) or not manifest:
                 raise ValueError("Not a host .sdproj container")
+            try:
+                schema_version = int(manifest.get(SCHEMA_VERSION_FIELD, 1))
+            except Exception as exc:
+                raise ProjectLoadError("Invalid host project schema version.") from exc
+            if schema_version > HOST_PROJECT_SCHEMA_VERSION:
+                raise ProjectLoadError(
+                    f"Unsupported host project schema version {schema_version}; "
+                    f"this build supports up to {HOST_PROJECT_SCHEMA_VERSION}."
+                )
             persistence = manifest.get(PERSISTENCE_BLOCK_FIELD, {}) if isinstance(manifest, dict) else {}
             owner = persistence.get(PERSISTENCE_OWNER_FIELD)
             if owner is not None and str(owner) != HOST_PERSISTENCE_OWNER:
@@ -161,3 +184,37 @@ class UnifiedProjectStore:
                 dirty=False,
                 metadata=metadata,
             )
+
+    def extract_embedded_images(
+        self, source_path: str | Path, dest_dir: str | Path | None = None
+    ) -> str | None:
+        """Extract embedded source images from a project into a directory.
+
+        Returns the directory path containing the extracted frames (a fresh temp dir
+        when ``dest_dir`` is None), or ``None`` when the project embeds no images.
+        The returned directory can be handed to ``StackReader.open_stack`` unchanged.
+        """
+        src = Path(source_path).expanduser().resolve()
+        with zipfile.ZipFile(src, "r") as zf:
+            index = read_json(zf, EMBEDDED_IMAGES_FILENAME, default={EMBEDDED_IMAGES_INDEX_KEY: {}})
+            embedded = index.get(EMBEDDED_IMAGES_INDEX_KEY, {}) if isinstance(index, dict) else {}
+            if not embedded:
+                return None
+            if dest_dir is None:
+                extract_root = Path(tempfile.mkdtemp(prefix="sdproj_embedded_"))
+            else:
+                extract_root = Path(dest_dir)
+                extract_root.mkdir(parents=True, exist_ok=True)
+            extracted_any = False
+            for name, arcname in embedded.items():
+                try:
+                    out_path = extract_root / Path(str(name)).name
+                    with zf.open(str(arcname), "r") as src_f, out_path.open("wb") as out_f:
+                        out_f.write(src_f.read())
+                    extracted_any = True
+                except KeyError:
+                    continue
+            if not extracted_any:
+                return None
+            touch_extract_dir_marker(extract_root)
+            return str(extract_root)

@@ -21,6 +21,8 @@ from typing import Callable
 import numpy as np
 import scipy.ndimage as ndimage
 
+from sdapp.shared.torch_device import resolve_torch_device
+
 from .grid import AnalysisGeometry
 
 logger = logging.getLogger(__name__)
@@ -158,7 +160,7 @@ def _extract_lower_median_traces_torch(
         padded_indices[c_idx, : len(idx)] = idx
         valid_pixels[c_idx, : len(idx)] = True
 
-    device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
+    device = torch.device(resolve_torch_device())
     padded_indices_t = torch.as_tensor(padded_indices, dtype=torch.long, device=device)
     valid_pixels_t = torch.as_tensor(valid_pixels, dtype=torch.bool, device=device)
     median_indices_t = torch.as_tensor((cell_pixel_counts - 1) // 2, dtype=torch.long, device=device)
