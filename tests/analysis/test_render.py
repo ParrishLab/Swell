@@ -9,6 +9,17 @@ from sdapp.analysis.core.viewport import ViewportState, compute_transform
 from sdapp.shared.image_overlay import frame_to_rgb_u8
 
 
+def _build_tk_harness_or_skip(test, factory):
+    """Construct a harness that needs a real Tk root, skipping when Tk is
+    unavailable (e.g. headless or misconfigured CI runners)."""
+    import tkinter as tk
+
+    try:
+        return factory()
+    except tk.TclError as exc:
+        test.skipTest(f"Tk unavailable: {exc}")
+
+
 class _CanvasStub:
     def __init__(self, width, height):
         self.width = width
@@ -326,7 +337,7 @@ class RenderActionsTests(unittest.TestCase):
             def _get_frame_count(self):
                 return 5
 
-        harness = _GhostHarness()
+        harness = _build_tk_harness_or_skip(self, _GhostHarness)
         try:
             harness.update_display(update_preview=False)
             self.assertTrue(hasattr(harness, "_ghost_contours_cache"))
@@ -365,7 +376,7 @@ class RenderActionsTests(unittest.TestCase):
             def _get_frame_count(self):
                 return 3
 
-        harness = _GhostHarness()
+        harness = _build_tk_harness_or_skip(self, _GhostHarness)
         try:
             harness.tool_mode = type("ToolMode", (), {"get": lambda _self: "select"})()
             harness.update_display(update_preview=False)
@@ -420,7 +431,7 @@ class RenderActionsTests(unittest.TestCase):
             def log_info(self, context, msg):
                 self.log_calls.append((context, msg))
 
-        app = _MockApp()
+        app = _build_tk_harness_or_skip(self, _MockApp)
         parent = tk.Frame(app.root)
 
         section = app._build_view_section(parent, row=0)
@@ -487,7 +498,7 @@ class RenderActionsTests(unittest.TestCase):
                 out.extend(_texts(child))
             return out
 
-        app = _MockApp()
+        app = _build_tk_harness_or_skip(self, _MockApp)
         app.root.withdraw()
         try:
             parent = tk.Frame(app.root)
@@ -544,7 +555,7 @@ class RenderActionsTests(unittest.TestCase):
             def toggle_ground_truth_current_frame(self):
                 pass
 
-        app = _MockApp()
+        app = _build_tk_harness_or_skip(self, _MockApp)
         app.root.withdraw()
         try:
             parent = tk.Frame(app.root)

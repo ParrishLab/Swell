@@ -1,8 +1,19 @@
 from unittest.mock import patch
 import tkinter as tk
 
+import pytest
+
 from sdapp.analysis.ui.layout import LayoutBuilder
 from sdapp.analysis.ui.tooltips import TooltipManager
+
+
+def _build_tk_or_skip(factory):
+    """Construct an object that needs a real Tk root, skipping when Tk is
+    unavailable (e.g. headless or misconfigured CI runners)."""
+    try:
+        return factory()
+    except tk.TclError as exc:
+        pytest.skip(f"Tk unavailable: {exc}")
 
 
 class _FakeRoot:
@@ -235,7 +246,7 @@ def _find_label_text(widget, text):
 
 
 def test_dock_section_tooltip_is_limited_to_header_title() -> None:
-    root = tk.Tk()
+    root = _build_tk_or_skip(tk.Tk)
     root.withdraw()
     try:
         app = LayoutBuilder()
@@ -267,7 +278,7 @@ def test_tool_rail_keeps_shortcut_tooltips() -> None:
         def clear_current_frame_data(self):
             return None
 
-    app = _App()
+    app = _build_tk_or_skip(_App)
     app.root.withdraw()
     try:
         parent = tk.Frame(app.root)
@@ -301,7 +312,7 @@ def test_view_controls_do_not_add_redundant_text_button_tooltips() -> None:
         def toggle_ground_truth_current_frame(self):
             return None
 
-    app = _App()
+    app = _build_tk_or_skip(_App)
     app.root.withdraw()
     try:
         parent = tk.Frame(app.root)
