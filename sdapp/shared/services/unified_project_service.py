@@ -12,6 +12,7 @@ from sdapp.shared.models import (
     clone_analysis_payload,
     clone_event_meta,
     clone_project_state,
+    chronological_event_sort_key,
 )
 from sdapp.shared.persistence import UnifiedProjectStore
 from sdapp.shared.project_naming import derive_sdproj_filename
@@ -66,7 +67,7 @@ class UnifiedProjectService:
         return self.state()
 
     def list_events(self) -> list[EventMeta]:
-        return [clone_event_meta(ev) for ev in self._state.events]
+        return [clone_event_meta(ev) for ev in sorted(self._state.events, key=chronological_event_sort_key)]
 
     def upsert_event(self, event_meta: EventMeta) -> None:
         key = str(event_meta.event_id)
@@ -79,6 +80,7 @@ class UnifiedProjectService:
                 break
         if not updated:
             self._state.events.append(event_copy)
+        self._state.events.sort(key=chronological_event_sort_key)
         self._state.dirty = True
         self._notify("event_upserted", {"event_id": key})
 
@@ -239,6 +241,7 @@ class UnifiedProjectService:
         self._state.metadata.setdefault("analysis_bridge_mode", ANALYSIS_BRIDGE_MODE)
         self._state.metadata.setdefault("analysis_bridge_version", ANALYSIS_BRIDGE_VERSION)
         self._state.metadata.setdefault("stack_id", self._stack_id_from_stack_ref(self._state.stack_ref))
+        self._state.events.sort(key=chronological_event_sort_key)
         if self._state.active_event_id is None and self._state.events:
             self._state.active_event_id = str(self._state.events[0].event_id)
         if self._state.analysis_sidecar is None:

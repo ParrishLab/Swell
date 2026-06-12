@@ -6,6 +6,7 @@ from sdapp.shared.models.state import (
     clone_analysis_payload,
     clone_event_meta,
     clone_project_state,
+    chronological_event_sort_key,
 )
 
 __all__ = [
@@ -16,4 +17,5 @@ __all__ = [
     "clone_analysis_payload",
     "clone_event_meta",
     "clone_project_state",
+    "chronological_event_sort_key",
 ]

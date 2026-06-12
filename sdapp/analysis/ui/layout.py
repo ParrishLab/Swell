@@ -3,11 +3,31 @@ from __future__ import annotations
 import sys
 import tkinter as tk
 
+from PIL import Image, ImageTk
+
 from sdapp.analysis.ui.theme import CANVAS_BACKGROUND, SLIDER_OVERLAY_BACKGROUND, SPACING, apply_theme
 from sdapp.analysis.ui.tooltips import TooltipManager
 from sdapp.analysis.ui.widgets import build_preview_overlay
+from sdapp.analysis.utils.paths import get_resources_root
 from sdapp.analysis.core.region_tools import REGION_EXCLUDE_TOOL, REGION_INCLUDE_TOOL, is_region_tool_mode
 from sdapp.shared.ui.bootstrap import semantic_button_options, ttk
+
+
+TOOLBAR_ICON_SIZE = (24, 24)
+TOOLBAR_ACTIVE_ICON_COLOR = (255, 255, 255, 255)
+TOOLBAR_ICON_FILES = {
+    "select": "Mouse Icon@4x.png",
+    "point_pos": "Point+ Icon@4x.png",
+    "point_neg": "Point- Icon@4x.png",
+    "box": "Box Icon@4x.png",
+    "brush": "Brush Icon@4x.png",
+    "eraser": "Eraser Icon@4x.png",
+    "fill": "Fill+ Icon@4x.png",
+    "fill_erase": "FIll- Icon@4x.png",
+    REGION_INCLUDE_TOOL: "Region+ Icon@4x.png",
+    REGION_EXCLUDE_TOOL: "Region- Icon@4x.png",
+    "clear_frame": "Clear Frame Icon@4x.png",
+}
 
 
 def _attach_tooltip(widget, text: str) -> None:
@@ -28,6 +48,18 @@ def _tooltip_manager_for_widget(widget) -> TooltipManager:
         except Exception:
             pass
     return manager
+
+
+def _load_toolbar_icon_pair(filename: str) -> tuple[ImageTk.PhotoImage, ImageTk.PhotoImage] | None:
+    icon_path = get_resources_root() / "assets" / "analysis_toolbar" / filename
+    if not icon_path.exists():
+        return None
+    with Image.open(icon_path) as source:
+        image = source.convert("RGBA")
+    image = image.resize(TOOLBAR_ICON_SIZE, Image.Resampling.LANCZOS)
+    active_image = Image.new("RGBA", image.size, TOOLBAR_ACTIVE_ICON_COLOR)
+    active_image.putalpha(image.getchannel("A"))
+    return ImageTk.PhotoImage(image), ImageTk.PhotoImage(active_image)
 
 
 class LayoutBuilder:
@@ -615,6 +647,20 @@ class LayoutBuilder:
             button.configure(text="Show")
 
     def _build_tools_group(self, parent, column, *, row=0, vertical=False):
+        loaded_icons = {
+            key: icon_pair
+            for key, filename in TOOLBAR_ICON_FILES.items()
+            if (icon_pair := _load_toolbar_icon_pair(filename)) is not None
+        }
+        self._analysis_toolbar_icons = {key: icon_pair[0] for key, icon_pair in loaded_icons.items()}
+        self._analysis_toolbar_active_icons = {key: icon_pair[1] for key, icon_pair in loaded_icons.items()}
+
+        def icon_button_options(icon_key: str, fallback_text: str) -> dict[str, object]:
+            icon = self._analysis_toolbar_icons.get(icon_key)
+            if icon is None:
+                return {"text": fallback_text}
+            return {"image": icon, "text": ""}
+
         frame = ttk.Frame(parent, padding=(SPACING.card, SPACING.gap, SPACING.card, SPACING.card), style="AppSubpanel.TFrame")
         frame.grid(row=row, column=column, sticky="nsew")
         frame.columnconfigure(0, weight=1)
@@ -622,7 +668,7 @@ class LayoutBuilder:
             frame.columnconfigure(1, weight=1)
             frame.columnconfigure(2, weight=1)
         self.tool_mode = tk.StringVar(value="select")
-        self.tool_mode.trace_add("write", lambda *_args: (self._sync_tool_mode_buttons(), self._sync_tool_options(), self.update_display()))
+        self.tool_mode.trace_add("write", lambda *_args: self._on_tool_mode_changed())
 
         title_span = 1 if vertical else 3
         ttk.Label(frame, text="Tools", style="AppSubpanelTitle.TLabel").grid(row=0, column=0, columnspan=title_span, sticky="w", pady=(0, SPACING.gap))
@@ -633,16 +679,36 @@ class LayoutBuilder:
         else:
             for seg_col in range(3):
                 segmented.columnconfigure(seg_col, weight=1)
-        self.btn_tool_select = ttk.Button(segmented, text="Select", command=lambda: self._set_tool_mode("select"), style="AppSegmentedActive.TButton")
+        self.btn_tool_select = ttk.Button(
+            segmented,
+            command=lambda: self._set_tool_mode("select"),
+            style="AppSegmentedActive.TButton",
+            **icon_button_options("select", "Select"),
+        )
         self.btn_tool_select.grid(row=0, column=0, sticky="ew")
         _attach_tooltip(self.btn_tool_select, "Select (V)")
-        self.btn_tool_point_pos = ttk.Button(segmented, text="Point (+)", command=lambda: self._set_tool_mode("point_pos"), style="AppSegmented.TButton")
+        self.btn_tool_point_pos = ttk.Button(
+            segmented,
+            command=lambda: self._set_tool_mode("point_pos"),
+            style="AppSegmented.TButton",
+            **icon_button_options("point_pos", "Point (+)"),
+        )
         self.btn_tool_point_pos.grid(row=1 if vertical else 0, column=0 if vertical else 1, sticky="ew", padx=(0 if vertical else 1, 0 if vertical else 1), pady=(SPACING.gap if vertical else 0, 0))
         _attach_tooltip(self.btn_tool_point_pos, "Add Point (+)")
-        self.btn_tool_point_neg = ttk.Button(segmented, text="Point (-)", command=lambda: self._set_tool_mode("point_neg"), style="AppSegmented.TButton")
+        self.btn_tool_point_neg = ttk.Button(
+            segmented,
+            command=lambda: self._set_tool_mode("point_neg"),
+            style="AppSegmented.TButton",
+            **icon_button_options("point_neg", "Point (-)"),
+        )
         self.btn_tool_point_neg.grid(row=2 if vertical else 0, column=0 if vertical else 2, sticky="ew", pady=(SPACING.gap if vertical else 0, 0))
         _attach_tooltip(self.btn_tool_point_neg, "Remove Point (-)")
-        self.btn_tool_box = ttk.Button(segmented, text="Box", command=lambda: self._set_tool_mode("box"), style="AppSegmented.TButton")
+        self.btn_tool_box = ttk.Button(
+            segmented,
+            command=lambda: self._set_tool_mode("box"),
+            style="AppSegmented.TButton",
+            **icon_button_options("box", "Box"),
+        )
         if vertical:
             self.btn_tool_box.grid(row=3, column=0, sticky="ew", pady=(SPACING.gap, 0))
         else:
@@ -654,13 +720,28 @@ class LayoutBuilder:
         brush_row.columnconfigure(0, weight=1)
         if not vertical:
             brush_row.columnconfigure(1, weight=1)
-        self.btn_tool_brush = ttk.Button(brush_row, text="Brush (+)", command=lambda: self._set_tool_mode("brush"), style="AppSegmented.TButton")
+        self.btn_tool_brush = ttk.Button(
+            brush_row,
+            command=lambda: self._set_tool_mode("brush"),
+            style="AppSegmented.TButton",
+            **icon_button_options("brush", "Brush (+)"),
+        )
         self.btn_tool_brush.grid(row=0, column=0, sticky="ew", padx=(0, 1))
         _attach_tooltip(self.btn_tool_brush, "Brush + (B)")
-        self.btn_tool_eraser = ttk.Button(brush_row, text="Brush (-)", command=lambda: self._set_tool_mode("eraser"), style="AppSegmented.TButton")
+        self.btn_tool_eraser = ttk.Button(
+            brush_row,
+            command=lambda: self._set_tool_mode("eraser"),
+            style="AppSegmented.TButton",
+            **icon_button_options("eraser", "Brush (-)"),
+        )
         self.btn_tool_eraser.grid(row=1 if vertical else 0, column=0 if vertical else 1, sticky="ew", pady=(SPACING.gap if vertical else 0, 0))
         _attach_tooltip(self.btn_tool_eraser, "Brush - (E)")
-        self.btn_tool_fill = ttk.Button(brush_row, text="Fill (+)", command=lambda: self._set_tool_mode("fill"), style="AppSegmented.TButton")
+        self.btn_tool_fill = ttk.Button(
+            brush_row,
+            command=lambda: self._set_tool_mode("fill"),
+            style="AppSegmented.TButton",
+            **icon_button_options("fill", "Fill (+)"),
+        )
         self.btn_tool_fill.grid(
             row=2 if vertical else 1,
             column=0,
@@ -669,7 +750,12 @@ class LayoutBuilder:
             pady=(SPACING.gap, 0),
         )
         _attach_tooltip(self.btn_tool_fill, "Fill + (G)")
-        self.btn_tool_fill_erase = ttk.Button(brush_row, text="Fill (-)", command=lambda: self._set_tool_mode("fill_erase"), style="AppSegmented.TButton")
+        self.btn_tool_fill_erase = ttk.Button(
+            brush_row,
+            command=lambda: self._set_tool_mode("fill_erase"),
+            style="AppSegmented.TButton",
+            **icon_button_options("fill_erase", "Fill (-)"),
+        )
         self.btn_tool_fill_erase.grid(
             row=3 if vertical else 1,
             column=0 if vertical else 1,
@@ -677,7 +763,12 @@ class LayoutBuilder:
             pady=(SPACING.gap, 0),
         )
         _attach_tooltip(self.btn_tool_fill_erase, "Fill - (Shift+G)")
-        self.btn_tool_region_include = ttk.Button(brush_row, text="Include Region", command=lambda: self._set_tool_mode(REGION_INCLUDE_TOOL), style="AppSegmented.TButton")
+        self.btn_tool_region_include = ttk.Button(
+            brush_row,
+            command=lambda: self._set_tool_mode(REGION_INCLUDE_TOOL),
+            style="AppSegmented.TButton",
+            **icon_button_options(REGION_INCLUDE_TOOL, "Include Region"),
+        )
         self.btn_tool_region_include.grid(
             row=4 if vertical else 2,
             column=0 if vertical else 0,
@@ -686,7 +777,12 @@ class LayoutBuilder:
             pady=(SPACING.gap, 0),
         )
         _attach_tooltip(self.btn_tool_region_include, "Include Region (R)")
-        self.btn_tool_region_exclude = ttk.Button(brush_row, text="Exclude Region", command=lambda: self._set_tool_mode(REGION_EXCLUDE_TOOL), style="AppSegmented.TButton")
+        self.btn_tool_region_exclude = ttk.Button(
+            brush_row,
+            command=lambda: self._set_tool_mode(REGION_EXCLUDE_TOOL),
+            style="AppSegmented.TButton",
+            **icon_button_options(REGION_EXCLUDE_TOOL, "Exclude Region"),
+        )
         self.btn_tool_region_exclude.grid(
             row=5 if vertical else 3,
             column=0 if vertical else 0,
@@ -696,13 +792,20 @@ class LayoutBuilder:
         )
         _attach_tooltip(self.btn_tool_region_exclude, "Exclude Region (Shift+R)")
 
-        ttk.Button(frame, text="Clear Frame", command=self.clear_current_frame_data, **semantic_button_options("secondary")).grid(
+        self.btn_tool_clear_frame = ttk.Button(
+            frame,
+            command=self.clear_current_frame_data,
+            **semantic_button_options("secondary"),
+            **icon_button_options("clear_frame", "Clear Frame"),
+        )
+        self.btn_tool_clear_frame.grid(
             row=3,
             column=0 if vertical else 2,
             columnspan=title_span if vertical else 1,
             sticky="ew" if vertical else "e",
             pady=(SPACING.inner, 0),
         )
+        _attach_tooltip(self.btn_tool_clear_frame, "Clear Frame")
         self._sync_tool_mode_buttons()
         self._sync_tool_options()
         return frame
@@ -1061,27 +1164,48 @@ class LayoutBuilder:
             self._reset_region_options_to_default_range()
         self.tool_mode.set(mode)
 
+    def _on_tool_mode_changed(self):
+        # StringVar traces fire on every write, including same-value writes from
+        # hotkey handlers; skip the expensive sync/render work when nothing changed.
+        current = str(self.tool_mode.get())
+        if getattr(self, "_last_handled_tool_mode", None) == current:
+            return
+        self._last_handled_tool_mode = current
+        self._sync_tool_mode_buttons()
+        self._sync_tool_options()
+        if hasattr(self, "_queue_display_update"):
+            self._queue_display_update(True)
+        else:
+            self.update_display()
+
     def _sync_tool_mode_buttons(self):
         current = str(self.tool_mode.get())
         if getattr(self, "_active_tool_mode_button_state", None) == current:
             return
         self._active_tool_mode_button_state = current
         mapping = {
-            getattr(self, "btn_tool_select", None): "select",
-            getattr(self, "btn_tool_point_pos", None): "point_pos",
-            getattr(self, "btn_tool_point_neg", None): "point_neg",
-            getattr(self, "btn_tool_brush", None): "brush",
-            getattr(self, "btn_tool_eraser", None): "eraser",
-            getattr(self, "btn_tool_fill", None): "fill",
-            getattr(self, "btn_tool_fill_erase", None): "fill_erase",
-            getattr(self, "btn_tool_box", None): "box",
-            getattr(self, "btn_tool_region_include", None): REGION_INCLUDE_TOOL,
-            getattr(self, "btn_tool_region_exclude", None): REGION_EXCLUDE_TOOL,
+            getattr(self, "btn_tool_select", None): ("select", "select"),
+            getattr(self, "btn_tool_point_pos", None): ("point_pos", "point_pos"),
+            getattr(self, "btn_tool_point_neg", None): ("point_neg", "point_neg"),
+            getattr(self, "btn_tool_brush", None): ("brush", "brush"),
+            getattr(self, "btn_tool_eraser", None): ("eraser", "eraser"),
+            getattr(self, "btn_tool_fill", None): ("fill", "fill"),
+            getattr(self, "btn_tool_fill_erase", None): ("fill_erase", "fill_erase"),
+            getattr(self, "btn_tool_box", None): ("box", "box"),
+            getattr(self, "btn_tool_region_include", None): (REGION_INCLUDE_TOOL, REGION_INCLUDE_TOOL),
+            getattr(self, "btn_tool_region_exclude", None): (REGION_EXCLUDE_TOOL, REGION_EXCLUDE_TOOL),
         }
-        for button, mode in mapping.items():
+        normal_icons = getattr(self, "_analysis_toolbar_icons", {}) or {}
+        active_icons = getattr(self, "_analysis_toolbar_active_icons", {}) or {}
+        for button, (mode, icon_key) in mapping.items():
             if button is None:
                 continue
-            button.configure(style="AppSegmentedActive.TButton" if current == mode else "AppSegmented.TButton")
+            is_active = current == mode
+            options = {"style": "AppSegmentedActive.TButton" if is_active else "AppSegmented.TButton"}
+            icon = (active_icons if is_active else normal_icons).get(icon_key)
+            if icon is not None:
+                options["image"] = icon
+            button.configure(**options)
 
     def _sync_tool_options(self):
         frames = getattr(self, "tool_option_frames", {}) or {}
@@ -1091,6 +1215,7 @@ class LayoutBuilder:
         if current == "select" and getattr(self, "selected_region_id", None):
             active = frames.get(REGION_INCLUDE_TOOL) or active
         if active is getattr(self, "_active_tool_option_frame", None):
+            self._sync_region_options_state()
             return
         seen = set()
         for frame in frames.values():

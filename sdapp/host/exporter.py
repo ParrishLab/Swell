@@ -1895,7 +1895,9 @@ def _sha256_array(arr: np.ndarray) -> str:
     h = hashlib.sha256()
     h.update(str(contiguous.dtype).encode("utf-8"))
     h.update(json.dumps([int(v) for v in contiguous.shape]).encode("utf-8"))
-    h.update(contiguous.tobytes())
+    # memoryview hashes the same bytes as tobytes() without duplicating the
+    # array, which matters for full-stack exports.
+    h.update(memoryview(contiguous).cast("B"))
     return h.hexdigest()
 
 

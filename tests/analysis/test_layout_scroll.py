@@ -1,4 +1,5 @@
 from sdapp.analysis.ui.layout import LayoutBuilder
+from sdapp.analysis.core.region_tools import REGION_INCLUDE_TOOL
 
 
 class _FakeRoot:
@@ -55,6 +56,55 @@ class _Event:
         self.num = num
 
 
+class _Var:
+    def __init__(self, value):
+        self.value = value
+
+    def get(self):
+        return self.value
+
+
+class _FakeFrame:
+    def __init__(self):
+        self.grid_count = 0
+        self.remove_count = 0
+
+    def grid(self):
+        self.grid_count += 1
+
+    def grid_remove(self):
+        self.remove_count += 1
+
+
+class _FakeButton:
+    def __init__(self):
+        self.options = {}
+
+    def configure(self, **kwargs):
+        self.options.update(kwargs)
+
+
+class _FakeLabel(_FakeButton):
+    pass
+
+
+class _FakeSegState:
+    def get_persistent_region(self, _region_id):
+        return None
+
+
+class _FakeRegionController:
+    def __init__(self):
+        self.points = []
+        self.closed = False
+
+    def get_region_draft_points(self):
+        return list(self.points)
+
+    def is_region_draft_closed(self):
+        return self.closed
+
+
 class _App(LayoutBuilder):
     def __init__(self):
         self.root = _FakeRoot()
@@ -73,6 +123,39 @@ def test_inspector_mousewheel_uses_scoped_bindtag() -> None:
     assert "InspectorWheel" in app.inspector_scroll_canvas.bindtags()
     assert "InspectorWheel" in app.inspector_scroll_body.bindtags()
     assert "InspectorWheel" in app.inspector_child.bindtags()
+
+
+def test_region_options_refresh_when_active_panel_is_unchanged() -> None:
+    app = LayoutBuilder()
+    region_frame = _FakeFrame()
+    app.tool_option_frames = {
+        "select": _FakeFrame(),
+        REGION_INCLUDE_TOOL: region_frame,
+    }
+    app._active_tool_option_frame = region_frame
+    app.tool_mode = _Var(REGION_INCLUDE_TOOL)
+    app.selected_region_id = None
+    app.seg_state = _FakeSegState()
+    app.interaction_controller = _FakeRegionController()
+    app.lbl_region_options_title = _FakeLabel()
+    app.btn_region_convert = _FakeButton()
+    app.btn_region_add = _FakeButton()
+    app.btn_region_close_shape = _FakeButton()
+    app.btn_region_discard = _FakeButton()
+
+    app._sync_tool_options()
+    assert app.btn_region_add.options["state"] == "disabled"
+    assert app.btn_region_close_shape.options["state"] == "disabled"
+    assert app.btn_region_discard.options["state"] == "disabled"
+
+    app.interaction_controller.points = [(1, 1), (2, 1), (2, 2)]
+    app._sync_tool_options()
+
+    assert app.btn_region_add.options["state"] == "normal"
+    assert app.btn_region_close_shape.options["state"] == "normal"
+    assert app.btn_region_discard.options["state"] == "normal"
+    assert region_frame.grid_count == 0
+    assert region_frame.remove_count == 0
 
 
 def test_inspector_mousewheel_outside_does_not_scroll_and_unbinds() -> None:

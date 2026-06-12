@@ -2,6 +2,36 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.1.9] - 2026-06-12
+
+### Analysis window and tools UI
+- Replaced the text-labeled segmentation tool buttons with icon buttons (select, point +/-, box, brush +/-, fill +/-, include/exclude region, clear frame), falling back to text labels when an icon asset is unavailable.
+- Refreshed the application icon (macOS `.icns`, Windows `.ico`, runtime PNG) and added a reproducible icon-generation pipeline (`scripts/release/generate_app_icons.py`).
+- Tool-mode changes are now routed through a single guarded handler so same-value hotkey re-presses no longer trigger redundant re-renders.
+
+### Bug fixes
+- Arrow-key timeline navigation and Delete/Backspace point deletion no longer fire while the user is typing in a text entry (e.g. the region frame-range fields), preventing accidental frame scrubbing and region deletion.
+- Events are now returned in a stable chronological order (start, end, id) from both the host and unified project services.
+
+### Performance
+- Cached the per-cell quiet MAD across coherence-gate candidates and reused mask statistics across neighbor pairs in trouble scoring.
+- Added a cached no-regions mask-frame set in segmentation state and tightened the render photo-cache key so tool switches no longer force cache misses.
+- Hash full-stack exports via `memoryview` instead of duplicating arrays with `tobytes()`.
+
+### Model/checkpoint compatibility
+- No checkpoint format or model selection change in this release; existing managed and local SAM2 model selections remain compatible.
+
+### Platform/backend limitations
+- New toolbar icon assets are bundled from the `sdapp` package via PyInstaller `collect_data_files`; no backend behavior changes.
+
+### .sdproj/migration notes
+- No `.sdproj` schema version bump is required; existing projects remain loadable. Event ordering is normalized on load but does not alter stored data.
+
+### Known segmentation caveats/regressions
+- No new release-blocking segmentation regressions are known from the automated suite.
+- SAM2 post-processing/native extension availability may still vary by environment.
+- Auto-update behavior still depends on platform packaging/signing state; validate against final signed release artifacts.
+
 ## [0.1.8] - 2026-05-14
 
 ### Auto-detect and ROI improvements

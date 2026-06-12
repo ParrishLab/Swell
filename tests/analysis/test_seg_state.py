@@ -96,6 +96,27 @@ class SegmentationStateTests(unittest.TestCase):
         frames = state.get_nonempty_final_mask_frames(4, (3, 3))
         self.assertEqual(frames, {1})
 
+    def test_nonempty_mask_frames_without_regions_cached_and_invalidated(self):
+        state = SegmentationState()
+        mask = np.zeros((3, 3), dtype=bool)
+        mask[0, 0] = True
+        state.set_mask(1, mask)
+
+        self.assertEqual(state.get_nonempty_mask_frames_without_regions(10, (3, 3)), {1})
+        # Cached result is a copy; mutating it must not poison the cache.
+        leaked = state.get_nonempty_mask_frames_without_regions(10, (3, 3))
+        leaked.add(99)
+        self.assertEqual(state.get_nonempty_mask_frames_without_regions(10, (3, 3)), {1})
+
+        # Mask/paint mutations invalidate the cache.
+        plus = np.zeros((3, 3), dtype=bool)
+        plus[2, 2] = True
+        state.set_paint_layer(5, plus, np.zeros((3, 3), dtype=bool))
+        self.assertEqual(state.get_nonempty_mask_frames_without_regions(10, (3, 3)), {1, 5})
+
+        # A different frame_count scope recomputes rather than serving stale frames.
+        self.assertEqual(state.get_nonempty_mask_frames_without_regions(3, (3, 3)), {1})
+
     def test_get_nonempty_final_mask_frames_accepts_singleton_channel_masks(self):
         state = SegmentationState()
         mask = np.zeros((3, 3, 1), dtype=bool)

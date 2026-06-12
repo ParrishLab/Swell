@@ -2,7 +2,7 @@ Unicode true
 RequestExecutionLevel user
 
 !define APP_NAME "SDApp"
-!define APP_VERSION "0.1.8"
+!define APP_VERSION "0.1.9"
 !define APP_EXE "SDApp.exe"
 !define APP_PROG_ID "SDApp.Project"
 

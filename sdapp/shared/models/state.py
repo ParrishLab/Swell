@@ -116,6 +116,10 @@ def clone_event_meta(event: EventMeta) -> EventMeta:
     )
 
 
+def chronological_event_sort_key(event: EventMeta) -> tuple[int, int, str]:
+    return (int(event.start_idx), int(event.end_idx), str(event.event_id))
+
+
 def clone_analysis_payload(
     payload: dict[str, Any] | None,
     *,

@@ -686,7 +686,6 @@ class HostProjectLifecycleController:
                 message=f"{count} analysis window(s) have unsaved changes.",
                 yes_label="Save and continue",
                 no_label="Continue without saving",
-                cancel_label="Abort",
             )
             if response is None:
                 return {"ok": False, "reason": "canceled"}
@@ -724,7 +723,6 @@ class HostProjectLifecycleController:
                 message="The host project has unsaved changes.",
                 yes_label="Save and close",
                 no_label="Close without saving",
-                cancel_label="Abort",
             )
             if response is None:
                 return {"ok": False, "reason": "host_canceled"}

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import replace
 
+from sdapp.shared.models import chronological_event_sort_key
+
 from .host_models import EventMeta
 
 
@@ -22,7 +24,7 @@ class EventCatalogService:
             self._active_event_id = str(active_event_id)
 
     def list_events(self) -> list[EventMeta]:
-        return [replace(event) for event in self._events.values()]
+        return [replace(event) for event in sorted(self._events.values(), key=chronological_event_sort_key)]
 
     def get_event(self, event_id: str | None) -> EventMeta | None:
         if event_id is None:

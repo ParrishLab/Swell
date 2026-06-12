@@ -15,6 +15,17 @@ class _ToolModeVar:
         return self.value
 
 
+class _StringVar:
+    def __init__(self, value=""):
+        self.value = str(value)
+
+    def set(self, value):
+        self.value = str(value)
+
+    def get(self):
+        return self.value
+
+
 class _FocusWidget:
     def __init__(self, cls_name):
         self._cls_name = cls_name
@@ -45,6 +56,8 @@ class HotkeysTests(unittest.TestCase):
         app = SDSegmentationApp.__new__(SDSegmentationApp)
         app.root = _RootStub(_FocusWidget(focused_class))
         app.tool_mode = _ToolModeVar("select")
+        # Tool hotkeys must not call update_display directly; the redraw is
+        # queued by the tool_mode trace (see LayoutBuilder._on_tool_mode_changed).
         app.update_calls = 0
         app.update_display = lambda: setattr(app, "update_calls", app.update_calls + 1)
         app.canvas_left = object()
@@ -61,35 +74,35 @@ class HotkeysTests(unittest.TestCase):
         out = app._set_tool_brush_hotkey()
         self.assertEqual(out, "break")
         self.assertEqual(app.tool_mode.get(), "brush")
-        self.assertEqual(app.update_calls, 1)
+        self.assertEqual(app.update_calls, 0)
 
     def test_e_sets_eraser_when_not_typing(self):
         app = self._make_app("Canvas")
         out = app._set_tool_eraser_hotkey()
         self.assertEqual(out, "break")
         self.assertEqual(app.tool_mode.get(), "eraser")
-        self.assertEqual(app.update_calls, 1)
+        self.assertEqual(app.update_calls, 0)
 
     def test_k_sets_box_when_not_typing(self):
         app = self._make_app("Canvas")
         out = app._set_tool_box_hotkey()
         self.assertEqual(out, "break")
         self.assertEqual(app.tool_mode.get(), "box")
-        self.assertEqual(app.update_calls, 1)
+        self.assertEqual(app.update_calls, 0)
 
     def test_g_sets_fill_when_not_typing(self):
         app = self._make_app("Canvas")
         out = app._set_tool_fill_hotkey()
         self.assertEqual(out, "break")
         self.assertEqual(app.tool_mode.get(), "fill")
-        self.assertEqual(app.update_calls, 1)
+        self.assertEqual(app.update_calls, 0)
 
     def test_shift_g_sets_fill_erase_when_not_typing(self):
         app = self._make_app("Canvas")
         out = app._set_tool_fill_erase_hotkey()
         self.assertEqual(out, "break")
         self.assertEqual(app.tool_mode.get(), "fill_erase")
-        self.assertEqual(app.update_calls, 1)
+        self.assertEqual(app.update_calls, 0)
 
     def test_r_sets_include_region_when_not_typing(self):
         app = self._make_app("Canvas")
@@ -97,7 +110,7 @@ class HotkeysTests(unittest.TestCase):
         out = app._set_tool_region_hotkey()
         self.assertEqual(out, "break")
         self.assertEqual(app.tool_mode.get(), REGION_INCLUDE_TOOL)
-        self.assertEqual(app.update_calls, 1)
+        self.assertEqual(app.update_calls, 0)
 
     def test_shift_r_sets_exclude_region_when_not_typing(self):
         app = self._make_app("Canvas")
@@ -105,7 +118,37 @@ class HotkeysTests(unittest.TestCase):
         out = app._set_tool_region_exclude_hotkey()
         self.assertEqual(out, "break")
         self.assertEqual(app.tool_mode.get(), REGION_EXCLUDE_TOOL)
-        self.assertEqual(app.update_calls, 1)
+        self.assertEqual(app.update_calls, 0)
+
+    def test_region_default_frame_range_uses_current_frame_not_propagation_range(self):
+        app = self._make_app("Canvas")
+        app.current_frame_idx = 4
+        app._get_frame_count = lambda: 10
+        app.spin_prop_start = _StringVar("2")
+        app.spin_prop_end = _StringVar("8")
+
+        self.assertEqual(app._default_region_frame_range(), (4, 4))
+
+    def test_region_default_frame_range_clamps_current_frame(self):
+        app = self._make_app("Canvas")
+        app.current_frame_idx = 99
+        app._get_frame_count = lambda: 10
+
+        self.assertEqual(app._default_region_frame_range(), (9, 9))
+
+    def test_region_tool_hotkey_prefills_current_frame(self):
+        app = self._make_app("Canvas")
+        app.current_frame_idx = 4
+        app._get_frame_count = lambda: 10
+        app.selected_region_id = None
+        app.region_start_var = _StringVar("1")
+        app.region_end_var = _StringVar("10")
+
+        out = app._set_tool_region_hotkey()
+
+        self.assertEqual(out, "break")
+        self.assertEqual(app.region_start_var.get(), "5")
+        self.assertEqual(app.region_end_var.get(), "5")
 
     def test_l_toggles_ground_truth_when_not_typing(self):
         app = self._make_app("Canvas")
@@ -132,6 +175,58 @@ class HotkeysTests(unittest.TestCase):
         self.assertIsNone(app._set_tool_region_hotkey())
         self.assertIsNone(app._set_tool_region_exclude_hotkey())
         self.assertEqual(app.tool_mode.get(), "select")
+
+    def test_delete_key_ignored_while_typing_in_entry(self):
+        # Delete/BackSpace are root-level binds, so they fire while editing the
+        # region frame-range entries; they must not delete the selected region.
+        app = self._make_app("Entry")
+        app.delete_calls = 0
+        app.interaction_controller = type(
+            "IC", (), {"delete_selected_point": lambda _self, _event: setattr(app, "delete_calls", app.delete_calls + 1) or True}
+        )()
+        app._mark_project_dirty = lambda _reason: None
+        self.assertIsNone(app.delete_selected_point(object()))
+        self.assertEqual(app.delete_calls, 0)
+
+    def test_delete_key_applies_when_canvas_focused(self):
+        app = self._make_app("Canvas")
+        app.delete_calls = 0
+        app.interaction_controller = type(
+            "IC", (), {"delete_selected_point": lambda _self, _event: setattr(app, "delete_calls", app.delete_calls + 1) or True}
+        )()
+        app._mark_project_dirty = lambda _reason: None
+        app.delete_selected_point(object())
+        self.assertEqual(app.delete_calls, 1)
+
+    def test_arrow_nav_ignored_while_typing_in_entry(self):
+        app = self._make_app("Entry")
+        app.nav_calls = []
+        app.interaction_controller = type(
+            "IC",
+            (),
+            {
+                "on_nav_left": lambda _self, _event: app.nav_calls.append("left") or "break",
+                "on_nav_right": lambda _self, _event: app.nav_calls.append("right") or "break",
+            },
+        )()
+        self.assertIsNone(app.on_nav_left(object()))
+        self.assertIsNone(app.on_nav_right(object()))
+        self.assertEqual(app.nav_calls, [])
+
+    def test_arrow_nav_applies_when_canvas_focused(self):
+        app = self._make_app("Canvas")
+        app.nav_calls = []
+        app.interaction_controller = type(
+            "IC",
+            (),
+            {
+                "on_nav_left": lambda _self, _event: app.nav_calls.append("left") or "break",
+                "on_nav_right": lambda _self, _event: app.nav_calls.append("right") or "break",
+            },
+        )()
+        self.assertEqual(app.on_nav_left(object()), "break")
+        self.assertEqual(app.on_nav_right(object()), "break")
+        self.assertEqual(app.nav_calls, ["left", "right"])
 
     def test_zoom_hotkeys_delegate_to_shared_viewport(self):
         app = self._make_app("Canvas")

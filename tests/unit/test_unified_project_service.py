@@ -4,7 +4,7 @@ from pathlib import Path
 
 import numpy as np
 
-from sdapp.shared.models import EventMeta, StackRef
+from sdapp.shared.models import EventMeta, StackRef, UnifiedProjectState
 from sdapp.shared.services import UnifiedProjectService
 
 
@@ -33,6 +33,41 @@ def test_unified_service_event_crud_single_stack() -> None:
     service.delete_event("event_0001")
     remaining = service.list_events()
     assert [e.event_id for e in remaining] == ["event_0002"]
+
+
+def test_unified_service_orders_events_chronologically() -> None:
+    service = UnifiedProjectService()
+    service.new_project(_stack_ref("project"))
+
+    service.upsert_event(EventMeta(event_id="event_0002", label="B", start_idx=8, end_idx=9, flags={}))
+    service.upsert_event(EventMeta(event_id="event_0001", label="A", start_idx=2, end_idx=5, flags={}))
+    service.upsert_event(EventMeta(event_id="event_0003", label="C", start_idx=6, end_idx=7, flags={}))
+
+    assert [event.event_id for event in service.list_events()] == ["event_0001", "event_0003", "event_0002"]
+
+    service.upsert_event(EventMeta(event_id="event_0002", label="B", start_idx=0, end_idx=1, flags={}))
+
+    assert [event.event_id for event in service.list_events()] == ["event_0002", "event_0001", "event_0003"]
+
+
+def test_unified_service_defaults_active_event_to_first_chronological_event() -> None:
+    service = UnifiedProjectService()
+    service.replace_state(
+        UnifiedProjectState(
+            stack_ref=_stack_ref("project"),
+            events=[
+                EventMeta(event_id="event_0002", label="B", start_idx=8, end_idx=9, flags={}),
+                EventMeta(event_id="event_0001", label="A", start_idx=2, end_idx=5, flags={}),
+            ],
+            active_event_id=None,
+            analysis_sidecar={},
+            metadata={},
+        ),
+        mark_dirty=False,
+    )
+
+    assert [event.event_id for event in service.list_events()] == ["event_0001", "event_0002"]
+    assert service.state().active_event_id == "event_0001"
 
 
 def test_unified_service_analysis_updates_and_subscribe() -> None:

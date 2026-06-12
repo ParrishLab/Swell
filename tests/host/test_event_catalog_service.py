@@ -63,3 +63,20 @@ def test_event_catalog_update_event_can_replace_flags() -> None:
     )
 
     assert updated.flags == {"analysis_processing": {"smoothing": False}}
+
+
+def test_event_catalog_lists_events_chronologically_after_create_reset_and_update() -> None:
+    svc = EventCatalogService()
+    late = svc.create_event(start_idx=30, end_idx=35, frame_count=100)
+    early = svc.create_event(start_idx=5, end_idx=10, frame_count=100)
+    middle = svc.create_event(start_idx=20, end_idx=22, frame_count=100)
+
+    assert [event.event_id for event in svc.list_events()] == [early.event_id, middle.event_id, late.event_id]
+
+    svc.update_event(late.event_id, start_idx=1, end_idx=2, frame_count=100)
+
+    assert [event.event_id for event in svc.list_events()] == [late.event_id, early.event_id, middle.event_id]
+
+    svc.reset(events=[middle, early, late])
+
+    assert [event.event_id for event in svc.list_events()] == [early.event_id, middle.event_id, late.event_id]

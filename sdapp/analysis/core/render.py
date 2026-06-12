@@ -332,7 +332,10 @@ class RenderActions:
             img_arr,
             resample=left_resample,
             fill_value=CANVAS_FILL_RGB,
-            token=("left", int(idx), visual_token, final_mask_token, bool(self.is_dragging), str(self.tool_mode.get()), mask_peek, ghost_enabled, tuple(ghost_tokens)),
+            # is_dragging/tool_mode only affect the resample method, which is
+            # already part of the photo cache key; keeping them here would force
+            # a cache miss on every tool switch.
+            token=("left", int(idx), visual_token, final_mask_token, mask_peek, ghost_enabled, tuple(ghost_tokens)),
         )
         self.canvas_left.delete("all")
         self.canvas_left.create_image(0, 0, image=self.tk_img_left, anchor="nw")

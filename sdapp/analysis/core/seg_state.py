@@ -24,11 +24,14 @@ class SegmentationState:
         self.frames_with_user_input: set[int] = set()
         self.frames_with_nonempty_final_mask: set[int] = set()
         self._final_mask_frames_scope: tuple[int, tuple[int, int]] | None = None
+        self.frames_with_nonempty_mask_no_regions: set[int] = set()
+        self._mask_frames_no_regions_scope: tuple[int, tuple[int, int]] | None = None
 
         self.dirty_valid_point_frames = True
         self.dirty_valid_box_frames = True
         self.dirty_user_frames = True
         self.dirty_final_mask_frames = True
+        self.dirty_mask_frames_no_regions = True
 
     def _has_valid_points_for_frame(self, frame_idx: int) -> bool:
         pt_list = self.points.get(frame_idx)
@@ -79,6 +82,8 @@ class SegmentationState:
     def invalidate_final_mask_frames(self):
         self.dirty_final_mask_frames = True
         self._final_mask_frames_scope = None
+        self.dirty_mask_frames_no_regions = True
+        self._mask_frames_no_regions_scope = None
 
     def _mark_user_changed(self):
         self.dirty_valid_point_frames = True
@@ -424,20 +429,20 @@ class SegmentationState:
                 final_mask = (final_mask | plus) & ~minus
 
         if apply_persistent_regions:
-            include_mask = np.zeros(expected_shape, dtype=bool)
-            exclude_mask = np.zeros(expected_shape, dtype=bool)
+            # Includes OR straight into final_mask; excludes are deferred so
+            # they always win over includes, matching the previous
+            # union-then-apply semantics without the two scratch allocations.
+            exclude_masks: list[np.ndarray] = []
             for region in self.get_active_persistent_regions(frame_idx, expected_shape):
                 region_mask = self.rasterize_persistent_region(region, expected_shape)
                 if region_mask is None:
                     continue
                 if str(region.get("mode")) == "exclude":
-                    exclude_mask |= region_mask
+                    exclude_masks.append(region_mask)
                 else:
-                    include_mask |= region_mask
-            if np.any(include_mask):
-                final_mask |= include_mask
-            if np.any(exclude_mask):
-                final_mask &= ~exclude_mask
+                    final_mask |= region_mask
+            for region_mask in exclude_masks:
+                final_mask[region_mask] = False
 
         return final_mask
 
@@ -482,11 +487,16 @@ class SegmentationState:
         return candidates
 
     def get_nonempty_mask_frames_without_regions(self, frame_count: int, base_shape) -> set[int]:
-        frames_with_masks = set()
-        for frame_idx in self._candidate_nonempty_final_mask_frames(frame_count, include_regions=False):
-            if self.has_nonempty_final_mask(frame_idx, base_shape, apply_persistent_regions=False):
-                frames_with_masks.add(frame_idx)
-        return frames_with_masks
+        scope = (int(frame_count), tuple(int(v) for v in base_shape[:2]))
+        if self.dirty_mask_frames_no_regions or self._mask_frames_no_regions_scope != scope:
+            frames_with_masks = set()
+            for frame_idx in self._candidate_nonempty_final_mask_frames(frame_count, include_regions=False):
+                if self.has_nonempty_final_mask(frame_idx, base_shape, apply_persistent_regions=False):
+                    frames_with_masks.add(frame_idx)
+            self.frames_with_nonempty_mask_no_regions = frames_with_masks
+            self._mask_frames_no_regions_scope = scope
+            self.dirty_mask_frames_no_regions = False
+        return set(self.frames_with_nonempty_mask_no_regions)
 
     def get_nonempty_final_mask_frames(self, frame_count: int, base_shape) -> set[int]:
         scope = (int(frame_count), tuple(int(v) for v in base_shape[:2]))

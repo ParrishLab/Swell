@@ -32,15 +32,19 @@ def _mask_stats(mask: np.ndarray) -> tuple[float, float, float] | None:
     return area, float(xs.mean()), float(ys.mean())
 
 
-def _pair_trouble(prev: np.ndarray, cur: np.ndarray, diag: float) -> float:
+def _pair_trouble(
+    prev: np.ndarray,
+    cur: np.ndarray,
+    diag: float,
+    stats_a: tuple[float, float, float] | None,
+    stats_b: tuple[float, float, float] | None,
+) -> float:
     """Instability score in [0,1] for one consecutive mask pair."""
     a = np.asarray(prev, dtype=bool)
     b = np.asarray(cur, dtype=bool)
     if a.shape != b.shape:
         return 1.0
 
-    stats_a = _mask_stats(a)
-    stats_b = _mask_stats(b)
     if stats_a is None or stats_b is None:
         # One frame empty, the other not -> maximally unstable.
         return 0.0 if (stats_a is None and stats_b is None) else 1.0
@@ -89,7 +93,9 @@ def compute_trouble(
     if not sample:
         return {}
     diag = math.hypot(*next(iter(sample.values())).shape) or 1.0
-    nonempty = {int(f) for f, mask in sample.items() if _mask_stats(mask) is not None}
+    # Stats per frame are reused by both neighbor pairs; compute them once.
+    stats = {f: _mask_stats(mask) for f, mask in sample.items()}
+    nonempty = {int(f) for f, s in stats.items() if s is not None}
     if not nonempty:
         return {}
 
@@ -102,7 +108,7 @@ def compute_trouble(
             return None
         key = (i, j)
         if key not in pair_cache:
-            pair_cache[key] = _pair_trouble(sample[i], sample[j], diag)
+            pair_cache[key] = _pair_trouble(sample[i], sample[j], diag, stats[i], stats[j])
         return pair_cache[key]
 
     trouble: dict[int, float] = {}

@@ -2398,22 +2398,12 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
     def _default_region_frame_range(self) -> tuple[int, int]:
         frame_count = max(0, int(self._get_frame_count())) if hasattr(self, "_get_frame_count") else 0
         max_idx = max(0, frame_count - 1)
-        start, end = 0, max_idx
-        for attr, fallback in (("spin_prop_start", 1), ("spin_prop_end", max_idx + 1)):
-            widget = getattr(self, attr, None)
-            try:
-                value = int(float(widget.get())) - 1
-            except Exception:
-                value = int(fallback) - 1
-            if attr == "spin_prop_start":
-                start = value
-            else:
-                end = value
-        start = max(0, min(max_idx, start))
-        end = max(0, min(max_idx, end))
-        if end < start:
-            start, end = end, start
-        return start, end
+        try:
+            current_idx = int(getattr(self, "current_frame_idx", 0))
+        except Exception:
+            current_idx = 0
+        current_idx = max(0, min(max_idx, current_idx))
+        return current_idx, current_idx
 
     def _reset_region_options_to_default_range(self):
         start, end = self._default_region_frame_range()
@@ -2556,9 +2546,15 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         self.interaction_controller.on_brush_size_change(val)
 
     def on_nav_left(self, event=None):
+        # Root-level arrow binds also fire while editing text entries; don't
+        # scrub the timeline while the user is moving the text cursor.
+        if event is not None and self._focus_is_text_input():
+            return None
         return self.interaction_controller.on_nav_left(event)
 
     def on_nav_right(self, event=None):
+        if event is not None and self._focus_is_text_input():
+            return None
         return self.interaction_controller.on_nav_right(event)
 
     def on_browse_model(self):
@@ -2596,56 +2592,48 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         if self._focus_is_text_input():
             return None
         self.tool_mode.set("brush")
-        self.update_display()
         return "break"
 
     def _set_tool_eraser_hotkey(self, event=None):
         if self._focus_is_text_input():
             return None
         self.tool_mode.set("eraser")
-        self.update_display()
         return "break"
 
     def _set_tool_select_hotkey(self, event=None):
         if self._focus_is_text_input():
             return None
         self.tool_mode.set("select")
-        self.update_display()
         return "break"
 
     def _set_tool_point_pos_hotkey(self, event=None):
         if self._focus_is_text_input():
             return None
         self.tool_mode.set("point_pos")
-        self.update_display()
         return "break"
 
     def _set_tool_point_neg_hotkey(self, event=None):
         if self._focus_is_text_input():
             return None
         self.tool_mode.set("point_neg")
-        self.update_display()
         return "break"
 
     def _set_tool_box_hotkey(self, event=None):
         if self._focus_is_text_input():
             return None
         self.tool_mode.set("box")
-        self.update_display()
         return "break"
 
     def _set_tool_fill_hotkey(self, event=None):
         if self._focus_is_text_input():
             return None
         self.tool_mode.set("fill")
-        self.update_display()
         return "break"
 
     def _set_tool_fill_erase_hotkey(self, event=None):
         if self._focus_is_text_input():
             return None
         self.tool_mode.set("fill_erase")
-        self.update_display()
         return "break"
 
     def _set_tool_region_hotkey(self, event=None):
@@ -2654,7 +2642,6 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         if not getattr(self, "selected_region_id", None):
             self._reset_region_options_to_default_range()
         self.tool_mode.set(REGION_INCLUDE_TOOL)
-        self.update_display()
         return "break"
 
     def _set_tool_region_exclude_hotkey(self, event=None):
@@ -2663,7 +2650,6 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
         if not getattr(self, "selected_region_id", None):
             self._reset_region_options_to_default_range()
         self.tool_mode.set(REGION_EXCLUDE_TOOL)
-        self.update_display()
         return "break"
 
     def _toggle_ground_truth_hotkey(self, event=None):
@@ -2730,6 +2716,11 @@ class SDSegmentationApp(LayoutBuilder, IOActions, SegmentationActions, RenderAct
             self._mark_project_dirty("mouse_up")
 
     def delete_selected_point(self, event=None):
+        # Delete/BackSpace are bound on the root window, so this also fires
+        # while typing in an Entry (e.g. the region frame-range fields); without
+        # this guard a Backspace there deletes the selected region.
+        if event is not None and self._focus_is_text_input():
+            return None
         changed = bool(self.interaction_controller.delete_selected_point(event))
         if changed:
             self._mark_project_dirty("delete_point")

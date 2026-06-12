@@ -333,8 +333,8 @@ class RenderActionsTests(unittest.TestCase):
             self.assertEqual(len(harness._ghost_contours_cache), 2)
 
             token_with_ghosts = harness.captured_tokens[-1]
-            self.assertTrue(token_with_ghosts[7])
-            self.assertEqual(len(token_with_ghosts[8]), 4)
+            self.assertTrue(token_with_ghosts[5])
+            self.assertEqual(len(token_with_ghosts[6]), 4)
 
             m1_new = np.zeros((4, 4), dtype=bool)
             m1_new[1, 1] = True
@@ -370,17 +370,17 @@ class RenderActionsTests(unittest.TestCase):
             harness.tool_mode = type("ToolMode", (), {"get": lambda _self: "select"})()
             harness.update_display(update_preview=False)
             token_select = harness.captured_tokens[-1]
-            self.assertFalse(token_select[7])
+            self.assertFalse(token_select[5])
 
             harness.tool_mode = type("ToolMode", (), {"get": lambda _self: "brush"})()
             harness.update_display(update_preview=False)
             token_brush = harness.captured_tokens[-1]
-            self.assertFalse(token_brush[7])
+            self.assertFalse(token_brush[5])
 
             harness.ghost_outlines_enabled_var.set(True)
             harness.update_display(update_preview=False)
             token_enabled = harness.captured_tokens[-1]
-            self.assertTrue(token_enabled[7])
+            self.assertTrue(token_enabled[5])
         finally:
             harness.root.destroy()
 

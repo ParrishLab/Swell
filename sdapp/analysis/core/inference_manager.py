@@ -521,17 +521,22 @@ class InferenceManager:
         with self._logits_cache_lock:
             self._logits_cache.clear()
 
+    def _prompted_frames(self) -> set[int]:
+        """Frames with valid point or box prompts."""
+        frames = set(self.state.get_valid_point_frames() or [])
+        get_box_frames = getattr(self.state, "get_valid_box_frames", None)
+        if callable(get_box_frames):
+            try:
+                frames.update(get_box_frames() or [])
+            except Exception:
+                pass
+        return frames
+
     def _try_rethreshold_from_cache(self, frame_idx) -> bool:
         if not self.model_ready:
             return False
         self.state.prune_invalid_points()
-        point_frames = set(self.state.get_valid_point_frames() or [])
-        get_box_frames = getattr(self.state, "get_valid_box_frames", None)
-        try:
-            box_frames = set(get_box_frames() or []) if callable(get_box_frames) else set()
-        except Exception:
-            box_frames = set()
-        if frame_idx not in (point_frames | box_frames):
+        if frame_idx not in self._prompted_frames():
             return False
         signature = self._prompt_signature(frame_idx)
         if signature is None:
@@ -597,14 +602,7 @@ class InferenceManager:
 
     def _run_single_frame_inference_core(self, frame_idx, generation):
         self.state.prune_invalid_points()
-        point_frames = set(self.state.get_valid_point_frames() or [])
-        get_box_frames = getattr(self.state, "get_valid_box_frames", None)
-        try:
-            box_frames = set(get_box_frames() or []) if callable(get_box_frames) else set()
-        except Exception:
-            box_frames = set()
-        valid_frames = point_frames | box_frames
-        if frame_idx not in valid_frames:
+        if frame_idx not in self._prompted_frames():
             return
         if not self.model_ready or self.predictor is None or self.inference_state is None:
             return

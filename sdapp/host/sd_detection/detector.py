@@ -422,6 +422,7 @@ def compute_lag1_corr(
     active_threshold_mad: float = 10.0,
     quiet_pre_frames: int = 200,
     polarity: str = "positive",
+    _mad_cache: dict | None = None,
 ) -> float:
     """Compute lag-1 autocorrelation of active-cell-count signal within window.
 
@@ -457,41 +458,40 @@ def compute_lag1_corr(
     if end_idx < start_idx:
         return float("nan")
 
+    if polarity not in ("positive", "negative", "absolute", "both"):
+        raise ValueError(f"Unsupported polarity: {polarity}")
+
+    mad = None
+    if _mad_cache is not None:
+        mad = _mad_cache.get((start_idx, int(quiet_pre_frames)))
+    if mad is None:
+        mad = quiet_mad(detrended, start_idx, quiet_pre_frames=quiet_pre_frames)
+        if _mad_cache is not None:
+            _mad_cache[(start_idx, int(quiet_pre_frames))] = mad
+    norm = detrended[:, start_idx : end_idx + 1] / mad[:, np.newaxis]
+    threshold = float(active_threshold_mad)
+
     if polarity == "both":
-        corr_pos = compute_lag1_corr(
-            detrended,
-            frame_indices,
-            candidate,
-            active_threshold_mad=active_threshold_mad,
-            quiet_pre_frames=quiet_pre_frames,
-            polarity="positive",
-        )
-        corr_neg = compute_lag1_corr(
-            detrended,
-            frame_indices,
-            candidate,
-            active_threshold_mad=active_threshold_mad,
-            quiet_pre_frames=quiet_pre_frames,
-            polarity="negative",
-        )
+        # Both polarities share the same mad/norm; only the thresholding differs.
+        corr_pos = _lag1_corr_from_active(norm > threshold)
+        corr_neg = _lag1_corr_from_active(norm < -threshold)
         if np.isnan(corr_pos):
             return corr_neg
         if np.isnan(corr_neg):
             return corr_pos
         return max(corr_pos, corr_neg)
 
-    mad = quiet_mad(detrended, start_idx, quiet_pre_frames=quiet_pre_frames)
-    norm = detrended[:, start_idx : end_idx + 1] / mad[:, np.newaxis]
     if polarity == "positive":
-        active_matrix = norm > float(active_threshold_mad)
+        active_matrix = norm > threshold
     elif polarity == "negative":
-        active_matrix = norm < -float(active_threshold_mad)
-    elif polarity == "absolute":
-        active_matrix = np.abs(norm) > float(active_threshold_mad)
+        active_matrix = norm < -threshold
     else:
-        raise ValueError(f"Unsupported polarity: {polarity}")
-    active_counts = active_matrix.sum(axis=0).astype(float)
+        active_matrix = np.abs(norm) > threshold
+    return _lag1_corr_from_active(active_matrix)
 
+
+def _lag1_corr_from_active(active_matrix: np.ndarray) -> float:
+    active_counts = active_matrix.sum(axis=0).astype(float)
     if len(active_counts) < 2:
         return float("nan")
     if np.std(active_counts[:-1]) <= 0 or np.std(active_counts[1:]) <= 0:
@@ -511,6 +511,9 @@ def apply_coherence_gate(
 ) -> list[dict]:
     """Filter candidates by lag-1 coherence; adds 'lag1_corr' to each accepted dict."""
     accepted: list[dict] = []
+    # Candidates frequently share a window start; reuse the per-cell quiet MAD
+    # across them instead of recomputing the nanmedians for every candidate.
+    mad_cache: dict = {}
     for cand in candidates:
         lag1 = compute_lag1_corr(
             detrended,
@@ -519,6 +522,7 @@ def apply_coherence_gate(
             active_threshold_mad=active_threshold_mad,
             quiet_pre_frames=quiet_pre_frames,
             polarity=polarity,
+            _mad_cache=mad_cache,
         )
         if not np.isfinite(lag1) or lag1 < float(coherence_threshold):
             continue
