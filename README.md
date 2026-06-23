@@ -87,7 +87,7 @@ python -m swell.main --smoke-test
 - `swell/`: application package (`host`, `analysis`, `shared`).
 - `tests/`: unit, host, analysis, integration, and migration tests.
 - `docs/`: architecture and release planning docs.
-- `seam_contract_fixtures/`: seam-contract validation fixtures.
+- `tests/fixtures/seam_contract/`: seam-contract validation fixtures.
 - `archive/legacy-integration/`: historical integration/refactor notes.
 
 ## Development Notes

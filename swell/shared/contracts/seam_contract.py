@@ -27,7 +27,7 @@ def err(code: ValidatorErrorCode | str, message: str) -> dict[str, Any]:
 
 def load_contract_fixture(name: str) -> dict[str, Any]:
     repo_root = Path(__file__).resolve().parents[3]
-    fixture_path = repo_root / "seam_contract_fixtures" / f"{name}.json"
+    fixture_path = repo_root / "tests" / "fixtures" / "seam_contract" / f"{name}.json"
     return json.loads(fixture_path.read_text(encoding="utf-8"))
 
 

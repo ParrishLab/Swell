@@ -46,6 +46,7 @@ site/
 .tmp/
 .cache/
 **/.cache/
+/dev_notes/
 
 # Jupyter
 .ipynb_checkpoints/
