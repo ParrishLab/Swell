@@ -400,6 +400,7 @@ class InteractionControllerTests(unittest.TestCase):
         self.assertEqual(region["frame_end"], 2)
         self.assertEqual(holder["selected_region_id"], region["id"])
         self.assertEqual(holder["records"][0][0], "region")
+        self.assertEqual(holder["recompute"], 1)
 
     def test_exclude_region_tool_commits_exclude_polygon(self):
         controller, _holder, mode, _lbl, _fill_mode, _fill_tolerance = self._make_controller()
@@ -484,6 +485,7 @@ class InteractionControllerTests(unittest.TestCase):
 
         controller.on_mouse_down(_Event(18, 18))
         controller.on_mouse_drag(_Event(22, 24))
+        self.assertEqual(holder["recompute"], 0)
         changed = controller.on_mouse_up(_Event(22, 24))
 
         self.assertTrue(changed)
@@ -491,6 +493,7 @@ class InteractionControllerTests(unittest.TestCase):
         moved = controller.seg_state.get_persistent_region(region_id)
         self.assertEqual(moved["polygon"][0], [4.0, 5.0])
         self.assertEqual(holder["records"][0][0], "region")
+        self.assertEqual(holder["recompute"], 1)
 
     def test_select_hit_priority_prefers_point_over_unselected_region_vertex(self):
         controller, holder, mode, _lbl, _fill_mode, _fill_tolerance = self._make_controller()
@@ -565,6 +568,7 @@ class InteractionControllerTests(unittest.TestCase):
 
         controller.on_mouse_down(_Event(10, 1))
         controller.on_mouse_drag(_Event(10, 4))
+        self.assertEqual(holder["recompute"], 0)
         changed = controller.on_mouse_up(_Event(10, 4))
 
         self.assertTrue(changed)
@@ -572,6 +576,7 @@ class InteractionControllerTests(unittest.TestCase):
         self.assertEqual(len(region["polygon"]), 5)
         self.assertEqual(holder["records"][0][0], "region")
         self.assertEqual(len(holder["records"]), 1)
+        self.assertEqual(holder["recompute"], 1)
 
     def test_delete_selected_region_removes_region(self):
         controller, holder, _mode, _lbl, _fill_mode, _fill_tolerance = self._make_controller()

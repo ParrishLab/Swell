@@ -223,7 +223,7 @@ class SegmentationStateTests(unittest.TestCase):
         self.assertFalse(np.any(state.compose_final_mask(1, (8, 8))))
         self.assertEqual(state.get_nonempty_final_mask_frames(4, (8, 8)), {2})
 
-    def test_region_only_frames_do_not_count_as_mask_bounds_frames(self):
+    def test_region_only_frames_contribute_to_lightweight_timeline_extent(self):
         state = SegmentationState()
         state.add_persistent_region(
             {
@@ -240,6 +240,25 @@ class SegmentationStateTests(unittest.TestCase):
 
         self.assertEqual(state.get_nonempty_final_mask_frames(8, (8, 8)), {1, 2, 3, 5})
         self.assertEqual(state.get_nonempty_mask_frames_without_regions(8, (8, 8)), {5})
+        self.assertEqual(state.get_timeline_extent_frames(8, (8, 8)), {1, 2, 3, 5})
+
+    def test_disabled_regions_do_not_contribute_to_timeline_extent(self):
+        state = SegmentationState()
+        state.add_persistent_region(
+            {
+                "id": "disabled",
+                "mode": "include",
+                "enabled": False,
+                "frame_start": 1,
+                "frame_end": 3,
+                "polygon": [[1, 1], [5, 1], [5, 5], [1, 5]],
+            }
+        )
+        mask = np.zeros((8, 8), dtype=bool)
+        mask[0, 0] = True
+        state.set_mask(6, mask)
+
+        self.assertEqual(state.get_timeline_extent_frames(8, (8, 8)), {6})
 
     def test_named_frame_sets_separate_anchors_timeline_and_exportable_masks(self):
         state = SegmentationState()
@@ -263,8 +282,31 @@ class SegmentationStateTests(unittest.TestCase):
         )
 
         self.assertEqual(state.get_prompt_anchor_frames(10), {1, 2, 3})
-        self.assertEqual(state.get_timeline_extent_frames(10, (8, 8)), {3, 5})
+        self.assertEqual(state.get_timeline_extent_frames(10, (8, 8)), {3, 5, 6, 7})
         self.assertEqual(state.get_exportable_mask_frames(10, (8, 8)), {3, 5, 6, 7})
+
+    def test_timeline_extent_uses_region_ranges_without_composing_region_frames(self):
+        state = SegmentationState()
+        state.add_persistent_region(
+            {
+                "id": "wide_include",
+                "mode": "include",
+                "frame_start": 100,
+                "frame_end": 899,
+                "polygon": [[1, 1], [5, 1], [5, 5], [1, 5]],
+            }
+        )
+        checked: list[int] = []
+        original = state.has_nonempty_final_mask
+
+        def _track(frame_idx, base_shape, *, apply_persistent_regions=True):
+            checked.append(int(frame_idx))
+            return original(frame_idx, base_shape, apply_persistent_regions=apply_persistent_regions)
+
+        state.has_nonempty_final_mask = _track  # type: ignore[method-assign]
+
+        self.assertEqual(state.get_timeline_extent_frames(1000, (8, 8)), set(range(100, 900)))
+        self.assertEqual(checked, [])
 
     def test_persistent_region_raster_cache_reuses_until_region_changes(self):
         state = SegmentationState()
@@ -291,6 +333,36 @@ class SegmentationStateTests(unittest.TestCase):
             state.update_persistent_region(region_id, {"polygon": [[2, 2], [8, 2], [8, 8], [2, 8]]})
             self.assertTrue(state.compose_final_mask(0, (12, 12))[3, 3])
             self.assertEqual(fill_poly.call_count, 2)
+
+    def test_region_raster_cache_invalidation_is_bounded_to_changed_region(self):
+        state = SegmentationState()
+        state.add_persistent_region(
+            {
+                "id": "region_a",
+                "mode": "include",
+                "frame_start": 0,
+                "frame_end": 2,
+                "polygon": [[1, 1], [5, 1], [5, 5], [1, 5]],
+            }
+        )
+        state.add_persistent_region(
+            {
+                "id": "region_b",
+                "mode": "include",
+                "frame_start": 0,
+                "frame_end": 2,
+                "polygon": [[6, 6], [10, 6], [10, 10], [6, 10]],
+            }
+        )
+        state.rasterize_persistent_region(state.get_persistent_region("region_a"), (12, 12))
+        state.rasterize_persistent_region(state.get_persistent_region("region_b"), (12, 12))
+
+        self.assertEqual(len(state._region_raster_cache), 2)
+
+        state.update_persistent_region("region_a", {"polygon": [[2, 2], [5, 2], [5, 5], [2, 5]]})
+
+        cached_region_ids = {str(key[0]) for key in state._region_raster_cache}
+        self.assertEqual(cached_region_ids, {"region_b"})
 
     def test_persistent_region_raster_cache_avoids_per_frame_stress_rasterization(self):
         state = SegmentationState()

@@ -204,7 +204,7 @@ class PropagationOverlayStateTests(unittest.TestCase):
         self.assertEqual(app.spin_prop_start.get(), "5")
         self.assertEqual(app.spin_prop_end.get(), "13")
 
-    def test_marker_sync_ignores_region_only_mask_edges(self):
+    def test_marker_sync_uses_lightweight_region_extent_without_composing_each_frame(self):
         app = self._make_app(frame_count=20)
         app.frames_raw = [np.zeros((8, 8), dtype=np.uint8) for _ in range(20)]
         app.seg_state = SegmentationState()
@@ -224,15 +224,23 @@ class PropagationOverlayStateTests(unittest.TestCase):
                 "polygon": [[1, 1], [5, 1], [5, 5], [1, 5]],
             }
         )
+        calls = []
+        original = app.seg_state.compose_final_mask
+
+        def _track(frame_idx, base_shape, apply_persistent_regions=True):
+            calls.append(int(frame_idx))
+            return original(frame_idx, base_shape, apply_persistent_regions=apply_persistent_regions)
+
+        app.seg_state.compose_final_mask = _track
 
         recompute_slider_jump_markers(app)
 
-        self.assertEqual(app.slider_jump_markers[5], "start")
-        self.assertEqual(app.slider_jump_markers[10], "end")
-        self.assertNotIn(1, app.slider_jump_markers)
-        self.assertNotIn(15, app.slider_jump_markers)
-        self.assertEqual(app.spin_prop_start.get(), "6")
-        self.assertEqual(app.spin_prop_end.get(), "11")
+        self.assertEqual(app.slider_jump_markers[1], "start")
+        self.assertEqual(app.slider_jump_markers[15], "end")
+        self.assertEqual(app.spin_prop_start.get(), "2")
+        self.assertEqual(app.spin_prop_end.get(), "16")
+        self.assertEqual(set(calls), {5, 10})
+        self.assertEqual(len(calls), 2)
 
     def test_frame_helpers_fall_back_when_frame_source_metadata_is_invalid(self):
         app = self._make_app(frame_count=3)

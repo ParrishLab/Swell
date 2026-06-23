@@ -27,12 +27,15 @@ ENV/
 Thumbs.db
 .idea/
 .vscode/
+.claude/launch.json
+.claude/settings.local.json
 
 # Build / dist
 build/
 dist/
 *.whl
 pip-wheel-metadata/
+/tmp/
 
 # MkDocs build output
 site/
@@ -48,6 +51,7 @@ site/
 .ipynb_checkpoints/
 
 # App runtime outputs
+/config.json
 output/
 **/output/
 metrics_analysis/
@@ -59,19 +63,30 @@ autosaves/
 sdproj_images_*/
 **/sdproj_images_*/
 
+# Generated benchmark outputs
+benchmarks/event_auto_detection/
+benchmarks/event_auto_detection_smoke/
+benchmarks/sd_auto_detection/
+benchmarks/sd_auto_detection*/
+
 # Model artifacts
 models/
 **/models/
-sdapp/resources/models/
+swell/resources/models/
 *.pt
 *.pth
 *.ckpt
 *.safetensors
 *.onnx
 # Keep shared Python model-state package tracked (code only, not weights)
-!sdapp/shared/models/
-!sdapp/shared/models/__init__.py
-!sdapp/shared/models/state.py
+!swell/shared/models/
+!swell/shared/models/__init__.py
+!swell/shared/models/state.py
+
+# Third-party updater runtimes are provisioned locally for release builds.
+swell/resources/updater/macos/Sparkle.framework/
+swell/resources/updater/macos/bin/
+swell/resources/updater/windows/*.dll
 
 # Local shell/history
 .Rhistory

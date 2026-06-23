@@ -718,7 +718,12 @@ class InteractionController:
         if handle[0] == "edge":
             insert_idx = int(handle[1])
             polygon.insert(insert_idx, [float(start[0]), float(start[1])])
-            if self.seg_state.update_persistent_region(region_id, {"polygon": polygon}):
+            preview_update = getattr(self.seg_state, "preview_persistent_region_update", None)
+            if callable(preview_update):
+                updated = bool(preview_update(region_id, {"polygon": polygon}))
+            else:
+                updated = bool(self.seg_state.update_persistent_region(region_id, {"polygon": polygon}))
+            if updated:
                 self._region_drag_original = copy.deepcopy(self.seg_state.get_persistent_region(region_id))
                 self._region_drag_handle = ("vertex", insert_idx)
                 handle = self._region_drag_handle
@@ -756,8 +761,13 @@ class InteractionController:
             ]
         else:
             return
-        if self.seg_state.update_persistent_region(region_id, {"polygon": polygon}):
-            self.seg_state.invalidate_final_mask_frames()
+        preview_update = getattr(self.seg_state, "preview_persistent_region_update", None)
+        updated = False
+        if callable(preview_update):
+            updated = bool(preview_update(region_id, {"polygon": polygon}))
+        else:
+            updated = bool(self.seg_state.update_persistent_region(region_id, {"polygon": polygon}))
+        if updated:
             self._pending_dirty = True
             self.update_display()
 

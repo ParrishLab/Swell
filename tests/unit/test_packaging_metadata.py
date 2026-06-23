@@ -23,9 +23,10 @@ def test_macos_spec_registers_swell_document_type() -> None:
     assert '"resources/updater/" not in entry[0]' in spec
 
 
-def test_repo_contains_sparkle_signing_tool_and_public_key() -> None:
-    assert (ROOT / "swell" / "resources" / "updater" / "macos" / "bin" / "sign_update").exists()
+def test_repo_contains_updater_placeholders_and_public_key() -> None:
+    assert (ROOT / "swell" / "resources" / "updater" / "macos" / "README.txt").exists()
     assert (ROOT / "swell" / "resources" / "updater" / "macos" / "public_ed25519_key.txt").exists()
+    assert (ROOT / "swell" / "resources" / "updater" / "windows" / "README.txt").exists()
 
 
 def test_windows_installer_writes_swell_association() -> None:
@@ -50,7 +51,7 @@ def test_windows_installer_metadata_matches_project_version_and_includes_payload
     assert "WINSPARKLE_APPCAST_URL" not in script
 
 
-def test_windows_spec_bundles_winsparkle_runtime() -> None:
+def test_windows_spec_excludes_updater_runtime_from_package_data() -> None:
     spec = (ROOT / "packaging" / "windows" / "swell_windows.spec").read_text(encoding="utf-8")
     assert 'datas.append((str(doc_icon_ico), "."))' in spec
     assert '"openpyxl"' in spec

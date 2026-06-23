@@ -26,12 +26,15 @@ class SegmentationState:
         self._final_mask_frames_scope: tuple[int, tuple[int, int]] | None = None
         self.frames_with_nonempty_mask_no_regions: set[int] = set()
         self._mask_frames_no_regions_scope: tuple[int, tuple[int, int]] | None = None
+        self.frames_with_timeline_extent: set[int] = set()
+        self._timeline_extent_scope: tuple[int, tuple[int, int]] | None = None
 
         self.dirty_valid_point_frames = True
         self.dirty_valid_box_frames = True
         self.dirty_user_frames = True
         self.dirty_final_mask_frames = True
         self.dirty_mask_frames_no_regions = True
+        self.dirty_timeline_extent_frames = True
 
     def _has_valid_points_for_frame(self, frame_idx: int) -> bool:
         pt_list = self.points.get(frame_idx)
@@ -84,6 +87,8 @@ class SegmentationState:
         self._final_mask_frames_scope = None
         self.dirty_mask_frames_no_regions = True
         self._mask_frames_no_regions_scope = None
+        self.dirty_timeline_extent_frames = True
+        self._timeline_extent_scope = None
 
     def _mark_user_changed(self):
         self.dirty_valid_point_frames = True
@@ -208,7 +213,14 @@ class SegmentationState:
         return self._bounded_frame_set(frames, frame_count)
 
     def get_timeline_extent_frames(self, frame_count: int, base_shape) -> set[int]:
-        return self.get_nonempty_mask_frames_without_regions(frame_count, base_shape)
+        scope = (int(frame_count), tuple(int(v) for v in base_shape[:2]))
+        if self.dirty_timeline_extent_frames or self._timeline_extent_scope != scope:
+            frames = self.get_nonempty_mask_frames_without_regions(frame_count, base_shape)
+            frames.update(self._candidate_region_extent_frames(frame_count))
+            self.frames_with_timeline_extent = frames
+            self._timeline_extent_scope = scope
+            self.dirty_timeline_extent_frames = False
+        return set(self.frames_with_timeline_extent)
 
     def get_exportable_mask_frames(self, frame_count: int, base_shape) -> set[int]:
         return self.get_nonempty_final_mask_frames(frame_count, base_shape)
@@ -293,8 +305,14 @@ class SegmentationState:
             "polygon": polygon,
         }
 
-    def _clear_region_raster_cache(self):
-        self._region_raster_cache.clear()
+    def _clear_region_raster_cache(self, region_id=None):
+        if region_id is None:
+            self._region_raster_cache.clear()
+            return
+        rid = str(region_id)
+        for key in list(self._region_raster_cache.keys()):
+            if key and str(key[0]) == rid:
+                self._region_raster_cache.pop(key, None)
 
     @staticmethod
     def _region_raster_cache_key(region: dict, shape_hw: tuple[int, int]) -> tuple:
@@ -317,7 +335,7 @@ class SegmentationState:
         if normalized is None:
             return ""
         self.persistent_regions.append(normalized)
-        self._clear_region_raster_cache()
+        self._clear_region_raster_cache(normalized.get("id"))
         self.invalidate_final_mask_frames()
         return str(normalized["id"])
 
@@ -342,8 +360,24 @@ class SegmentationState:
             if normalized == region:
                 return False
             self.persistent_regions[i] = normalized
-            self._clear_region_raster_cache()
+            self._clear_region_raster_cache(rid)
             self.invalidate_final_mask_frames()
+            return True
+        return False
+
+    def preview_persistent_region_update(self, region_id, patch) -> bool:
+        rid = str(region_id)
+        for i, region in enumerate(list(self.persistent_regions)):
+            if str(region.get("id")) != rid:
+                continue
+            candidate = dict(region)
+            candidate.update(dict(patch or {}))
+            candidate["id"] = rid
+            normalized = self._normalize_persistent_region(candidate)
+            if normalized is None or normalized == region:
+                return False
+            self.persistent_regions[i] = normalized
+            self._clear_region_raster_cache(rid)
             return True
         return False
 
@@ -352,7 +386,7 @@ class SegmentationState:
         for i, region in enumerate(list(self.persistent_regions)):
             if str(region.get("id")) == rid:
                 removed = self.persistent_regions.pop(i)
-                self._clear_region_raster_cache()
+                self._clear_region_raster_cache(rid)
                 self.invalidate_final_mask_frames()
                 return removed
         return None
@@ -484,6 +518,21 @@ class SegmentationState:
                 if end >= start:
                     candidates.update(range(start, end + 1))
 
+        return candidates
+
+    def _candidate_region_extent_frames(self, frame_count: int) -> set[int]:
+        candidates: set[int] = set()
+        max_idx = int(frame_count) - 1
+        if max_idx < 0:
+            return candidates
+        for region in list(self.persistent_regions):
+            normalized = self._normalize_persistent_region(region)
+            if normalized is None or not bool(normalized.get("enabled", True)):
+                continue
+            start = max(0, int(normalized["frame_start"]))
+            end = min(max_idx, int(normalized["frame_end"]))
+            if end >= start:
+                candidates.update(range(start, end + 1))
         return candidates
 
     def get_nonempty_mask_frames_without_regions(self, frame_count: int, base_shape) -> set[int]:
