@@ -5,7 +5,8 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from swell.host.auto_detect_window import AutoDetectWindow
+import swell.host.auto_detect_helpers as auto_detect_helpers
+from swell.host.auto_detect_window import AutoDetectWindow, _to_uint8
 from swell.host.event_detection import detector
 from swell.host.event_detection.traces import extract_lower_median_traces
 
@@ -53,6 +54,74 @@ def _polarity_trace(sign: int) -> np.ndarray:
     traces[:, 20:81] = ramp
     traces[:, 81:] = ramp[-1]
     return traces
+
+
+def test_auto_detect_to_uint8_uses_sampled_percentiles(monkeypatch) -> None:
+    frame = np.arange(10_000, dtype=np.float32).reshape(100, 100)
+    sampled = np.asarray([0.0, 100.0, 200.0, 300.0], dtype=np.float32)
+    calls: list[tuple[int, int]] = []
+
+    def _sample(frame_arg):
+        arr = np.asarray(frame_arg)
+        calls.append(tuple(arr.shape))
+        return sampled
+
+    monkeypatch.setattr(auto_detect_helpers, "_sample_percentile_pixels", _sample)
+
+    result = _to_uint8(frame)
+
+    assert calls == [(100, 100)]
+    assert result.shape == frame.shape
+    assert result.dtype == np.uint8
+
+
+def test_auto_detect_timeline_coordinate_helpers_are_clamped() -> None:
+    assert auto_detect_helpers.detail_window_bounds(100, 50, 10) == (40, 60)
+    assert auto_detect_helpers.detail_window_bounds(1, 50, 10) == (0, 0)
+    assert auto_detect_helpers.frame_from_overview_x(-10, canvas_width=200, frame_count=100) == 0
+    assert auto_detect_helpers.frame_from_overview_x(250, canvas_width=200, frame_count=100) == 99
+    assert auto_detect_helpers.frame_from_detail_x(50, canvas_width=100, window_bounds=(40, 60), frame_count=100) == 50
+    assert auto_detect_helpers.detail_x_from_frame(50, canvas_width=100, window_bounds=(40, 60)) == 50.0
+    assert auto_detect_helpers.detail_x_from_frame(70, canvas_width=100, window_bounds=(40, 60)) is None
+
+
+def test_auto_detect_active_cell_helper_uses_cache() -> None:
+    detrended = np.zeros((2, 8), dtype=np.float32)
+    detrended[0, 3:6] = 100.0
+    frame_indices = np.arange(8)
+    params = {
+        "coherence_active_threshold_mad": 10.0,
+        "quiet_pre_frames": 2,
+        "diff_k_mad": 2.5,
+        "polarity": "positive",
+        "persistence_frames": 1,
+    }
+    cache: dict[tuple, tuple[int, int, np.ndarray]] = {}
+    cand = {"start_frame": 2, "end_frame": 5}
+
+    active = auto_detect_helpers.active_cells_for_frame(
+        selected_cand=cand,
+        selected_index=0,
+        frame_idx=3,
+        detrended=detrended,
+        frame_indices=frame_indices,
+        params=params,
+        cache=cache,
+    )
+    active_again = auto_detect_helpers.active_cells_for_frame(
+        selected_cand=cand,
+        selected_index=0,
+        frame_idx=4,
+        detrended=detrended,
+        frame_indices=frame_indices,
+        params=params,
+        cache=cache,
+    )
+
+    assert active is not None
+    assert bool(active[0]) is True
+    assert active_again is not None
+    assert len(cache) == 1
 
 
 def test_auto_detect_review_populates_and_selects_first_candidate(tk_root) -> None:

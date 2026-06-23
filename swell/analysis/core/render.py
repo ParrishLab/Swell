@@ -57,6 +57,19 @@ class RenderActions:
         contiguous = np.ascontiguousarray(source)
         return tuple(int(v) for v in contiguous.shape), str(contiguous.dtype), int(zlib.crc32(contiguous))
 
+    def _segmentation_content_generation(self) -> int:
+        return int(getattr(getattr(self, "seg_state", None), "content_generation", 0) or 0)
+
+    def _mask_content_token(self, frame_idx: int, mask, *, prefix: str = "mask") -> tuple:
+        source = np.asarray(mask)
+        return (
+            str(prefix),
+            int(frame_idx),
+            tuple(int(v) for v in source.shape),
+            str(source.dtype),
+            self._segmentation_content_generation(),
+        )
+
     def _canvas_is_visible(self, canvas) -> bool:
         checker = getattr(canvas, "winfo_ismapped", None)
         if not callable(checker):
@@ -196,7 +209,7 @@ class RenderActions:
         per-redraw blend runs cv2.addWeighted on just that ROI instead of the
         whole frame — keeping ghosts cheap to redraw while painting against them.
         """
-        token = self._array_content_token(ghost_mask)
+        token = self._mask_content_token(ghost_idx, ghost_mask, prefix="ghost")
         key = (int(ghost_idx), token, (int(h), int(w)))
         entry = self._ghost_contours_cache.get(key)
         if entry is None:
@@ -295,7 +308,11 @@ class RenderActions:
             final_mask = np.zeros(img_arr.shape[:2], dtype=bool)
 
         final_mask_any = bool(np.any(final_mask))
-        final_mask_token = ("mask",) + self._array_content_token(final_mask) if final_mask_any else ("mask-empty", tuple(final_mask.shape))
+        final_mask_token = (
+            self._mask_content_token(idx, final_mask, prefix="mask")
+            if final_mask_any
+            else ("mask-empty", int(idx), tuple(final_mask.shape), self._segmentation_content_generation())
+        )
         mask_peek = bool(getattr(self, "_mask_peek", False))
         if final_mask_any and not mask_peek:
             img_arr = apply_mask_overlay(img_arr, final_mask)

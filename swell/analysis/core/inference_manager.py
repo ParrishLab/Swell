@@ -571,12 +571,13 @@ class InferenceManager:
 
     def _inference_worker_loop(self):
         while not self._infer_worker_stop.is_set():
-            try:
-                item = self._infer_queue.get(timeout=0.1)
-            except queue.Empty:
-                continue
+            item = self._infer_queue.get(block=True)
 
             if item is None:
+                try:
+                    self._infer_queue.task_done()
+                except Exception as exc:
+                    self._log_debug("Model", f"Queue task_done skipped: {exc}")
                 continue
 
             frame_idx, requested_generation = item

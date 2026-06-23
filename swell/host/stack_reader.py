@@ -320,8 +320,9 @@ def _to_grayscale(arr: np.ndarray, channel_mode: str = "average") -> np.ndarray:
         if arr.shape[2] >= 3:
             if channel_mode == "first":
                 return arr[:, :, 0]
-            rgb = arr[:, :, :3].astype(np.float32)
-            gray = 0.299 * rgb[:, :, 0] + 0.587 * rgb[:, :, 1] + 0.114 * rgb[:, :, 2]
+            rgb = arr[:, :, :3].astype(np.float32, copy=False)
+            weights = np.array([0.299, 0.587, 0.114], dtype=np.float32)
+            gray = np.tensordot(rgb, weights, axes=([-1], [0]))
             if np.issubdtype(arr.dtype, np.integer):
                 info = np.iinfo(arr.dtype)
                 gray = np.clip(gray, info.min, info.max)

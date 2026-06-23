@@ -6,6 +6,8 @@ from typing import Callable
 import cv2
 import numpy as np
 
+MAX_PERCENTILE_SAMPLE_PIXELS_PER_FRAME = 262_144
+
 
 @dataclass
 class VisualizationStats:
@@ -54,7 +56,16 @@ def normalize_visual_frame(frame: np.ndarray, *, p1: float | None = None, p99: f
     if denom <= 0:
         denom = 1e-8
     clipped = np.clip(arr, lo, hi)
-    return np.clip(((clipped - lo) / denom) * 255.0, 0.0, 255.0).astype(np.uint8)
+    return (((clipped - lo) / denom) * 255.0).astype(np.uint8)
+
+
+def _sample_percentile_pixels(frame: np.ndarray, max_pixels: int = MAX_PERCENTILE_SAMPLE_PIXELS_PER_FRAME) -> np.ndarray:
+    flat = np.asarray(frame, dtype=np.float32, copy=False).reshape(-1)
+    limit = max(1, int(max_pixels))
+    if flat.size <= limit:
+        return flat
+    indices = np.linspace(0, flat.size - 1, num=limit, dtype=np.int64)
+    return flat[indices]
 
 
 def _read_frame_float32(frame_source, idx: int) -> np.ndarray:
@@ -160,6 +171,7 @@ def _compute_stabilization_offsets(
         apply_horizontal_bar_denoise=bool(apply_horizontal_bar_denoise),
         apply_smoothing=bool(apply_smoothing),
     )
+    reference_std = float(np.std(reference)) if reference.size > 0 else 0.0
     last_valid = np.zeros((2,), dtype=np.float32)
     fallback_indices: list[int] = []
     total = max(1, int(frame_count) - 1)
@@ -176,7 +188,7 @@ def _compute_stabilization_offsets(
             if (
                 reference.shape == frame.shape
                 and reference.size > 0
-                and float(np.std(reference)) > 1e-6
+                and reference_std > 1e-6
                 and float(np.std(frame)) > 1e-6
             ):
                 shift, response = cv2.phaseCorrelate(
@@ -342,7 +354,7 @@ def compute_visualization_stats(
             source = np.asarray(processed_cache[int(idx)], dtype=np.float32, copy=False)
             if baseline is not None:
                 source = source - baseline
-            sampled_parts.append(np.asarray(source, dtype=np.float32, copy=False).reshape(-1))
+            sampled_parts.append(_sample_percentile_pixels(source))
         _raise_if_cancelled(should_cancel)
         sampled = np.concatenate(sampled_parts, axis=0) if sampled_parts else np.zeros((0,), dtype=np.float32)
         p1 = float(np.percentile(sampled, 1)) if sampled.size > 0 else 0.0

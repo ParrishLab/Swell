@@ -187,6 +187,9 @@ def export_analysis(
     stack_frame_source = StackReaderFrameSource(reader=reader) if include_analysis_visual_stack else None
 
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
+        event_contexts: list[dict[str, object]] = []
+        future_map = {}
+        frame_records_by_event: dict[str, list[tuple[int, str, ExportRecord]]] = defaultdict(list)
         for event_idx, event in enumerate(selected_events, start=1):
             if progress_callback is not None:
                 progress_callback(
@@ -225,7 +228,6 @@ def export_analysis(
 
             baseline_end = int(event.start_idx) - 1
             baseline_start: int | None = None
-            event_records: list[tuple[int, str, ExportRecord]] = []
             if baseline_end >= 0:
                 baseline_start = max(0, baseline_end - int(baseline_pre_frames) + 1)
                 baseline_scope_indices = list(range(baseline_start, baseline_end + 1))
@@ -235,32 +237,59 @@ def export_analysis(
             event_scope_indices = list(range(event.start_idx, event.end_idx + 1))
             event_indices = list(event_scope_indices) if bool(include_event_images) else []
 
-            future_map = {}
+            event_contexts.append(
+                {
+                    "event": event,
+                    "event_dir": event_dir,
+                    "analysis_dir": analysis_dir,
+                    "analysis_overlay_dir": analysis_overlay_dir,
+                    "masks_dir": masks_dir,
+                    "overlay_dir": overlay_dir,
+                    "contour_map_dir": contour_map_dir,
+                    "baseline_start": baseline_start,
+                    "baseline_end": baseline_end,
+                    "baseline_scope_indices": baseline_scope_indices,
+                    "event_scope_indices": event_scope_indices,
+                }
+            )
             for frame_idx in baseline_indices:
                 fut = pool.submit(_export_frame, reader, frame_idx, baseline_dir, event.event_id, "baseline", trace)
-                future_map[fut] = (frame_idx, "baseline")
+                future_map[fut] = (str(event.event_id), frame_idx, "baseline")
             for frame_idx in event_indices:
                 fut = pool.submit(_export_frame, reader, frame_idx, extent_dir, event.event_id, "event", trace)
-                future_map[fut] = (frame_idx, "event")
+                future_map[fut] = (str(event.event_id), frame_idx, "event")
 
-            for fut in as_completed(future_map):
-                frame_idx, role = future_map[fut]
-                rec = fut.result()
-                event_records.append((int(frame_idx), str(role), rec))
-                with progress_lock:
-                    frame_progress += 1
-                    current_progress = frame_progress
-                if progress_callback is not None:
-                    progress_callback(
-                        {
-                            "phase": "frame",
-                            "current": current_progress,
-                            "total": total_frames_to_export,
-                            "event_id": event.event_id,
-                            "role": role,
-                        }
-                    )
+        for fut in as_completed(future_map):
+            event_id, frame_idx, role = future_map[fut]
+            rec = fut.result()
+            frame_records_by_event[str(event_id)].append((int(frame_idx), str(role), rec))
+            with progress_lock:
+                frame_progress += 1
+                current_progress = frame_progress
+            if progress_callback is not None:
+                progress_callback(
+                    {
+                        "phase": "frame",
+                        "current": current_progress,
+                        "total": total_frames_to_export,
+                        "event_id": str(event_id),
+                        "role": role,
+                    }
+                )
 
+        for context in event_contexts:
+            event = context["event"]
+            event_dir = context["event_dir"]
+            analysis_dir = context["analysis_dir"]
+            analysis_overlay_dir = context["analysis_overlay_dir"]
+            masks_dir = context["masks_dir"]
+            overlay_dir = context["overlay_dir"]
+            contour_map_dir = context["contour_map_dir"]
+            baseline_start = context["baseline_start"]
+            baseline_end = context["baseline_end"]
+            baseline_scope_indices = context["baseline_scope_indices"]
+            event_scope_indices = context["event_scope_indices"]
+            event_records = frame_records_by_event[str(event.event_id)]
             event_records.sort(key=lambda x: (0 if x[1] == "baseline" else 1, x[0]))
             manifest_records.extend([rec for _idx, _role, rec in event_records])
 
@@ -2207,7 +2236,7 @@ def _write_frame(path: Path, frame: np.ndarray, ext: str) -> None:
 
 
 def _write_mask(path: Path, mask: np.ndarray) -> None:
-    mask_u8 = np.where(np.asarray(mask, dtype=bool), 255, 0).astype(np.uint8)
+    mask_u8 = np.asarray(mask, dtype=bool).astype(np.uint8) * np.uint8(255)
     tifffile.imwrite(str(path), mask_u8)
 
 

@@ -38,8 +38,8 @@ def test_compute_trace_stats_and_default_time_none() -> None:
     assert trace.time_sec == [None, None]
     assert trace.mean == [2.0, 2.0]
     assert trace.median == [2.0, 1.0]
-    assert trace.std[0] == np.std(frames[0])
-    assert trace.std[1] == np.std(frames[1])
+    assert trace.std[0] == pytest.approx(float(np.std(frames[0])))
+    assert trace.std[1] == pytest.approx(float(np.std(frames[1])))
 
 
 def test_compute_trace_generates_time_when_seconds_per_frame_positive() -> None:
@@ -74,7 +74,7 @@ def test_compute_trace_uses_cache_aware_reads_and_preserves_values() -> None:
     assert all(reader.use_cache_calls)
     assert trace.mean[0] == float(np.mean(frames[0]))
     assert trace.median[10] == float(np.median(frames[10]))
-    assert trace.std[-1] == float(np.std(frames[-1]))
+    assert trace.std[-1] == pytest.approx(float(np.std(frames[-1])))
 
 
 def test_compute_trace_propagates_batch_read_failures() -> None:

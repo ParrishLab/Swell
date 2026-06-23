@@ -40,6 +40,7 @@ class PreparedFrameSource:
         self._stats = stats
         self._frame_cache: OrderedDict[int, tuple[np.ndarray, np.ndarray, np.ndarray]] = OrderedDict()
         self._lock = Lock()
+        self._stats_lock = Lock()
 
     @property
     def frame_count(self) -> int:
@@ -71,21 +72,25 @@ class PreparedFrameSource:
         with self._lock:
             if self._stats is not None:
                 return self._stats
-        stats = compute_visualization_stats(
-            self._base_source,
-            baseline_frames=self._baseline_frames,
-            apply_horizontal_bar_denoise=self._apply_horizontal_bar_denoise,
-            apply_smoothing=self._apply_smoothing,
-            apply_baseline_subtraction=self._apply_baseline_subtraction,
-            apply_global_normalization=self._apply_global_normalization,
-            apply_stabilization=self._apply_stabilization,
-            should_cancel=should_cancel,
-            progress_callback=progress_callback,
-        )
-        with self._lock:
-            if self._stats is None:
-                self._stats = stats
-            return self._stats
+        with self._stats_lock:
+            with self._lock:
+                if self._stats is not None:
+                    return self._stats
+            stats = compute_visualization_stats(
+                self._base_source,
+                baseline_frames=self._baseline_frames,
+                apply_horizontal_bar_denoise=self._apply_horizontal_bar_denoise,
+                apply_smoothing=self._apply_smoothing,
+                apply_baseline_subtraction=self._apply_baseline_subtraction,
+                apply_global_normalization=self._apply_global_normalization,
+                apply_stabilization=self._apply_stabilization,
+                should_cancel=should_cancel,
+                progress_callback=progress_callback,
+            )
+            with self._lock:
+                if self._stats is None:
+                    self._stats = stats
+                return self._stats
 
     def prepare(self, *, should_cancel=None, progress_callback=None) -> VisualizationStats:
         return self.stats(should_cancel=should_cancel, progress_callback=progress_callback)

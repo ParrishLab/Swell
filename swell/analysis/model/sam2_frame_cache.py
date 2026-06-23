@@ -124,13 +124,23 @@ class SAM2FrameCache:
     def _frame_path(self, cache_dir: str, idx: int) -> str:
         return os.path.join(cache_dir, f"{int(idx):05d}.jpg")
 
+    @staticmethod
+    def _expected_frame_names(expected_count: int) -> set[str]:
+        return {f"{idx:05d}.jpg" for idx in range(int(expected_count))}
+
+    def _cache_file_names(self, cache_dir: str) -> set[str] | None:
+        try:
+            return set(os.listdir(cache_dir))
+        except OSError:
+            return None
+
     def is_complete(self, cache_dir: str, expected_count: int) -> bool:
         if int(expected_count) <= 0 or not os.path.isdir(cache_dir):
             return False
-        for idx in range(int(expected_count)):
-            if not os.path.exists(self._frame_path(cache_dir, idx)):
-                return False
-        return True
+        names = self._cache_file_names(cache_dir)
+        if names is None:
+            return False
+        return self._expected_frame_names(expected_count).issubset(names)
 
     def export_frames(
         self,
@@ -157,15 +167,17 @@ class SAM2FrameCache:
                 expected_count=expected_count,
             )
 
-        missing = [idx for idx in range(expected_count) if not os.path.exists(self._frame_path(cache_dir, idx))]
+        names = self._cache_file_names(cache_dir) or set()
+        missing = [idx for idx in range(expected_count) if f"{idx:05d}.jpg" not in names]
         if not missing:
             missing = list(range(expected_count))
-        workers = max(1, min(int(worker_count or (os.cpu_count() or 1)), 4))
+        default_workers = min(int(os.cpu_count() or 1), 8)
+        workers = max(1, int(worker_count if worker_count is not None else default_workers))
 
         def _write(idx: int) -> None:
-            frame_bgr = cv2.cvtColor(np.asarray(arr[idx], dtype=np.uint8), cv2.COLOR_GRAY2BGR)
+            frame = np.asarray(arr[idx], dtype=np.uint8)
             path = self._frame_path(cache_dir, idx)
-            ok = cv2.imwrite(path, frame_bgr)
+            ok = cv2.imwrite(path, frame)
             if not ok:
                 raise RuntimeError(f"Failed to write SAM frame export: {path}")
 

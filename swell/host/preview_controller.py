@@ -11,6 +11,7 @@ from tkinter import ttk
 from swell.host.controllers import HostWindowController
 from swell.host.ui_geometry import linear_value_to_x, linear_x_to_value, normalize_overlay_bounds
 from swell.shared.frame_source import normalize_visual_frame
+from swell.shared.frame_source.preprocessing import _sample_percentile_pixels
 
 
 class HostPreviewController:
@@ -82,8 +83,9 @@ class HostPreviewController:
             cached = cache.get(cache_key)
             if cached is not None:
                 return self._promote_cached(cache, cache_key)
-        p1 = float(np.percentile(frame, 1))
-        p99 = float(np.percentile(frame, 99))
+        sample = _sample_percentile_pixels(frame)
+        p1 = float(np.percentile(sample, 1))
+        p99 = float(np.percentile(sample, 99))
         if p99 <= p1:
             p99 = p1 + 1.0
         frame_u8 = normalize_visual_frame(frame, p1=p1, p99=p99)
@@ -145,8 +147,11 @@ class HostPreviewController:
         if max_w < 120 or max_h < 120:
             max_w, max_h = (1100, 800)
         cache_key = (int(frame_idx), int(max_w), int(max_h))
-        image = self.app._main_render_cache.get(cache_key)
-        if image is None:
+        cache = self.app._main_render_cache
+        image = cache.get(cache_key)
+        if image is not None:
+            image = self._promote_cached(cache, cache_key)
+        else:
             try:
                 frame = self.get_normalized_reader_frame(frame_idx)
                 image = self.render_preview_image(
@@ -375,7 +380,7 @@ class HostPreviewController:
         frame_idx = max(low, min(frame_idx, high))
         self.app._popup.mark_popup_current_idx = frame_idx
 
-        frame = self.app._get_popup_processed_frame(frame_idx)
+        frame = self.app._get_popup_controller().get_processed_frame(frame_idx)
         contrast_factor = float(self.app._popup.mark_contrast_var.get()) if self.app._popup.mark_contrast_var is not None else 1.0
         image = self.render_preview_image(
             frame,
@@ -433,7 +438,7 @@ class HostPreviewController:
         spans: list[tuple[int, int, str]] = []
         if self.app.stack_info is not None:
             try:
-                baseline_count, baseline_end = self.app._popup_parse_baseline_controls()
+                baseline_count, baseline_end = self.app._get_popup_controller().parse_baseline_controls()
                 baseline_start = max(0, baseline_end - baseline_count + 1)
                 if baseline_end >= 0:
                     spans.append((baseline_start, baseline_end, "#2f6fa5"))
@@ -447,7 +452,7 @@ class HostPreviewController:
 
         if self.app.stack_info is not None:
             try:
-                baseline_count, baseline_end = self.app._popup_parse_baseline_controls()
+                baseline_count, baseline_end = self.app._get_popup_controller().parse_baseline_controls()
                 baseline_start = max(0, baseline_end - baseline_count + 1)
             except Exception:
                 baseline_start = None

@@ -15,7 +15,7 @@ def test_popup_overlay_draws_baseline_before_event_span() -> None:
             mark_popup_current_idx=50,
         ),
         stack_info=SimpleNamespace(frame_count=200),
-        _popup_parse_baseline_controls=lambda: (5, 22),
+        _get_popup_controller=lambda: SimpleNamespace(parse_baseline_controls=lambda: (5, 22)),
     )
     controller.popup_overlay_bounds = lambda: (0, 149)
     controller.popup_get_normalized_mark_bounds_for_overlay = lambda: (42, 57)

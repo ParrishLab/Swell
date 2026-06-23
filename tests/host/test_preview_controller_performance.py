@@ -5,6 +5,7 @@ from unittest.mock import patch
 
 import numpy as np
 
+import swell.host.preview_controller as preview_controller_module
 from swell.host.preview_controller import HostPreviewController
 from swell.shared.lru_cache import LRUCache
 
@@ -142,6 +143,46 @@ def test_normalized_frame_cache_preserves_lru_cache_policy() -> None:
     assert (2, "default") in app._normalized_frame_u8_cache
     assert app.reader.read_calls == [0, 1, 2]
     assert out2.shape == out0.shape
+
+
+def test_main_render_cache_hit_promotes_lru_entry() -> None:
+    frames = [np.full((4, 4), idx, dtype=np.float32) for idx in range(4)]
+    app = _build_app(frames)
+    app._main_render_cache = LRUCache(max_items=2, gc_min_keep=1)
+    controller = HostPreviewController(app)
+    controller.redraw_main_overlay = lambda: None  # type: ignore[method-assign]
+    controller.render_preview_image = lambda *_args, **_kwargs: object()  # type: ignore[method-assign]
+
+    controller.update_preview(0)
+    controller.update_preview(1)
+    controller.update_preview(0)
+    controller.update_preview(2)
+
+    cache_keys = set(app._main_render_cache.keys())
+    assert (0, 228, 168) in cache_keys
+    assert (1, 228, 168) not in cache_keys
+    assert (2, 228, 168) in cache_keys
+
+
+def test_preview_percentiles_use_sampled_pixels(monkeypatch) -> None:
+    frame = np.arange(10_000, dtype=np.float32).reshape(100, 100)
+    app = _build_app([frame])
+    controller = HostPreviewController(app)
+    sampled = np.asarray([0.0, 100.0, 200.0, 300.0], dtype=np.float32)
+    calls: list[tuple[int, int]] = []
+
+    def _sample(frame_arg):
+        arr = np.asarray(frame_arg)
+        calls.append(tuple(arr.shape))
+        return sampled
+
+    monkeypatch.setattr(preview_controller_module, "_sample_percentile_pixels", _sample)
+
+    result = controller.normalize_frame_percentile(frame)
+
+    assert calls == [(100, 100)]
+    assert result.shape == frame.shape
+    assert result.dtype == np.uint8
 
 
 def test_popup_mini_reuses_main_preview_normalization_cache() -> None:

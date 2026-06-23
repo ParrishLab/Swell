@@ -5,6 +5,7 @@ import numpy as np
 
 from swell.shared.frame_source.preprocessing import (
     VisualizationCancelled,
+    _sample_percentile_pixels,
     build_visualization_stack,
     compute_visualization_stats,
     render_visualization_frame,
@@ -28,6 +29,19 @@ def _shift(frame: np.ndarray, dx: float, dy: float) -> np.ndarray:
         cv2.warpAffine(arr, matrix, (int(w), int(h)), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT),
         dtype=np.float32,
     )
+
+
+def test_sample_percentile_pixels_is_deterministic_and_bounded() -> None:
+    frame = np.arange(100, dtype=np.float32).reshape(10, 10)
+
+    sampled_a = _sample_percentile_pixels(frame, max_pixels=8)
+    sampled_b = _sample_percentile_pixels(frame, max_pixels=8)
+
+    assert sampled_a.shape == (8,)
+    assert np.array_equal(sampled_a, sampled_b)
+    assert sampled_a[0] == 0.0
+    assert sampled_a[-1] == 99.0
+    assert np.array_equal(_sample_percentile_pixels(frame, max_pixels=100), frame.reshape(-1))
 
 
 def test_preprocessing_options_disable_all_stages() -> None:

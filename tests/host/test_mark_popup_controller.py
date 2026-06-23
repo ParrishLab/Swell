@@ -28,13 +28,12 @@ def test_begin_popup_session_applies_bounds_and_starts_processing() -> None:
     calls: list[tuple[str, int, int]] = []
     warnings: list[str] = []
     app = SimpleNamespace(
-        _mark_popup_local_start=12,
-        _mark_popup_local_end=18,
-        _apply_popup_range_bounds=lambda start, end: calls.append(("apply", int(start), int(end))),
-        _recompute_popup_pipeline_for_bounds=lambda start, end, **_kwargs: calls.append(("recompute", int(start), int(end))),
+        _popup=SimpleNamespace(mark_popup_local_start=12, mark_popup_local_end=18),
         _log_warn=lambda message: warnings.append(str(message)),
     )
     controller = MarkPopupController(app)
+    controller.apply_range_bounds = lambda start, end: calls.append(("apply", int(start), int(end)))  # type: ignore[method-assign]
+    controller.recompute_pipeline_for_bounds = lambda start, end, **_kwargs: calls.append(("recompute", int(start), int(end)))  # type: ignore[method-assign]
 
     controller._begin_popup_session(12, 18)
 
@@ -45,16 +44,18 @@ def test_begin_popup_session_applies_bounds_and_starts_processing() -> None:
 def test_begin_popup_session_for_mark_new_uses_current_frame_normalization() -> None:
     recompute_calls: list[dict[str, object]] = []
     app = SimpleNamespace(
-        _mark_popup_local_start=12,
-        _mark_popup_local_end=18,
-        _mark_popup_current_idx=15,
-        _apply_popup_range_bounds=lambda _start, _end: None,
-        _recompute_popup_pipeline_for_bounds=lambda start, end, **kwargs: recompute_calls.append(
-            {"start": int(start), "end": int(end), **dict(kwargs)}
+        _popup=SimpleNamespace(
+            mark_popup_local_start=12,
+            mark_popup_local_end=18,
+            mark_popup_current_idx=15,
         ),
         _log_warn=lambda _message: None,
     )
     controller = MarkPopupController(app)
+    controller.apply_range_bounds = lambda _start, _end: None  # type: ignore[method-assign]
+    controller.recompute_pipeline_for_bounds = lambda start, end, **kwargs: recompute_calls.append(
+        {"start": int(start), "end": int(end), **dict(kwargs)}
+    )  # type: ignore[method-assign]
 
     controller._begin_popup_session(12, 18, normalize_to_current_frame=True)
 
@@ -112,7 +113,6 @@ def test_confirm_new_event_persists_baseline_scope_flags() -> None:
         _parse_frame_index=lambda value, _default, _name: int(value),
         _normalize_bounds=lambda start, end: (int(start), int(end), False, False),
         _duration_sec=lambda _duration_frames: None,
-        _popup_parse_baseline_controls=lambda: (5, 11),
         browser_controller=SimpleNamespace(
             create_event=lambda **kwargs: created.append(dict(kwargs)) or EventMeta("event_0001", "event_0001", start_idx=12, end_idx=18, flags=dict(kwargs.get("flags", {})))
         ),
@@ -125,6 +125,7 @@ def test_confirm_new_event_persists_baseline_scope_flags() -> None:
         _update_preview=lambda _idx: None,
     )
     controller = MarkPopupController(app)
+    controller.parse_baseline_controls = lambda: (5, 11)  # type: ignore[method-assign]
     controller.cancel = lambda: None  # type: ignore[method-assign]
 
     controller.confirm()
@@ -161,7 +162,6 @@ def test_confirm_edit_event_updates_baseline_scope_flags_and_preserves_existing_
         _parse_frame_index=lambda value, _default, _name: int(value),
         _normalize_bounds=lambda start, end: (int(start), int(end), False, False),
         _duration_sec=lambda _duration_frames: None,
-        _popup_parse_baseline_controls=lambda: (4, 21),
         _get_event_by_id=lambda _event_id: existing,
         browser_controller=SimpleNamespace(
             update_event=lambda event_id, **kwargs: updated.append({"event_id": event_id, **kwargs}) or EventMeta(event_id, existing.label, start_idx=22, end_idx=27, flags=dict(kwargs.get("flags", {})))
@@ -175,6 +175,7 @@ def test_confirm_edit_event_updates_baseline_scope_flags_and_preserves_existing_
         _update_preview=lambda _idx: None,
     )
     controller = MarkPopupController(app)
+    controller.parse_baseline_controls = lambda: (4, 21)  # type: ignore[method-assign]
     controller.cancel = lambda: None  # type: ignore[method-assign]
 
     controller.confirm()

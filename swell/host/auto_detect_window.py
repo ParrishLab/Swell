@@ -13,14 +13,24 @@ from tkinter import ttk
 from typing import Any
 
 import numpy as np
-from PIL import Image, ImageDraw, ImageTk
+from PIL import Image, ImageTk
 import cv2
 
 from swell.host.analysis_payload_mapper import apply_analysis_scope_flags
+from swell.host.auto_detect_helpers import (
+    active_cells_for_frame,
+    cell_border_rects_for_layout,
+    frame_index_position,
+    grid_bounds_for_layout,
+    normalize_to_uint8,
+    onset_active_window,
+)
+from swell.host.auto_detect_layout import AutoDetectLayoutBuilder
+from swell.host.auto_detect_rendering import build_grid_overlay_image
+from swell.host.auto_detect_timeline import AutoDetectTimelineController
 from swell.host.config import DEFAULT_BASELINE_PRE_FRAMES
-from swell.shared.frame_source import normalize_visual_frame
 from swell.shared.ui import BackgroundTaskRunner
-from swell.shared.ui.bootstrap import semantic_button_options, center_window_on_screen
+from swell.shared.ui.bootstrap import center_window_on_screen
 from swell.shared.ui.theme import CANVAS_BACKGROUND, SPACING, apply_theme
 
 # Colors drawn directly onto tk.Canvas — must stay in sync with theme.py palette.
@@ -46,10 +56,7 @@ _POLARITY_VALUES_BY_LABEL = {label: value for value, label in _POLARITY_LABELS.i
 
 
 def _to_uint8(frame: np.ndarray) -> np.ndarray:
-    arr = np.asarray(frame, dtype=np.float32)
-    p1 = float(np.percentile(arr, 1))
-    p99 = float(np.percentile(arr, 99))
-    return normalize_visual_frame(arr, p1=p1, p99=p99)
+    return normalize_to_uint8(frame)
 
 
 class AutoDetectWindow:
@@ -106,6 +113,8 @@ class AutoDetectWindow:
         self._algorithm_rerun_after_id: str | None = None
         self._param_history: list[dict] = []
         self._param_history_idx: int = -1
+        self._timeline = AutoDetectTimelineController(self)
+        self._layout = AutoDetectLayoutBuilder(self, polarity_labels=_POLARITY_LABELS)
         self._push_history()
 
         self._load_project_roi()
@@ -128,9 +137,9 @@ class AutoDetectWindow:
         container.columnconfigure(2, weight=0, minsize=320)
         container.rowconfigure(0, weight=1)
 
-        self._build_left_pane(container)
-        self._build_center_pane(container)
-        self._build_right_pane(container)
+        self._layout.build_left_pane(container)
+        self._layout.build_center_pane(container)
+        self._layout.build_right_pane(container)
 
         self._update_setup_labels()
         self._update_roi_status()
@@ -139,88 +148,6 @@ class AutoDetectWindow:
         if show:
             center_window_on_screen(popup, width=_WINDOW_W, height=_WINDOW_H)
             popup.after(0, lambda: (popup.lift(), popup.focus_force()))
-
-    def _build_left_pane(self, parent: ttk.Frame) -> None:
-        left = ttk.Frame(parent, padding=SPACING.outer, style="AppSidebar.TFrame")
-        left.grid(row=0, column=0, sticky="nsew")
-
-        ttk.Label(left, text="Region of Interest", style="AppSidebarTitle.TLabel").pack(anchor="w", pady=(0, SPACING.inner))
-        self._roi_status_var = tk.StringVar(value="No ROI — using full frame")
-        ttk.Label(left, textvariable=self._roi_status_var, style="AppMeta.TLabel").pack(anchor="w", pady=(0, SPACING.inner))
-        
-        btn_row = ttk.Frame(left, style="AppSidebar.TFrame")
-        btn_row.pack(fill="x", pady=(0, SPACING.outer))
-        ttk.Button(btn_row, text="Draw ROI", command=self._on_draw_roi, **semantic_button_options("secondary")).pack(side="left", padx=(0, SPACING.gap))
-        ttk.Button(btn_row, text="Clear ROI", command=self._on_clear_roi, **semantic_button_options("secondary")).pack(side="left")
-
-        ttk.Separator(left, orient="horizontal").pack(fill="x", pady=(SPACING.inner, SPACING.inner))
-        self._grid_label_var = tk.StringVar(value=f"Grid density  ({self._n_grid}×{self._n_grid} cells)")
-        ttk.Label(left, textvariable=self._grid_label_var, style="AppMeta.TLabel").pack(anchor="w")
-        self._grid_var = tk.DoubleVar(value=self._n_grid)
-        self._grid_scale = ttk.Scale(left, from_=10, to=80, orient="horizontal", variable=self._grid_var, style="AppFlat.Horizontal.TScale")
-        self._grid_scale.configure(command=self._on_grid_change)
-        self._grid_scale.pack(fill="x", pady=(SPACING.gap, SPACING.inner))
-
-        self._grid_opacity_label_var = tk.StringVar(value=f"Grid opacity  ({int(round(self._grid_opacity * 100))}%)")
-        ttk.Label(left, textvariable=self._grid_opacity_label_var, style="AppMeta.TLabel").pack(anchor="w")
-        self._grid_opacity_var = tk.DoubleVar(value=self._grid_opacity)
-        self._grid_opacity_scale = ttk.Scale(left, from_=0.0, to=1.0, orient="horizontal", variable=self._grid_opacity_var, style="AppFlat.Horizontal.TScale")
-        self._grid_opacity_scale.configure(command=self._on_grid_opacity_change)
-        self._grid_opacity_scale.pack(fill="x", pady=(SPACING.gap, SPACING.inner))
-
-        ttk.Separator(left, orient="horizontal").pack(fill="x", pady=(SPACING.inner, SPACING.inner))
-        ttk.Label(left, text="Detection Algorithms", style="AppSidebarTitle.TLabel").pack(anchor="w", pady=(0, SPACING.inner))
-
-        self._sens_label_var = tk.StringVar()
-        self._sens_scale, self._sens_var = self._add_slider(left, self._sens_label_var, 0.0, 1.0, self._k_mad_to_sens(float(self._params["diff_k_mad"])), self._on_sens_change)
-
-        self._part_label_var = tk.StringVar()
-        self._part_scale, self._part_var = self._add_slider(left, self._part_label_var, 0.01, 0.20, float(self._params["peak_height_fraction"]), self._on_part_change)
-
-        self._coh_label_var = tk.StringVar()
-        self._coh_scale, self._coh_var = self._add_slider(left, self._coh_label_var, 0.0, 1.00, float(self._params["coherence_threshold"]), self._on_coh_change)
-
-        self._split_var = tk.BooleanVar(value=bool(self._params["split_broad_windows"]))
-        ttk.Checkbutton(left, text="Split compound events", variable=self._split_var, command=self._on_split_change).pack(anchor="w", pady=(SPACING.inner, SPACING.outer))
-
-        self._polarity_label_var = tk.StringVar(value="Signal polarity")
-        ttk.Label(left, textvariable=self._polarity_label_var, style="AppMeta.TLabel").pack(anchor="w")
-        self._polarity_var = tk.StringVar(value=self._polarity_label_for_param())
-        self._polarity_combo = ttk.Combobox(
-            left,
-            textvariable=self._polarity_var,
-            values=list(_POLARITY_LABELS.values()),
-            state="readonly",
-            width=26,
-            style="AppCompact.TCombobox",
-        )
-        self._polarity_combo.pack(fill="x", pady=(SPACING.gap, SPACING.inner))
-        self._polarity_combo.bind("<<ComboboxSelected>>", self._on_polarity_change, add="+")
-        ttk.Label(
-            left,
-            text="Default detects brightening waves; negative and both remain available for dark-going recordings.",
-            style="AppMeta.TLabel",
-            wraplength=240,
-        ).pack(anchor="w", pady=(0, SPACING.outer))
-
-        history_row = ttk.Frame(left, style="AppSidebar.TFrame")
-        history_row.pack(fill="x", pady=(0, SPACING.inner))
-        self._undo_btn = ttk.Button(history_row, text="⟲ Undo", command=self._on_undo, width=8, **semantic_button_options("secondary"))
-        self._undo_btn.pack(side="left", padx=(0, SPACING.gap))
-        self._redo_btn = ttk.Button(history_row, text="⟳ Redo", command=self._on_redo, width=8, **semantic_button_options("secondary"))
-        self._redo_btn.pack(side="left", padx=(0, SPACING.gap))
-        ttk.Button(history_row, text="Reset", command=self._on_reset_defaults, width=8, **semantic_button_options("secondary")).pack(side="left")
-
-        action_btns = ttk.Frame(left, style="AppSidebar.TFrame")
-        action_btns.pack(fill="x", pady=(SPACING.inner, SPACING.gap))
-        
-        self._run_btn = ttk.Button(action_btns, text="Run Detection", command=self._on_run, **semantic_button_options("primary"))
-        self._run_btn.pack(side="left", expand=True, fill="x", padx=(0, SPACING.gap))
-        self._cancel_btn = ttk.Button(action_btns, text="Cancel Run", command=self._on_cancel_run, **semantic_button_options("secondary"), state="disabled")
-        self._cancel_btn.pack(side="left", expand=True, fill="x")
-
-        self._setup_status_var = tk.StringVar(value="")
-        ttk.Label(left, textvariable=self._setup_status_var, style="AppMeta.TLabel", wraplength=240).pack(anchor="w", pady=(0, 0))
 
     def _on_reset_defaults(self) -> None:
         self._params = dict(_detector.PRESET)
@@ -288,110 +215,6 @@ class AutoDetectWindow:
         self._cancel_btn.config(state="disabled")
         self._run_btn.config(state="normal")
         self._render_trace()
-
-    def _build_center_pane(self, parent: ttk.Frame) -> None:
-        center = ttk.Frame(parent, padding=SPACING.outer, style="AppSurface.TFrame")
-        center.grid(row=0, column=1, sticky="nsew")
-        center.rowconfigure(0, weight=1)
-        center.columnconfigure(0, weight=1)
-
-        canvas_frame = ttk.Frame(center, style="AppInset.TFrame")
-        canvas_frame.grid(row=0, column=0, sticky="nsew")
-        
-        self._viewer_canvas = tk.Canvas(canvas_frame, bg="#1a1a1a", highlightthickness=0)
-        self._viewer_canvas.pack(fill="both", expand=True)
-        self._viewer_canvas.bind("<Configure>", lambda e: self._render_viewer_frame(self._current_frame))
-
-        badge_frame = ttk.Frame(canvas_frame, style="AppOverlay.TFrame", padding=(4, 2))
-        badge_frame.place(relx=0.02, rely=0.02, anchor="nw")
-        ttk.Label(badge_frame, text="Display: 1-99% Stretch | Detection: Raw Float", style="AppSurfaceMicro.TLabel").pack()
-
-        scrub_frame = ttk.Frame(center, style="AppSurface.TFrame")
-        scrub_frame.grid(row=1, column=0, sticky="ew", pady=(SPACING.inner, 0))
-
-        nav_row = ttk.Frame(scrub_frame, style="AppSurface.TFrame")
-        nav_row.pack(fill="x", pady=(0, 2))
-        self._viewer_frame_label_var = tk.StringVar(value="Frame 0")
-        ttk.Label(nav_row, textvariable=self._viewer_frame_label_var, style="AppMeta.TLabel").pack(side="left")
-        ttk.Button(nav_row, text=">", command=lambda: self._on_step_frame(1), width=2, **semantic_button_options("secondary")).pack(side="right")
-        ttk.Button(nav_row, text="<", command=lambda: self._on_step_frame(-1), width=2, **semantic_button_options("secondary")).pack(side="right", padx=(0, 2))
-
-        self._overview_canvas = tk.Canvas(scrub_frame, height=28, bg=CANVAS_BACKGROUND, highlightthickness=0)
-        self._overview_canvas.pack(fill="x", pady=(2, 0))
-        self._overview_canvas.bind("<Configure>", lambda e: self._render_overview())
-        self._overview_canvas.bind("<Button-1>", lambda e: self._on_overview_click(e))
-        self._overview_canvas.bind("<B1-Motion>", lambda e: self._on_overview_drag(e))
-        self._overview_canvas.bind("<ButtonRelease-1>", lambda e: self._on_overview_release(e))
-
-        self._detail_canvas = tk.Canvas(scrub_frame, height=60, bg=CANVAS_BACKGROUND, highlightthickness=0)
-        self._detail_canvas.pack(fill="x", pady=(2, 0))
-        self._detail_canvas.bind("<Configure>", lambda e: self._render_detail())
-        self._detail_canvas.bind("<Motion>", lambda e: self._on_detail_motion(e))
-        self._detail_canvas.bind("<Button-1>", lambda e: self._on_detail_click(e))
-        self._detail_canvas.bind("<B1-Motion>", lambda e: self._on_detail_drag(e))
-        self._detail_canvas.bind("<ButtonRelease-1>", lambda e: self._on_detail_release(e))
-        self._detail_canvas.bind("<MouseWheel>", lambda e: self._on_detail_wheel(e))
-        self._detail_canvas.bind("<Button-4>", lambda e: self._on_detail_wheel_linux(e, +1))
-        self._detail_canvas.bind("<Button-5>", lambda e: self._on_detail_wheel_linux(e, -1))
-
-    def _build_right_pane(self, parent: ttk.Frame) -> None:
-        right = ttk.Frame(parent, padding=SPACING.outer, style="AppSurface.TFrame")
-        right.grid(row=0, column=2, sticky="nsew")
-        right.columnconfigure(0, weight=1)
-        right.rowconfigure(1, weight=1)
-
-        ttk.Label(right, text="Detected Candidates", style="AppSidebarTitle.TLabel").grid(row=0, column=0, sticky="w", pady=(0, SPACING.inner))
-
-        tree_frame = ttk.Frame(right, style="AppInset.TFrame")
-        tree_frame.grid(row=1, column=0, sticky="nsew")
-        tree_frame.columnconfigure(0, weight=1)
-        tree_frame.rowconfigure(0, weight=1)
-
-        cols = ("start", "end", "duration", "coherence")
-        self._tree = ttk.Treeview(tree_frame, columns=cols, show="headings", height=8, selectmode="browse")
-        self._tree.heading("start", text="Start")
-        self._tree.heading("end", text="End")
-        self._tree.heading("duration", text="Dur.")
-        self._tree.heading("coherence", text="Coherence")
-        for c in cols:
-            self._tree.column(c, width=70, anchor="center")
-        self._tree.grid(row=0, column=0, sticky="nsew")
-
-        tree_sb = ttk.Scrollbar(tree_frame, orient="vertical", command=self._tree.yview)
-        self._tree.configure(yscrollcommand=tree_sb.set)
-        tree_sb.grid(row=0, column=1, sticky="ns")
-        self._tree.bind("<<TreeviewSelect>>", self._on_tree_select)
-
-        bounds_row = ttk.Frame(right, style="AppSurface.TFrame")
-        bounds_row.grid(row=2, column=0, sticky="ew", pady=(SPACING.inner, 0))
-        ttk.Label(bounds_row, text="Start:", style="AppMeta.TLabel").pack(side="left")
-        self._start_entry = ttk.Entry(bounds_row, width=6, style="AppCompact.TEntry")
-        self._start_entry.pack(side="left", padx=(2, SPACING.gap))
-        ttk.Label(bounds_row, text="End:", style="AppMeta.TLabel").pack(side="left")
-        self._end_entry = ttk.Entry(bounds_row, width=6, style="AppCompact.TEntry")
-        self._end_entry.pack(side="left", padx=(2, SPACING.gap))
-        self._start_entry.bind("<FocusOut>", lambda e: self._on_update_bounds())
-        self._start_entry.bind("<Return>", lambda e: self._on_update_bounds())
-        self._end_entry.bind("<FocusOut>", lambda e: self._on_update_bounds())
-        self._end_entry.bind("<Return>", lambda e: self._on_update_bounds())
-
-        action_row = ttk.Frame(right, style="AppSurface.TFrame")
-        action_row.grid(row=3, column=0, sticky="ew", pady=(SPACING.outer, 0))
-        ttk.Button(action_row, text="Delete Event", command=self._on_delete, **semantic_button_options("danger")).pack(side="left", expand=True, fill="x", padx=(0, SPACING.gap))
-        ttk.Button(action_row, text="Accept Event", command=self._on_accept_one, **semantic_button_options("secondary")).pack(side="left", expand=True, fill="x")
-
-        ttk.Separator(right, orient="horizontal").grid(row=4, column=0, sticky="ew", pady=(SPACING.outer, SPACING.inner))
-
-        ttk.Button(right, text="Commit & Proceed", command=self._on_accept_all, **semantic_button_options("primary")).grid(row=5, column=0, sticky="ew", pady=(0, SPACING.inner))
-        ttk.Button(right, text="Cancel", command=self._on_close, **semantic_button_options("secondary")).grid(row=6, column=0, sticky="ew")
-
-    def _add_slider(self, parent: ttk.Frame, label_var: tk.StringVar, from_: float, to: float, init: float, command) -> tuple[ttk.Scale, tk.DoubleVar]:
-        ttk.Label(parent, textvariable=label_var, style="AppMeta.TLabel").pack(anchor="w", pady=(SPACING.inner, 0))
-        var = tk.DoubleVar(value=init)
-        scale = ttk.Scale(parent, from_=from_, to=to, orient="horizontal", variable=var, style="AppFlat.Horizontal.TScale")
-        scale.configure(command=command)
-        scale.pack(fill="x", pady=(0, 2))
-        return scale, var
 
     def _on_draw_roi(self) -> None:
         from swell.analysis.ui.roi_dialog import open_roi_dialog
@@ -813,62 +636,26 @@ class AutoDetectWindow:
         cw = max(1, self._viewer_canvas.winfo_width())
         ch = max(1, self._viewer_canvas.winfo_height())
         if cw <= 1: cw, ch = 480, 480
-        
+
         h, w = img_u8.shape[:2]
         scale = min(cw / max(w, 1), ch / max(h, 1))
         dw, dh = max(1, int(w * scale)), max(1, int(h * scale))
-
-        pil = Image.fromarray(img_u8).convert("RGB").resize((dw, dh), Image.LANCZOS)
-        canvas_pil = Image.new("RGB", (cw, ch), (26, 26, 26))
-        ox, oy = (cw - dw) // 2, (ch - dh) // 2
-        canvas_pil.paste(pil, (ox, oy))
-
-        grid_overlay = Image.new("RGBA", (cw, ch), (0, 0, 0, 0))
-        draw = ImageDraw.Draw(grid_overlay)
-
-        minor_alpha = int(round(96 * self._grid_opacity))
-        major_alpha = int(round(150 * self._grid_opacity))
-        grid_bounds = self._grid_bounds_for_layout((cw, ch, dw, dh, ox, oy))
-        if grid_bounds is not None:
-            grid_x, grid_y, grid_w, grid_h = grid_bounds
-            n = self._n_grid
-            for i in range(1, n):
-                x = grid_x + int(grid_w * i / n)
-                alpha = major_alpha if i % 5 == 0 else minor_alpha
-                draw.line([(x, grid_y), (x, grid_y + grid_h)], fill=(125, 175, 215, alpha), width=1)
-            for i in range(1, n):
-                y = grid_y + int(grid_h * i / n)
-                alpha = major_alpha if i % 5 == 0 else minor_alpha
-                draw.line([(grid_x, y), (grid_x + grid_w, y)], fill=(125, 175, 215, alpha), width=1)
-
-        if self._roi_mask is not None:
-            try:
-                roi_small = Image.fromarray(self._roi_mask.astype(np.uint8) * 255).resize((dw, dh), Image.NEAREST)
-                roi_mask_img = Image.new("L", (cw, ch), 0)
-                roi_mask_img.paste(roi_small, (ox, oy))
-                
-                empty = Image.new("RGBA", (cw, ch), (0, 0, 0, 0))
-                grid_overlay = Image.composite(grid_overlay, empty, roi_mask_img)
-            except Exception: pass
-
-        self._draw_active_cell_borders(grid_overlay, selected_cand=selected_cand, frame_idx=self._current_frame, layout=(cw, ch, dw, dh, ox, oy))
-        return Image.alpha_composite(canvas_pil.convert("RGBA"), grid_overlay).convert("RGB")
+        layout = (cw, ch, dw, dh, (cw - dw) // 2, (ch - dh) // 2)
+        active_cells = self._active_cells_for_frame(selected_cand, self._current_frame)
+        border_rects = self._cell_border_rects_for_layout(layout)
+        return build_grid_overlay_image(
+            img_u8,
+            canvas_size=(cw, ch),
+            grid_density=self._n_grid,
+            grid_opacity=self._grid_opacity,
+            roi_mask=self._roi_mask,
+            extraction=self._cached_grid_extraction,
+            active_cells=active_cells,
+            border_rects=border_rects,
+        )
 
     def _grid_bounds_for_layout(self, layout: tuple[int, int, int, int, int, int]) -> tuple[int, int, int, int] | None:
-        _cw, _ch, dw, dh, ox, oy = layout
-        extraction = self._cached_grid_extraction
-        if extraction is None:
-            return ox, oy, dw, dh
-        geometry = extraction.geometry
-        resized_h, resized_w = geometry.resized_shape
-        if resized_h <= 0 or resized_w <= 0:
-            return None
-        crop_y0, crop_y1, crop_x0, crop_x1 = geometry.crop_box
-        grid_x = ox + int(round(crop_x0 * dw / resized_w))
-        grid_y = oy + int(round(crop_y0 * dh / resized_h))
-        grid_w = max(1, int(round((crop_x1 - crop_x0) * dw / resized_w)))
-        grid_h = max(1, int(round((crop_y1 - crop_y0) * dh / resized_h)))
-        return grid_x, grid_y, grid_w, grid_h
+        return grid_bounds_for_layout(layout, self._cached_grid_extraction)
 
     def _clear_active_cell_overlay_cache(self) -> None:
         self._active_cell_cache.clear()
@@ -876,96 +663,22 @@ class AutoDetectWindow:
         self._cell_border_rects = []
 
     def _active_cells_for_frame(self, selected_cand: dict | None, frame_idx: int) -> np.ndarray | None:
-        idx = self._current_idx
-        detrended = self._cached_detrended
-        frame_indices = self._cached_frame_indices
-        if selected_cand is None or idx is None or detrended is None or frame_indices is None:
-            return None
-        if detrended.ndim != 2 or frame_indices.ndim != 1 or detrended.shape[1] != frame_indices.size:
-            return None
-        try:
-            start_frame = int(selected_cand["start_frame"])
-            end_frame = int(selected_cand["end_frame"])
-        except Exception:
-            return None
-
-        frame_pos = self._frame_index_position(frame_indices, int(frame_idx))
-        start_idx = self._frame_index_position(frame_indices, start_frame)
-        end_idx = self._frame_index_position(frame_indices, end_frame)
-        if frame_pos is None or start_idx is None or end_idx is None:
-            return None
-        if end_idx < start_idx:
-            start_idx, end_idx = end_idx, start_idx
-        if frame_pos < start_idx or frame_pos > end_idx:
-            return None
-
-        active_threshold = float(self._params.get("coherence_active_threshold_mad", 10.0))
-        quiet_pre_frames = int(self._params.get("quiet_pre_frames", 200))
-        polarity = self._params.get("polarity", "positive")
-        persistence_frames = int(self._params.get("persistence_frames", 1))
-        cache_key = ("combined", int(idx), start_idx, end_idx, active_threshold, quiet_pre_frames, float(self._params.get("diff_k_mad", 2.5)), polarity, persistence_frames, id(detrended), id(frame_indices))
-        cached = self._active_cell_cache.get(cache_key)
-        if cached is None:
-            mad = _detector.quiet_mad(detrended, start_idx, quiet_pre_frames=quiet_pre_frames)
-            norm = detrended[:, start_idx : end_idx + 1] / mad[:, np.newaxis]
-            if polarity == "positive":
-                participation_window = norm > active_threshold
-            elif polarity == "negative":
-                participation_window = norm < -active_threshold
-            elif polarity in ("absolute", "both"):
-                participation_window = np.abs(norm) > active_threshold
-            else:
-                participation_window = norm > active_threshold
-            onset_window = self._onset_active_window(detrended, start_idx, end_idx)
-            active_window = participation_window | onset_window
-            cached = (start_idx, end_idx, active_window)
-            self._active_cell_cache[cache_key] = cached
-        cached_start, cached_end, active_window = cached
-        if frame_pos < cached_start or frame_pos > cached_end:
-            return None
-        return np.asarray(active_window[:, frame_pos - cached_start], dtype=bool)
+        return active_cells_for_frame(
+            selected_cand=selected_cand,
+            selected_index=self._current_idx,
+            frame_idx=frame_idx,
+            detrended=self._cached_detrended,
+            frame_indices=self._cached_frame_indices,
+            params=self._params,
+            cache=self._active_cell_cache,
+        )
 
     def _onset_active_window(self, detrended: np.ndarray, start_idx: int, end_idx: int) -> np.ndarray:
-        window_len = max(0, int(end_idx) - int(start_idx) + 1)
-        if window_len <= 0:
-            return np.zeros((int(detrended.shape[0]), 0), dtype=bool)
-        diffs = np.diff(np.asarray(detrended), axis=1)
-        if diffs.shape[1] == 0:
-            return np.zeros((int(detrended.shape[0]), window_len), dtype=bool)
-        diff_center = np.nanmedian(diffs, axis=1, keepdims=True)
-        mads = np.nanmedian(np.abs(diffs - diff_center), axis=1)
-        
-        polarity = self._params.get("polarity", "positive")
-        k_mad = float(self._params.get("diff_k_mad", 2.5))
-        persistence_frames = int(self._params.get("persistence_frames", 1))
-
-        if polarity == "positive":
-            active_diffs = diffs > (k_mad * mads[:, np.newaxis])
-        elif polarity == "negative":
-            active_diffs = diffs < -(k_mad * mads[:, np.newaxis])
-        elif polarity in ("absolute", "both"):
-            active_diffs = np.abs(diffs) > (k_mad * mads[:, np.newaxis])
-        else:
-            active_diffs = diffs > (k_mad * mads[:, np.newaxis])
-
-        if persistence_frames > 1:
-            from scipy.ndimage import binary_erosion
-            structure = np.ones((1, persistence_frames), dtype=bool)
-            active_diffs = binary_erosion(active_diffs, structure=structure)
-
-        active_window = np.zeros((int(detrended.shape[0]), window_len), dtype=bool)
-        for out_idx, frame_pos in enumerate(range(int(start_idx), int(end_idx) + 1)):
-            diff_idx = frame_pos - 1
-            if 0 <= diff_idx < active_diffs.shape[1]:
-                active_window[:, out_idx] = active_diffs[:, diff_idx]
-        return active_window
+        return onset_active_window(detrended, start_idx, end_idx, self._params)
 
     @staticmethod
     def _frame_index_position(frame_indices: np.ndarray, frame: int) -> int | None:
-        matches = np.flatnonzero(np.asarray(frame_indices) == int(frame))
-        if matches.size == 0:
-            return None
-        return int(matches[0])
+        return frame_index_position(frame_indices, frame)
 
     def _draw_active_cell_borders(
         self,
@@ -981,6 +694,9 @@ class AutoDetectWindow:
         border_rects = self._cell_border_rects_for_layout(layout)
         if not border_rects:
             return
+        # Kept as a compatibility path for callers that draw into an existing overlay.
+        from PIL import ImageDraw
+
         draw = ImageDraw.Draw(overlay)
         for cell_idx in np.flatnonzero(active_cells):
             if int(cell_idx) >= len(border_rects):
@@ -996,341 +712,70 @@ class AutoDetectWindow:
         if self._cell_border_cache_key == cache_key:
             return self._cell_border_rects
 
-        grid_bounds = self._grid_bounds_for_layout(layout)
-        if grid_bounds is None:
-            return []
-        grid_x, grid_y, grid_w, grid_h = grid_bounds
-
-        rects: list[tuple[int, int, int, int]] = []
-        cell_row_cols = getattr(extraction, "cell_row_cols", None)
-        if isinstance(cell_row_cols, list) and len(cell_row_cols) == len(extraction.cell_masks):
-            n = self._n_grid
-            for row, col in cell_row_cols:
-                row_i = int(row)
-                col_i = int(col)
-                x0 = grid_x + int(grid_w * col_i / n)
-                x1 = grid_x + int(grid_w * (col_i + 1) / n)
-                y0 = grid_y + int(grid_h * row_i / n)
-                y1 = grid_y + int(grid_h * (row_i + 1) / n)
-                rects.append((x0, y0, max(x0, x1 - 1), max(y0, y1 - 1)))
-        else:
-            for cell_mask in extraction.cell_masks:
-                mask = np.asarray(cell_mask, dtype=bool)
-                if mask.ndim != 2 or not np.any(mask):
-                    rects.append((grid_x, grid_y, grid_x, grid_y))
-                    continue
-                rows, cols = np.where(mask)
-                r0, r1 = int(rows.min()), int(rows.max()) + 1
-                c0, c1 = int(cols.min()), int(cols.max()) + 1
-                mask_h, mask_w = mask.shape
-                x0 = grid_x + int(np.floor(c0 * grid_w / max(1, mask_w)))
-                x1 = grid_x + int(np.ceil(c1 * grid_w / max(1, mask_w)))
-                y0 = grid_y + int(np.floor(r0 * grid_h / max(1, mask_h)))
-                y1 = grid_y + int(np.ceil(r1 * grid_h / max(1, mask_h)))
-                rects.append((x0, y0, max(x0, x1 - 1), max(y0, y1 - 1)))
-
+        rects = cell_border_rects_for_layout(layout=layout, extraction=extraction, grid_density=self._n_grid)
         self._cell_border_cache_key = cache_key
         self._cell_border_rects = rects
         return rects
 
     def _render_trace(self) -> None:
-        self._render_overview()
-        self._render_detail()
-
-    # ---------- Overview strip ----------
+        self._timeline.render_trace()
 
     def _render_overview(self) -> None:
-        canvas = getattr(self, "_overview_canvas", None)
-        if canvas is None:
-            return
-        cw = max(1, canvas.winfo_width())
-        ch = max(1, canvas.winfo_height())
-        fc = int(self.app.stack_info.frame_count)
-
-        canvas.delete("all")
-        self._overview_items.clear()
-        self._candidate_bar_overview.clear()
-        if cw <= 1 or fc <= 1:
-            return
-
-        # Candidate bars (slim, bottom 4px)
-        for idx, cand in enumerate(self._review_candidates):
-            s = int(cand["start_frame"])
-            e = int(cand["end_frame"])
-            x0 = (s / (fc - 1)) * cw
-            x1 = (e / (fc - 1)) * cw
-            color = _C_ACCENT if idx == self._current_idx else _C_BORDER
-            bar = canvas.create_rectangle(x0, ch - 4, max(x1, x0 + 1), ch, fill=color, outline="")
-            self._candidate_bar_overview.append(bar)
-
-        # Viewport rect showing the detail window's coverage
-        win_start, win_end = self._detail_window_bounds()
-        vx0 = (win_start / (fc - 1)) * cw
-        vx1 = (win_end / (fc - 1)) * cw
-        self._overview_items["viewport"] = canvas.create_rectangle(
-            vx0, 0, max(vx1, vx0 + 1), ch, outline=_C_BORDER, fill=_C_BORDER, stipple="gray25", width=1
-        )
-
-        # Playhead
-        cx = (self._current_frame / (fc - 1)) * cw
-        self._overview_items["scrubber"] = canvas.create_line(
-            cx, 0, cx, ch, fill=_C_TEXT, width=1, tags="scrubber"
-        )
+        self._timeline.render_overview()
 
     def _update_overview_dynamic(self) -> None:
-        """Move playhead + viewport rect on the overview without rebuilding."""
-        canvas = getattr(self, "_overview_canvas", None)
-        if canvas is None:
-            return
-        cw = max(1, canvas.winfo_width())
-        ch = max(1, canvas.winfo_height())
-        fc = int(self.app.stack_info.frame_count)
-        if cw <= 1 or fc <= 1:
-            return
-        cx = (self._current_frame / (fc - 1)) * cw
-        if "scrubber" in self._overview_items:
-            canvas.coords(self._overview_items["scrubber"], cx, 0, cx, ch)
-        win_start, win_end = self._detail_window_bounds()
-        vx0 = (win_start / (fc - 1)) * cw
-        vx1 = (win_end / (fc - 1)) * cw
-        if "viewport" in self._overview_items:
-            canvas.coords(self._overview_items["viewport"], vx0, 0, max(vx1, vx0 + 1), ch)
-
-    # ---------- Detail strip ----------
+        self._timeline.update_overview_dynamic()
 
     def _detail_window_bounds(self) -> tuple[int, int]:
-        fc = int(self.app.stack_info.frame_count)
-        if fc <= 1:
-            return 0, 0
-        half = max(1, int(self._detail_half_width))
-        center = int(self._detail_center_frame)
-        start = max(0, center - half)
-        end = min(fc - 1, center + half)
-        if end - start < 1:
-            end = min(fc - 1, start + 1)
-            start = max(0, end - 1)
-        return start, end
+        return self._timeline.detail_window_bounds()
 
     def _render_detail(self) -> None:
-        canvas = getattr(self, "_detail_canvas", None)
-        if canvas is None:
-            return
-        cw = max(1, canvas.winfo_width())
-        ch = max(1, canvas.winfo_height())
-        fc = int(self.app.stack_info.frame_count)
-
-        canvas.delete("all")
-        self._detail_items.clear()
-        self._candidate_bar_detail.clear()
-        if cw <= 1 or fc <= 1:
-            return
-
-        win_start, win_end = self._detail_window_bounds()
-        win_span = max(1, win_end - win_start)
-
-        def _x(frame: float) -> float:
-            return (float(frame) - win_start) / win_span * cw
-
-        # Candidate bars within window
-        for idx, cand in enumerate(self._review_candidates):
-            s = int(cand["start_frame"])
-            e = int(cand["end_frame"])
-            if e < win_start or s > win_end:
-                continue
-            cs = max(s, win_start)
-            ce = min(e, win_end)
-            x0 = _x(cs)
-            x1 = _x(ce)
-            color = _C_ACCENT if idx == self._current_idx else _C_BORDER
-            bar = canvas.create_rectangle(x0, ch - 10, max(x1, x0 + 1), ch - 2, fill=color, outline="")
-            self._candidate_bar_detail.append(bar)
-
-        # Selected candidate translucent overlay + handles
-        sel_idx = self._selected_candidate_idx()
-        if sel_idx is not None:
-            cand = self._review_candidates[sel_idx]
-            s, e = int(cand["start_frame"]), int(cand["end_frame"])
-            if e >= win_start and s <= win_end:
-                cs = max(s, win_start)
-                ce = min(e, win_end)
-                ox0 = _x(cs)
-                ox1 = _x(ce)
-                self._detail_items["overlay"] = canvas.create_rectangle(
-                    ox0, 0, max(ox1, ox0 + 1), ch, fill=_C_ACCENT, stipple="gray25", outline=""
-                )
-            if win_start <= s <= win_end:
-                hx = _x(s)
-                h_color = _C_TEXT if self._trace_hover == "start" else _C_MUTED_SOFT
-                self._detail_items["handle_start"] = canvas.create_rectangle(
-                    hx - 3, 0, hx + 3, ch, fill=h_color, outline="", tags="handle_start"
-                )
-            if win_start <= e <= win_end:
-                hx = _x(e)
-                h_color = _C_TEXT if self._trace_hover == "end" else _C_MUTED_SOFT
-                self._detail_items["handle_end"] = canvas.create_rectangle(
-                    hx - 3, 0, hx + 3, ch, fill=h_color, outline="", tags="handle_end"
-                )
-
-        # Playhead
-        if win_start <= self._current_frame <= win_end:
-            cx = _x(self._current_frame)
-            self._detail_items["scrubber"] = canvas.create_line(
-                cx, 0, cx, ch, fill=_C_TEXT, width=1, tags="scrubber"
-            )
-
-        # Edge labels
-        canvas.create_text(4, 2, anchor="nw", text=str(win_start), fill=_C_MUTED, font=("TkSmallCaptionFont",))
-        canvas.create_text(cw - 4, 2, anchor="ne", text=str(win_end), fill=_C_MUTED, font=("TkSmallCaptionFont",))
-
-    # ---------- Frame ↔ x mapping ----------
+        self._timeline.render_detail()
 
     def _frame_from_overview_x(self, x: float) -> int:
-        canvas = self._overview_canvas
-        cw = max(1, canvas.winfo_width())
-        fc = int(self.app.stack_info.frame_count)
-        if fc <= 1:
-            return 0
-        return int(max(0, min(fc - 1, round((x / cw) * (fc - 1)))))
+        return self._timeline.frame_from_overview_x(x)
 
     def _frame_from_detail_x(self, x: float) -> int:
-        canvas = self._detail_canvas
-        cw = max(1, canvas.winfo_width())
-        fc = int(self.app.stack_info.frame_count)
-        if fc <= 1:
-            return 0
-        win_start, win_end = self._detail_window_bounds()
-        span = max(1, win_end - win_start)
-        return int(max(win_start, min(win_end, round(win_start + (x / cw) * span))))
+        return self._timeline.frame_from_detail_x(x)
 
     def _detail_x_from_frame(self, frame: int) -> float | None:
-        canvas = self._detail_canvas
-        cw = max(1, canvas.winfo_width())
-        win_start, win_end = self._detail_window_bounds()
-        if frame < win_start or frame > win_end:
-            return None
-        span = max(1, win_end - win_start)
-        return (float(frame) - win_start) / span * cw
+        return self._timeline.detail_x_from_frame(frame)
 
-    # Backward-compat shims (used elsewhere if anyone imported these)
     def _frame_from_x(self, x: float) -> int:
-        return self._frame_from_overview_x(x)
+        return self._timeline.frame_from_x(x)
 
     def _x_from_frame(self, frame: int) -> float:
-        canvas = self._overview_canvas
-        cw = max(1, canvas.winfo_width())
-        fc = int(self.app.stack_info.frame_count)
-        if fc <= 1:
-            return 0.0
-        return (frame / (fc - 1)) * cw
-
-    # ---------- Event handlers (overview) ----------
+        return self._timeline.x_from_frame(frame)
 
     def _on_overview_click(self, event) -> None:
-        frame = self._frame_from_overview_x(event.x)
-        self._current_frame = frame
-        self._detail_center_frame = frame
-        self._schedule_viewer_render(frame)
-        self._render_overview()
-        self._render_detail()
+        self._timeline.on_overview_click(event)
 
     def _on_overview_drag(self, event) -> None:
-        frame = self._frame_from_overview_x(event.x)
-        self._current_frame = frame
-        self._detail_center_frame = frame
-        self._schedule_viewer_render(frame)
-        self._update_overview_dynamic()
-        self._render_detail()
+        self._timeline.on_overview_drag(event)
 
     def _on_overview_release(self, _event) -> None:
-        self._render_overview()
-
-    # ---------- Event handlers (detail) ----------
+        self._timeline.on_overview_release(_event)
 
     def _on_detail_motion(self, event) -> None:
-        idx = self._selected_candidate_idx()
-        hover = None
-        if idx is not None:
-            cand = self._review_candidates[idx]
-            xs = self._detail_x_from_frame(int(cand["start_frame"]))
-            xe = self._detail_x_from_frame(int(cand["end_frame"]))
-            if xs is not None and abs(event.x - xs) < 6:
-                hover = "start"
-            elif xe is not None and abs(event.x - xe) < 6:
-                hover = "end"
-
-        if hover != self._trace_hover:
-            self._trace_hover = hover
-            self._render_detail()
-            self._detail_canvas.config(cursor="sb_h_double_arrow" if hover else "")
+        self._timeline.on_detail_motion(event)
 
     def _on_detail_click(self, event) -> None:
-        if self._trace_hover:
-            self._trace_dragging = self._trace_hover
-            return
-        frame = self._frame_from_detail_x(event.x)
-        self._current_frame = frame
-        self._schedule_viewer_render(frame)
-        self._render_detail()
-        self._update_overview_dynamic()
+        self._timeline.on_detail_click(event)
 
     def _on_detail_drag(self, event) -> None:
-        if self._trace_dragging:
-            idx = self._selected_candidate_idx()
-            if idx is not None:
-                cand = self._review_candidates[idx]
-                f = self._frame_from_detail_x(event.x)
-                if self._trace_dragging == "start":
-                    cand["start_frame"] = min(f, int(cand["end_frame"]))
-                else:
-                    cand["end_frame"] = max(f, int(cand["start_frame"]))
-                self._refresh_tree_row(idx)
-                self._render_detail()
-                self._render_overview()
-            return
-        frame = self._frame_from_detail_x(event.x)
-        self._current_frame = frame
-        self._schedule_viewer_render(frame)
-        self._render_detail()
-        self._update_overview_dynamic()
+        self._timeline.on_detail_drag(event)
 
     def _on_detail_release(self, _event) -> None:
-        if self._trace_dragging:
-            idx = self._selected_candidate_idx()
-            if idx is not None:
-                cand = self._review_candidates[idx]
-                self._start_entry.delete(0, "end")
-                self._start_entry.insert(0, str(cand["start_frame"]))
-                self._end_entry.delete(0, "end")
-                self._end_entry.insert(0, str(cand["end_frame"]))
-            self._trace_dragging = None
-            self._render_detail()
+        self._timeline.on_detail_release(_event)
 
     def _on_detail_wheel(self, event) -> None:
-        # Windows / macOS deliver delta in event.delta. Negative = scroll down.
-        steps = int(event.delta / 120) if abs(event.delta) >= 120 else (1 if event.delta > 0 else -1)
-        self._apply_detail_wheel(steps, shift=bool(event.state & 0x0001))
+        self._timeline.on_detail_wheel(event)
 
     def _on_detail_wheel_linux(self, _event, direction: int) -> None:
-        self._apply_detail_wheel(direction, shift=False)
+        self._timeline.on_detail_wheel_linux(_event, direction)
 
     def _apply_detail_wheel(self, steps: int, *, shift: bool) -> None:
-        if steps == 0:
-            return
-        fc = int(self.app.stack_info.frame_count)
-        if fc <= 1:
-            return
-        if shift:
-            # pan
-            half = max(1, self._detail_half_width)
-            self._detail_center_frame = int(max(0, min(fc - 1, self._detail_center_frame - steps * max(1, half // 4))))
-        else:
-            # zoom: positive = zoom in (smaller half_width)
-            factor = 0.8 if steps > 0 else 1.25
-            new_half = int(round(self._detail_half_width * factor))
-            new_half = max(self._detail_min_half_width, min(self._detail_max_half_width, new_half))
-            self._detail_half_width = new_half
-        self._render_detail()
-        self._update_overview_dynamic()
+        self._timeline.apply_detail_wheel(steps, shift=shift)
 
     # ---------- Throttled viewer render ----------
 

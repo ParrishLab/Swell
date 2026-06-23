@@ -603,8 +603,20 @@ class RenderActionsTests(unittest.TestCase):
         roi_result = base.copy()
         token = harness._draw_ghost_contour(roi_result, 3, color, alpha)
 
-        self.assertEqual(token, (3, (mask.shape, int(mask.sum()))))
+        self.assertEqual(token, (3, harness._mask_content_token(3, mask, prefix="ghost")))
         self.assertTrue(np.array_equal(roi_result, reference))
+
+    def test_mask_content_token_tracks_segmentation_generation(self):
+        class _Harness(RenderActions):
+            def __init__(self):
+                self.seg_state = SegmentationState()
+
+        harness = _Harness()
+        mask = np.zeros((8, 8), dtype=bool)
+        token_a = harness._mask_content_token(0, mask)
+        harness.seg_state.set_mask(0, mask)
+        token_b = harness._mask_content_token(0, mask)
+        self.assertNotEqual(token_a, token_b)
 
     def test_ghost_contour_empty_frame_returns_none_token(self):
         class _GhostBlendHarness(RenderActions):

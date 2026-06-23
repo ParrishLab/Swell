@@ -1848,6 +1848,12 @@ def test_export_binary_masks_writes_mask_images_when_available(tmp_path: Path) -
     exported_masks = sorted(p.name for p in masks_dir.glob("*.tiff"))
     assert exported_masks == ["000003_baseline_mask.tiff", "000005_event_mask.tiff"]
     assert result["masks_exported"] == 2
+    baseline_mask = tifffile.imread(str(masks_dir / "000003_baseline_mask.tiff"))
+    event_mask = tifffile.imread(str(masks_dir / "000005_event_mask.tiff"))
+    assert baseline_mask.dtype == np.uint8
+    assert event_mask.dtype == np.uint8
+    assert set(np.unique(baseline_mask).tolist()) == {0, 255}
+    assert set(np.unique(event_mask).tolist()) == {0, 255}
 
 
 def test_export_binary_masks_writes_region_only_prompt_masks(tmp_path: Path) -> None:

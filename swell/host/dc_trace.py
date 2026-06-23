@@ -407,20 +407,21 @@ class WaveSurferH5Adapter(TraceAdapter):
             scales = _as_float_list(metadata.get("channel_scales"))
             raw_coefficients = list(metadata.get("scaling_coefficients") or [])
             for sweep_name in sweep_names:
-                raw_dataset = _read_node(handle, f"{sweep_name}/analogScans")
-                raw = np.asarray(raw_dataset)
-                if raw.ndim != 2 or raw.shape[0] <= 0:
+                raw_dataset = _get_node(handle, f"{sweep_name}/analogScans")
+                raw_shape = tuple(getattr(raw_dataset, "shape", ()) or ())
+                if len(raw_shape) != 2 or raw_shape[0] <= 0:
                     continue
                 candidate_channel_count = max(len(channel_names), len(units), len(scales))
                 n_channels, _sample_count, channels_first = _infer_trace_layout(
-                    tuple(raw.shape),
+                    raw_shape,
                     candidate_channel_count=int(candidate_channel_count),
                 )
                 if channel_index >= n_channels:
                     raise ValueError(
                         f"Channel index {channel_index} exceeds analog channel count {n_channels} in {sweep_name}."
                     )
-                selected = raw[channel_index, :] if channels_first else raw[:, channel_index]
+                selected = raw_dataset[channel_index, :] if channels_first else raw_dataset[:, channel_index]
+                selected = np.asarray(selected)
                 if np.issubdtype(selected.dtype, np.integer):
                     coeff_row = None
                     if channel_index < len(raw_coefficients):

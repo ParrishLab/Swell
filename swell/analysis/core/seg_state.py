@@ -35,6 +35,10 @@ class SegmentationState:
         self.dirty_final_mask_frames = True
         self.dirty_mask_frames_no_regions = True
         self.dirty_timeline_extent_frames = True
+        self.content_generation = 0
+
+    def _bump_content_generation(self) -> None:
+        self.content_generation += 1
 
     def _has_valid_points_for_frame(self, frame_idx: int) -> bool:
         pt_list = self.points.get(frame_idx)
@@ -89,6 +93,7 @@ class SegmentationState:
         self._mask_frames_no_regions_scope = None
         self.dirty_timeline_extent_frames = True
         self._timeline_extent_scope = None
+        self._bump_content_generation()
 
     def _mark_user_changed(self):
         self.dirty_valid_point_frames = True
@@ -148,6 +153,7 @@ class SegmentationState:
             self.ground_truth_frames.discard(idx)
         if before != (idx in self.ground_truth_frames):
             self.invalidate_user_frames()
+            self._bump_content_generation()
 
     def is_ground_truth_frame(self, frame_idx: int) -> bool:
         return int(frame_idx) in self.ground_truth_frames
@@ -378,6 +384,7 @@ class SegmentationState:
                 return False
             self.persistent_regions[i] = normalized
             self._clear_region_raster_cache(rid)
+            self._bump_content_generation()
             return True
         return False
 
@@ -561,19 +568,17 @@ class SegmentationState:
 
     @staticmethod
     def _encode_rle(mask: np.ndarray) -> dict:
-        flat = np.asarray(mask, dtype=np.uint8).ravel()
+        arr = np.asarray(mask, dtype=bool)
+        flat = arr.ravel()
         if flat.size == 0:
             return {"shape": list(mask.shape), "runs": []}
-        runs = []
-        start = None
-        for i, val in enumerate(flat):
-            if val and start is None:
-                start = i
-            elif (not val) and start is not None:
-                runs.append([int(start), int(i - start)])
-                start = None
-        if start is not None:
-            runs.append([int(start), int(flat.size - start)])
+        padded = np.empty(flat.size + 2, dtype=bool)
+        padded[0] = False
+        padded[-1] = False
+        padded[1:-1] = flat
+        starts = np.flatnonzero(padded[1:] & ~padded[:-1])
+        ends = np.flatnonzero(~padded[1:] & padded[:-1])
+        runs = [[int(start), int(end - start)] for start, end in zip(starts, ends)]
         return {"shape": list(mask.shape), "runs": runs}
 
     @staticmethod

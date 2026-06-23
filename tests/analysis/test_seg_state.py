@@ -22,6 +22,26 @@ class SegmentationStateTests(unittest.TestCase):
         state.set_paint_layer(2, plus, minus)
         self.assertEqual(state.get_user_frames(), {2})
 
+    def test_content_generation_changes_for_mask_affecting_mutations(self):
+        state = SegmentationState()
+        initial = state.content_generation
+        state.set_mask(0, np.ones((2, 2), dtype=bool))
+        self.assertGreater(state.content_generation, initial)
+        after_mask = state.content_generation
+        state.set_paint_layer(0, np.zeros((2, 2), dtype=bool), np.zeros((2, 2), dtype=bool))
+        self.assertGreater(state.content_generation, after_mask)
+        after_paint = state.content_generation
+        state.add_persistent_region(
+            {
+                "id": "region",
+                "mode": "include",
+                "frame_start": 0,
+                "frame_end": 0,
+                "polygon": [[0, 0], [4, 0], [4, 4], [0, 4]],
+            }
+        )
+        self.assertGreater(state.content_generation, after_paint)
+
     def test_ground_truth_frame_is_anchor_but_not_user_frame(self):
         state = SegmentationState()
         state.set_mask(3, np.array([[True]], dtype=bool))
@@ -52,6 +72,20 @@ class SegmentationStateTests(unittest.TestCase):
         state.set_ground_truth(1, True)
         state.clear_mask(1)
         self.assertFalse(state.is_ground_truth_frame(1))
+
+    def test_rle_encode_decode_parity(self):
+        cases = [
+            np.zeros((0, 0), dtype=bool),
+            np.zeros((3, 4), dtype=bool),
+            np.ones((2, 5), dtype=bool),
+            np.array([[False, True, True, False], [True, False, True, True]], dtype=bool),
+        ]
+        for mask in cases:
+            with self.subTest(shape=mask.shape):
+                encoded = SegmentationState._encode_rle(mask)
+                decoded = SegmentationState._decode_rle(encoded)
+                self.assertEqual(encoded["shape"], list(mask.shape))
+                self.assertTrue(np.array_equal(decoded, mask))
 
     def test_get_ground_truth_frames_bounded(self):
         state = SegmentationState()

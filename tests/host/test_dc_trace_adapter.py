@@ -15,8 +15,10 @@ class _FakeDataset:
         self.shape = self._value.shape
         self.dtype = self._value.dtype
         self._forbid_full_read = bool(forbid_full_read)
+        self.keys: list[object] = []
 
     def __getitem__(self, key):
+        self.keys.append(key)
         if key == ():
             if self._forbid_full_read:
                 raise AssertionError("full dataset read was not expected")
@@ -235,6 +237,24 @@ def test_wavesurfer_load_trace_returns_expected_scaled_values(monkeypatch) -> No
     record = adapter.load_trace(Path("/tmp/example.h5"), channel_selection=0)
 
     assert np.array_equal(np.asarray(record.signals[:, 0]), np.asarray([3.0, 5.0, 7.0, 9.0, 11.0]))
+
+
+def test_wavesurfer_load_trace_slices_selected_channel_without_full_read(monkeypatch) -> None:
+    adapter = WaveSurferH5Adapter()
+    tree = _valid_tree()
+    sweep_1 = tree["sweep_0001/analogScans"]
+    sweep_2 = tree["sweep_0002/analogScans"]
+    sweep_1._forbid_full_read = True
+    sweep_2._forbid_full_read = True
+    monkeypatch.setattr("swell.host.dc_trace._load_h5py", lambda: _fake_h5_module(tree))
+
+    record = adapter.load_trace(Path("/tmp/example.h5"), channel_selection=1)
+
+    assert record.signals.shape == (5, 1)
+    assert () not in sweep_1.keys
+    assert () not in sweep_2.keys
+    assert (slice(None, None, None), 1) in sweep_1.keys
+    assert (slice(None, None, None), 1) in sweep_2.keys
 
 
 def test_wavesurfer_metadata_rejects_missing_sweeps(monkeypatch) -> None:

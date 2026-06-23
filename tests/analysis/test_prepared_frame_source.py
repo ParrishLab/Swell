@@ -1,10 +1,15 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
+import time
+
 import cv2
 import numpy as np
 
 from swell.analysis.core.frame_source import EagerFrameSource
 from swell.shared.frame_source import PreparedFrameSource
+import swell.shared.frame_source.prepared_frame_source as prepared_frame_source_module
+from swell.shared.frame_source.preprocessing import VisualizationStats
 
 
 def test_prepared_frame_source_prewarm_populates_cache_without_changing_values():
@@ -44,6 +49,41 @@ def test_prepared_frame_source_prewarm_stops_when_generation_is_stale():
     prepared.prewarm([0, 1, 2, 3], generation=1, should_continue=should_continue)
 
     assert set(prepared._frame_cache.keys()) == {0}
+
+
+def test_prepared_frame_source_stats_computes_once_for_concurrent_callers(monkeypatch):
+    frames = [np.full((8, 8), fill_value=i, dtype=np.uint8) for i in range(4)]
+    source = EagerFrameSource(
+        raw_frames=frames,
+        subtracted_frames=frames,
+        visual_frames=frames,
+        frame_names=[f"f{i}.tif" for i in range(4)],
+        source_paths=["/tmp/stack"] * 4,
+    )
+    prepared = PreparedFrameSource(source)
+    calls = {"count": 0}
+    stats = VisualizationStats(
+        frame_count=4,
+        frame_shape=(8, 8),
+        baseline_frames=2,
+        apply_horizontal_bar_denoise=False,
+        apply_smoothing=True,
+        apply_baseline_subtraction=True,
+        apply_global_normalization=True,
+    )
+
+    def _compute_once(*_args, **_kwargs):
+        calls["count"] += 1
+        time.sleep(0.05)
+        return stats
+
+    monkeypatch.setattr(prepared_frame_source_module, "compute_visualization_stats", _compute_once)
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        results = list(pool.map(lambda _idx: prepared.stats(), range(8)))
+
+    assert calls["count"] == 1
+    assert all(result is stats for result in results)
 
 
 def test_prepared_frame_source_stabilization_keeps_outputs_in_same_coordinate_space():
