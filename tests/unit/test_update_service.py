@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from io import BytesIO
 
-from swell.analysis.core.state import AppConfig
+from swell.shared.config import AppConfig
 from swell.shared.services.update_service import UpdateService
 
 

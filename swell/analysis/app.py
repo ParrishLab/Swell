@@ -13,7 +13,7 @@ from swell.shared.ui import dialogs as messagebox
 
 import numpy as np
 
-from swell.analysis.core.state import AppConfig
+from swell.shared.config import AppConfig
 from swell.analysis.core.io import IOActions
 from swell.analysis.core.segmentation import SegmentationActions
 from swell.analysis.core.render import RenderActions
@@ -58,7 +58,7 @@ from swell.analysis.controllers import (
     AnalysisWindowController,
 )
 from swell.analysis.ui.layout import LayoutBuilder
-from swell.analysis.utils.paths import get_app_root, get_resources_root
+from swell.shared.utils.paths import get_app_root, get_resources_root
 from swell.shared.ui.bootstrap import center_window_on_screen, ttk as themed_ttk
 from swell.shared.services import CheckpointRuntimeService, MODEL_CHECKPOINT_METADATA_KEY
 

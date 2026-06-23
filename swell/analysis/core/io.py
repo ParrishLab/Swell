@@ -9,7 +9,7 @@ from swell.shared.ui import dialogs as messagebox
 
 from swell.analysis.core.frame_source import EagerFrameSource
 from swell.shared.frame_source import build_visualization_stack
-from swell.analysis.utils.paths import resolve_existing_directory
+from swell.shared.utils.paths import resolve_existing_directory
 
 
 class IOActions:

@@ -3,6 +3,7 @@ from __future__ import annotations
 import contextlib
 import gc
 import inspect
+import importlib
 import io
 import queue
 import threading
@@ -14,12 +15,21 @@ from swell.shared.ui import dialogs as messagebox
 import numpy as np
 
 from swell.shared.errors import InferenceRuntimeError
-try:
-    import torch
-except Exception:
-    torch = None
 
 from swell.analysis.core.seg_state import SegmentationState
+
+torch = None
+
+
+def _torch_module():
+    global torch
+    if torch is not None:
+        return torch
+    try:
+        torch = importlib.import_module("torch")
+    except Exception:
+        torch = None
+    return torch
 
 
 class InferenceManager:
@@ -275,6 +285,7 @@ class InferenceManager:
 
     def _clear_accelerator_cache(self):
         gc.collect()
+        torch = _torch_module()
         if torch is not None:
             if torch.backends.mps.is_available():
                 torch.mps.empty_cache()
@@ -783,6 +794,7 @@ class InferenceManager:
 
             def cleanup():
                 gc.collect()
+                torch = _torch_module()
                 if torch is not None:
                     if torch.backends.mps.is_available():
                         torch.mps.empty_cache()

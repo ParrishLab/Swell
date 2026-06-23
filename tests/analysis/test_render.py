@@ -398,7 +398,7 @@ class RenderActionsTests(unittest.TestCase):
     def test_view_dock_controls_and_callbacks(self):
         import tkinter as tk
         from swell.analysis.ui.layout import LayoutBuilder
-        from swell.analysis.ui.theme import SPACING
+        from swell.shared.ui.theme import SPACING
 
         class _MockApp(LayoutBuilder):
             def __init__(self):

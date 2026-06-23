@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from swell.analysis.core.state import AppConfig
+from swell.shared.config import AppConfig
 from swell.host.controllers.update_controller import HostUpdateController
 from swell.shared.services.update_service import ReleaseInfo, UpdateCheckResult
 

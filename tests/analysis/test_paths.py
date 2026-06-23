@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from swell.analysis.utils.paths import resolve_existing_directory
+from swell.shared.utils.paths import resolve_existing_directory
 
 
 class PathsTests(unittest.TestCase):

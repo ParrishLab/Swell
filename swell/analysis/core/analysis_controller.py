@@ -11,7 +11,7 @@ from swell.analysis.core.analysis_context import AnalysisContext
 from swell.analysis.core.metrics import compute_scale
 from swell.analysis.ui.roi_dialog import _call_preserving_geometry, open_roi_dialog
 from swell.analysis.ui.scale_dialog import open_scale_dialog
-from swell.analysis.utils.paths import resolve_existing_directory
+from swell.shared.utils.paths import resolve_existing_directory
 
 
 class AnalysisController:

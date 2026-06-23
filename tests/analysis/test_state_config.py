@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
 
-from swell.analysis.core.state import AppConfig
+from swell.shared.config import AppConfig
 
 
 class AppConfigTests(unittest.TestCase):

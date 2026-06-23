@@ -5,10 +5,10 @@ import tkinter as tk
 
 from PIL import Image, ImageTk
 
-from swell.analysis.ui.theme import CANVAS_BACKGROUND, SLIDER_OVERLAY_BACKGROUND, SPACING, apply_theme
+from swell.shared.ui.theme import CANVAS_BACKGROUND, SLIDER_OVERLAY_BACKGROUND, SPACING, apply_theme
 from swell.analysis.ui.tooltips import TooltipManager
 from swell.analysis.ui.widgets import build_preview_overlay
-from swell.analysis.utils.paths import get_resources_root
+from swell.shared.utils.paths import get_resources_root
 from swell.analysis.core.region_tools import REGION_EXCLUDE_TOOL, REGION_INCLUDE_TOOL, is_region_tool_mode
 from swell.shared.ui.bootstrap import semantic_button_options, ttk
 

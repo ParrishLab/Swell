@@ -5,7 +5,7 @@ import cv2
 import numpy as np
 from PIL import Image, ImageTk
 
-from swell.analysis.ui.theme import SPACING, apply_theme
+from swell.shared.ui.theme import SPACING, apply_theme
 from swell.shared.ui.bootstrap import center_window_on_screen, semantic_button_options, ttk
 
 

@@ -1,7 +1,7 @@
 import unittest
 from unittest.mock import patch
 
-from swell.analysis.ui.theme import apply_theme
+from swell.shared.ui.theme import apply_theme
 from swell.analysis.ui.widgets import build_preview_overlay
 
 

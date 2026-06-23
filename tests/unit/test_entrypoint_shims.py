@@ -31,7 +31,7 @@ def test_root_window_import_does_not_eagerly_load_host_app() -> None:
 def test_run_host_app_sets_versioned_root_title(monkeypatch) -> None:
     _clear_modules("swell.host.ui.root_window", "swell.host.app")
 
-    fake_theme = types.ModuleType("swell.analysis.ui.theme")
+    fake_theme = types.ModuleType("swell.shared.ui.theme")
     fake_theme.apply_theme = lambda root: None
 
     title_calls: list[str] = []

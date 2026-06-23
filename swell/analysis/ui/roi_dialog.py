@@ -18,7 +18,7 @@ from swell.analysis.core.viewport import (
     zoom_viewport_at,
     pan_viewport,
 )
-from swell.analysis.ui.theme import SPACING, apply_theme
+from swell.shared.ui.theme import SPACING, apply_theme
 from swell.shared.ui.bootstrap import center_window_on_screen, semantic_button_options, ttk
 
 ROI_ICON_LABELS = {

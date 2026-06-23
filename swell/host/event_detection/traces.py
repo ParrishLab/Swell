@@ -1,4 +1,4 @@
-"""Extract and detrend per-cell traces using the Combined Tool's StackReader.
+"""Extract and detrend per-cell traces using Swell's StackReader.
 
 Copied verbatim from:
   Recovery Metric/src/recovery_metric/sd_trace_extraction.py
