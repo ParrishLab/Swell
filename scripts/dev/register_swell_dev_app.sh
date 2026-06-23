@@ -71,6 +71,7 @@ cat >"$PLIST_PATH" <<EOF
       <key>LSItemContentTypes</key>
       <array>
         <string>com.swell.project.dev</string>
+        <!-- Legacy SDApp project UTI retained for source-checkout file association testing. -->
         <string>com.sdapp.project.dev</string>
       </array>
     </dict>
@@ -122,6 +123,7 @@ cat >"$PLIST_PATH" <<EOF
       <key>UTTypeDescription</key>
       <string>Legacy Swell Project</string>
       <key>UTTypeIdentifier</key>
+      <!-- Legacy SDApp project UTI retained for source-checkout file association testing. -->
       <string>com.sdapp.project.dev</string>
       <key>UTTypeTagSpecification</key>
       <dict>

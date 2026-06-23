@@ -45,6 +45,8 @@ def _runtime_config_dir() -> Path:
 
 
 def _legacy_runtime_config_dir() -> Path | None:
+    # SDApp-era config locations are retained so existing users migrate
+    # settings into Swell on first packaged launch.
     if not getattr(sys, "frozen", False):
         return None
 

@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
-"""Headless benchmark for candidate SAM2-family models against saved OSIRA masks.
+"""Headless benchmark for candidate SAM2-family models against saved Swell masks.
 
-Each saved ``.sdproj`` already stores, per event, the human's *prompts* (clicks /
-paint) and the *committed masks* that SAM2.1 produced (and the human accepted /
-edited). We treat those committed masks as the **reference** -- i.e. the SAM2.1
-result -- and do NOT re-run SAM2.1. The harness replays the stored prompts through
-each *candidate* model (e.g. a smaller SAM2.1 size, or MedSAM2) via the exact same
-inference path the app uses (``build_sam2_video_predictor`` ->
-``add_new_points_or_box`` / ``add_new_mask`` -> ``propagate_in_video``) and scores
-the candidate's masks against the reference with IoU / Dice.
+Each saved ``.swell`` project (or legacy ``.sdproj`` project) already stores, per
+event, the human's *prompts* (clicks / paint) and the *committed masks* that
+SAM2.1 produced (and the human accepted / edited). We treat those committed masks
+as the **reference** -- i.e. the SAM2.1 result -- and do NOT re-run SAM2.1. The
+harness replays the stored prompts through each *candidate* model (e.g. a smaller
+SAM2.1 size, or MedSAM2) via the exact same inference path the app uses
+(``build_sam2_video_predictor`` -> ``add_new_points_or_box`` / ``add_new_mask`` ->
+``propagate_in_video``) and scores the candidate's masks against the reference
+with IoU / Dice.
 
 Only the **actual mask range** of each event is evaluated: propagation and scoring
 are restricted to the span of frames where the committed mask is non-empty (plus
@@ -20,7 +21,7 @@ they marked the event.
 Example
 -------
     .venv/bin/python -m tools.benchmark_models \
-        --projects ~/HaloR/Data/**/*.sdproj \
+        --projects ~/Swell/Data/**/*.swell \
         --models sam2.1_hiera_tiny MedSAM2_hiera_tiny \
         --out bench_results.csv
 
@@ -481,7 +482,7 @@ def expand_projects(patterns: list[str]) -> list[str]:
     uniq: list[str] = []
     for p in out:
         rp = str(Path(p).resolve())
-        if rp not in seen and rp.endswith(".sdproj"):
+        if rp not in seen and Path(rp).suffix.lower() in {".swell", ".sdproj"}:
             seen.add(rp)
             uniq.append(rp)
     return uniq
@@ -501,7 +502,7 @@ def pick_device(requested: str) -> str:
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--projects", nargs="+", required=True, help="`.sdproj` paths or globs (recursive ** supported).")
+    ap.add_argument("--projects", nargs="+", required=True, help="`.swell` or legacy `.sdproj` paths/globs (recursive ** supported).")
     ap.add_argument("--models", nargs="+", required=True,
                     help="Candidate models to run (catalog ids, managed:// uris, or .pt paths). "
                          "Do not list SAM2.1 -- its result is the stored committed mask.")

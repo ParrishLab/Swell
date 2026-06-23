@@ -33,7 +33,7 @@ Each tagged release is archived on Zenodo with its own DOI. Cite the specific ve
   year    = {YYYY},
   version = {vX.Y.Z},
   doi     = {10.5281/zenodo.xxxxxxx},
-  url     = {https://github.com/ClayDunford/Combined-tool-test}
+  url     = {https://github.com/ClayDunford/Swell}
 }
 ```
 

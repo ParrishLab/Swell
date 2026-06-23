@@ -14,9 +14,9 @@ APPCAST = b"""<?xml version="1.0" encoding="utf-8"?>
     <item>
       <title>Swell 0.1.4</title>
       <pubDate>Mon, 23 Mar 2026 12:00:00 +0000</pubDate>
-      <sparkle:releaseNotesLink>https://github.com/ClayDunford/Combined-tool-test/releases/tag/v0.1.4</sparkle:releaseNotesLink>
+      <sparkle:releaseNotesLink>https://github.com/ClayDunford/Swell/releases/tag/v0.1.4</sparkle:releaseNotesLink>
       <enclosure
-        url="https://github.com/ClayDunford/Combined-tool-test/releases/download/v0.1.4/Swell-Setup-0.1.4.exe"
+        url="https://github.com/ClayDunford/Swell/releases/download/v0.1.4/Swell-Setup-0.1.4.exe"
         length="123"
         type="application/octet-stream"
         sparkle:version="0.1.4"

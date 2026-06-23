@@ -54,6 +54,8 @@ def _app_data_root() -> Path:
 
 
 def _legacy_app_data_roots() -> list[Path]:
+    # SDApp-era model cache roots are retained so existing checkpoint downloads
+    # are migrated instead of downloaded again after the rebrand.
     if os.name == "nt":
         roots = []
         appdata = os.environ.get("APPDATA", "")

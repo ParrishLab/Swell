@@ -19,6 +19,7 @@ Section "Install"
     Abort "Install payload missing icon: $INSTDIR\\swell_doc_icon.ico"
 
   WriteRegStr HKCU "Software\\Classes\\.swell" "" "${APP_PROG_ID}"
+  ; Keep legacy .sdproj association so SDApp-era projects continue to open in Swell.
   WriteRegStr HKCU "Software\\Classes\\.sdproj" "" "${APP_PROG_ID}"
   WriteRegStr HKCU "Software\\Classes\\${APP_PROG_ID}" "" "Swell Project"
   WriteRegStr HKCU "Software\\Classes\\${APP_PROG_ID}\\DefaultIcon" "" "$INSTDIR\\swell_doc_icon.ico"

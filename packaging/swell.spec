@@ -87,12 +87,14 @@ app = BUNDLE(
                 "CFBundleTypeName": "Swell Project",
                 "CFBundleTypeRole": "Editor",
                 "LSHandlerRank": "Owner",
+                # Keep com.sdapp.project so older .sdproj files continue to open in Swell.
                 "LSItemContentTypes": ["com.swell.project", "com.sdapp.project"],
                 "CFBundleTypeIconFile": "swell_doc_icon.icns",
             }
         ],
         "UTExportedTypeDeclarations": [
             {
+                # Legacy SDApp project UTI retained for migration/backward compatibility.
                 "UTTypeIdentifier": "com.sdapp.project",
                 "UTTypeDescription": "Legacy Swell Project",
                 "UTTypeConformsTo": ["public.data"],

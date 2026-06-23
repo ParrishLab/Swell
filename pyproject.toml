@@ -42,6 +42,7 @@ docs = [
 
 [project.scripts]
 swell = "swell.main:main"
+# Legacy CLI alias retained for existing SDApp-era launch scripts.
 sdapp = "swell.main:main"
 
 [tool.setuptools]

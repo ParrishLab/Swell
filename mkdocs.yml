@@ -1,8 +1,8 @@
 site_name: Swell
 site_description: Desktop tool for identifying events in image stacks and running event-level segmentation analysis.
 site_url: https://swell.readthedocs.io/
-repo_url: https://github.com/ClayDunford/Combined-tool-test
-repo_name: ClayDunford/Combined-tool-test
+repo_url: https://github.com/ClayDunford/Swell
+repo_name: ClayDunford/Swell
 edit_uri: edit/main/docs/
 
 docs_dir: docs
