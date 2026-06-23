@@ -12,7 +12,7 @@ def test_host_popup_methods_delegate_to_popup_controller() -> None:
     assert "self.popup_controller.confirm" in inspect.getsource(SwellHostApp._popup_confirm)
     assert "self.popup_controller.cancel" in inspect.getsource(SwellHostApp._popup_cancel)
     assert "self.popup_controller.delete_selected_events" in inspect.getsource(SwellHostApp._delete_selected_events)
-    assert "self._get_popup_controller().step" in inspect.getsource(SwellHostApp._handle_popup_key)
+    assert "self._get_popup_controller().preview_controller.step" in inspect.getsource(SwellHostApp._handle_popup_key)
     assert "self._get_window_controller().open_generate_metrics_popup" in inspect.getsource(
         SwellHostApp._open_generate_metrics_popup
     )

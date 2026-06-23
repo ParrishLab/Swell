@@ -32,8 +32,8 @@ def test_begin_popup_session_applies_bounds_and_starts_processing() -> None:
         _log_warn=lambda message: warnings.append(str(message)),
     )
     controller = MarkPopupController(app)
-    controller.apply_range_bounds = lambda start, end: calls.append(("apply", int(start), int(end)))  # type: ignore[method-assign]
-    controller.recompute_pipeline_for_bounds = lambda start, end, **_kwargs: calls.append(("recompute", int(start), int(end)))  # type: ignore[method-assign]
+    controller.range_controller.apply_range_bounds = lambda start, end: calls.append(("apply", int(start), int(end)))  # type: ignore[method-assign]
+    controller.processing_controller.recompute_pipeline_for_bounds = lambda start, end, **_kwargs: calls.append(("recompute", int(start), int(end)))  # type: ignore[method-assign]
 
     controller._begin_popup_session(12, 18)
 
@@ -52,8 +52,8 @@ def test_begin_popup_session_for_mark_new_uses_current_frame_normalization() -> 
         _log_warn=lambda _message: None,
     )
     controller = MarkPopupController(app)
-    controller.apply_range_bounds = lambda _start, _end: None  # type: ignore[method-assign]
-    controller.recompute_pipeline_for_bounds = lambda start, end, **kwargs: recompute_calls.append(
+    controller.range_controller.apply_range_bounds = lambda _start, _end: None  # type: ignore[method-assign]
+    controller.processing_controller.recompute_pipeline_for_bounds = lambda start, end, **kwargs: recompute_calls.append(
         {"start": int(start), "end": int(end), **dict(kwargs)}
     )  # type: ignore[method-assign]
 
@@ -125,7 +125,7 @@ def test_confirm_new_event_persists_baseline_scope_flags() -> None:
         _update_preview=lambda _idx: None,
     )
     controller = MarkPopupController(app)
-    controller.parse_baseline_controls = lambda: (5, 11)  # type: ignore[method-assign]
+    controller.processing_controller.parse_baseline_controls = lambda: (5, 11)  # type: ignore[method-assign]
     controller.cancel = lambda: None  # type: ignore[method-assign]
 
     controller.confirm()
@@ -175,7 +175,7 @@ def test_confirm_edit_event_updates_baseline_scope_flags_and_preserves_existing_
         _update_preview=lambda _idx: None,
     )
     controller = MarkPopupController(app)
-    controller.parse_baseline_controls = lambda: (4, 21)  # type: ignore[method-assign]
+    controller.processing_controller.parse_baseline_controls = lambda: (4, 21)  # type: ignore[method-assign]
     controller.cancel = lambda: None  # type: ignore[method-assign]
 
     controller.confirm()

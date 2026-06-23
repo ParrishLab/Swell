@@ -495,7 +495,7 @@ class SwellHostApp:
     def _handle_popup_key(self, event, step: int):
         if self._focus_is_entry(getattr(event, "widget", None)):
             return None
-        self._get_popup_controller().step(step)
+        self._get_popup_controller().preview_controller.step(step)
         return "break"
 
     def _log(self, level: str, message: str) -> None:

@@ -380,7 +380,7 @@ class HostPreviewController:
         frame_idx = max(low, min(frame_idx, high))
         self.app._popup.mark_popup_current_idx = frame_idx
 
-        frame = self.app._get_popup_controller().get_processed_frame(frame_idx)
+        frame = self.app._get_popup_controller().processing_controller.get_processed_frame(frame_idx)
         contrast_factor = float(self.app._popup.mark_contrast_var.get()) if self.app._popup.mark_contrast_var is not None else 1.0
         image = self.render_preview_image(
             frame,
@@ -438,7 +438,7 @@ class HostPreviewController:
         spans: list[tuple[int, int, str]] = []
         if self.app.stack_info is not None:
             try:
-                baseline_count, baseline_end = self.app._get_popup_controller().parse_baseline_controls()
+                baseline_count, baseline_end = self.app._get_popup_controller().processing_controller.parse_baseline_controls()
                 baseline_start = max(0, baseline_end - baseline_count + 1)
                 if baseline_end >= 0:
                     spans.append((baseline_start, baseline_end, "#2f6fa5"))
@@ -452,7 +452,7 @@ class HostPreviewController:
 
         if self.app.stack_info is not None:
             try:
-                baseline_count, baseline_end = self.app._get_popup_controller().parse_baseline_controls()
+                baseline_count, baseline_end = self.app._get_popup_controller().processing_controller.parse_baseline_controls()
                 baseline_start = max(0, baseline_end - baseline_count + 1)
             except Exception:
                 baseline_start = None

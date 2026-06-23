@@ -6,6 +6,7 @@ from swell.shared.ui import dialogs as messagebox
 from swell.shared.ui.theme import SPACING, apply_theme
 from swell.host.analysis_payload_mapper import apply_analysis_scope_flags
 from swell.host.popup_processing_controller import PopupProcessingController
+from swell.host.popup_preview_controller import PopupPreviewController
 from swell.host.popup_range_controller import PopupRangeController
 from swell.host.ui_geometry import clamp_popup_range
 from swell.shared.ui.bootstrap import center_window_on_screen as center_window, semantic_button_options, ttk
@@ -16,8 +17,10 @@ class MarkPopupController:
 
     def __init__(self, app) -> None:
         self.app = app
-        self.range_controller = PopupRangeController(app, self)
-        self.processing_controller = PopupProcessingController(app, self)
+        self.preview_controller = PopupPreviewController(app)
+        self.range_controller = PopupRangeController(app, self.preview_controller)
+        self.processing_controller = PopupProcessingController(app, self.preview_controller)
+        self.preview_controller.processing_controller = self.processing_controller
 
     def _event_display_name(self, event_id: str | None) -> str:
         display_name = getattr(getattr(self.app, "browser_controller", None), "event_display_name", None)
@@ -70,7 +73,7 @@ class MarkPopupController:
 
     def _begin_popup_session(self, range_start: int, range_end: int, *, normalize_to_current_frame: bool = False) -> None:
         try:
-            self.apply_range_bounds(int(range_start), int(range_end))
+            self.range_controller.apply_range_bounds(int(range_start), int(range_end))
         except Exception as exc:
             self.app._log_warn(f"Initial popup preview failed: {exc}")
 
@@ -83,7 +86,7 @@ class MarkPopupController:
             recompute_kwargs["normalization_range_start"] = current_idx
             recompute_kwargs["normalization_range_end"] = current_idx
 
-        self.recompute_pipeline_for_bounds(
+        self.processing_controller.recompute_pipeline_for_bounds(
             int(getattr(self.app._popup, "mark_popup_local_start", range_start)),
             int(getattr(self.app._popup, "mark_popup_local_end", range_end)),
             **recompute_kwargs,
@@ -148,14 +151,14 @@ class MarkPopupController:
         top_row.pack(fill="x", pady=(0, 6))
         self.app._popup.mark_range_canvas = tk.Canvas(top_row, height=28, bg="#24262a", highlightthickness=0, bd=0, cursor="hand2")
         self.app._popup.mark_range_canvas.pack(side="left", fill="x", expand=True, padx=(0, 8))
-        self.app._popup.mark_range_canvas.bind("<Configure>", lambda _e: self.redraw_range_selector())
-        self.app._popup.mark_range_canvas.bind("<Button-1>", self.range_press)
-        self.app._popup.mark_range_canvas.bind("<B1-Motion>", self.range_drag)
-        self.app._popup.mark_range_canvas.bind("<ButtonRelease-1>", self.range_release)
+        self.app._popup.mark_range_canvas.bind("<Configure>", lambda _e: self.range_controller.redraw_range_selector())
+        self.app._popup.mark_range_canvas.bind("<Button-1>", self.range_controller.range_press)
+        self.app._popup.mark_range_canvas.bind("<B1-Motion>", self.range_controller.range_drag)
+        self.app._popup.mark_range_canvas.bind("<ButtonRelease-1>", self.range_controller.range_release)
         ttk.Button(
             top_row,
             text="Refresh Selected Range",
-            command=self.refresh_full_sequence,
+            command=self.processing_controller.refresh_full_sequence,
             **semantic_button_options("secondary"),
         ).pack(side="right")
 
@@ -183,9 +186,9 @@ class MarkPopupController:
             cursor="fleur",
         )
         self.app._popup.mark_mini_grip.place(relx=0.0, rely=1.0, anchor="sw", x=6, y=-6, width=24, height=24)
-        self.app._popup.mark_mini_grip.bind("<Button-1>", self.start_resize_mini)
-        self.app._popup.mark_mini_grip.bind("<B1-Motion>", self.do_resize_mini)
-        self.app._popup.mark_mini_grip.bind("<ButtonRelease-1>", self.stop_resize_mini)
+        self.app._popup.mark_mini_grip.bind("<Button-1>", self.preview_controller.start_resize_mini)
+        self.app._popup.mark_mini_grip.bind("<B1-Motion>", self.preview_controller.do_resize_mini)
+        self.app._popup.mark_mini_grip.bind("<ButtonRelease-1>", self.preview_controller.stop_resize_mini)
 
         self.app._popup.mark_frame_info_var = tk.StringVar(value="Frame: -")
         self.app._popup.mark_window_info_var = tk.StringVar(value="")
@@ -199,7 +202,7 @@ class MarkPopupController:
 
         self.app._popup.mark_overlay = tk.Canvas(content, height=12, bg="#2a2b2f", highlightthickness=0, bd=0)
         self.app._popup.mark_overlay.pack(fill="x", pady=(4, 2))
-        self.app._popup.mark_overlay.bind("<Configure>", lambda _e: self.redraw_overlay())
+        self.app._popup.mark_overlay.bind("<Configure>", lambda _e: self.preview_controller.redraw_overlay())
 
         self.app._popup.mark_scale = tk.Scale(
             content,
@@ -214,16 +217,16 @@ class MarkPopupController:
             fg="#edf1f3",
             troughcolor="#2a3038",
             activebackground="#1b75bc",
-            command=self.on_slide,
+            command=self.preview_controller.on_slide,
         )
         self.app._popup.mark_scale.pack(fill="x", pady=(0, 6))
 
         nav_row = ttk.Frame(content, style="AppShell.TFrame")
         nav_row.pack(fill="x", pady=(4, 0))
-        ttk.Button(nav_row, text="Prev", command=lambda: self.step(-1), **semantic_button_options("secondary")).pack(side="left", padx=2)
-        ttk.Button(nav_row, text="Next", command=lambda: self.step(1), **semantic_button_options("secondary")).pack(side="left", padx=2)
-        ttk.Button(nav_row, text="Set Start", command=self.set_start_current, **semantic_button_options("secondary")).pack(side="left", padx=6)
-        ttk.Button(nav_row, text="Set End", command=self.set_end_current, **semantic_button_options("secondary")).pack(side="left", padx=2)
+        ttk.Button(nav_row, text="Prev", command=lambda: self.preview_controller.step(-1), **semantic_button_options("secondary")).pack(side="left", padx=2)
+        ttk.Button(nav_row, text="Next", command=lambda: self.preview_controller.step(1), **semantic_button_options("secondary")).pack(side="left", padx=2)
+        ttk.Button(nav_row, text="Set Start", command=self.preview_controller.set_start_current, **semantic_button_options("secondary")).pack(side="left", padx=6)
+        ttk.Button(nav_row, text="Set End", command=self.preview_controller.set_end_current, **semantic_button_options("secondary")).pack(side="left", padx=2)
 
         baseline_row = ttk.Frame(content, padding=SPACING.card, style="AppSurface.TFrame")
         baseline_row.pack(fill="x", pady=(6, 0))
@@ -248,7 +251,7 @@ class MarkPopupController:
             orient="horizontal",
             length=150,
             variable=self.app._popup.mark_contrast_var,
-            command=self.on_contrast_change,
+            command=self.preview_controller.on_contrast_change,
             style="AppFlat.Horizontal.TScale",
         ).pack(side="left", padx=(8, 0))
 
@@ -264,21 +267,21 @@ class MarkPopupController:
         end_entry.pack(side="left", padx=(4, 14))
         start_entry.bind(
             "<KeyRelease>",
-            lambda _e: (self.redraw_overlay(), self.schedule_recompute(align_baseline_to_start=True)),
+            lambda _e: (self.preview_controller.redraw_overlay(), self.processing_controller.schedule_recompute(align_baseline_to_start=True)),
         )
-        end_entry.bind("<KeyRelease>", lambda _e: self.redraw_overlay())
+        end_entry.bind("<KeyRelease>", lambda _e: self.preview_controller.redraw_overlay())
         start_entry.bind(
-            "<Return>", lambda _e: self.schedule_recompute(show_errors=True, align_baseline_to_start=True)
+            "<Return>", lambda _e: self.processing_controller.schedule_recompute(show_errors=True, align_baseline_to_start=True)
         )
         start_entry.bind(
-            "<FocusOut>", lambda _e: self.schedule_recompute(show_errors=True, align_baseline_to_start=True)
+            "<FocusOut>", lambda _e: self.processing_controller.schedule_recompute(show_errors=True, align_baseline_to_start=True)
         )
-        baseline_count_entry.bind("<Return>", lambda _e: self.schedule_recompute(show_errors=True))
-        baseline_end_entry.bind("<Return>", lambda _e: self.schedule_recompute(show_errors=True))
-        baseline_count_entry.bind("<FocusOut>", lambda _e: self.schedule_recompute(show_errors=True))
-        baseline_end_entry.bind("<FocusOut>", lambda _e: self.schedule_recompute(show_errors=True))
-        baseline_count_entry.bind("<KeyRelease>", lambda _e: self.schedule_recompute())
-        baseline_end_entry.bind("<KeyRelease>", lambda _e: self.schedule_recompute())
+        baseline_count_entry.bind("<Return>", lambda _e: self.processing_controller.schedule_recompute(show_errors=True))
+        baseline_end_entry.bind("<Return>", lambda _e: self.processing_controller.schedule_recompute(show_errors=True))
+        baseline_count_entry.bind("<FocusOut>", lambda _e: self.processing_controller.schedule_recompute(show_errors=True))
+        baseline_end_entry.bind("<FocusOut>", lambda _e: self.processing_controller.schedule_recompute(show_errors=True))
+        baseline_count_entry.bind("<KeyRelease>", lambda _e: self.processing_controller.schedule_recompute())
+        baseline_end_entry.bind("<KeyRelease>", lambda _e: self.processing_controller.schedule_recompute())
 
         buttons = ttk.Frame(content, style="AppShell.TFrame")
         buttons.pack(fill="x", pady=(8, 0))
@@ -358,218 +361,6 @@ class MarkPopupController:
         self.app._normalized_frame_u8_cache.clear()
         self.app._gc_runtime_caches(aggressive=False, run_python_gc=True)
 
-    def step(self, delta: int) -> None:
-        if self.app.stack_info is None or self.app._popup.mark_scale is None:
-            return
-        low, high = self.app._popup_overlay_bounds()
-        idx = max(low, min(self.app._popup.mark_popup_current_idx + int(delta), high))
-        self.app._popup.mark_scale.set(idx)
-        self.update_preview(idx)
-
-    def on_slide(self, value: str) -> None:
-        idx = int(float(value))
-        self.schedule_preview_update(idx)
-
-    def schedule_preview_update(self, idx: int) -> None:
-        if self.app._popup.mark_popup is None or not self.app._popup.mark_popup.winfo_exists():
-            return
-        self.app._popup.pending_popup_frame_idx = int(idx)
-        if self.app._popup.pending_popup_after_id is not None:
-            try:
-                self.app._popup.mark_popup.after_cancel(self.app._popup.pending_popup_after_id)
-            except Exception:
-                pass
-        self.app._popup.pending_popup_after_id = self.app._popup.mark_popup.after(16, self.flush_preview_update)
-
-    def flush_preview_update(self) -> None:
-        self.app._popup.pending_popup_after_id = None
-        if self.app._popup.pending_popup_frame_idx is None:
-            return
-        idx = int(self.app._popup.pending_popup_frame_idx)
-        self.app._popup.pending_popup_frame_idx = None
-        self.update_preview(idx)
-        self.redraw_overlay()
-
-    def set_start_current(self) -> None:
-        if self.app._popup.mark_start_var is None:
-            return
-        idx = int(self.app._popup.mark_popup_current_idx)
-        self.app._popup.mark_start_var.set(str(idx))
-        if self.app._popup.mark_end_var is not None:
-            try:
-                end_val = int(float(self.app._popup.mark_end_var.get().strip()))
-                if idx > end_val:
-                    self.app._popup.mark_end_var.set(str(idx))
-            except ValueError:
-                pass
-        self.redraw_overlay()
-        self.schedule_recompute(align_baseline_to_start=True)
-
-    def set_end_current(self) -> None:
-        if self.app._popup.mark_end_var is None:
-            return
-        idx = int(self.app._popup.mark_popup_current_idx)
-        self.app._popup.mark_end_var.set(str(idx))
-        if self.app._popup.mark_start_var is not None:
-            try:
-                start_val = int(float(self.app._popup.mark_start_var.get().strip()))
-                if idx < start_val:
-                    self.app._popup.mark_start_var.set(str(idx))
-            except ValueError:
-                pass
-        self.redraw_overlay()
-
-    def on_contrast_change(self, value: str) -> None:
-        try:
-            factor = float(value)
-        except ValueError:
-            factor = float(self.app._popup.mark_contrast_var.get()) if self.app._popup.mark_contrast_var is not None else 1.0
-        factor = max(0.5, min(3.0, factor))
-        if abs(factor - 1.0) <= 0.05:
-            factor = 1.0
-        if self.app._popup.mark_contrast_var is not None:
-            self.app._popup.mark_contrast_var.set(factor)
-        if self.app._popup.mark_contrast_label_var is not None:
-            self.app._popup.mark_contrast_label_var.set(f"Contrast: {factor:.2f}x")
-        self.update_preview(self.app._popup.mark_popup_current_idx)
-
-    def parse_baseline_controls(self) -> tuple[int, int]:
-        return self.processing_controller.parse_baseline_controls()
-
-    def auto_adjust_baseline_from_start(self, force_match_start: bool = False) -> bool:
-        return self.processing_controller.auto_adjust_baseline_from_start(force_match_start=force_match_start)
-
-    def set_loading(self, loading: bool, text: str = "Loading...") -> None:
-        self.processing_controller.set_loading(loading, text)
-
-    def range_x_to_idx(self, x: float) -> int:
-        return self.range_controller.range_x_to_idx(x)
-
-    def range_idx_to_x(self, idx: int) -> float:
-        return self.range_controller.range_idx_to_x(idx)
-
-    def redraw_range_selector(self) -> None:
-        self.range_controller.redraw_range_selector()
-
-    def range_press(self, event) -> None:
-        self.range_controller.range_press(event)
-
-    def range_drag(self, event) -> None:
-        self.range_controller.range_drag(event)
-
-    def range_release(self, _event) -> None:
-        self.range_controller.range_release(_event)
-
-    def on_range_changed(self, start_idx: int, end_idx: int, drag_final: bool = False) -> None:
-        self.range_controller.on_range_changed(start_idx, end_idx, drag_final=drag_final)
-
-    def apply_range_bounds(self, start_idx: int, end_idx: int) -> None:
-        self.range_controller.apply_range_bounds(start_idx, end_idx)
-
-    def refresh_full_sequence(self) -> None:
-        self.processing_controller.refresh_full_sequence()
-
-    def recompute_pipeline_for_bounds(
-        self,
-        range_start: int,
-        range_end: int,
-        show_errors: bool = True,
-        loading_text: str = "Computing popup sequence...",
-        fast_mode: bool = False,
-        normalization_range_start: int | None = None,
-        normalization_range_end: int | None = None,
-    ) -> bool:
-        return self.processing_controller.recompute_pipeline_for_bounds(
-            range_start,
-            range_end,
-            show_errors=show_errors,
-            loading_text=loading_text,
-            fast_mode=fast_mode,
-            normalization_range_start=normalization_range_start,
-            normalization_range_end=normalization_range_end,
-        )
-
-    def on_process_result(
-        self,
-        job_id: int,
-        result,
-        error: Exception | None,
-        show_errors: bool,
-    ) -> None:
-        self.processing_controller.on_process_result(job_id, result, error, show_errors)
-
-    def schedule_recompute(
-        self,
-        show_errors: bool = False,
-        delay_ms: int = 1400,
-        align_baseline_to_start: bool = False,
-    ) -> None:
-        self.processing_controller.schedule_recompute(
-            show_errors=show_errors,
-            delay_ms=delay_ms,
-            align_baseline_to_start=align_baseline_to_start,
-        )
-
-    def run_scheduled_recompute(self) -> None:
-        self.processing_controller.run_scheduled_recompute()
-
-    def recompute_pipeline(self, show_errors: bool = True) -> bool:
-        return self.processing_controller.recompute_pipeline(show_errors=show_errors)
-
-    def get_processed_frame(self, frame_idx: int) -> np.ndarray:
-        return self.processing_controller.get_processed_frame(frame_idx)
-
-    def cache_processed_frame(self, frame_idx: int, frame_u8: np.ndarray) -> None:
-        self.processing_controller.cache_processed_frame(frame_idx, frame_u8)
-
-    def start_resize_mini(self, event) -> None:
-        if self.app._popup.mark_mini_frame is None:
-            return
-        self.app._popup.mark_resize_start_x = event.x_root
-        self.app._popup.mark_resize_start_y = event.y_root
-        self.app._popup.mark_resize_start_w = self.app._popup.mark_mini_frame.winfo_width()
-        self.app._popup.mark_resize_start_h = self.app._popup.mark_mini_frame.winfo_height()
-
-    def do_resize_mini(self, event) -> None:
-        if self.app._popup.mark_mini_frame is None or self.app._popup.mark_resize_start_x is None:
-            return
-        dx = self.app._popup.mark_resize_start_x - event.x_root
-        dy = event.y_root - self.app._popup.mark_resize_start_y
-        delta = max(dx, dy)
-        base_w = (
-            self.app._popup.mark_resize_start_w
-            if self.app._popup.mark_resize_start_w is not None
-            else self.app._popup.mark_mini_frame.winfo_width()
-        )
-        base_h = (
-            self.app._popup.mark_resize_start_h
-            if self.app._popup.mark_resize_start_h is not None
-            else self.app._popup.mark_mini_frame.winfo_height()
-        )
-        new_size = max(70, min(450, max(base_w, base_h) + delta))
-        self.app._popup.mark_mini_frame.configure(width=new_size, height=new_size)
-        self.app._popup.mark_mini_frame.update_idletasks()
-        self.update_mini_raw(self.app._popup.mark_popup_current_idx)
-
-    def stop_resize_mini(self, _event) -> None:
-        self.app._popup.mark_resize_start_x = None
-        self.app._popup.mark_resize_start_y = None
-        self.app._popup.mark_resize_start_w = None
-        self.app._popup.mark_resize_start_h = None
-        self.update_mini_raw(self.app._popup.mark_popup_current_idx)
-
-    def update_mini_raw(self, frame_idx: int) -> None:
-        self.app._get_preview_controller().update_popup_mini_raw(frame_idx)
-
-    def update_window_info(self) -> None:
-        self.app._get_preview_controller().popup_update_window_info()
-
-    def update_preview(self, frame_idx: int) -> None:
-        self.app._get_preview_controller().popup_update_preview(frame_idx)
-
-    def redraw_overlay(self) -> None:
-        self.app._get_preview_controller().redraw_popup_overlay()
-
     def confirm(self) -> None:
         if self.app.stack_info is None or self.app._popup.mark_popup_mode is None:
             return
@@ -590,7 +381,7 @@ class MarkPopupController:
 
         duration_frames = end - start + 1
         _duration_sec = self.app._duration_sec(duration_frames)
-        baseline_count, _baseline_end = self.parse_baseline_controls()
+        baseline_count, _baseline_end = self.processing_controller.parse_baseline_controls()
 
         if self.app._popup.mark_popup_mode == "edit":
             event = self.app._get_event_by_id(self.app._popup.mark_popup_event_id)
