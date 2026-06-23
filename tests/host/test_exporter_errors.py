@@ -3,7 +3,7 @@ from unittest.mock import patch, mock_open
 import numpy as np
 from pathlib import Path
 
-from sdapp.host.exporter import _write_metric_csv, _metric_table_rows
+from swell.host.exporter import _write_metric_csv, _metric_table_rows
 
 def test_exporter_nan_handling():
     # _metric_table_rows should convert NaN to empty string

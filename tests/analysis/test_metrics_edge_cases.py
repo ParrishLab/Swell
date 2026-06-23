@@ -1,7 +1,7 @@
 import pytest
 import numpy as np
 
-from sdapp.analysis.core.metrics import compute_frame_metrics, compute_roi_metrics, compute_scale
+from swell.analysis.core.metrics import compute_frame_metrics, compute_roi_metrics, compute_scale
 
 def test_compute_frame_metrics_single_frame():
     # Single frame should still return valid arrays of length 1, but avg_dist_px will be NaN

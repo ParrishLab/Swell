@@ -2,8 +2,8 @@ import unittest
 
 import numpy as np
 
-from sdapp.analysis.core.seg_state import SegmentationState
-from sdapp.analysis.core.undo import UndoActions
+from swell.analysis.core.seg_state import SegmentationState
+from swell.analysis.core.undo import UndoActions
 
 
 class _SliderStub:

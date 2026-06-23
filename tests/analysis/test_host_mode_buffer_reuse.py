@@ -4,10 +4,10 @@ from types import SimpleNamespace
 
 import numpy as np
 
-from sdapp.analysis.controllers.host_mode_controller import AnalysisHostModeController
-from sdapp.analysis.core.frame_source import EagerFrameSource
-from sdapp.shared.frame_source import EventScopedFrameSource, PreparedFrameSource
-from sdapp.shared.frame_source.launch_preparation import build_launch_preparation_cache_key
+from swell.analysis.controllers.host_mode_controller import AnalysisHostModeController
+from swell.analysis.core.frame_source import EagerFrameSource
+from swell.shared.frame_source import EventScopedFrameSource, PreparedFrameSource
+from swell.shared.frame_source.launch_preparation import build_launch_preparation_cache_key
 
 
 def _build_scoped_source() -> EventScopedFrameSource:

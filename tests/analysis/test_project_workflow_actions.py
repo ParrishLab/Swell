@@ -2,7 +2,7 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from sdapp.analysis.core import project_workflow
+from swell.analysis.core import project_workflow
 
 
 class ProjectWorkflowActionsTests(unittest.TestCase):

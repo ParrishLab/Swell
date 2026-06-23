@@ -7,8 +7,8 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from sdapp.host.host_models import EventMeta, StackRef
-from sdapp.host.project_session_service import ProjectSessionService
+from swell.host.host_models import EventMeta, StackRef
+from swell.host.project_session_service import ProjectSessionService
 
 
 def _stack_ref(input_dir: str, frame_count: int = 10) -> StackRef:
@@ -21,7 +21,7 @@ def _stack_ref(input_dir: str, frame_count: int = 10) -> StackRef:
     )
 
 
-def test_project_session_roundtrip_single_stack_sdproj(tmp_path: Path) -> None:
+def test_project_session_roundtrip_single_stack_swell(tmp_path: Path) -> None:
     svc = ProjectSessionService()
     svc.new_project(_stack_ref("/tmp/in_a", frame_count=10))
     svc.set_events(
@@ -39,7 +39,7 @@ def test_project_session_roundtrip_single_stack_sdproj(tmp_path: Path) -> None:
         },
     )
 
-    out = tmp_path / "test.sdproj"
+    out = tmp_path / "test.swell"
     svc.save_project(out)
 
     reopened = ProjectSessionService()
@@ -59,15 +59,15 @@ def test_project_session_save_project_defaults_to_input_folder_name(tmp_path: Pa
 
     state = svc.save_project()
 
-    assert state.project_path == str((tmp_path / "input_folder.sdproj").resolve())
-    assert (tmp_path / "input_folder.sdproj").exists()
+    assert state.project_path == str((tmp_path / "input_folder.swell").resolve())
+    assert (tmp_path / "input_folder.swell").exists()
 
 
 def test_project_session_normal_save_rejects_missing_existing_project(tmp_path: Path) -> None:
     svc = ProjectSessionService()
     svc.new_project(_stack_ref("/tmp/input_folder", frame_count=10))
-    original = tmp_path / "original.sdproj"
-    renamed = tmp_path / "renamed.sdproj"
+    original = tmp_path / "original.swell"
+    renamed = tmp_path / "renamed.swell"
     svc.save_project(original)
     original.rename(renamed)
 
@@ -138,7 +138,7 @@ def test_load_analysis_sidecar_returns_defensive_copy() -> None:
 
 
 def test_open_project_rejects_unknown_persistence_owner(tmp_path: Path) -> None:
-    out = tmp_path / "bad_owner.sdproj"
+    out = tmp_path / "bad_owner.swell"
     with zipfile.ZipFile(out, "w", compression=zipfile.ZIP_DEFLATED) as zf:
         zf.writestr(
             "manifest.json",
@@ -178,7 +178,7 @@ def test_global_metrics_defaults_roundtrip_and_materialization(tmp_path: Path) -
     applied = svc.materialize_metrics_defaults_to_events()
     assert applied == 0
 
-    out = tmp_path / "metrics_defaults.sdproj"
+    out = tmp_path / "metrics_defaults.swell"
     svc.save_project(out)
 
     reopened = ProjectSessionService()
@@ -317,7 +317,7 @@ def test_dc_trace_attachment_roundtrip(tmp_path: Path) -> None:
     }
     svc.set_dc_trace_attachment(attachment)
 
-    out = tmp_path / "dc_trace_roundtrip.sdproj"
+    out = tmp_path / "dc_trace_roundtrip.swell"
     svc.save_project(out)
 
     reopened = ProjectSessionService()

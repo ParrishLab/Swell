@@ -151,7 +151,7 @@ Reserved codes:
 
 ### SD tool (host)
 - `event_id/start_idx/end_idx/label` from `EventCatalogService`.
-- `stack` fields from `SDStackFrameSource` + `StackReader`.
+- `stack` fields from `StackReaderFrameSource` + `StackReader`.
 - `session` fields from `ProjectSessionService`.
 - `analysis_state_ref` generated and managed by host session layer.
 

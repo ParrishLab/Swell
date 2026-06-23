@@ -26,7 +26,7 @@ Example
 
 Pass only the *candidate* models to ``--models``; the SAM2.1 reference comes from
 the stored masks and is never run. Each model may be given as:
-  * a checkpoint id present in ``sdapp/resources/checkpoints_catalog.json``
+  * a checkpoint id present in ``swell/resources/checkpoints_catalog.json``
     (resolved to the managed models dir), or
   * a ``managed://<id>`` URI, or
   * a direct path to a ``.pt`` / ``.pth`` file.
@@ -67,18 +67,18 @@ if str(_REPO_ROOT) not in sys.path:
 
 import cv2  # noqa: E402
 
-from sdapp.analysis.core.seg_state import SegmentationState  # noqa: E402
-from sdapp.analysis.core.segmentation import _candidate_model_config_names  # noqa: E402
-from sdapp.host.analysis_payload_mapper import EventBounds, scope_metadata  # noqa: E402
-from sdapp.shared.frame_source.preprocessing import build_visualization_stack  # noqa: E402
-from sdapp.shared.persistence import UnifiedProjectStore  # noqa: E402
-from sdapp.shared.services.checkpoint_runtime_service import (  # noqa: E402
+from swell.analysis.core.seg_state import SegmentationState  # noqa: E402
+from swell.analysis.core.segmentation import _candidate_model_config_names  # noqa: E402
+from swell.host.analysis_payload_mapper import EventBounds, scope_metadata  # noqa: E402
+from swell.shared.frame_source.preprocessing import build_visualization_stack  # noqa: E402
+from swell.shared.persistence import UnifiedProjectStore  # noqa: E402
+from swell.shared.services.checkpoint_runtime_service import (  # noqa: E402
     CheckpointRuntimeService,
     managed_uri_to_id,
 )
 
 _SUPPORTED_EXTS = {".tif", ".tiff", ".jpg", ".jpeg", ".png", ".bmp"}
-_RESOURCE_ROOT = str(_REPO_ROOT / "sdapp" / "resources")
+_RESOURCE_ROOT = str(_REPO_ROOT / "swell" / "resources")
 
 
 # --------------------------------------------------------------------------- #
@@ -170,7 +170,7 @@ def resolve_model(spec: str, svc: CheckpointRuntimeService) -> ResolvedModel:
     if descriptor is None:
         raise ValueError(
             f"Model '{spec}' is not a file and not in the checkpoint catalog. "
-            f"Add it to sdapp/resources/checkpoints_catalog.json or pass a .pt path."
+            f"Add it to swell/resources/checkpoints_catalog.json or pass a .pt path."
         )
     path = svc.descriptor_path(descriptor)
     if not path.is_file():
@@ -526,7 +526,7 @@ def main(argv: list[str] | None = None) -> int:
 
     projects = expand_projects(args.projects)
     if not projects:
-        print("ERROR: no .sdproj files matched.", file=sys.stderr)
+        print("ERROR: no .swell files matched.", file=sys.stderr)
         return 2
     print(f"Projects: {len(projects)}")
 

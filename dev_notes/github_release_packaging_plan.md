@@ -1,14 +1,14 @@
 # GitHub Release Packaging Plan
 
 ## Objective
-Package `sdapp` into reproducible GitHub Releases for a SAM2.1 scientific desktop workflow that ships:
+Package `swell` into reproducible GitHub Releases for a SAM2.1 scientific desktop workflow that ships:
 - Python package artifacts (`sdist` + `wheel`) for source installs.
 - End-user desktop binaries (macOS first, then Windows) for no-Python installs.
 - Checksums + release notes + explicit runtime compatibility metadata.
 
 ## Current Repo Signals (quick read)
-- Packaging baseline exists in `pyproject.toml` (`setuptools`, script entrypoint `sdapp`).
-- GUI runtime is `tkinter` and app startup is `python -m sdapp.main`.
+- Packaging baseline exists in `pyproject.toml` (`setuptools`, script entrypoint `swell`).
+- GUI runtime is `tkinter` and app startup is `python -m swell.main`.
 - Runtime path utilities already include frozen-app handling (`sys.frozen`, `_MEIPASS`), which aligns with PyInstaller.
 - No `.github/workflows` automation is present yet.
 - Model weights are intentionally excluded from git (`*.pt`, `models/`), so release design must define model/model-file delivery.
@@ -24,8 +24,8 @@ Primary supported behavior:
 - Advanced mode allows custom model override (with explicit "unsupported/custom" indicator in UI/logs).
 
 Default managed directory targets:
-- macOS: `~/Library/Application Support/sdapp/models/`
-- Windows: `%APPDATA%/sdapp/models/`
+- macOS: `~/Library/Application Support/swell/models/`
+- Windows: `%APPDATA%/swell/models/`
 - Source installs may also use project-local paths for developers.
 
 ### 1b) Model Versioning vs Project State
@@ -65,14 +65,14 @@ For public macOS binary releases:
 
 ## Release Artifact Strategy
 1. Always publish source artifacts:
-- `sdapp-X.Y.Z.tar.gz`
-- `sdapp-X.Y.Z-py3-none-any.whl`
+- `swell-X.Y.Z.tar.gz`
+- `swell-X.Y.Z-py3-none-any.whl`
 
 2. Publish platform binaries (phased):
 - Phase 1: macOS app archives built separately per architecture:
-  - `sdapp-macos-arm64.zip`
-  - `sdapp-macos-x86_64.zip`
-- Phase 2: Windows app archive (`sdapp-windows-x64.zip`)
+  - `swell-macos-arm64.zip`
+  - `swell-macos-x86_64.zip`
+- Phase 2: Windows app archive (`swell-windows-x64.zip`)
 - Universal2 is deferred until separate-arch packaging and tests are stable.
 
 3. Attach integrity metadata:
@@ -104,8 +104,8 @@ For public macOS binary releases:
   - Clean `dist/`
   - `python -m build`
   - Optional `twine check dist/*`
-- Add `packaging/sdapp.spec` (deterministic PyInstaller config).
-- Add macOS architecture-specific build scripts using `sdapp.spec`:
+- Add `packaging/swell.spec` (deterministic PyInstaller config).
+- Add macOS architecture-specific build scripts using `swell.spec`:
   - `scripts/release/build_macos_app_arm64.sh`
   - `scripts/release/build_macos_app_x86_64.sh`
 - Add runtime hooks for:
@@ -115,7 +115,7 @@ For public macOS binary releases:
 - Configure macOS `Info.plist` (via PyInstaller spec) to register `.sdproj` document type/UTI so double-click open works.
 - Add/verify app-level file-open handler path for `.sdproj` launch events.
 - Ensure multiprocessing frozen-app safeguards:
-  - call `multiprocessing.freeze_support()` in `sdapp.main` before UI startup
+  - call `multiprocessing.freeze_support()` in `swell.main` before UI startup
   - validate multi-window/child-process behavior in packaged builds (no duplicate host window bootstrap)
 - Add hidden-import audit and explicit data inclusion (configs/icons/templates/assets).
 - Add `scripts/release/generate_checksums.sh`.
@@ -176,7 +176,7 @@ A tagged release is considered complete only when:
 1. Finalize model distribution and runtime backend policy in writing.
 2. Finalize `.sdproj` model metadata/mismatch policy (model ID/hash persisted in project).
 3. Add tiny reproducible segmentation fixture data and `--smoke-test` mode.
-4. Create `packaging/sdapp.spec` + runtime hooks for model/resource/device resolution + `.sdproj` file association.
+4. Create `packaging/swell.spec` + runtime hooks for model/resource/device resolution + `.sdproj` file association.
 5. Add architecture-specific macOS build scripts (`arm64`, `x86_64`) and validate on clean machines.
 6. Add PR CI for `sdist`/`wheel` builds plus startup/model/workflow/open-file/multiprocess smoke tests.
 7. Add tag-triggered draft release workflow for Python artifacts + dual macOS binaries.

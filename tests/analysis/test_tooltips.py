@@ -3,8 +3,8 @@ import tkinter as tk
 
 import pytest
 
-from sdapp.analysis.ui.layout import LayoutBuilder
-from sdapp.analysis.ui.tooltips import TooltipManager
+from swell.analysis.ui.layout import LayoutBuilder
+from swell.analysis.ui.tooltips import TooltipManager
 
 
 def _build_tk_or_skip(factory):
@@ -134,8 +134,8 @@ def _manager(root, *, clock=lambda: 0.0):
 
 def _patch_widgets():
     return (
-        patch("sdapp.analysis.ui.tooltips.ttk.Frame", _FakeFrame),
-        patch("sdapp.analysis.ui.tooltips.ttk.Label", _FakeLabel),
+        patch("swell.analysis.ui.tooltips.ttk.Frame", _FakeFrame),
+        patch("swell.analysis.ui.tooltips.ttk.Label", _FakeLabel),
     )
 
 

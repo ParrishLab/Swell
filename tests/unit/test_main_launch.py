@@ -7,23 +7,23 @@ from typing import Sequence
 
 
 def _load_main_module(monkeypatch):
-    fake_root_window = types.ModuleType("sdapp.host.ui.root_window")
+    fake_root_window = types.ModuleType("swell.host.ui.root_window")
     fake_root_window.run_host_app = lambda **_kwargs: None
-    monkeypatch.setitem(sys.modules, "sdapp.host.ui.root_window", fake_root_window)
-    sys.modules.pop("sdapp.main", None)
-    return importlib.import_module("sdapp.main")
+    monkeypatch.setitem(sys.modules, "swell.host.ui.root_window", fake_root_window)
+    sys.modules.pop("swell.main", None)
+    return importlib.import_module("swell.main")
 
 
 def test_parse_launch_project_path_uses_first_positional(monkeypatch) -> None:
     main_mod = _load_main_module(monkeypatch)
-    args = ["sdapp", "--flag", "", "demo.sdproj", "ignored.sdproj"]
+    args = ["swell", "--flag", "", "demo.sdproj", "ignored.sdproj"]
     assert main_mod._parse_launch_project_path(args) == "demo.sdproj"
 
 
 def test_parse_main_args_detects_smoke_flag(monkeypatch) -> None:
     main_mod = _load_main_module(monkeypatch)
     smoke, smoke_model_runtime, project_path = main_mod._parse_main_args(
-        ["sdapp", "--smoke-test", "/tmp/example.sdproj"]
+        ["swell", "--smoke-test", "/tmp/example.sdproj"]
     )
     assert smoke is True
     assert smoke_model_runtime is False
@@ -33,7 +33,7 @@ def test_parse_main_args_detects_smoke_flag(monkeypatch) -> None:
 def test_parse_main_args_detects_model_runtime_smoke_flag(monkeypatch) -> None:
     main_mod = _load_main_module(monkeypatch)
     smoke, smoke_model_runtime, project_path = main_mod._parse_main_args(
-        ["sdapp", "--smoke-test", "--smoke-model-runtime", "/tmp/example.sdproj"]
+        ["swell", "--smoke-test", "--smoke-model-runtime", "/tmp/example.sdproj"]
     )
     assert smoke is True
     assert smoke_model_runtime is True
@@ -84,7 +84,7 @@ def test_main_forwards_open_request_to_running_instance(monkeypatch) -> None:
         lambda **kwargs: run_calls.append((kwargs.get("initial_project_path"), kwargs.get("instance_bridge"))),
     )
 
-    rc = main_mod.main(["sdapp", "/tmp/example.sdproj"])
+    rc = main_mod.main(["swell", "/tmp/example.sdproj"])
 
     assert rc == 0
     assert freeze_calls == ["freeze"]
@@ -111,7 +111,7 @@ def test_main_runs_host_app_when_no_running_instance(monkeypatch) -> None:
         lambda **kwargs: run_calls.append((kwargs.get("initial_project_path"), kwargs.get("instance_bridge"))),
     )
 
-    rc = main_mod.main(["sdapp", "/tmp/example.sdproj"])
+    rc = main_mod.main(["swell", "/tmp/example.sdproj"])
 
     assert rc == 0
     assert freeze_calls == ["freeze"]
@@ -126,7 +126,7 @@ def test_main_smoke_test_pass(monkeypatch, capsys) -> None:
     monkeypatch.setattr(main_mod.multiprocessing, "freeze_support", lambda: freeze_calls.append("freeze"))
     monkeypatch.setattr(main_mod, "_run_smoke_test", lambda **_kwargs: (True, "ok"))
 
-    rc = main_mod.main(["sdapp", "--smoke-test"])
+    rc = main_mod.main(["swell", "--smoke-test"])
     out = capsys.readouterr().out.strip()
 
     assert rc == 0
@@ -138,7 +138,7 @@ def test_main_smoke_test_fail(monkeypatch, capsys) -> None:
     main_mod = _load_main_module(monkeypatch)
     monkeypatch.setattr(main_mod, "_run_smoke_test", lambda **_kwargs: (False, "broken:ImportError:nope"))
 
-    rc = main_mod.main(["sdapp", "--smoke-test"])
+    rc = main_mod.main(["swell", "--smoke-test"])
     out = capsys.readouterr().out.strip()
 
     assert rc == 1
@@ -159,7 +159,7 @@ def test_main_smoke_test_skips_instance_bridge_even_with_project_path(monkeypatc
     monkeypatch.setattr(main_mod, "run_host_app", lambda **_kwargs: run_calls.append("run"))
     monkeypatch.setattr(main_mod, "_run_smoke_test", lambda **_kwargs: (True, "ok"))
 
-    rc = main_mod.main(["sdapp", "--smoke-test", "/tmp/example.sdproj"])
+    rc = main_mod.main(["swell", "--smoke-test", "/tmp/example.sdproj"])
     out = capsys.readouterr().out.strip()
 
     assert rc == 0
@@ -180,12 +180,12 @@ def test_run_smoke_test_success_with_injected_importer(monkeypatch) -> None:
     ok, detail = main_mod._run_smoke_test(importer=_importer)
     assert ok is True
     assert detail == "ok"
-    assert "sdapp.host.ui.root_window" in loaded
+    assert "swell.host.ui.root_window" in loaded
 
 
 def test_run_smoke_test_returns_failure_details(monkeypatch) -> None:
     main_mod = _load_main_module(monkeypatch)
-    target = "sdapp.shared.persistence.unified_project_store"
+    target = "swell.shared.persistence.unified_project_store"
 
     def _importer(name: str):
         if name == target:
@@ -213,7 +213,7 @@ def test_run_smoke_test_model_runtime_imports_requested(monkeypatch) -> None:
     assert "sam2" in loaded
 
 
-def test_run_smoke_test_skips_sdapp_main_import_when_frozen(monkeypatch) -> None:
+def test_run_smoke_test_skips_swell_main_import_when_frozen(monkeypatch) -> None:
     main_mod = _load_main_module(monkeypatch)
     monkeypatch.setattr(main_mod.sys, "frozen", True, raising=False)
 
@@ -221,11 +221,11 @@ def test_run_smoke_test_skips_sdapp_main_import_when_frozen(monkeypatch) -> None
 
     def _importer(name: str):
         loaded.append(name)
-        if name == "sdapp.main":
-            raise ImportError("should_not_import_sdapp_main_when_frozen")
+        if name == "swell.main":
+            raise ImportError("should_not_import_swell_main_when_frozen")
         return object()
 
     ok, detail = main_mod._run_smoke_test(importer=_importer, include_model_runtime=False)
     assert ok is True
     assert detail == "ok"
-    assert "sdapp.main" not in loaded
+    assert "swell.main" not in loaded

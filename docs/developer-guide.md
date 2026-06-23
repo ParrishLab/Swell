@@ -1,15 +1,15 @@
 # Developer Guide
 
-This document outlines the internal architecture, design principles, and service patterns of SDApp for developers and future maintainers.
+This document outlines the internal architecture, design principles, and service patterns of Swell for developers and future maintainers.
 
 ---
 
 ## 1. Directory Layout & Dependency Boundaries
 
-SDApp is structured as a unified single-package Python codebase:
+Swell is structured as a unified single-package Python codebase:
 
 ```text
-sdapp/
+swell/
 ├── main.py                     # App entry point
 ├── host/                       # Host window UI and controllers
 │   ├── ui/                     # Tkinter Views
@@ -62,7 +62,7 @@ When the user clicks **Save Current Masks**, the analysis window compiles a sync
 
 ## 3. Shared Services
 
-SDApp relies on a series of singleton-like services located under `sdapp/shared/services/`:
+Swell relies on a series of singleton-like services located under `swell/shared/services/`:
 
 * **`UnifiedProjectService`**: The in-memory source of truth for the active session. It handles event catalog operations, active event selections, and coordinates with the persistence layer to commit saves.
 * **`CheckpointRuntimeService`**: Manages SAM-2 model resolution. It parses `resources/checkpoints_catalog.json` and automatically resolves weights using this priority order:
@@ -70,16 +70,16 @@ SDApp relies on a series of singleton-like services located under `sdapp/shared/
     2. Managed app-data default directory.
     3. Explicit manual override paths.
     It also handles secure Hugging Face downloads, verifying file hashes using SHA-256 digests.
-* **`SingleInstanceBridge`**: Restricts the application to a single instance. When a packaged app is launched by double-clicking a `.sdproj` file, the bridge detects if another instance is already running and sends an IPC file-open request to the active instance before exiting.
-* **`torch_device` (`sdapp/shared/torch_device.py`)**: Resolves the torch execution device across both host analysis pipelines (model propagation and grid median trace calculations). Auto-detects in the order of Apple MPS → NVIDIA CUDA → CPU fallback, and supports forcing a specific device via the `SDAPP_DEVICE` environment override.
+* **`SingleInstanceBridge`**: Restricts the application to a single instance. When a packaged app is launched by double-clicking a `.swell` file, the bridge detects if another instance is already running and sends an IPC file-open request to the active instance before exiting.
+* **`torch_device` (`swell/shared/torch_device.py`)**: Resolves the torch execution device across both host analysis pipelines (model propagation and grid median trace calculations). Auto-detects in the order of Apple MPS → NVIDIA CUDA → CPU fallback, and supports forcing a specific device via the `SWELL_DEVICE` environment override.
 
 ---
 
 ## 4. Frame Sources & Preprocessing
 
-To support fast rendering across different zoom levels, SDApp uses a pipeline of frame sources implementing a shared protocol:
+To support fast rendering across different zoom levels, Swell uses a pipeline of frame sources implementing a shared protocol:
 
-* **`SDStackFrameSource`**: Wraps the raw `StackReader` to yield raw image arrays.
+* **`StackReaderFrameSource`**: Wraps the raw `StackReader` to yield raw image arrays.
 * **`PreparedFrameSource`**: Handles contrast normalization, channel reduction, and caches rendered canvases.
 * **`DownsampledFrameSource`**: Computes visual rendering stats at $0.25\times$ resolution to significantly accelerate the analysis window open-preview phase on large stacks, then upsamples the final baseline back to full resolution.
 * **`EventScopedFrameSource`**: Scopes frame index queries to the bounds of a specific event.
@@ -96,7 +96,7 @@ Segmentation is handled by the `SAM2Runtime` class.
 
 ## 6. Export Pipeline
 
-The exporter located in `sdapp/host/exporter.py` is designed for parallel processing:
+The exporter located in `swell/host/exporter.py` is designed for parallel processing:
 * **Worker Pools**: Uses `ThreadPoolExecutor` (defaulting to 4 concurrent workers) to read image frames, render masks, apply overlay blending, and save PNG/TIFF frames.
 * **`memoryview` Optimization**: Array serializations use Python `memoryview` bounds rather than copying memory with `tobytes()`, significantly reducing VRAM/RAM overhead when exporting long frame sequences.
 
@@ -104,7 +104,7 @@ The exporter located in `sdapp/host/exporter.py` is designed for parallel proces
 
 ## 7. Testing Strategy
 
-SDApp has a comprehensive test suite of 876 tests covering all architectural layers. Run tests locally using:
+Swell has a comprehensive test suite of 876 tests covering all architectural layers. Run tests locally using:
 
 ```bash
 pytest
@@ -120,6 +120,6 @@ pytest
 ### CI Validation Gates (PR PRs)
 Pull Requests run automated checks under `.github/workflows/release_phase2_pr.yml` across Linux, macOS, and Windows. Each runner validates:
 1. Complete `pytest` test suite.
-2. Startup smoke check (`python -m sdapp.main --smoke-test` returns `SMOKE_TEST:PASS`).
+2. Startup smoke check (`python -m swell.main --smoke-test` returns `SMOKE_TEST:PASS`).
 3. Model and workflow smoke checks (`run_model_smoke.py` and `run_segmentation_workflow_smoke.py`).
 4. Packaged binary build success.

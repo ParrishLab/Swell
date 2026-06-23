@@ -1,6 +1,6 @@
 import unittest
 
-from sdapp.analysis.core.project_schema import SCHEMA_VERSION, default_project_state, validate_project_state
+from swell.analysis.core.project_schema import SCHEMA_VERSION, default_project_state, validate_project_state
 
 
 class ProjectSchemaTests(unittest.TestCase):

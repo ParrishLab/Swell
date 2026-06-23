@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from sdapp.analysis.core.autosave_naming import derive_autosave_tag
+from swell.analysis.core.autosave_naming import derive_autosave_tag
 
 
 class AutosaveNamingTests(unittest.TestCase):

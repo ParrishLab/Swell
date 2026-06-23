@@ -3,7 +3,7 @@ import time
 import unittest
 from pathlib import Path
 
-from sdapp.analysis.core.project_autosave import AutosaveSnapshot, ProjectAutosaveManager
+from swell.analysis.core.project_autosave import AutosaveSnapshot, ProjectAutosaveManager
 
 
 class ProjectAutosaveRingTests(unittest.TestCase):
@@ -32,8 +32,8 @@ class ProjectAutosaveRingTests(unittest.TestCase):
             mgr.stop()
 
             self.assertGreaterEqual(len(writes), 3)
-            expected = {f"autosave_{i}.sdproj" for i in (1, 2, 3)}
-            self.assertTrue(set(p.name for p in Path(tmp).glob("autosave_*.sdproj")).issubset(expected))
+            expected = {f"autosave_{i}.swell" for i in (1, 2, 3)}
+            self.assertTrue(set(p.name for p in Path(tmp).glob("autosave_*.swell")).issubset(expected))
 
     def test_tagged_rotation_naming(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -65,9 +65,9 @@ class ProjectAutosaveRingTests(unittest.TestCase):
             time.sleep(0.2)
             mgr.stop()
 
-            files = sorted(p.name for p in Path(tmp).glob("*.sdproj"))
+            files = sorted(p.name for p in Path(tmp).glob("*.swell"))
             self.assertTrue(any(name.startswith("mouse_a_autosave_") for name in files))
-            self.assertTrue(all(name.endswith(".sdproj") for name in files))
+            self.assertTrue(all(name.endswith(".swell") for name in files))
 
 
 if __name__ == "__main__":

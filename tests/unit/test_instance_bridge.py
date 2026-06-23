@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 
-from sdapp.shared.services.instance_bridge import SingleInstanceBridge
+from swell.shared.services.instance_bridge import SingleInstanceBridge
 
 
 class _FakeClientSocket:

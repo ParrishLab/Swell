@@ -1,6 +1,6 @@
 import unittest
 
-from sdapp.analysis.core.overlay_state import frame_spans, largest_contiguous_span, compute_propagated_state
+from swell.analysis.core.overlay_state import frame_spans, largest_contiguous_span, compute_propagated_state
 
 
 class OverlayStateHelperTests(unittest.TestCase):

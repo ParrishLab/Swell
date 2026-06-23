@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from sdapp.analysis.model import DeterministicCpuFallbackPredictor
+from swell.analysis.model import DeterministicCpuFallbackPredictor
 
 
 def main() -> int:
@@ -47,7 +47,7 @@ def main() -> int:
         print("SEGMENTATION_WORKFLOW_SMOKE:FAIL:no_nonempty_masks")
         return 1
 
-    with tempfile.TemporaryDirectory(prefix="sdapp_seg_smoke_") as tmp:
+    with tempfile.TemporaryDirectory(prefix="swell_seg_smoke_") as tmp:
         output = Path(tmp) / "workflow_masks.npz"
         np.savez_compressed(output, masks=masks)
         if not output.exists():

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import threading
 
-from sdapp.shared.ui import BackgroundTaskRunner
+from swell.shared.ui import BackgroundTaskRunner
 
 
 class _Root:

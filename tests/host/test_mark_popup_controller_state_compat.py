@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from sdapp.host.mark_popup_controller import MarkPopupController
+from swell.host.mark_popup_controller import MarkPopupController
 
 
 def test_on_destroy_resets_popup_pending_state_on_popup_manager() -> None:

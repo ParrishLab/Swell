@@ -5,16 +5,16 @@ from unittest.mock import patch
 
 import numpy as np
 
-from sdapp.analysis.controllers.host_mode_controller import AnalysisHostModeController
-from sdapp.analysis.core import mask_import_workflow
-from sdapp.analysis.core.analysis_workspace import AnalysisWorkspaceController
-from sdapp.analysis.core.project_session import ProjectSessionService
-from sdapp.analysis.core.seg_state import SegmentationState
-from sdapp.analysis.core.session_state import SessionState
-from sdapp.host.browser_controller import BrowserController
-from sdapp.host.config import FrameRef
-from sdapp.shared.contracts import ValidatorErrorCode
-from sdapp.shared.frame_source import EventScopedFrameSource
+from swell.analysis.controllers.host_mode_controller import AnalysisHostModeController
+from swell.analysis.core import mask_import_workflow
+from swell.analysis.core.analysis_workspace import AnalysisWorkspaceController
+from swell.analysis.core.project_session import ProjectSessionService
+from swell.analysis.core.seg_state import SegmentationState
+from swell.analysis.core.session_state import SessionState
+from swell.host.browser_controller import BrowserController
+from swell.host.config import FrameRef
+from swell.shared.contracts import ValidatorErrorCode
+from swell.shared.frame_source import EventScopedFrameSource
 
 
 class FakeReader:
@@ -237,8 +237,8 @@ def test_import_workflow_updates_host_analysis_sidecar_immediately() -> None:
     app = _App()
 
     with (
-        patch("sdapp.analysis.core.mask_import_workflow.messagebox.showinfo"),
-        patch("sdapp.analysis.core.mask_import_workflow.messagebox.showwarning"),
+        patch("swell.analysis.core.mask_import_workflow.messagebox.showinfo"),
+        patch("swell.analysis.core.mask_import_workflow.messagebox.showwarning"),
     ):
         mask_import_workflow.import_external_masks(app)
 

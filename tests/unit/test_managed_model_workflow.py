@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from sdapp.shared.ui.managed_model_workflow import (
+from swell.shared.ui.managed_model_workflow import (
     ManagedModelWorkflow,
     ManagedModelWorkflowOptions,
 )
@@ -174,7 +174,7 @@ class _Service:
 
 
 def _patch_ui(monkeypatch, root: _FakeRoot) -> None:
-    import sdapp.shared.ui.managed_model_workflow as workflow_module
+    import swell.shared.ui.managed_model_workflow as workflow_module
 
     monkeypatch.setattr(workflow_module.tk, "Toplevel", lambda _root: _FakeDialog(root))
     monkeypatch.setattr(workflow_module.tk, "StringVar", _FakeVar)

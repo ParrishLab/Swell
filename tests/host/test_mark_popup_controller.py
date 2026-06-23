@@ -3,8 +3,8 @@ from __future__ import annotations
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from sdapp.host.host_models import EventMeta
-from sdapp.host.mark_popup_controller import MarkPopupController
+from swell.host.host_models import EventMeta
+from swell.host.mark_popup_controller import MarkPopupController
 
 
 def test_resolve_initial_popup_state_uses_center_window_for_edit_range() -> None:
@@ -210,7 +210,7 @@ def test_delete_selected_events_requires_confirmation() -> None:
     )
     controller = MarkPopupController(app)
 
-    with patch("sdapp.host.mark_popup_controller.messagebox.askyesno", return_value=False):
+    with patch("swell.host.mark_popup_controller.messagebox.askyesno", return_value=False):
         controller.delete_selected_events()
 
     assert deleted_ids == []
@@ -239,7 +239,7 @@ def test_delete_selected_events_deletes_after_confirmation() -> None:
     )
     controller = MarkPopupController(app)
 
-    with patch("sdapp.host.mark_popup_controller.messagebox.askyesno", return_value=True):
+    with patch("swell.host.mark_popup_controller.messagebox.askyesno", return_value=True):
         controller.delete_selected_events()
 
     assert deleted_ids == [["event_0001"]]

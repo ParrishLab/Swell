@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from sdapp.shared.frame_source.stack_files import list_stack_files
+from swell.shared.frame_source.stack_files import list_stack_files
 
 
 def test_list_stack_files_skips_hidden_and_sorts_naturally(tmp_path: Path) -> None:

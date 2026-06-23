@@ -2,13 +2,13 @@ import unittest
 
 import numpy as np
 
-from sdapp.analysis.app import SDSegmentationApp
-from sdapp.analysis.core.analysis_workspace import AnalysisWorkspaceController
-from sdapp.analysis.core.frame_source import EagerFrameSource
-from sdapp.analysis.core.project_session import ProjectSessionService
-from sdapp.analysis.core.project_workflow import apply_loaded_project_plan, ProjectLoadPlan
-from sdapp.analysis.core.seg_state import SegmentationState
-from sdapp.analysis.core.session_state import SessionState
+from swell.analysis.app import SwellAnalysisApp
+from swell.analysis.core.analysis_workspace import AnalysisWorkspaceController
+from swell.analysis.core.frame_source import EagerFrameSource
+from swell.analysis.core.project_session import ProjectSessionService
+from swell.analysis.core.project_workflow import apply_loaded_project_plan, ProjectLoadPlan
+from swell.analysis.core.seg_state import SegmentationState
+from swell.analysis.core.session_state import SessionState
 
 
 class _DummySlider:
@@ -34,7 +34,7 @@ class _DummyLabel:
 
 class ProjectWorkflowFrameSourceTests(unittest.TestCase):
     def test_apply_loaded_project_plan_binds_frame_source_and_opens_event(self):
-        app = SDSegmentationApp.__new__(SDSegmentationApp)
+        app = SwellAnalysisApp.__new__(SwellAnalysisApp)
         app.project_session_service = ProjectSessionService()
         app.session_state = SessionState()
         app.seg_state = SegmentationState()
@@ -74,11 +74,11 @@ class ProjectWorkflowFrameSourceTests(unittest.TestCase):
 
         frames = [np.zeros((3, 3), dtype=np.uint8) for _ in range(2)]
         records = app.project_session_service.coerce_event_records({}, 2)
-        records["sd_event_001"].analysis.masks_committed[1] = np.ones((3, 3), dtype=bool)
+        records["event_001"].analysis.masks_committed[1] = np.ones((3, 3), dtype=bool)
         plan = ProjectLoadPlan(
-            project_path="/tmp/test.sdproj",
+            project_path="/tmp/test.swell",
             state={"created_at": "2026-01-01T00:00:00Z"},
-            ui_state={"active_event_id": "sd_event_001", "active_tool": "select", "last_frame": 1},
+            ui_state={"active_event_id": "event_001", "active_tool": "select", "last_frame": 1},
             global_state={"baseline_frame_count": 30},
             image_paths=["/tmp/frame1.tif"],
             frame_names=["f1", "f2"],
@@ -93,7 +93,7 @@ class ProjectWorkflowFrameSourceTests(unittest.TestCase):
                 source_paths=["/tmp/frame1.tif"],
             ),
             event_records=records,
-            active_event_id="sd_event_001",
+            active_event_id="event_001",
             scale_points=[[10.0, 12.0], [30.0, 12.0]],
             scale_axis_lock=False,
             scale_image_path="/tmp/scale-ref.png",
@@ -106,7 +106,7 @@ class ProjectWorkflowFrameSourceTests(unittest.TestCase):
         self.assertIsNotNone(app.frame_source)
         self.assertEqual(app.app_context.frame_source, app.frame_source)
         self.assertIn(1, app.seg_state.masks_cache)
-        self.assertEqual(app.active_event_id, "sd_event_001")
+        self.assertEqual(app.active_event_id, "event_001")
         self.assertEqual(app.scale_points, [[10.0, 12.0], [30.0, 12.0]])
         self.assertIs(app.scale_axis_lock, False)
         self.assertEqual(app._last_scale_image_path, "/tmp/scale-ref.png")

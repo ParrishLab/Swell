@@ -1,10 +1,10 @@
 import pytest
 from unittest.mock import patch, MagicMock
 
-from sdapp.shared.errors import DataCorruptionError, ProjectLoadError, InferenceRuntimeError
-from sdapp.host.exporter import _resolve_roi_mask, _apply_propagation_gap_policy
-from sdapp.shared.persistence.unified_project_store import _coerce_stack_ref, _coerce_events
-from sdapp.analysis.core.inference_manager import InferenceManager
+from swell.shared.errors import DataCorruptionError, ProjectLoadError, InferenceRuntimeError
+from swell.host.exporter import _resolve_roi_mask, _apply_propagation_gap_policy
+from swell.shared.persistence.unified_project_store import _coerce_stack_ref, _coerce_events
+from swell.analysis.core.inference_manager import InferenceManager
 
 def test_project_load_validation_stack_ref():
     with pytest.raises(ProjectLoadError):
@@ -20,8 +20,8 @@ def test_project_load_validation_events():
     with pytest.raises(ProjectLoadError):
         _coerce_events("not a list")
 
-@patch('sdapp.host.exporter.MetricsSettingsResolver.normalize')
-@patch('sdapp.host.exporter.roi_mask_from_points')
+@patch('swell.host.exporter.MetricsSettingsResolver.normalize')
+@patch('swell.host.exporter.roi_mask_from_points')
 def test_exporter_roi_mask_failure(mock_roi_mask, mock_normalize):
     mock_roi_mask.side_effect = Exception("Mocked SAM-2 failure")
     mock_normalize.return_value = {"roi_points": [{"x": 10, "y": 20}]}
@@ -33,7 +33,7 @@ def test_exporter_roi_mask_failure(mock_roi_mask, mock_normalize):
         
     assert "Failed to generate ROI mask" in str(exc_info.value)
 
-@patch('sdapp.analysis.core.inference_manager.messagebox.showerror')
+@patch('swell.analysis.core.inference_manager.messagebox.showerror')
 def test_inference_failure_propagation_single_frame(mock_showerror):
     # Construct InferenceManager with dummy arguments
     manager = InferenceManager(

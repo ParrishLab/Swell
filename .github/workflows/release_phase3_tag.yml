@@ -19,7 +19,7 @@ env:
   PYTHON_VERSION: "3.12"
   MPLCONFIGDIR: ${{ github.workspace }}/.mplconfig
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
-  SDAPP_ENABLE_UPDATER_ARTIFACTS: "false"
+  SWELL_ENABLE_UPDATER_ARTIFACTS: "false"
 
 jobs:
   release-validate:
@@ -89,7 +89,7 @@ jobs:
 
       - name: Run startup smoke test
         run: |
-          OUT="$(python -m sdapp.main --smoke-test | tail -n 1)"
+          OUT="$(python -m swell.main --smoke-test | tail -n 1)"
           test "$OUT" = "SMOKE_TEST:PASS"
 
       - name: Run model runtime smoke test
@@ -98,24 +98,24 @@ jobs:
           test "$OUT" = "MODEL_SMOKE:PASS"
 
       - name: Build macOS arm64 app
-        run: SDAPP_SIGN_UPDATES="${{ env.SDAPP_ENABLE_UPDATER_ARTIFACTS }}" PYTHON_BIN=python ./scripts/release/build_macos_app_arm64.sh
+        run: SWELL_SIGN_UPDATES="${{ env.SWELL_ENABLE_UPDATER_ARTIFACTS }}" PYTHON_BIN=python ./scripts/release/build_macos_app_arm64.sh
 
       - name: Run packaged app model runtime smoke test
         run: |
-          OUT="$(dist/macos-arm64/SDApp.app/Contents/MacOS/SDApp --smoke-test --smoke-model-runtime | tail -n 1)"
+          OUT="$(dist/macos-arm64/Swell.app/Contents/MacOS/Swell --smoke-test --smoke-model-runtime | tail -n 1)"
           test "$OUT" = "SMOKE_TEST:PASS"
 
       - name: Run packaged app launch probe
         run: |
-          OUT="$(python scripts/release/run_launch_probe.py --bundle-path dist/macos-arm64/SDApp.app | tail -n 1)"
+          OUT="$(python scripts/release/run_launch_probe.py --bundle-path dist/macos-arm64/Swell.app | tail -n 1)"
           test "$OUT" = "LAUNCH_PROBE:PASS"
 
       - name: Verify macOS arm64 outputs
         run: |
-          test -d dist/macos-arm64/SDApp.app
-          test -f dist/sdapp-macos-arm64.zip
-          if [ "${SDAPP_ENABLE_UPDATER_ARTIFACTS}" = "true" ]; then
-            test -f dist/sdapp-macos-arm64-signature.json
+          test -d dist/macos-arm64/Swell.app
+          test -f dist/swell-macos-arm64.zip
+          if [ "${SWELL_ENABLE_UPDATER_ARTIFACTS}" = "true" ]; then
+            test -f dist/swell-macos-arm64-signature.json
           fi
 
       - name: Upload macOS arm64 artifacts
@@ -159,7 +159,7 @@ jobs:
           python -c "import pytest; print(pytest.__version__)"
 
       - name: Ensure NSIS is available
-        if: env.SDAPP_ENABLE_UPDATER_ARTIFACTS == 'true'
+        if: env.SWELL_ENABLE_UPDATER_ARTIFACTS == 'true'
         shell: pwsh
         run: |
           if (!(Get-Command "makensis" -ErrorAction SilentlyContinue)) {
@@ -175,7 +175,7 @@ jobs:
       - name: Run startup smoke test
         shell: pwsh
         run: |
-          $out = (python -m sdapp.main --smoke-test | Select-Object -Last 1)
+          $out = (python -m swell.main --smoke-test | Select-Object -Last 1)
           if ($out -ne "SMOKE_TEST:PASS") { throw "Smoke test failed: $out" }
 
       - name: Run model init smoke test
@@ -193,28 +193,28 @@ jobs:
       - name: Build Windows x64 app package
         shell: pwsh
         run: |
-          $env:SDAPP_BUILD_INSTALLER="${{ env.SDAPP_ENABLE_UPDATER_ARTIFACTS }}"
+          $env:SWELL_BUILD_INSTALLER="${{ env.SWELL_ENABLE_UPDATER_ARTIFACTS }}"
           ./scripts/release/build_windows_app_x64.ps1
 
       - name: Run packaged app model runtime smoke test
         shell: pwsh
         run: |
-          $out = (& "dist/windows-x64/SDApp/SDApp.exe" --smoke-test --smoke-model-runtime | Select-Object -Last 1)
+          $out = (& "dist/windows-x64/Swell/Swell.exe" --smoke-test --smoke-model-runtime | Select-Object -Last 1)
           if ($out -ne "SMOKE_TEST:PASS") { throw "Packaged app smoke failed: $out" }
 
       - name: Run packaged app open-request smoke test
         shell: pwsh
         run: |
-          $out = (python scripts/release/run_open_request_smoke.py --app-cmd "dist/windows-x64/SDApp/SDApp.exe" | Select-Object -Last 1)
+          $out = (python scripts/release/run_open_request_smoke.py --app-cmd "dist/windows-x64/Swell/Swell.exe" | Select-Object -Last 1)
           if ($out -ne "OPEN_REQUEST_SMOKE:PASS") { throw "Open request smoke failed: $out" }
 
       - name: Verify Windows package outputs
         shell: pwsh
         run: |
-          if (!(Test-Path "dist/windows-x64/SDApp")) { throw "missing dist/windows-x64/SDApp" }
-          if (!(Test-Path "dist/sdapp-windows-x64.zip")) { throw "missing dist/sdapp-windows-x64.zip" }
-          if ("${{ env.SDAPP_ENABLE_UPDATER_ARTIFACTS }}" -eq "true") {
-            if (!(Get-ChildItem "dist/SDApp-Setup-*.exe" -ErrorAction SilentlyContinue)) { throw "missing Windows installer" }
+          if (!(Test-Path "dist/windows-x64/Swell")) { throw "missing dist/windows-x64/Swell" }
+          if (!(Test-Path "dist/swell-windows-x64.zip")) { throw "missing dist/swell-windows-x64.zip" }
+          if ("${{ env.SWELL_ENABLE_UPDATER_ARTIFACTS }}" -eq "true") {
+            if (!(Get-ChildItem "dist/Swell-Setup-*.exe" -ErrorAction SilentlyContinue)) { throw "missing Windows installer" }
           }
 
       - name: Upload Windows artifacts
@@ -260,11 +260,11 @@ jobs:
         run: |
           rm -rf dist
           mkdir -p dist
-          cp _artifacts/macos-arm64/sdapp-macos-arm64.zip dist/
-          cp _artifacts/windows-x64/sdapp-windows-x64.zip dist/
-          if [ "${SDAPP_ENABLE_UPDATER_ARTIFACTS}" = "true" ]; then
-            cp _artifacts/macos-arm64/sdapp-macos-arm64-signature.json dist/
-            cp _artifacts/windows-x64/SDApp-Setup-*.exe dist/
+          cp _artifacts/macos-arm64/swell-macos-arm64.zip dist/
+          cp _artifacts/windows-x64/swell-windows-x64.zip dist/
+          if [ "${SWELL_ENABLE_UPDATER_ARTIFACTS}" = "true" ]; then
+            cp _artifacts/macos-arm64/swell-macos-arm64-signature.json dist/
+            cp _artifacts/windows-x64/Swell-Setup-*.exe dist/
           fi
           ls -la dist
 
@@ -279,7 +279,7 @@ jobs:
             --output _release/release_notes.md
 
       - name: Generate updater appcasts
-        if: env.SDAPP_ENABLE_UPDATER_ARTIFACTS == 'true'
+        if: env.SWELL_ENABLE_UPDATER_ARTIFACTS == 'true'
         run: |
           python scripts/release/generate_appcasts.py \
             --repo-root "${{ github.workspace }}" \
@@ -291,11 +291,11 @@ jobs:
 
       - name: Verify assembled release outputs
         run: |
-          test -f dist/sdapp-macos-arm64.zip
-          test -f dist/sdapp-windows-x64.zip
-          if [ "${SDAPP_ENABLE_UPDATER_ARTIFACTS}" = "true" ]; then
-            test -f dist/sdapp-macos-arm64-signature.json
-            ls dist/SDApp-Setup-*.exe
+          test -f dist/swell-macos-arm64.zip
+          test -f dist/swell-windows-x64.zip
+          if [ "${SWELL_ENABLE_UPDATER_ARTIFACTS}" = "true" ]; then
+            test -f dist/swell-macos-arm64-signature.json
+            ls dist/Swell-Setup-*.exe
             test -f dist/appcast-macos.xml
             test -f dist/appcast-windows.xml
           fi
@@ -335,8 +335,8 @@ jobs:
           prerelease: ${{ needs.release-assemble.outputs.is_prerelease == 'true' }}
           body_path: _release/release_notes.md
           files: |
-            dist/sdapp-macos-arm64.zip
-            dist/sdapp-windows-x64.zip
+            dist/swell-macos-arm64.zip
+            dist/swell-windows-x64.zip
             dist/compatibility.json
             dist/SHA256SUMS.txt
 

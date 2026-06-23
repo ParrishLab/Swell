@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sdapp.host.app import SDAnalyzerApp
+from swell.host.app import SwellHostApp
 
 
 class _PreviewStub:
@@ -15,7 +15,7 @@ class _PreviewStub:
 
 
 def test_host_app_delegates_preview_methods_to_preview_controller() -> None:
-    app = SDAnalyzerApp.__new__(SDAnalyzerApp)
+    app = SwellHostApp.__new__(SwellHostApp)
     preview = _PreviewStub()
     app._get_preview_controller = lambda: preview
 

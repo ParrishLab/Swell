@@ -8,7 +8,7 @@ import pytest
 import tifffile
 from PIL import Image
 
-from sdapp.host.stack_reader import StackReader, _to_grayscale
+from swell.host.stack_reader import StackReader, _to_grayscale
 
 
 def _save_png(path: Path, arr: np.ndarray) -> None:
@@ -97,7 +97,7 @@ def test_open_stack_png_uses_metadata_during_indexing(tmp_path: Path, monkeypatc
             raise AssertionError("open_stack should not decode PNG files while indexing")
         return real_asarray(value, *args, **kwargs)
 
-    monkeypatch.setattr("sdapp.host.stack_reader.np.asarray", _guard)
+    monkeypatch.setattr("swell.host.stack_reader.np.asarray", _guard)
 
     reader = StackReader()
     info = reader.open_stack(tmp_path)

@@ -1,40 +1,40 @@
-# SDApp
+# Swell
 
-SDApp is a desktop tool for identifying SD events in image stacks and running
+Swell is a desktop tool for identifying events in image stacks and running
 event-level segmentation analysis in a dedicated analysis workspace.
 
 It is organized as a two-stage workflow:
-- Host window: load a stack, mark SD events, manage project-level actions.
+- Host window: load a stack, mark events, manage project-level actions.
 - Analysis window: open one event and run segmentation/mask workflows.
 
 ## What The App Does
 
-SDApp helps you:
+Swell helps you:
 - Import an image stack and inspect frames.
-- Mark, edit, and manage SD event ranges.
+- Mark, edit, and manage event ranges.
 - Open an event in an analysis workspace for segmentation.
 - Run propagation and save masks back to the project.
 - Export event outputs and metrics.
-- Save and reopen work as `.sdproj` project files.
+- Save and reopen work as `.swell` project files.
 
 ## Core Workflow
 
-1. Start SDApp.
+1. Start Swell.
 2. Click `New Project` and choose an image folder.
-3. Mark SD events in the host window (`Mark SD Event`, edit/delete, review table).
+3. Mark events in the host window (`Mark Event`, edit/delete, review table).
 4. Select an event and click `Open Analysis...`.
 5. In analysis:
    - Place points/brush edits.
    - Run propagation.
    - Adjust metrics settings (frames/sec, scale, ROI).
    - Save current masks.
-6. Return to host to export selected/all events and save the SD project.
+6. Return to host to export selected/all events and save the Swell project.
 
 ## Main Functions
 
 ### Host Window (Project + Event Management)
 - **New Project**: prompts for an image folder and loads a fresh stack.
-- **Open/Save SD Project**: read and write `.sdproj` files.
+- **Open/Save Swell Project**: read and write `.swell` files.
 - **Event tools**:
   - Mark new events.
   - Edit or delete selected events.
@@ -51,17 +51,17 @@ SDApp helps you:
 - **Propagation**: run segmentation across a selected frame range.
 - **Metrics Settings**: configure event-level frames/sec, scale, ROI.
 - **Import External Masks**: map masks from files/folder into current event.
-- **Save Current Masks**: persist masks into the active SD project.
+- **Save Current Masks**: persist masks into the active Swell project.
 
 ### Project Model
-- SDApp project files use the `.sdproj` format.
+- Swell project files use the `.swell` format.
 - A project stores event ranges plus associated analysis artifacts.
-- On macOS/Windows packaged builds, `.sdproj` can be opened directly into SDApp.
+- On macOS/Windows packaged builds, `.swell` can be opened directly into Swell.
 
 ## Running The App
 
 ```bash
-python -m sdapp.main
+python -m swell.main
 ```
 
 macOS helper:
@@ -73,7 +73,7 @@ macOS helper:
 Optional startup smoke check:
 
 ```bash
-python -m sdapp.main --smoke-test
+python -m swell.main --smoke-test
 ```
 
 ## Packaged macOS Warning
@@ -84,7 +84,7 @@ python -m sdapp.main --smoke-test
 
 ## Repository Layout
 
-- `sdapp/`: application package (`host`, `analysis`, `shared`).
+- `swell/`: application package (`host`, `analysis`, `shared`).
 - `tests/`: unit, host, analysis, integration, and migration tests.
 - `docs/`: architecture and release planning docs.
 - `seam_contract_fixtures/`: seam-contract validation fixtures.
@@ -93,4 +93,4 @@ python -m sdapp.main --smoke-test
 ## Development Notes
 
 - `pyproject.toml` is the source of truth for dependencies and package metadata.
-- Entry point is `sdapp.main` (`python -m sdapp.main`).
+- Entry point is `swell.main` (`python -m swell.main`).

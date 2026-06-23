@@ -4,8 +4,8 @@ from pathlib import Path
 
 import numpy as np
 
-from sdapp.host.browser_controller import BrowserController
-from sdapp.host.config import FrameRef
+from swell.host.browser_controller import BrowserController
+from swell.host.config import FrameRef
 
 
 class _FakeReader:
@@ -87,12 +87,12 @@ def test_host_context_for_event_includes_project_path() -> None:
     host = BrowserController()
     host.on_stack_loaded(_FakeReader(), _FakeStackInfo())
     event = host.create_event(start_idx=0, end_idx=1, frame_count=6)
-    host.session.set_project_path("/tmp/active_project.sdproj")
+    host.session.set_project_path("/tmp/active_project.swell")
 
     context = host.host_context_for_event(event.event_id)
 
     assert context["project_path"] is not None
-    assert str(context["project_path"]).endswith("active_project.sdproj")
+    assert str(context["project_path"]).endswith("active_project.swell")
 
 
 def test_host_context_preserves_dict_mask_payloads() -> None:
@@ -242,7 +242,7 @@ def test_export_candidates_after_reopen_uses_field_mapping(tmp_path: Path) -> No
     host = BrowserController()
     host.on_stack_loaded(_FakeReader(), _FakeStackInfo())
     created = host.create_event(start_idx=2, end_idx=4, frame_count=6)
-    project_path = tmp_path / "export_after_reopen.sdproj"
+    project_path = tmp_path / "export_after_reopen.swell"
     host.save_session(project_path)
     host.open_session(str(project_path))
 
@@ -305,7 +305,7 @@ def test_full_stack_event_persists_after_save_reopen_and_can_export(tmp_path: Pa
     host.on_stack_loaded(_FakeReader(), _FakeStackInfo())
 
     created = host.ensure_full_stack_analysis_event(frame_count=6)
-    project_path = tmp_path / "full_stack_export.sdproj"
+    project_path = tmp_path / "full_stack_export.swell"
     host.save_session(project_path)
     host.open_session(str(project_path))
 

@@ -1,8 +1,8 @@
 import math
 import unittest
 
-from sdapp.analysis.app import SDSegmentationApp
-from sdapp.analysis.core.viewport import (
+from swell.analysis.app import SwellAnalysisApp
+from swell.analysis.core.viewport import (
     ViewportState,
     clamp_viewport_center,
     compute_transform,
@@ -89,7 +89,7 @@ class ViewportTests(unittest.TestCase):
         self.assertEqual(left_center, preview_center)
 
     def test_app_viewport_sizes_include_live_reference_popout_only(self):
-        app = SDSegmentationApp.__new__(SDSegmentationApp)
+        app = SwellAnalysisApp.__new__(SwellAnalysisApp)
         app.canvas_left = _Canvas(100, 80)
         app.canvas_right = _Canvas(50, 40)
         app.canvas_reference_popout = _Canvas(300, 200)

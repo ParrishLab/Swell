@@ -7,7 +7,7 @@ Issues identified before open-source release alongside the manuscript. Ordered b
 ## Release-blockers
 
 ### 1. Silent metric export failures
-**File:** `sdapp/host/exporter.py:835-847, 870-882`
+**File:** `swell/host/exporter.py:835-847, 870-882`
 
 Mask generation and analysis image export are wrapped in bare `except Exception:` blocks with no logging or user notification. If SAM-2 output is corrupted or a mask resolves to `None`, the CSV export still completes with invalid or empty values. A user reproducing the manuscript methods could publish wrong numbers without knowing.
 
@@ -16,7 +16,7 @@ Mask generation and analysis image export are wrapped in bare `except Exception:
 ---
 
 ### 2. Silent inference failures
-**File:** `sdapp/analysis/core/inference_manager.py:115, 150`
+**File:** `swell/analysis/core/inference_manager.py:115, 150`
 
 Multiple critical paths return `0` or `None` on any `Exception` — including GPU OOM, model initialization failure, and corrupted frame data — without logging context. Propagation appears to succeed from the user's perspective but may have produced nothing.
 
@@ -25,7 +25,7 @@ Multiple critical paths return `0` or `None` on any `Exception` — including GP
 ---
 
 ### 3. No metrics preview in the analysis window
-**Files:** `sdapp/analysis/ui/layout.py`, `sdapp/analysis/core/metrics.py`
+**Files:** `swell/analysis/ui/layout.py`, `swell/analysis/core/metrics.py`
 
 Metrics (velocity, area, ROI values) are computed and written to CSV during host export, but there is no way to view or validate them inside the analysis window before committing. Users must export and open a spreadsheet externally to verify correctness. For a methods paper this will be a reviewer question.
 
@@ -36,7 +36,7 @@ Metrics (velocity, area, ROI values) are computed and written to CSV during host
 ## Major gaps
 
 ### 4. `NotImplementedError` in frame source
-**File:** `sdapp/analysis/core/frame_source.py:101-106`
+**File:** `swell/analysis/core/frame_source.py:101-106`
 
 Subtracted frames and visualization frames raise `NotImplementedError` at runtime with the message "Subtracted frame source is not wired in host seam prep." If any UI path reaches these code paths, the app crashes.
 
@@ -45,7 +45,7 @@ Subtracted frames and visualization frames raise `NotImplementedError` at runtim
 ---
 
 ### 5. No project file validation on load
-**File:** `sdapp/shared/persistence/unified_project_store.py` (`_coerce_stack_ref`, `_coerce_events`)
+**File:** `swell/shared/persistence/unified_project_store.py` (`_coerce_stack_ref`, `_coerce_events`)
 
 Corrupt or version-mismatched `.sdproj` files are silently coerced: invalid stack references become `None`, bad event indices become empty lists. The load succeeds with degraded state and no warning dialog.
 
@@ -54,7 +54,7 @@ Corrupt or version-mismatched `.sdproj` files are silently coerced: invalid stac
 ---
 
 ### 6. Silent RGB → grayscale conversion
-**File:** `sdapp/host/stack_reader.py`
+**File:** `swell/host/stack_reader.py`
 
 Multi-channel (RGB/RGBA) images are mean-averaged to grayscale with no warning or user control. If a user loads RGB microscopy with intentional channel information, that data is lost silently.
 

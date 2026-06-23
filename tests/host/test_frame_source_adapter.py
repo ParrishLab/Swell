@@ -6,8 +6,8 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from sdapp.host.stack_reader import StackReader
-from sdapp.shared.frame_source import SDStackFrameSource
+from swell.host.stack_reader import StackReader
+from swell.shared.frame_source import StackReaderFrameSource
 
 
 def _save_png(path: Path, arr: np.ndarray) -> None:
@@ -22,7 +22,7 @@ def test_sd_stack_frame_source_metadata_and_frames(tmp_path: Path) -> None:
 
     reader = StackReader()
     reader.open_stack(tmp_path)
-    src = SDStackFrameSource(reader=reader)
+    src = StackReaderFrameSource(reader=reader)
 
     assert src.frame_count == 2
     assert src.frame_shape == (6, 7)
@@ -37,7 +37,7 @@ def test_sd_stack_frame_source_optional_methods_not_implemented(tmp_path: Path) 
     _save_png(tmp_path / "a.png", arr)
     reader = StackReader()
     reader.open_stack(tmp_path)
-    src = SDStackFrameSource(reader=reader)
+    src = StackReaderFrameSource(reader=reader)
 
     with pytest.raises(NotImplementedError):
         src.get_subtracted_frame(0)

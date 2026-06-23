@@ -3,20 +3,20 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from io import BytesIO
 
-from sdapp.analysis.core.state import AppConfig
-from sdapp.shared.services.update_service import UpdateService
+from swell.analysis.core.state import AppConfig
+from swell.shared.services.update_service import UpdateService
 
 
 APPCAST = b"""<?xml version="1.0" encoding="utf-8"?>
 <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
   <channel>
-    <title>SDApp windows stable releases</title>
+    <title>Swell windows stable releases</title>
     <item>
-      <title>SDApp 0.1.4</title>
+      <title>Swell 0.1.4</title>
       <pubDate>Mon, 23 Mar 2026 12:00:00 +0000</pubDate>
       <sparkle:releaseNotesLink>https://github.com/ClayDunford/Combined-tool-test/releases/tag/v0.1.4</sparkle:releaseNotesLink>
       <enclosure
-        url="https://github.com/ClayDunford/Combined-tool-test/releases/download/v0.1.4/SDApp-Setup-0.1.4.exe"
+        url="https://github.com/ClayDunford/Combined-tool-test/releases/download/v0.1.4/Swell-Setup-0.1.4.exe"
         length="123"
         type="application/octet-stream"
         sparkle:version="0.1.4"

@@ -2,8 +2,8 @@ import tempfile
 import time
 import unittest
 
-from sdapp.analysis.app import SDSegmentationApp
-from sdapp.analysis.core.project_autosave import AutosaveSnapshot, ProjectAutosaveManager
+from swell.analysis.app import SwellAnalysisApp
+from swell.analysis.core.project_autosave import AutosaveSnapshot, ProjectAutosaveManager
 
 
 class _LabelStub:
@@ -46,7 +46,7 @@ class ProjectAutosaveErrorVisibilityTests(unittest.TestCase):
             self.assertTrue(errors[0][1].startswith("write:"))
 
     def test_app_callback_logs_and_sets_status(self):
-        app = SDSegmentationApp.__new__(SDSegmentationApp)
+        app = SwellAnalysisApp.__new__(SwellAnalysisApp)
         logs = []
         app.log_warn = lambda ctx, msg: logs.append((ctx, msg))
         app.lbl_status = _LabelStub()

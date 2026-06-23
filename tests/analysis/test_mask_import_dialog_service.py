@@ -5,7 +5,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from sdapp.analysis.core.mask_import_dialog import MaskImportDialogService
+from swell.analysis.core.mask_import_dialog import MaskImportDialogService
 
 
 class MaskImportDialogServiceTests(unittest.TestCase):

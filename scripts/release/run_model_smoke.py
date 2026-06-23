@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from sdapp.analysis.model import DeterministicCpuFallbackPredictor, SAM2RuntimeService
+from swell.analysis.model import DeterministicCpuFallbackPredictor, SAM2RuntimeService
 
 
 def _require_model_runtime() -> tuple[bool, str]:
@@ -26,7 +26,7 @@ def _require_model_runtime() -> tuple[bool, str]:
 
 
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Run SDApp model runtime smoke checks.")
+    parser = argparse.ArgumentParser(description="Run Swell model runtime smoke checks.")
     parser.add_argument(
         "--require-runtime",
         action="store_true",
@@ -44,10 +44,10 @@ def main(argv: list[str] | None = None) -> int:
             return 1
 
     runtime = SAM2RuntimeService()
-    with tempfile.TemporaryDirectory(prefix="sdapp_model_smoke_") as tmp:
+    with tempfile.TemporaryDirectory(prefix="swell_model_smoke_") as tmp:
         tmp_dir = Path(tmp)
         model_path = tmp_dir / "model_smoke.pt"
-        model_path.write_bytes(b"sdapp-model-smoke")
+        model_path.write_bytes(b"swell-model-smoke")
         frames_viz = np.random.default_rng(42).integers(0, 255, size=(8, 48, 48), dtype=np.uint8)
 
         def _build_predictor(_model_path: str, _temp_dir: str):

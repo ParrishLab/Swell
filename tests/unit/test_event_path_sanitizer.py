@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sdapp.shared.persistence.event_path import allocate_event_path_segment, sanitize_event_path_segment
+from swell.shared.persistence.event_path import allocate_event_path_segment, sanitize_event_path_segment
 
 
 def test_sanitize_event_path_segment_replaces_windows_invalid_characters() -> None:

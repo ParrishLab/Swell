@@ -432,7 +432,7 @@ Add:
 
 ### Milestone 4: annotation integration
 Add:
-- SD event markers
+- event markers
 - baseline windows
 - export-ready synchronized views
 

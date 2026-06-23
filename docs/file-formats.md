@@ -1,17 +1,17 @@
 # Data & File Format Reference
 
-This reference documents the internal structure of the `.sdproj` project package, the directory layout of exported results, the metrics output variables, and the supported input image types.
+This reference documents the internal structure of the `.swell` project package, the directory layout of exported results, the metrics output variables, and the supported input image types.
 
 ---
 
-## 1. `.sdproj` Project File Structure
+## 1. `.swell` Project File Structure
 
-An `.sdproj` file is the primary save container for SDApp. It is a standard **compressed ZIP file** containing structured JSON metadata files and binary mask data.
+An `.swell` file is the primary save container for Swell. It is a standard **compressed ZIP file** containing structured JSON metadata files and binary mask data.
 
 ### Top-Level Files in the ZIP
 
 ```text
-my_project.sdproj (ZIP)
+my_project.swell (ZIP)
 ├── manifest.json            # Core project settings and schema versions
 ├── stack.json               # Path and dimension info for source stack
 ├── events.json              # List of cataloged event bounds and labels
@@ -33,7 +33,7 @@ my_project.sdproj (ZIP)
 
 ## 2. Schema Schematics & Field Reference
 
-SDApp uses versioned schemas to maintain compatibility across releases. 
+Swell uses versioned schemas to maintain compatibility across releases. 
 
 ### A. Container Manifest (`manifest.json`)
 * **Metadata Schema Version**: `3` (defined as `HOST_PROJECT_SCHEMA_VERSION = 3`).
@@ -45,7 +45,7 @@ SDApp uses versioned schemas to maintain compatibility across releases.
         * `dc_trace_attachment` (object or null): Mapped DC electrophysiology trace path references.
         * `embed_source_images` (bool, optional): When `true`, the save writes the source frames into the container (section E). Persists with the project so re-saves keep embedding.
     * `persistence` (object): Ownership details. Contains:
-        * `owner` (str): Must be exactly `"host_sdproj"` (enforced security guardrail).
+        * `owner` (str): Current writers emit `"swell_project"`; legacy `"host_sdproj"` is still accepted on load.
 
 ### B. Image Stack Reference (`stack.json`)
 Describes the original image directory:
@@ -88,7 +88,7 @@ Stores all interactive labels and annotations for a single event.
     * `ground_truth_frames` (list of int): Optional list of frames marked as manual ground-truth baseline references.
 
 ### E. Embedded Source Images (`images_embedded.json` + `images/`) — *Optional, schema 3*
-Present only when the project was saved with `metadata.embed_source_images = true`. Lets a `.sdproj` carry its own source frames so it remains usable after the original stack folder is moved or deleted.
+Present only when the project was saved with `metadata.embed_source_images = true`. Lets a `.swell` carry its own source frames so it remains usable after the original stack folder is moved or deleted.
 * `images/` (directory): Original source frame files copied in **verbatim** (lossless — preserves `uint16`/`float` and multi-page TIFFs). Each unique source file is stored once, keyed by its filename.
 * `images_embedded.json`: Index mapping each embedded frame name to its archive path.
     * `embedded` (object): `{ <frame_filename>: <arcname> }`, e.g. `{"000090.tiff": "images/000090.tiff"}`.
@@ -99,7 +99,7 @@ Present only when the project was saved with `metadata.embed_source_images = tru
 
 ## 3. Export Directory Layout
 
-When exporting results in the Host Window, SDApp creates a structured directory using the event's user-assigned label:
+When exporting results in the Host Window, Swell creates a structured directory using the event's user-assigned label:
 
 ```text
 my_export_output/

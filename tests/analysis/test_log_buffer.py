@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sdapp.analysis.app import SDSegmentationApp
+from swell.analysis.app import SwellAnalysisApp
 
 
 class _TreeStub:
@@ -24,7 +24,7 @@ class _TreeStub:
 
 
 def test_logger_message_updates_log_buffer_and_host_forwarder() -> None:
-    app = SDSegmentationApp.__new__(SDSegmentationApp)
+    app = SwellAnalysisApp.__new__(SwellAnalysisApp)
     app._analysis_log_buffer_limit = 2
     app._analysis_log_entries = []
     app.log_tree = _TreeStub()

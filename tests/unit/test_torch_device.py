@@ -5,7 +5,7 @@ import types
 
 import pytest
 
-from sdapp.shared.torch_device import (
+from swell.shared.torch_device import (
     DEVICE_ENV_VAR,
     device_env_override,
     resolve_torch_device,
@@ -30,7 +30,7 @@ def fake_torch(monkeypatch):
     return _install
 
 
-# --- SDAPP_DEVICE override -------------------------------------------------
+# --- SWELL_DEVICE override -------------------------------------------------
 
 @pytest.mark.parametrize("value,expected", [("cpu", "cpu"), ("mps", "mps"), ("cuda", "cuda")])
 def test_env_override_valid(monkeypatch, value, expected):

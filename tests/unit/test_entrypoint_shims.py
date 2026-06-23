@@ -11,27 +11,27 @@ def _clear_modules(*names: str) -> None:
 
 
 def test_canonical_entrypoint_import() -> None:
-    _clear_modules("sdapp.main", "sdapp.host.ui.root_window", "sdapp.host.app")
-    import sdapp.main as sdapp_main
+    _clear_modules("swell.main", "swell.host.ui.root_window", "swell.host.app")
+    import swell.main as swell_main
 
-    assert callable(sdapp_main.main)
-    assert "sdapp.host.ui.root_window" not in sys.modules
-    assert "sdapp.host.app" not in sys.modules
+    assert callable(swell_main.main)
+    assert "swell.host.ui.root_window" not in sys.modules
+    assert "swell.host.app" not in sys.modules
 
 
 def test_root_window_import_does_not_eagerly_load_host_app() -> None:
-    _clear_modules("sdapp.host.ui.root_window", "sdapp.host.app")
+    _clear_modules("swell.host.ui.root_window", "swell.host.app")
 
-    root_window = importlib.import_module("sdapp.host.ui.root_window")
+    root_window = importlib.import_module("swell.host.ui.root_window")
 
     assert callable(root_window.run_host_app)
-    assert "sdapp.host.app" not in sys.modules
+    assert "swell.host.app" not in sys.modules
 
 
 def test_run_host_app_sets_versioned_root_title(monkeypatch) -> None:
-    _clear_modules("sdapp.host.ui.root_window", "sdapp.host.app")
+    _clear_modules("swell.host.ui.root_window", "swell.host.app")
 
-    fake_theme = types.ModuleType("sdapp.analysis.ui.theme")
+    fake_theme = types.ModuleType("swell.analysis.ui.theme")
     fake_theme.apply_theme = lambda root: None
 
     title_calls: list[str] = []
@@ -77,7 +77,7 @@ def test_run_host_app_sets_versioned_root_title(monkeypatch) -> None:
     class _FakeLabel(_FakeFrame):
         pass
 
-    fake_bootstrap = types.ModuleType("sdapp.shared.ui.bootstrap")
+    fake_bootstrap = types.ModuleType("swell.shared.ui.bootstrap")
     fake_bootstrap.create_root_window = lambda **_kwargs: _FakeRoot()
     fake_bootstrap.center_window_on_screen = lambda *_args, **_kwargs: None
     fake_bootstrap.ttk = types.SimpleNamespace(Frame=_FakeFrame, Label=_FakeLabel)
@@ -88,71 +88,71 @@ def test_run_host_app_sets_versioned_root_title(monkeypatch) -> None:
         def __init__(self, root, **_kwargs) -> None:
             created_apps.append(root)
 
-    fake_host_app = types.ModuleType("sdapp.host.app")
-    fake_host_app.SDAnalyzerApp = _FakeApp
+    fake_host_app = types.ModuleType("swell.host.app")
+    fake_host_app.SwellHostApp = _FakeApp
 
-    monkeypatch.setitem(sys.modules, "sdapp.shared.ui.theme", fake_theme)
-    monkeypatch.setitem(sys.modules, "sdapp.shared.ui.bootstrap", fake_bootstrap)
-    monkeypatch.setitem(sys.modules, "sdapp.host.app", fake_host_app)
+    monkeypatch.setitem(sys.modules, "swell.shared.ui.theme", fake_theme)
+    monkeypatch.setitem(sys.modules, "swell.shared.ui.bootstrap", fake_bootstrap)
+    monkeypatch.setitem(sys.modules, "swell.host.app", fake_host_app)
 
-    root_window = importlib.import_module("sdapp.host.ui.root_window")
+    root_window = importlib.import_module("swell.host.ui.root_window")
     root_window.run_host_app()
 
     assert title_calls
-    assert title_calls[0].startswith("SDApp v")
+    assert title_calls[0].startswith("Swell v")
     assert created_apps
 
 
 def test_shared_services_package_import_is_lazy() -> None:
     _clear_modules(
-        "sdapp.shared.services",
-        "sdapp.shared.services.update_service",
-        "sdapp.shared.services.unified_project_service",
-        "sdapp.shared.services.instance_bridge",
+        "swell.shared.services",
+        "swell.shared.services.update_service",
+        "swell.shared.services.unified_project_service",
+        "swell.shared.services.instance_bridge",
     )
 
-    services = importlib.import_module("sdapp.shared.services")
+    services = importlib.import_module("swell.shared.services")
 
-    assert "sdapp.shared.services.update_service" not in sys.modules
-    assert "sdapp.shared.services.unified_project_service" not in sys.modules
-    assert "sdapp.shared.services.instance_bridge" not in sys.modules
+    assert "swell.shared.services.update_service" not in sys.modules
+    assert "swell.shared.services.unified_project_service" not in sys.modules
+    assert "swell.shared.services.instance_bridge" not in sys.modules
 
     bridge_cls = services.SingleInstanceBridge
 
     assert bridge_cls.__name__ == "SingleInstanceBridge"
-    assert "sdapp.shared.services.instance_bridge" in sys.modules
-    assert "sdapp.shared.services.update_service" not in sys.modules
+    assert "swell.shared.services.instance_bridge" in sys.modules
+    assert "swell.shared.services.update_service" not in sys.modules
 
 
 def test_analysis_app_import_does_not_eagerly_load_model_runtime_modules() -> None:
     _clear_modules(
-        "sdapp.analysis.app",
-        "sdapp.analysis.core.segmentation",
-        "sdapp.analysis.model",
-        "sdapp.analysis.model.sam2_frame_cache",
-        "sdapp.analysis.model.sam2_runtime",
+        "swell.analysis.app",
+        "swell.analysis.core.segmentation",
+        "swell.analysis.model",
+        "swell.analysis.model.sam2_frame_cache",
+        "swell.analysis.model.sam2_runtime",
         "torch",
         "sam2",
     )
 
-    analysis_app = importlib.import_module("sdapp.analysis.app")
+    analysis_app = importlib.import_module("swell.analysis.app")
 
-    assert callable(analysis_app.SDSegmentationApp)
+    assert callable(analysis_app.SwellAnalysisApp)
     assert "torch" not in sys.modules
     assert "sam2" not in sys.modules
-    assert "sdapp.analysis.model.sam2_frame_cache" not in sys.modules
-    assert "sdapp.analysis.model.sam2_runtime" not in sys.modules
+    assert "swell.analysis.model.sam2_frame_cache" not in sys.modules
+    assert "swell.analysis.model.sam2_runtime" not in sys.modules
 
 
 def test_dc_trace_controller_import_does_not_eagerly_load_matplotlib() -> None:
     _clear_modules(
-        "sdapp.host.controllers.dc_trace_controller",
+        "swell.host.controllers.dc_trace_controller",
         "matplotlib",
         "matplotlib.backends.backend_tkagg",
         "matplotlib.figure",
     )
 
-    controller_module = importlib.import_module("sdapp.host.controllers.dc_trace_controller")
+    controller_module = importlib.import_module("swell.host.controllers.dc_trace_controller")
 
     assert callable(controller_module.HostDCTraceController)
     assert "matplotlib.backends.backend_tkagg" not in sys.modules

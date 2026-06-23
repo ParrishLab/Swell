@@ -5,7 +5,7 @@ from time import sleep
 
 import numpy as np
 
-from sdapp.host.processing_engine import PopupProcessRequest, PopupProcessingEngine
+from swell.host.processing_engine import PopupProcessRequest, PopupProcessingEngine
 
 
 class SlowReader:

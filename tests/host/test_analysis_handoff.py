@@ -3,10 +3,10 @@ from __future__ import annotations
 import numpy as np
 from pathlib import Path
 
-from sdapp.host.analysis_handoff import build_handoff_payload
-from sdapp.host.browser_controller import BrowserController
-from sdapp.host.config import FrameRef
-from sdapp.shared.contracts import load_contract_fixture, validate_handoff_payload
+from swell.host.analysis_handoff import build_handoff_payload
+from swell.host.browser_controller import BrowserController
+from swell.host.config import FrameRef
+from swell.shared.contracts import load_contract_fixture, validate_handoff_payload
 
 
 class FakeReader:

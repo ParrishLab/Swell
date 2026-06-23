@@ -7,9 +7,9 @@ import zipfile
 import numpy as np
 import pytest
 
-from sdapp.shared.models import EventMeta, StackRef, UnifiedProjectState
-from sdapp.shared.errors import ProjectLoadError
-from sdapp.shared.persistence import UnifiedProjectStore
+from swell.shared.models import EventMeta, StackRef, UnifiedProjectState
+from swell.shared.errors import ProjectLoadError
+from swell.shared.persistence import UnifiedProjectStore
 
 
 def _state() -> UnifiedProjectState:
@@ -42,9 +42,9 @@ def _state() -> UnifiedProjectState:
     )
 
 
-def test_canonical_sdproj_layout_is_single_stack(tmp_path) -> None:
+def test_canonical_swell_layout_is_single_stack(tmp_path) -> None:
     store = UnifiedProjectStore()
-    out = tmp_path / "single_stack.sdproj"
+    out = tmp_path / "single_stack.swell"
     store.save(out, _state())
 
     with zipfile.ZipFile(out, "r") as zf:
@@ -64,7 +64,7 @@ def test_canonical_sdproj_layout_is_single_stack(tmp_path) -> None:
 
 def test_canonical_store_roundtrip_preserves_analysis_payload(tmp_path) -> None:
     store = UnifiedProjectStore()
-    out = tmp_path / "roundtrip.sdproj"
+    out = tmp_path / "roundtrip.swell"
     store.save(out, _state())
 
     loaded = store.load(out)
@@ -99,7 +99,7 @@ def test_embed_source_images_writes_index_and_extracts(tmp_path) -> None:
     )
     state.metadata["embed_source_images"] = True
 
-    out = tmp_path / "embedded.sdproj"
+    out = tmp_path / "embedded.swell"
     store.save(out, state)
 
     with zipfile.ZipFile(out, "r") as zf:
@@ -125,7 +125,7 @@ def test_embed_source_images_missing_source_raises(tmp_path) -> None:
     state.metadata["embed_source_images"] = True
 
     with pytest.raises(FileNotFoundError, match="no supported image files"):
-        store.save(tmp_path / "missing_embed.sdproj", state)
+        store.save(tmp_path / "missing_embed.swell", state)
 
 
 def test_embed_source_images_override_preserves_persisted_stack_ref(tmp_path) -> None:
@@ -139,7 +139,7 @@ def test_embed_source_images_override_preserves_persisted_stack_ref(tmp_path) ->
     )
     state.metadata["embed_source_images"] = True
 
-    out = tmp_path / "override_embed.sdproj"
+    out = tmp_path / "override_embed.swell"
     store.save(out, state, embedded_images_input_dir=extracted_dir)
 
     with zipfile.ZipFile(out, "r") as zf:
@@ -158,7 +158,7 @@ def test_embed_toggle_off_keeps_reference_only(tmp_path) -> None:
     )
     # embed flag not set -> reference-only (v2-equivalent) layout
 
-    out = tmp_path / "ref_only.sdproj"
+    out = tmp_path / "ref_only.swell"
     store.save(out, state)
 
     with zipfile.ZipFile(out, "r") as zf:
@@ -170,7 +170,7 @@ def test_embed_toggle_off_keeps_reference_only(tmp_path) -> None:
 
 def test_v2_project_without_embed_index_loads(tmp_path) -> None:
     # Craft a schema-v2 container with no embedded-images index.
-    out = tmp_path / "legacy_v2.sdproj"
+    out = tmp_path / "legacy_v2.swell"
     with zipfile.ZipFile(out, "w", compression=zipfile.ZIP_DEFLATED) as zf:
         zf.writestr(
             "manifest.json",
@@ -206,7 +206,7 @@ def test_v2_project_without_embed_index_loads(tmp_path) -> None:
 
 
 def test_future_host_schema_version_is_rejected(tmp_path) -> None:
-    out = tmp_path / "future.sdproj"
+    out = tmp_path / "future.swell"
     with zipfile.ZipFile(out, "w", compression=zipfile.ZIP_DEFLATED) as zf:
         zf.writestr(
             "manifest.json",

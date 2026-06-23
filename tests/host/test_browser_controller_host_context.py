@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 import numpy as np
 
-from sdapp.host.browser_controller import BrowserController
+from swell.host.browser_controller import BrowserController
 
 
 def test_host_context_for_event_annotates_saved_sidecar_origins() -> None:

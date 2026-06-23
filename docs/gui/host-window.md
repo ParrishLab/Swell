@@ -1,6 +1,6 @@
 # Host Window Reference
 
-The **Host Window** is the primary hub of SDApp, controlling project lifecycle, event cataloging, and data export.
+The **Host Window** is the primary hub of Swell, controlling project lifecycle, event cataloging, and data export.
 
 ```text
 +-----------------------------------------------------------------------------------+
@@ -8,8 +8,8 @@ The **Host Window** is the primary hub of SDApp, controlling project lifecycle, 
 +-----------------------------------------------------------------------------------+
 |  [Sidebar Panel]                 |  [Main Viewer Canvas]                          |
 |  * [New Project]                 |                                                |
-|  * [Open SD Project...]          |  Displays active frame in the loaded stack     |
-|  * [Save SD Project]             |  (Supports zoom, pan, and manual marking)      |
+|  * [Open Swell Project...]          |  Displays active frame in the loaded stack     |
+|  * [Save Swell Project]             |  (Supports zoom, pan, and manual marking)      |
 |                                  |                                                |
 |  [Event Catalog Table]           |                                                |
 |  +---------------------------+   |                                                |
@@ -32,9 +32,9 @@ The **Host Window** is the primary hub of SDApp, controlling project lifecycle, 
 
 ### File Menu
 * **New Project**: Prompts for a directory containing an image sequence and initializes a new stack session.
-* **Open SD Project...**: Opens a file browser to load an existing `.sdproj` project package.
-* **Save SD Project**: Persists the active session state, marked events, and analysis masks back into the active `.sdproj` file.
-* **Save SD Project As...**: Saves the active project package under a new filename or directory.
+* **Open Swell Project...**: Opens a file browser to load an existing `.swell` project package.
+* **Save Swell Project**: Persists the active session state, marked events, and analysis masks back into the active `.swell` file.
+* **Save Swell Project As...**: Saves the active project package under a new filename or directory.
 * **Import DC Trace...**: Imports an external electrophysiological DC trace (e.g., from an iOS DC recording) and maps it to the timeline.
 * **Remove DC Trace**: Discards the mapped DC trace from the active project.
 * **Exit**: Terminates the application.
@@ -83,6 +83,7 @@ Opened via the **Auto-Detect SD** button in the sidebar:
 * Launches an automated temporal grid coherence pipeline that analyzes frame intensity changes.
 * **Dual-Pane Timeline**: Renders a high-level overview timeline and a detail timeline showing grid cell activity.
 * **Opacity & Border Controls**: Adjust the visibility of cell overlays.
+* **Signal Polarity**: Defaults to positive-going intensity changes. Switch to negative-going or both polarities when reviewing dark-going recordings.
 * **Incremental Rerun**: Parameter modifications (coherence gates, quiet Median Absolute Deviation tolerance sliders) trigger a debounced rerun of the algorithm in the background without locking the user interface.
 
 ### Export Dialog
@@ -108,5 +109,5 @@ Timeline scrubbing shortcuts are globally active, except when a text input box (
 
 * **Gatekeeper/SmartScreen**: Since packaged releases are unsigned, macOS Gatekeeper and Windows Defender SmartScreen warnings are expected. See the [Installation](../installation.md#packaged-desktop-release-recommended) page for trust overrides.
 * **Single-Channel Grayscale**: RGB stacks are converted to grayscale on import. High-bit-depth images are normalized down to 8-bit depth for canvas rendering.
-* **Hardware Accelerator Override**: By default, SDApp auto-detects MPS or CUDA for running segmentations. If an accelerator misbehaves, you can force a CPU execution fallback by setting the `SDAPP_DEVICE=cpu` environment variable in your terminal before launching the application.
+* **Hardware Accelerator Override**: By default, Swell auto-detects MPS or CUDA for running segmentations. If an accelerator misbehaves, you can force a CPU execution fallback by setting the `SWELL_DEVICE=cpu` environment variable in your terminal before launching the application.
 * **Background Model Downloads**: The model manager download process requires a stable internet connection. If the download fails with a `403 Forbidden` error, check your network proxy settings or download the weights manually and use **Model → Set Model Path...** to associate.

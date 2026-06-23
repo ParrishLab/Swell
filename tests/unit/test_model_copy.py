@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sdapp.shared import model_copy
+from swell.shared import model_copy
 
 
 def test_model_copy_uses_model_terminology() -> None:

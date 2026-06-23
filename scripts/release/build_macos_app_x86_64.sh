@@ -4,11 +4,11 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 PYTHON_BIN="${PYTHON_BIN:-python3}"
-SPEC_PATH="$REPO_ROOT/packaging/sdapp.spec"
+SPEC_PATH="$REPO_ROOT/packaging/swell.spec"
 DIST_ROOT="$REPO_ROOT/dist"
 ARCH_DIST="$DIST_ROOT/macos-x86_64"
 WORK_PATH="$REPO_ROOT/build/pyinstaller-x86_64"
-ZIP_OUT="$DIST_ROOT/sdapp-macos-x86_64.zip"
+ZIP_OUT="$DIST_ROOT/swell-macos-x86_64.zip"
 
 cd "$REPO_ROOT"
 
@@ -28,16 +28,16 @@ else
   "$PYTHON_BIN" -m PyInstaller "$SPEC_PATH" --noconfirm --clean --distpath "$ARCH_DIST" --workpath "$WORK_PATH"
 fi
 
-APP_BUNDLE="$ARCH_DIST/SDApp.app"
+APP_BUNDLE="$ARCH_DIST/Swell.app"
 if [ ! -d "$APP_BUNDLE" ]; then
   echo "[release] ERROR: expected app bundle not found: $APP_BUNDLE" >&2
   exit 1
 fi
 
 if command -v ditto >/dev/null 2>&1; then
-  (cd "$ARCH_DIST" && ditto -c -k --sequesterRsrc --keepParent "SDApp.app" "$ZIP_OUT")
+  (cd "$ARCH_DIST" && ditto -c -k --sequesterRsrc --keepParent "Swell.app" "$ZIP_OUT")
 else
-  (cd "$ARCH_DIST" && zip -r "$ZIP_OUT" "SDApp.app")
+  (cd "$ARCH_DIST" && zip -r "$ZIP_OUT" "Swell.app")
 fi
 
 echo "[release] macOS x86_64 bundle ready: $APP_BUNDLE" >&2

@@ -6,10 +6,10 @@ from unittest.mock import patch
 
 import pytest
 
-from sdapp.host.app import SDAnalyzerApp
-from sdapp.host.controllers.project_lifecycle_controller import HostProjectLifecycleController
-from sdapp.shared.models import StackRef, UnifiedProjectState
-from sdapp.shared.persistence import UnifiedProjectStore
+from swell.host.app import SwellHostApp
+from swell.host.controllers.project_lifecycle_controller import HostProjectLifecycleController
+from swell.shared.models import StackRef, UnifiedProjectState
+from swell.shared.persistence import UnifiedProjectStore
 
 
 class _ImmediateRoot:
@@ -98,7 +98,7 @@ def _save_embedded_project(tmp_path: Path) -> tuple[Path, Path]:
         active_event_id=None,
         metadata={"embed_source_images": True},
     )
-    project_path = tmp_path / "project.sdproj"
+    project_path = tmp_path / "project.swell"
     UnifiedProjectStore().save(project_path, state)
     return project_path, frames_dir
 
@@ -122,10 +122,10 @@ def test_open_project_extracts_embedded_when_source_folder_missing(tmp_path: Pat
     app.browser_controller.open_session = lambda _path: state
 
     opened_dirs: list[str] = []
-    with patch("sdapp.host.controllers.project_lifecycle_controller.threading.Thread", _ImmediateThread):
-        with patch("sdapp.host.controllers.project_lifecycle_controller.messagebox.askyesno") as askyesno:
+    with patch("swell.host.controllers.project_lifecycle_controller.threading.Thread", _ImmediateThread):
+        with patch("swell.host.controllers.project_lifecycle_controller.messagebox.askyesno") as askyesno:
             with patch(
-                "sdapp.host.controllers.project_lifecycle_controller.StackReader",
+                "swell.host.controllers.project_lifecycle_controller.StackReader",
                 side_effect=_make_reader_factory(opened_dirs),
             ):
                 controller.open_project(str(project_path))
@@ -162,9 +162,9 @@ def test_open_project_prefers_on_disk_folder_over_embedded(tmp_path: Path) -> No
     app.browser_controller.open_session = lambda _path: state
 
     opened_dirs: list[str] = []
-    with patch("sdapp.host.controllers.project_lifecycle_controller.threading.Thread", _ImmediateThread):
+    with patch("swell.host.controllers.project_lifecycle_controller.threading.Thread", _ImmediateThread):
         with patch(
-            "sdapp.host.controllers.project_lifecycle_controller.StackReader",
+            "swell.host.controllers.project_lifecycle_controller.StackReader",
             side_effect=_make_reader_factory(opened_dirs),
         ):
             controller.open_project(str(project_path))
@@ -177,7 +177,7 @@ def test_open_project_prefers_on_disk_folder_over_embedded(tmp_path: Path) -> No
 def test_cleanup_removes_tracked_extract_dir(tmp_path: Path) -> None:
     app = _build_app()
     controller = HostProjectLifecycleController(app)
-    extract_dir = tmp_path / "sdproj_embedded_xyz"
+    extract_dir = tmp_path / "swell_embedded_xyz"
     extract_dir.mkdir()
     (extract_dir / "frame_001.png").write_bytes(b"x")
     app._embedded_extract_dir = str(extract_dir)
@@ -191,7 +191,7 @@ def test_cleanup_removes_tracked_extract_dir(tmp_path: Path) -> None:
 def test_prepare_context_switch_keeps_current_extract_dir_until_replacement_commits(tmp_path: Path) -> None:
     app = _build_app()
     controller = HostProjectLifecycleController(app)
-    extract_dir = tmp_path / "sdproj_embedded_live"
+    extract_dir = tmp_path / "swell_embedded_live"
     extract_dir.mkdir()
     (extract_dir / "frame_001.png").write_bytes(b"x")
     app._embedded_extract_dir = str(extract_dir)
@@ -206,7 +206,7 @@ def test_prepare_context_switch_keeps_current_extract_dir_until_replacement_comm
 def test_close_with_save_keeps_extract_dir_until_save_completes(tmp_path: Path) -> None:
     app = _build_app()
     controller = HostProjectLifecycleController(app)
-    extract_dir = tmp_path / "sdproj_embedded_live"
+    extract_dir = tmp_path / "swell_embedded_live"
     extract_dir.mkdir()
     (extract_dir / "frame_001.png").write_bytes(b"x")
     app._embedded_extract_dir = str(extract_dir)
@@ -231,7 +231,7 @@ def test_close_with_save_keeps_extract_dir_until_save_completes(tmp_path: Path) 
 
 
 def test_save_host_session_blocks_ref_only_save_from_embedded_fallback(tmp_path: Path) -> None:
-    extract_dir = tmp_path / "sdproj_embedded_live"
+    extract_dir = tmp_path / "swell_embedded_live"
     extract_dir.mkdir()
     missing_source = tmp_path / "missing_source"
     save_calls: list[object] = []
@@ -251,12 +251,12 @@ def test_save_host_session_blocks_ref_only_save_from_embedded_fallback(tmp_path:
             save_session=lambda *args, **kwargs: save_calls.append((args, kwargs)),
         ),
     )
-    app._active_embedded_extract_dir = lambda: SDAnalyzerApp._active_embedded_extract_dir(app)
-    app._session_embed_images_enabled = lambda: SDAnalyzerApp._session_embed_images_enabled(app)
-    app._embedded_images_source_dir = lambda: SDAnalyzerApp._embedded_images_source_dir(app)
-    app._validate_host_session_save_allowed = lambda: SDAnalyzerApp._validate_host_session_save_allowed(app)
+    app._active_embedded_extract_dir = lambda: SwellHostApp._active_embedded_extract_dir(app)
+    app._session_embed_images_enabled = lambda: SwellHostApp._session_embed_images_enabled(app)
+    app._embedded_images_source_dir = lambda: SwellHostApp._embedded_images_source_dir(app)
+    app._validate_host_session_save_allowed = lambda: SwellHostApp._validate_host_session_save_allowed(app)
 
     with pytest.raises(RuntimeError, match="embedded fallback images"):
-        SDAnalyzerApp.save_host_session(app, str(tmp_path / "out.sdproj"))
+        SwellHostApp.save_host_session(app, str(tmp_path / "out.swell"))
 
     assert save_calls == []

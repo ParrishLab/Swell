@@ -1,6 +1,6 @@
 import unittest
 
-from sdapp.analysis.app import SDSegmentationApp
+from swell.analysis.app import SwellAnalysisApp
 
 
 class _SpinStub:
@@ -39,7 +39,7 @@ class _SegStateStub:
 
 class AppExportRangeStateTests(unittest.TestCase):
     def _make_app_for_recompute(self, nonempty_frames):
-        app = SDSegmentationApp.__new__(SDSegmentationApp)
+        app = SwellAnalysisApp.__new__(SwellAnalysisApp)
         app.frames_raw = [object()] * 20
         app.propagated_frame_indices = set()
         app._export_range_auto_follow = True
@@ -76,7 +76,7 @@ class AppExportRangeStateTests(unittest.TestCase):
         self.assertEqual(app.slider_jump_markers, {})
 
     def test_finalize_load_resets_propagation_range_to_full_stack(self):
-        app = SDSegmentationApp.__new__(SDSegmentationApp)
+        app = SwellAnalysisApp.__new__(SwellAnalysisApp)
         app.frames_raw = [object()] * 12
         app.current_frame_idx = 0
         app.points = {}
@@ -98,7 +98,7 @@ class AppExportRangeStateTests(unittest.TestCase):
         self.assertEqual(int(app.spin_prop_end.get()), 12)
 
     def test_finalize_load_preserves_workspace_state_in_host_mode(self):
-        app = SDSegmentationApp.__new__(SDSegmentationApp)
+        app = SwellAnalysisApp.__new__(SwellAnalysisApp)
         seg_state = _SegStateStub()
         points = {3: {"points": [{"x": 1.0, "y": 2.0, "label": 1}]}}
         app.frames_raw = [object()] * 12

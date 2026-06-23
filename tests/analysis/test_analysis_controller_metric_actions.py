@@ -4,9 +4,9 @@ from unittest.mock import patch
 
 import numpy as np
 
-from sdapp.analysis.core.analysis_controller import AnalysisController
-from sdapp.analysis.core.analysis_context import AnalysisContext
-from sdapp.analysis.controllers.window_controller import AnalysisWindowController
+from swell.analysis.core.analysis_controller import AnalysisController
+from swell.analysis.core.analysis_context import AnalysisContext
+from swell.analysis.controllers.window_controller import AnalysisWindowController
 
 
 def _make_controller():
@@ -83,7 +83,7 @@ def test_local_scale_selection_updates_local_state() -> None:
         "axis_mode": "horizontal",
         "axis_lock": True,
     }
-    with patch("sdapp.analysis.core.analysis_controller.messagebox.showinfo"):
+    with patch("swell.analysis.core.analysis_controller.messagebox.showinfo"):
         controller.start_local_scale_selection()
 
     assert float(state["scale"]) == 5.0
@@ -108,7 +108,7 @@ def test_global_scale_selection_emits_global_update_and_preserves_existing_local
         "axis_mode": "horizontal",
         "axis_lock": False,
     }
-    with patch("sdapp.analysis.core.analysis_controller.messagebox.showinfo"):
+    with patch("swell.analysis.core.analysis_controller.messagebox.showinfo"):
         controller.start_global_scale_selection()
 
     assert float(state["scale"]) == 9.0
@@ -127,7 +127,7 @@ def test_global_roi_selection_updates_visible_state_when_no_local_override() -> 
         "roi_points": [[1.0, 1.0], [3.0, 1.0], [3.0, 3.0]],
         "roi_mask": roi_mask,
     }
-    with patch("sdapp.analysis.core.analysis_controller.messagebox.showinfo"):
+    with patch("swell.analysis.core.analysis_controller.messagebox.showinfo"):
         controller.start_global_roi_selection()
 
     assert state["roi_local"] is False
@@ -148,7 +148,7 @@ def test_global_and_local_roi_selection_updates_both_scopes() -> None:
         "roi_mask": roi_mask,
     }
 
-    with patch("sdapp.analysis.core.analysis_controller.messagebox.showinfo"):
+    with patch("swell.analysis.core.analysis_controller.messagebox.showinfo"):
         controller.start_roi_selection()
 
     assert state["roi_local"] is True
@@ -162,7 +162,7 @@ def test_global_and_local_roi_selection_updates_both_scopes() -> None:
 def test_reset_local_scale_override_clears_event_local_keys() -> None:
     controller, state = _make_controller()
     state["scale_local"] = True
-    with patch("sdapp.analysis.core.analysis_controller.messagebox.showinfo"):
+    with patch("swell.analysis.core.analysis_controller.messagebox.showinfo"):
         controller.reset_local_scale_override()
 
     assert state["cleared_local"] == [
@@ -174,7 +174,7 @@ def test_reset_local_scale_override_clears_event_local_keys() -> None:
 def test_reset_local_roi_override_clears_event_local_keys() -> None:
     controller, state = _make_controller()
     state["roi_local"] = True
-    with patch("sdapp.analysis.core.analysis_controller.messagebox.showinfo"):
+    with patch("swell.analysis.core.analysis_controller.messagebox.showinfo"):
         controller.reset_local_roi_override()
 
     assert state["cleared_local"] == [("reset_local_roi", ["roi_points", "roi_polygons", "roi_mask"])]
@@ -225,11 +225,11 @@ def test_metrics_preview_uses_composed_final_masks_for_region_only_preview(monke
     captured = {}
 
     monkeypatch.setattr(
-        "sdapp.analysis.core.metrics.extract_primary_boundary",
+        "swell.analysis.core.metrics.extract_primary_boundary",
         _capture_boundary(captured),
     )
     monkeypatch.setattr(
-        "sdapp.analysis.core.metrics.compute_frame_metrics",
+        "swell.analysis.core.metrics.compute_frame_metrics",
         lambda boundaries: {"areas_px": np.array([float(np.count_nonzero(captured["mask"]))]), "avg_dist_px": np.array([])},
     )
 
@@ -249,11 +249,11 @@ def test_metrics_preview_uses_composed_final_masks_for_paint_only_preview(monkey
     captured = {}
 
     monkeypatch.setattr(
-        "sdapp.analysis.core.metrics.extract_primary_boundary",
+        "swell.analysis.core.metrics.extract_primary_boundary",
         _capture_boundary(captured),
     )
     monkeypatch.setattr(
-        "sdapp.analysis.core.metrics.compute_frame_metrics",
+        "swell.analysis.core.metrics.compute_frame_metrics",
         lambda boundaries: {"areas_px": np.array([float(np.count_nonzero(captured["mask"]))]), "avg_dist_px": np.array([])},
     )
 
@@ -285,11 +285,11 @@ def test_metrics_preview_falls_back_to_raw_masks_without_compose_helper(monkeypa
     captured = {}
 
     monkeypatch.setattr(
-        "sdapp.analysis.core.metrics.extract_primary_boundary",
+        "swell.analysis.core.metrics.extract_primary_boundary",
         _capture_boundary(captured),
     )
     monkeypatch.setattr(
-        "sdapp.analysis.core.metrics.compute_frame_metrics",
+        "swell.analysis.core.metrics.compute_frame_metrics",
         lambda boundaries: {"areas_px": np.array([float(np.count_nonzero(captured["mask"]))]), "avg_dist_px": np.array([])},
     )
 

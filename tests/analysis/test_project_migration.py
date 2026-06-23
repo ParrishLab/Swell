@@ -1,6 +1,6 @@
 import unittest
 
-from sdapp.analysis.core.project_migration import migrate_project_state
+from swell.analysis.core.project_migration import migrate_project_state
 
 
 class ProjectMigrationTests(unittest.TestCase):

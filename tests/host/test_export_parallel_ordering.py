@@ -5,8 +5,8 @@ from pathlib import Path
 
 import numpy as np
 
-from sdapp.host.config import EventCandidate, FrameRef
-from sdapp.host.exporter import export_analysis
+from swell.host.config import EventCandidate, FrameRef
+from swell.host.exporter import export_analysis
 
 
 class FakeReader:

@@ -4,7 +4,7 @@ import json
 
 import numpy as np
 
-from sdapp.analysis.core.object_tracking import TrackingConfig, build_object_lineage
+from swell.analysis.core.object_tracking import TrackingConfig, build_object_lineage
 
 
 def test_object_tracker_filters_small_one_frame_noise() -> None:

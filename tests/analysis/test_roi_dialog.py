@@ -2,7 +2,7 @@ import unittest
 
 from PIL import Image
 
-from sdapp.analysis.ui.roi_dialog import (
+from swell.analysis.ui.roi_dialog import (
     ROI_ICON_LABELS,
     _build_roi_result,
     _canvas_radius_to_image_radius,
@@ -13,7 +13,7 @@ from sdapp.analysis.ui.roi_dialog import (
     _normalize_roi_context,
     _roi_save_actions,
 )
-from sdapp.analysis.core.viewport import ViewportState
+from swell.analysis.core.viewport import ViewportState
 
 
 class RoiDialogViewportTests(unittest.TestCase):

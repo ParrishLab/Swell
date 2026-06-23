@@ -4,7 +4,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from sdapp.host.controllers.project_lifecycle_controller import HostProjectLifecycleController
+from swell.host.controllers.project_lifecycle_controller import HostProjectLifecycleController
 
 
 class _ImmediateRoot:
@@ -98,13 +98,13 @@ def test_open_project_rebinds_missing_stack_folder_when_user_selects_replacement
 
     app.browser_controller.open_session = lambda _path: state
 
-    with patch("sdapp.host.controllers.project_lifecycle_controller.threading.Thread", _ImmediateThread):
-        with patch("sdapp.host.controllers.project_lifecycle_controller.messagebox.askyesno", return_value=True):
+    with patch("swell.host.controllers.project_lifecycle_controller.threading.Thread", _ImmediateThread):
+        with patch("swell.host.controllers.project_lifecycle_controller.messagebox.askyesno", return_value=True):
             with patch(
-                "sdapp.host.controllers.project_lifecycle_controller.filedialog.askdirectory",
+                "swell.host.controllers.project_lifecycle_controller.filedialog.askdirectory",
                 return_value=str(replacement_dir),
             ):
-                with patch("sdapp.host.controllers.project_lifecycle_controller.StackReader", return_value=_Reader()):
+                with patch("swell.host.controllers.project_lifecycle_controller.StackReader", return_value=_Reader()):
                     controller.open_project(str(project_path))
 
     assert opened_dirs == [str(replacement_dir)]
@@ -132,9 +132,9 @@ def test_open_project_warns_when_missing_stack_folder_is_not_rebound(tmp_path: P
     )
     app.browser_controller.open_session = lambda _path: state
 
-    with patch("sdapp.host.controllers.project_lifecycle_controller.threading.Thread", _ImmediateThread):
-        with patch("sdapp.host.controllers.project_lifecycle_controller.messagebox.askyesno", return_value=False):
-            with patch("sdapp.host.controllers.project_lifecycle_controller.StackReader") as reader_cls:
+    with patch("swell.host.controllers.project_lifecycle_controller.threading.Thread", _ImmediateThread):
+        with patch("swell.host.controllers.project_lifecycle_controller.messagebox.askyesno", return_value=False):
+            with patch("swell.host.controllers.project_lifecycle_controller.StackReader") as reader_cls:
                 controller.open_project(str(project_path))
 
     assert reader_cls.called is False
@@ -171,12 +171,12 @@ def test_active_stack_rebinds_when_loaded_folder_moves(tmp_path: Path) -> None:
     app._normalized_frame_u8_cache = {}
     app._analysis_preview_cache = {}
 
-    with patch("sdapp.host.controllers.project_lifecycle_controller.messagebox.askyesno", return_value=True):
+    with patch("swell.host.controllers.project_lifecycle_controller.messagebox.askyesno", return_value=True):
         with patch(
-            "sdapp.host.controllers.project_lifecycle_controller.filedialog.askdirectory",
+            "swell.host.controllers.project_lifecycle_controller.filedialog.askdirectory",
             return_value=str(replacement_dir),
         ):
-            with patch("sdapp.host.controllers.project_lifecycle_controller.StackReader", return_value=_Reader()):
+            with patch("swell.host.controllers.project_lifecycle_controller.StackReader", return_value=_Reader()):
                 ok = controller.ensure_active_stack_available()
 
     assert ok is True
@@ -196,7 +196,7 @@ def test_active_stack_missing_without_rebind_warns_and_keeps_existing_state(tmp_
     app.reader = stale_reader
     app.stack_info = SimpleNamespace(input_dir=str(missing_dir), frame_count=5)
 
-    with patch("sdapp.host.controllers.project_lifecycle_controller.messagebox.askyesno", return_value=False):
+    with patch("swell.host.controllers.project_lifecycle_controller.messagebox.askyesno", return_value=False):
         ok = controller.ensure_active_stack_available(title="Open Analysis")
 
     assert ok is False
@@ -211,8 +211,8 @@ def test_run_on_ui_thread_posts_callback_when_called_off_main_thread() -> None:
     controller = HostProjectLifecycleController(app)
     worker_thread = object()
 
-    with patch("sdapp.host.controllers.project_lifecycle_controller.threading.current_thread", return_value=worker_thread):
-        with patch("sdapp.host.controllers.project_lifecycle_controller.threading.main_thread", return_value=object()):
+    with patch("swell.host.controllers.project_lifecycle_controller.threading.current_thread", return_value=worker_thread):
+        with patch("swell.host.controllers.project_lifecycle_controller.threading.main_thread", return_value=object()):
             result = controller._run_on_ui_thread(lambda: "ok")
 
     assert result == "ok"
@@ -229,9 +229,9 @@ def test_run_on_ui_thread_times_out_if_callback_never_runs() -> None:
     controller = HostProjectLifecycleController(app)
     worker_thread = object()
 
-    with patch("sdapp.host.controllers.project_lifecycle_controller.threading.current_thread", return_value=worker_thread):
-        with patch("sdapp.host.controllers.project_lifecycle_controller.threading.main_thread", return_value=object()):
-            with patch("sdapp.host.controllers.project_lifecycle_controller.threading.Event") as event_cls:
+    with patch("swell.host.controllers.project_lifecycle_controller.threading.current_thread", return_value=worker_thread):
+        with patch("swell.host.controllers.project_lifecycle_controller.threading.main_thread", return_value=object()):
+            with patch("swell.host.controllers.project_lifecycle_controller.threading.Event") as event_cls:
                 event_cls.return_value.wait.return_value = False
                 try:
                     controller._run_on_ui_thread(lambda: "never")

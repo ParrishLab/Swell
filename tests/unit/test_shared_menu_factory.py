@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
-from sdapp.shared.menu.factory import build_shared_menu
+from swell.shared.menu.factory import build_shared_menu
 
 
 class _FakeRoot:
@@ -99,12 +99,12 @@ def _help_menu(menu):
 def test_analysis_menu_omits_standalone_project_lifecycle_actions():
     root = _FakeRoot()
     app = _App()
-    with patch("sdapp.shared.menu.factory.tk.Menu", _FakeMenu):
+    with patch("swell.shared.menu.factory.tk.Menu", _FakeMenu):
         menu = build_shared_menu(root, app, mode="analysis", host_mode=True)
     states = _state_by_label(_file_menu(menu))
-    assert states["Save SD Project"] == "normal"
+    assert states["Save Swell Project"] == "normal"
     assert "New Project" not in states
-    assert "Open SD Project..." not in states
+    assert "Open Swell Project..." not in states
     assert "Convert to Project..." not in states
     assert "Recover Autosave..." not in states
     assert "Import External Masks..." not in states
@@ -113,7 +113,7 @@ def test_analysis_menu_omits_standalone_project_lifecycle_actions():
 def test_analysis_menu_exposes_masks_menu_with_import_action():
     root = _FakeRoot()
     app = _App()
-    with patch("sdapp.shared.menu.factory.tk.Menu", _FakeMenu):
+    with patch("swell.shared.menu.factory.tk.Menu", _FakeMenu):
         menu = build_shared_menu(root, app, mode="analysis", host_mode=True)
     mask_states = _state_by_label(_masks_menu(menu))
     assert mask_states["Import External Masks..."] == "normal"
@@ -122,12 +122,12 @@ def test_analysis_menu_exposes_masks_menu_with_import_action():
 def test_host_menu_keeps_project_lifecycle_actions_enabled():
     root = _FakeRoot()
     app = _App()
-    with patch("sdapp.shared.menu.factory.tk.Menu", _FakeMenu):
+    with patch("swell.shared.menu.factory.tk.Menu", _FakeMenu):
         menu = build_shared_menu(root, app, mode="host", host_mode=False)
     states = _state_by_label(_file_menu(menu))
     assert states["New Project"] == "normal"
-    assert states["Open SD Project..."] == "normal"
-    assert states["Save SD Project"] == "normal"
+    assert states["Open Swell Project..."] == "normal"
+    assert states["Save Swell Project"] == "normal"
     assert "Import Folder..." not in states
     assert "Set Output Folder..." not in states
     labels = {item["label"] for item in menu.cascades}
@@ -137,7 +137,7 @@ def test_host_menu_keeps_project_lifecycle_actions_enabled():
 def test_host_menu_exposes_checkpoint_manager_action():
     root = _FakeRoot()
     app = _App()
-    with patch("sdapp.shared.menu.factory.tk.Menu", _FakeMenu):
+    with patch("swell.shared.menu.factory.tk.Menu", _FakeMenu):
         menu = build_shared_menu(root, app, mode="host", host_mode=False)
     model_states = _state_by_label(_model_menu(menu))
     assert model_states["Manage Models..."] == "normal"
@@ -146,7 +146,7 @@ def test_host_menu_exposes_checkpoint_manager_action():
 def test_host_menu_omits_help_menu_update_action():
     root = _FakeRoot()
     app = _App()
-    with patch("sdapp.shared.menu.factory.tk.Menu", _FakeMenu):
+    with patch("swell.shared.menu.factory.tk.Menu", _FakeMenu):
         menu = build_shared_menu(root, app, mode="host", host_mode=False)
     labels = {item["label"] for item in menu.cascades}
     assert "Help" not in labels
@@ -155,7 +155,7 @@ def test_host_menu_omits_help_menu_update_action():
 def test_analysis_menu_omits_help_menu_update_action():
     root = _FakeRoot()
     app = _App()
-    with patch("sdapp.shared.menu.factory.tk.Menu", _FakeMenu):
+    with patch("swell.shared.menu.factory.tk.Menu", _FakeMenu):
         menu = build_shared_menu(root, app, mode="analysis", host_mode=True)
     labels = {item["label"] for item in menu.cascades}
     assert "Help" not in labels
@@ -172,7 +172,7 @@ class _EmbedApp(_App):
 def test_host_menu_adds_embed_images_checkbutton():
     root = _FakeRoot()
     app = _EmbedApp()
-    with patch("sdapp.shared.menu.factory.tk.Menu", _FakeMenu):
+    with patch("swell.shared.menu.factory.tk.Menu", _FakeMenu):
         menu = build_shared_menu(root, app, mode="host", host_mode=False)
     file_menu = _file_menu(menu)
     checkbuttons = {cb["label"]: cb for cb in file_menu.checkbuttons}
@@ -185,7 +185,7 @@ def test_host_menu_adds_embed_images_checkbutton():
 def test_analysis_menu_omits_embed_images_checkbutton():
     root = _FakeRoot()
     app = _EmbedApp()
-    with patch("sdapp.shared.menu.factory.tk.Menu", _FakeMenu):
+    with patch("swell.shared.menu.factory.tk.Menu", _FakeMenu):
         menu = build_shared_menu(root, app, mode="analysis", host_mode=True)
     file_menu = _file_menu(menu)
     labels = {cb["label"] for cb in file_menu.checkbuttons}

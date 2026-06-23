@@ -4,8 +4,8 @@ import time
 
 import numpy as np
 
-from sdapp.analysis.app import SDSegmentationApp
-from sdapp.shared.frame_source import build_visualization_stack
+from swell.analysis.app import SwellAnalysisApp
+from swell.shared.frame_source import build_visualization_stack
 
 
 class _DummyFrameSource:
@@ -56,7 +56,7 @@ def test_analysis_prepare_buffers_smoke_latency() -> None:
     frames = [rng.normal(120, 8, size=(48, 48)).astype(np.float32) for _ in range(50)]
     src = _DummyFrameSource(frames)
 
-    app = SDSegmentationApp.__new__(SDSegmentationApp)
+    app = SwellAnalysisApp.__new__(SwellAnalysisApp)
     app._host_mode = False
     app._host_processing_options = None
     app._host_buffer_sync_limit = 200

@@ -6,8 +6,8 @@ from unittest.mock import patch
 
 import pytest
 
-from sdapp.host.controllers.model_setup_controller import HostModelSetupController
-from sdapp.shared.services import CheckpointRuntimeService
+from swell.host.controllers.model_setup_controller import HostModelSetupController
+from swell.shared.services import CheckpointRuntimeService
 
 
 class _Root:
@@ -48,7 +48,7 @@ def _build_app(tmp_path: Path, *, model_token: str) -> SimpleNamespace:
 
 
 def test_startup_preflight_with_existing_model_sets_ready(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("SDAPP_MODELS_DIR", str((tmp_path / "managed").resolve()))
+    monkeypatch.setenv("SWELL_MODELS_DIR", str((tmp_path / "managed").resolve()))
     model_path = tmp_path / "local_model.pt"
     model_path.write_bytes(b"model")
     app = _build_app(tmp_path, model_token=str(model_path))
@@ -64,11 +64,11 @@ def test_startup_preflight_with_existing_model_sets_ready(tmp_path: Path, monkey
 
 
 def test_startup_preflight_cancel_enters_review_only(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("SDAPP_MODELS_DIR", str((tmp_path / "managed").resolve()))
+    monkeypatch.setenv("SWELL_MODELS_DIR", str((tmp_path / "managed").resolve()))
     app = _build_app(tmp_path, model_token="")
     controller = HostModelSetupController(app)
 
-    with patch("sdapp.host.controllers.model_setup_controller.messagebox.askyesnocancel", return_value=None):
+    with patch("swell.host.controllers.model_setup_controller.messagebox.askyesnocancel", return_value=None):
         result = controller.run_startup_preflight()
 
     assert result["ok"] is False

@@ -6,10 +6,10 @@ from types import SimpleNamespace
 
 import numpy as np
 
-from sdapp.analysis.core.inference_manager import InferenceManager
-from sdapp.analysis.controllers.runtime_controller import AnalysisRuntimeController
-from sdapp.analysis.core.project_session import ProjectSessionService
-from sdapp.analysis.core.seg_state import SegmentationState
+from swell.analysis.core.inference_manager import InferenceManager
+from swell.analysis.controllers.runtime_controller import AnalysisRuntimeController
+from swell.analysis.core.project_session import ProjectSessionService
+from swell.analysis.core.seg_state import SegmentationState
 
 
 class _ImmediateRoot:

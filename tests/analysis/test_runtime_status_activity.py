@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sdapp.analysis.app import SDSegmentationApp
+from swell.analysis.app import SwellAnalysisApp
 
 
 class _DummyBar:
@@ -129,7 +129,7 @@ def _install_ui_root(app) -> _DummyRoot:
 
 
 def test_runtime_status_updates_activity_loader_not_config_label() -> None:
-    app = SDSegmentationApp.__new__(SDSegmentationApp)
+    app = SwellAnalysisApp.__new__(SwellAnalysisApp)
     bar = _DummyBar()
     var = _DummyVar()
     config_updates: list[tuple[str, str]] = []
@@ -157,7 +157,7 @@ def test_runtime_status_updates_activity_loader_not_config_label() -> None:
 
 
 def test_model_loading_uses_slider_overlay_progress_layer() -> None:
-    app = SDSegmentationApp.__new__(SDSegmentationApp)
+    app = SwellAnalysisApp.__new__(SwellAnalysisApp)
     bar = _DummyBar()
     var = _DummyVar()
 
@@ -191,7 +191,7 @@ def test_model_loading_uses_slider_overlay_progress_layer() -> None:
 
 
 def test_propagation_progress_uses_timeline_state_not_loading_bar() -> None:
-    app = SDSegmentationApp.__new__(SDSegmentationApp)
+    app = SwellAnalysisApp.__new__(SwellAnalysisApp)
     bar = _DummyBar()
     var = _DummyVar()
 

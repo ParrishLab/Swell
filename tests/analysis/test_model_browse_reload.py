@@ -2,13 +2,13 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from sdapp.analysis.app import SDSegmentationApp
+from swell.analysis.app import SwellAnalysisApp
 
 
 class ModelBrowseReloadTests(unittest.TestCase):
-    @patch("sdapp.analysis.app.filedialog.askopenfilename")
+    @patch("swell.analysis.app.filedialog.askopenfilename")
     def test_no_reload_when_model_path_unchanged(self, ask_mock):
-        app = SDSegmentationApp.__new__(SDSegmentationApp)
+        app = SwellAnalysisApp.__new__(SwellAnalysisApp)
         app.root = object()
         app.app_root = "/tmp"
         state = {"token": "/tmp/models/a.pt"}
@@ -22,9 +22,9 @@ class ModelBrowseReloadTests(unittest.TestCase):
         app.on_browse_model()
         self.assertEqual(ran["count"], 0)
 
-    @patch("sdapp.analysis.app.filedialog.askopenfilename")
+    @patch("swell.analysis.app.filedialog.askopenfilename")
     def test_reload_when_model_path_changes(self, ask_mock):
-        app = SDSegmentationApp.__new__(SDSegmentationApp)
+        app = SwellAnalysisApp.__new__(SwellAnalysisApp)
         app.root = object()
         app.app_root = "/tmp"
         state = {"token": "/tmp/models/a.pt"}

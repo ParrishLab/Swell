@@ -3,7 +3,7 @@ from __future__ import annotations
 import cv2
 import numpy as np
 
-from sdapp.shared.frame_source.preprocessing import (
+from swell.shared.frame_source.preprocessing import (
     VisualizationCancelled,
     build_visualization_stack,
     compute_visualization_stats,

@@ -3,7 +3,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from sdapp.host.controllers.project_lifecycle_controller import HostProjectLifecycleController
+from swell.host.controllers.project_lifecycle_controller import HostProjectLifecycleController
 
 
 def _app_stub():
@@ -23,7 +23,7 @@ def test_new_project_cancel_keeps_current_project(monkeypatch) -> None:
     monkeypatch.setattr(controller, "prepare_context_switch", lambda: calls.__setitem__("prepare", calls["prepare"] + 1))
     monkeypatch.setattr(controller, "load_stack_from_folder", lambda folder: calls["load"].append(str(folder)))
 
-    with patch("sdapp.host.controllers.project_lifecycle_controller.filedialog.askdirectory", return_value=""):
+    with patch("swell.host.controllers.project_lifecycle_controller.filedialog.askdirectory", return_value=""):
         controller.new_project()
 
     assert calls["prepare"] == 0
@@ -43,7 +43,7 @@ def test_new_project_loads_selected_folder_when_context_switch_allowed(monkeypat
     monkeypatch.setattr(controller, "prepare_context_switch", _prepare)
     monkeypatch.setattr(controller, "load_stack_from_folder", lambda folder: calls["load"].append(str(folder)))
 
-    with patch("sdapp.host.controllers.project_lifecycle_controller.filedialog.askdirectory", return_value="/tmp/input"):
+    with patch("swell.host.controllers.project_lifecycle_controller.filedialog.askdirectory", return_value="/tmp/input"):
         controller.new_project()
 
     assert calls["prepare"] == 1
@@ -62,7 +62,7 @@ def test_new_project_aborts_if_context_switch_denied(monkeypatch) -> None:
     monkeypatch.setattr(controller, "prepare_context_switch", _prepare)
     monkeypatch.setattr(controller, "load_stack_from_folder", lambda folder: calls["load"].append(str(folder)))
 
-    with patch("sdapp.host.controllers.project_lifecycle_controller.filedialog.askdirectory", return_value="/tmp/input"):
+    with patch("swell.host.controllers.project_lifecycle_controller.filedialog.askdirectory", return_value="/tmp/input"):
         controller.new_project()
 
     assert calls["prepare"] == 1
@@ -80,7 +80,7 @@ def test_new_project_dialog_is_parented_to_root(monkeypatch) -> None:
         calls.update(kwargs)
         return "/tmp/input"
 
-    with patch("sdapp.host.controllers.project_lifecycle_controller.filedialog.askdirectory", side_effect=_fake_askdirectory):
+    with patch("swell.host.controllers.project_lifecycle_controller.filedialog.askdirectory", side_effect=_fake_askdirectory):
         controller.new_project()
 
     assert calls.get("parent") is app.root
@@ -99,7 +99,7 @@ def test_new_project_marks_modal_depth_while_picker_is_open(monkeypatch) -> None
         depths.append(int(app._host_modal_dialog_depth))
         return "/tmp/input"
 
-    with patch("sdapp.host.controllers.project_lifecycle_controller.filedialog.askdirectory", side_effect=_fake_askdirectory):
+    with patch("swell.host.controllers.project_lifecycle_controller.filedialog.askdirectory", side_effect=_fake_askdirectory):
         controller.new_project()
 
     assert depths == [1]

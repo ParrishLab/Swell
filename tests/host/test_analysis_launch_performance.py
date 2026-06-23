@@ -5,10 +5,10 @@ from types import SimpleNamespace
 
 import numpy as np
 
-from sdapp.analysis.core.frame_source import EagerFrameSource
-from sdapp.host.controllers.analysis_launch_controller import AnalysisLaunchController
-from sdapp.shared.frame_source import PreparedFrameSource
-from sdapp.shared.frame_source.launch_preparation import build_launch_preparation_cache_key
+from swell.analysis.core.frame_source import EagerFrameSource
+from swell.host.controllers.analysis_launch_controller import AnalysisLaunchController
+from swell.shared.frame_source import PreparedFrameSource
+from swell.shared.frame_source.launch_preparation import build_launch_preparation_cache_key
 
 
 def _build_frame_source(frame_count: int = 8) -> EagerFrameSource:

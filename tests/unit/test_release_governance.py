@@ -6,7 +6,7 @@ import sys
 
 import pytest
 
-from sdapp.shared.release_governance import (
+from swell.shared.release_governance import (
     extract_release_section,
     parse_release_tag,
     validate_release_metadata,
@@ -27,7 +27,7 @@ def _write_repo_fixture(
         "\n".join(
             [
                 "[project]",
-                'name = "sdapp"',
+                'name = "swell"',
                 f'version = "{pyproject_version}"',
             ]
         )
@@ -44,7 +44,7 @@ def _write_repo_fixture(
                 "### Platform/backend limitations",
                 "- ok",
                 "",
-                "### .sdproj/migration notes",
+                "### .swell/migration notes",
                 "- ok",
                 "",
                 "### Known segmentation caveats/regressions",

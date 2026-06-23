@@ -1,8 +1,8 @@
 import unittest
 from unittest.mock import patch
 
-from sdapp.analysis.app import SDSegmentationApp
-from sdapp.shared.services import AnalysisWindowManager
+from swell.analysis.app import SwellAnalysisApp
+from swell.shared.services import AnalysisWindowManager
 
 
 class _MgrStub:
@@ -26,7 +26,7 @@ class _RootStub:
 
 class AppCloseWarningsTests(unittest.TestCase):
     def _make_app(self):
-        app = SDSegmentationApp.__new__(SDSegmentationApp)
+        app = SwellAnalysisApp.__new__(SwellAnalysisApp)
         app.root = _RootStub()
         app.autosave_manager = _MgrStub()
         app.inference_manager = _MgrStub()
@@ -37,7 +37,7 @@ class AppCloseWarningsTests(unittest.TestCase):
         app.save_current_masks = lambda: None
         return app
 
-    @patch("sdapp.analysis.app.messagebox.askyesno")
+    @patch("swell.analysis.app.messagebox.askyesno")
     def test_cancel_when_propagation_running(self, ask_mock):
         app = self._make_app()
         app._is_propagation_running = lambda: True
@@ -48,7 +48,7 @@ class AppCloseWarningsTests(unittest.TestCase):
         self.assertFalse(app.root.destroyed)
         self.assertFalse(app.autosave_manager.stopped)
 
-    @patch("sdapp.analysis.app.messagebox.askyesno")
+    @patch("swell.analysis.app.messagebox.askyesno")
     def test_close_without_propagation_prompt_closes(self, ask_mock):
         app = self._make_app()
         app._is_propagation_running = lambda: False
@@ -63,8 +63,8 @@ class AppCloseWarningsTests(unittest.TestCase):
         self.assertTrue(getattr(app, "_shutdown_called", False))
         ask_mock.assert_not_called()
 
-    @patch("sdapp.analysis.app.messagebox.askyesnocancel")
-    @patch("sdapp.analysis.app.messagebox.askyesno")
+    @patch("swell.analysis.app.messagebox.askyesnocancel")
+    @patch("swell.analysis.app.messagebox.askyesno")
     def test_close_prompts_to_save_unsaved_masks_and_cancels(self, ask_yesno_mock, ask_ync_mock):
         app = self._make_app()
         app._is_propagation_running = lambda: False
@@ -78,8 +78,8 @@ class AppCloseWarningsTests(unittest.TestCase):
         self.assertFalse(app.autosave_manager.stopped)
         ask_yesno_mock.assert_not_called()
 
-    @patch("sdapp.analysis.app.messagebox.askyesnocancel")
-    @patch("sdapp.analysis.app.messagebox.askyesno")
+    @patch("swell.analysis.app.messagebox.askyesnocancel")
+    @patch("swell.analysis.app.messagebox.askyesno")
     def test_close_prompts_to_save_unsaved_masks_and_runs_save_flow(self, ask_yesno_mock, ask_ync_mock):
         app = self._make_app()
         app._is_propagation_running = lambda: False
@@ -101,8 +101,8 @@ class AppCloseWarningsTests(unittest.TestCase):
         self.assertTrue(app.autosave_manager.stopped)
         ask_yesno_mock.assert_not_called()
 
-    @patch("sdapp.analysis.app.messagebox.askyesnocancel")
-    @patch("sdapp.analysis.app.messagebox.askyesno")
+    @patch("swell.analysis.app.messagebox.askyesnocancel")
+    @patch("swell.analysis.app.messagebox.askyesno")
     def test_direct_analysis_window_close_still_uses_native_unsaved_mask_prompt(self, ask_yesno_mock, ask_ync_mock):
         app = self._make_app()
         app._is_propagation_running = lambda: False

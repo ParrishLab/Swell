@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from sdapp.host.controllers.analysis_launch_controller import AnalysisLaunchController
+from swell.host.controllers.analysis_launch_controller import AnalysisLaunchController
 
 
 def test_broadcast_checkpoint_update_falls_back_to_info_log_when_debug_logger_missing() -> None:

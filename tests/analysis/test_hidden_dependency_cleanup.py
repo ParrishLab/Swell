@@ -1,11 +1,11 @@
 import inspect
 
-from sdapp.analysis.app import SDSegmentationApp
-from sdapp.analysis.core import project_workflow
+from swell.analysis.app import SwellAnalysisApp
+from swell.analysis.core import project_workflow
 
 
 def test_set_busy_does_not_require_btn_import() -> None:
-    app = SDSegmentationApp.__new__(SDSegmentationApp)
+    app = SwellAnalysisApp.__new__(SwellAnalysisApp)
     status_updates: list[dict] = []
     loading_updates: list[tuple[bool, str]] = []
     save_states: list[str | None] = []

@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from sdapp.analysis.core.project_fingerprint import compute_file_fingerprint, fingerprints_match
+from swell.analysis.core.project_fingerprint import compute_file_fingerprint, fingerprints_match
 
 
 class ProjectFingerprintTests(unittest.TestCase):

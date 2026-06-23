@@ -1,12 +1,12 @@
 # User Guide
 
-This guide walks you through the complete, end-to-end workflow of using SDApp, from first launch through segmentation, saving, and exporting analysis results.
+This guide walks you through the complete, end-to-end workflow of using Swell, from first launch through segmentation, saving, and exporting analysis results.
 
 ---
 
 ## Workflow Overview
 
-The core SDApp workflow consists of two main stages: event cataloging in the **Host Window** and pixel-level segmentation in the **Analysis Window**.
+The core Swell workflow consists of two main stages: event cataloging in the **Host Window** and pixel-level segmentation in the **Analysis Window**.
 
 ```mermaid
 sequenceDiagram
@@ -16,28 +16,28 @@ sequenceDiagram
     participant Disk as Storage
     
     User->>Host: 1. Create New Project (Select image folder)
-    User->>Host: 2. Scrub frames & click "Mark SD Event"
+    User->>Host: 2. Scrub frames & click "Mark Event"
     User->>Host: 3. Select event & click "Open Analysis"
     Host->>Ana: 4. Launch workspace with event payload
     User->>Ana: 5. Place points/brush/fill & run propagation
     User->>Ana: 6. Adjust metrics settings & save masks
     Ana->>Host: 7. Sync masks back to active session
-    User->>Host: 8. Save SD Project (.sdproj)
+    User->>Host: 8. Save Swell Project (.swell)
     User->>Host: 9. Export Selected / Export All results
 ```
 
 ---
 
-Upon launching SDApp for the first time, you will be prompted to set up the SAM-2 model checkpoint. Follow the onboarding prompt detailed in [Installation](installation.md#first-run-model-onboarding) to download or link model weights. Once complete, you will see the primary **Host Window**.
+Upon launching Swell for the first time, you will be prompted to set up the SAM-2 model checkpoint. Follow the onboarding prompt detailed in [Installation](installation.md#first-run-model-onboarding) to download or link model weights. Once complete, you will see the primary **Host Window**.
 
 > [!TIP]
-> **Forced Hardware Selection**: SDApp automatically selects the best available device for running segmentation (Apple MPS → NVIDIA CUDA → CPU). If you need to force a specific hardware backend (e.g. to run on CPU if an accelerator misbehaves), set the `SDAPP_DEVICE` environment variable to `cpu`, `mps`, or `cuda` before launching the application.
+> **Forced Hardware Selection**: Swell automatically selects the best available device for running segmentation (Apple MPS → NVIDIA CUDA → CPU). If you need to force a specific hardware backend (e.g. to run on CPU if an accelerator misbehaves), set the `SWELL_DEVICE` environment variable to `cpu`, `mps`, or `cuda` before launching the application.
 
 ---
 
 ## 2. Creating a Project & Loading Image Stacks
 
-All work in SDApp begins by importing an image sequence.
+All work in Swell begins by importing an image sequence.
 
 1. Click **New Project** in the Host Window's left panel or choose **File → New Project** from the menu.
 2. In the folder browser, select the directory containing your image sequence.
@@ -51,12 +51,12 @@ To ensure the stack loads successfully, verify your images meet these criteria:
 
 ---
 
-## 3. Marking SD Events
+## 3. Marking Events
 
 Once the stack is loaded, you can browse frames using the slider at the bottom of the canvas or keyboard arrow keys.
 
 1. Scrub to the first frame where the Spreading Depression (SD) wave appears.
-2. Click **Mark SD Event** in the toolbar.
+2. Click **Mark Event** in the toolbar.
 3. In the popup dialog:
     * Enter a **Label** (e.g., "Event_A").
     * Enter the **Start Frame** and **End Frame** numbers.
@@ -152,10 +152,10 @@ Before saving, configure quantitative parameters in the right dock's **Event Met
 
 1. Click **Save Current Masks** at the bottom of the right dock to commit the active segmentations back to the project service.
 2. Close the Analysis Window to return to the Host Window.
-3. Save your project by selecting **File → Save SD Project** or clicking **Save SD Project**. This writes a compressed `.sdproj` file containing all events, prompts, regions, and masks.
+3. Save your project by selecting **File → Save Swell Project** or clicking **Save Swell Project**. This writes a compressed `.swell` file containing all events, prompts, regions, and masks.
 
 ### Opening a Project (Model Verification)
-When reopening a `.sdproj` file, SDApp compares the model information saved in the project metadata with your active local model weights:
+When reopening a `.swell` file, Swell compares the model information saved in the project metadata with your active local model weights:
 * If the models mismatch, a dialog asks whether to:
     * **Switch**: Load the model used to author the project.
     * **Continue**: Keep your active model (may alter future propagation results).

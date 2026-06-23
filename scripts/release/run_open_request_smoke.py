@@ -14,18 +14,18 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from sdapp.shared.services import SingleInstanceBridge
+from swell.shared.services import SingleInstanceBridge
 
 
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Smoke test that a launch command forwards a .sdproj open request to a running instance bridge."
+        description="Smoke test that a launch command forwards a .swell open request to a running instance bridge."
     )
     parser.add_argument(
         "--app-cmd",
         nargs=argparse.REMAINDER,
         required=True,
-        help="Application command used to launch SDApp (for example: path/to/SDApp.exe or python -m sdapp.main).",
+        help="Application command used to launch Swell (for example: path/to/Swell.exe or python -m swell.main).",
     )
     parser.add_argument("--timeout-sec", type=float, default=8.0, help="Timeout for process execution and bridge receive.")
     return parser.parse_args(argv)
@@ -50,8 +50,8 @@ def main(argv: list[str] | None = None) -> int:
         print("OPEN_REQUEST_SMOKE:FAIL:bind_unavailable")
         return 1
 
-    old_port_env = os.environ.get("SDAPP_INSTANCE_BRIDGE_PORT")
-    os.environ["SDAPP_INSTANCE_BRIDGE_PORT"] = str(open_port)
+    old_port_env = os.environ.get("SWELL_INSTANCE_BRIDGE_PORT")
+    os.environ["SWELL_INSTANCE_BRIDGE_PORT"] = str(open_port)
     bridge = SingleInstanceBridge()
 
     def _on_open(path: str) -> None:
@@ -62,8 +62,8 @@ def main(argv: list[str] | None = None) -> int:
         if not bridge.start_listener(_on_open):
             print("OPEN_REQUEST_SMOKE:FAIL:listener_unavailable")
             return 1
-        with tempfile.TemporaryDirectory(prefix="sdapp_open_request_smoke_") as tmp:
-            project_path = (Path(tmp) / "open_request_smoke.sdproj").resolve()
+        with tempfile.TemporaryDirectory(prefix="swell_open_request_smoke_") as tmp:
+            project_path = (Path(tmp) / "open_request_smoke.swell").resolve()
             project_path.write_text("{}", encoding="utf-8")
             cmd = list(app_cmd) + [str(project_path)]
 
@@ -100,9 +100,9 @@ def main(argv: list[str] | None = None) -> int:
     finally:
         bridge.stop()
         if old_port_env is None:
-            os.environ.pop("SDAPP_INSTANCE_BRIDGE_PORT", None)
+            os.environ.pop("SWELL_INSTANCE_BRIDGE_PORT", None)
         else:
-            os.environ["SDAPP_INSTANCE_BRIDGE_PORT"] = old_port_env
+            os.environ["SWELL_INSTANCE_BRIDGE_PORT"] = old_port_env
 
     print("OPEN_REQUEST_SMOKE:PASS")
     return 0

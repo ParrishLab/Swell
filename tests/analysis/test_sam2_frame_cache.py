@@ -4,8 +4,8 @@ from pathlib import Path
 
 import numpy as np
 
-from sdapp.analysis.model.sam2_frame_cache import SAM2FrameCache, build_sam2_frame_cache_key
-from sdapp.shared.frame_source.preprocessing import VisualizationStats
+from swell.analysis.model.sam2_frame_cache import SAM2FrameCache, build_sam2_frame_cache_key
+from swell.shared.frame_source.preprocessing import VisualizationStats
 
 
 class _Source:

@@ -4,7 +4,7 @@ setlocal
 cd /d "%~dp0"
 
 if exist ".venv\Scripts\python.exe" (
-  ".venv\Scripts\python.exe" -m sdapp.main %*
+  ".venv\Scripts\python.exe" -m swell.main %*
 ) else (
-  python -m sdapp.main %*
+  python -m swell.main %*
 )

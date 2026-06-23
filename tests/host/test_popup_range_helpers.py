@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sdapp.host.sd_gui import SDAnalyzerApp
+from swell.host.event_gui import SwellHostApp
 
 
 class _Canvas:
@@ -21,7 +21,7 @@ class _Scale:
 
 
 def test_popup_range_idx_to_x_uses_imported_linear_helper() -> None:
-    app = SDAnalyzerApp.__new__(SDAnalyzerApp)
+    app = SwellHostApp.__new__(SwellHostApp)
     app.stack_info = type("StackInfo", (), {"frame_count": 200})()
     app._popup = type("PopupManager", (), {"mark_range_canvas": _Canvas()})()
 
@@ -32,7 +32,7 @@ def test_popup_range_idx_to_x_uses_imported_linear_helper() -> None:
 
 
 def test_apply_popup_range_bounds_keeps_event_markers_visible() -> None:
-    app = SDAnalyzerApp.__new__(SDAnalyzerApp)
+    app = SwellHostApp.__new__(SwellHostApp)
     app.stack_info = type("StackInfo", (), {"frame_count": 300})()
     scale = _Scale()
     from types import SimpleNamespace

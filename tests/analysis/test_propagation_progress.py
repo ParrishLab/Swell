@@ -1,6 +1,6 @@
 import unittest
 
-from sdapp.analysis.core.propagation_progress import PropagationProgressLogger
+from swell.analysis.core.propagation_progress import PropagationProgressLogger
 
 
 class PropagationProgressLoggerTests(unittest.TestCase):

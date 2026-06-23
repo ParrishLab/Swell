@@ -3,8 +3,8 @@ import unittest
 import numpy as np
 from types import SimpleNamespace
 
-from sdapp.analysis.app import SDSegmentationApp
-from sdapp.analysis.core.overlay_renderer import (
+from swell.analysis.app import SwellAnalysisApp
+from swell.analysis.core.overlay_renderer import (
     recompute_slider_jump_markers,
     redraw_slider_overlay,
     timeline_progress_geometry,
@@ -12,7 +12,7 @@ from sdapp.analysis.core.overlay_renderer import (
     update_timeline_loading_progress,
     update_timeline_propagation_progress,
 )
-from sdapp.analysis.core.seg_state import SegmentationState
+from swell.analysis.core.seg_state import SegmentationState
 
 
 class PropagationOverlayStateTests(unittest.TestCase):
@@ -86,7 +86,7 @@ class PropagationOverlayStateTests(unittest.TestCase):
             self.raised_tags.append(str(tag))
 
     def _make_app(self, frame_count=50):
-        app = SDSegmentationApp.__new__(SDSegmentationApp)
+        app = SwellAnalysisApp.__new__(SwellAnalysisApp)
         app.frames_raw = [None] * frame_count
         app._largest_propagated_span = None
         app._propagated_history_indices = set()
@@ -102,7 +102,7 @@ class PropagationOverlayStateTests(unittest.TestCase):
         app._analysis_range_auto_follow = True
         app.spin_prop_start = self._Spinbox("1")
         app.spin_prop_end = self._Spinbox(str(frame_count))
-        app._set_spinbox_value = SDSegmentationApp._set_spinbox_value.__get__(app, SDSegmentationApp)
+        app._set_spinbox_value = SwellAnalysisApp._set_spinbox_value.__get__(app, SwellAnalysisApp)
         return app
 
     def test_updates_on_first_nonempty_run(self):
@@ -168,7 +168,7 @@ class PropagationOverlayStateTests(unittest.TestCase):
 
     def test_workspace_event_opened_preserves_prompt_markers_when_no_saved_masks_exist(self):
         app = self._make_app(frame_count=30)
-        app._recompute_slider_jump_markers = SDSegmentationApp._recompute_slider_jump_markers.__get__(app, SDSegmentationApp)
+        app._recompute_slider_jump_markers = SwellAnalysisApp._recompute_slider_jump_markers.__get__(app, SwellAnalysisApp)
         app._collect_user_defined_frames = lambda: {9}
         app._collect_nonempty_final_mask_frames = lambda: set()
 

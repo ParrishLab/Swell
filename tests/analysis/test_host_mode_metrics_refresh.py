@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from sdapp.analysis.app import SDSegmentationApp
+from swell.analysis.app import SwellAnalysisApp
 
 
 def test_workspace_event_open_refreshes_host_metrics_for_new_event() -> None:
-    app = SDSegmentationApp.__new__(SDSegmentationApp)
+    app = SwellAnalysisApp.__new__(SwellAnalysisApp)
     applied: list[tuple[dict | None, dict | None]] = []
     app._host_mode = True
     app._host_context_provider = lambda event_id: {

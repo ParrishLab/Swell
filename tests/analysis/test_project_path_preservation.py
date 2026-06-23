@@ -2,13 +2,13 @@ import unittest
 
 import numpy as np
 
-from sdapp.analysis.app import SDSegmentationApp
-from sdapp.analysis.core.seg_state import SegmentationState
+from swell.analysis.app import SwellAnalysisApp
+from swell.analysis.core.seg_state import SegmentationState
 
 
 class ResetInteractionStateTests(unittest.TestCase):
     def test_reset_clears_boxes_along_with_other_prompts(self):
-        app = SDSegmentationApp.__new__(SDSegmentationApp)
+        app = SwellAnalysisApp.__new__(SwellAnalysisApp)
         app.seg_state = SegmentationState()
         # Mirror the real app's aliases onto seg_state collections.
         app.points = app.seg_state.points
@@ -29,7 +29,7 @@ class ResetInteractionStateTests(unittest.TestCase):
         self.assertEqual(app.masks_cache, {})
 
     def test_reset_clears_seg_state_boxes_without_alias(self):
-        app = SDSegmentationApp.__new__(SDSegmentationApp)
+        app = SwellAnalysisApp.__new__(SwellAnalysisApp)
         app.seg_state = SegmentationState()
         app.points = app.seg_state.points
         app.paint_layers = app.seg_state.paint_layers
@@ -45,7 +45,7 @@ class ResetInteractionStateTests(unittest.TestCase):
 
 class ProjectPathPreservationTests(unittest.TestCase):
     def test_apply_loaded_stack_preserves_source_paths_after_reset(self):
-        app = SDSegmentationApp.__new__(SDSegmentationApp)
+        app = SwellAnalysisApp.__new__(SwellAnalysisApp)
         app._current_image_source_paths = ["old"]
         app._reset_for_new_import = lambda: setattr(app, "_current_image_source_paths", [])
         app._finalize_load_ui = lambda: None

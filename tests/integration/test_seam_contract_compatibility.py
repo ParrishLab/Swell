@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sdapp.shared.contracts import ValidatorErrorCode, load_contract_fixture, validate_handoff_payload, validate_sync_payload
+from swell.shared.contracts import ValidatorErrorCode, load_contract_fixture, validate_handoff_payload, validate_sync_payload
 
 
 def test_handoff_invalid_fixture_returns_reserved_code() -> None:

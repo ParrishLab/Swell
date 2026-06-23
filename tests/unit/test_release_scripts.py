@@ -98,12 +98,12 @@ def test_generate_appcasts_script_writes_platform_feeds(tmp_path: Path) -> None:
     version = str(pyproject["project"]["version"])
     dist_dir = tmp_path / "dist"
     dist_dir.mkdir(parents=True, exist_ok=True)
-    (dist_dir / "sdapp-macos-arm64.zip").write_bytes(b"mac")
-    (dist_dir / "sdapp-macos-arm64-signature.json").write_text(
-        json.dumps({"archive": "sdapp-macos-arm64.zip", "ed_signature": "abc123=", "length": 3}),
+    (dist_dir / "swell-macos-arm64.zip").write_bytes(b"mac")
+    (dist_dir / "swell-macos-arm64-signature.json").write_text(
+        json.dumps({"archive": "swell-macos-arm64.zip", "ed_signature": "abc123=", "length": 3}),
         encoding="utf-8",
     )
-    (dist_dir / f"SDApp-Setup-{version}.exe").write_bytes(b"win")
+    (dist_dir / f"Swell-Setup-{version}.exe").write_bytes(b"win")
 
     subprocess.run(
         [
@@ -134,14 +134,14 @@ def test_generate_appcasts_script_writes_platform_feeds(tmp_path: Path) -> None:
         "{http://www.andymatuschak.org/xml-namespaces/sparkle}edSignature"
     ]
 
-    assert windows_url.endswith(f"/SDApp-Setup-{version}.exe")
-    assert mac_url.endswith("/sdapp-macos-arm64.zip")
+    assert windows_url.endswith(f"/Swell-Setup-{version}.exe")
+    assert mac_url.endswith("/swell-macos-arm64.zip")
     assert mac_sig == "abc123="
 
 
 def test_sign_macos_update_script_parses_sign_update_output(tmp_path: Path) -> None:
     script = ROOT / "scripts" / "release" / "sign_macos_update.py"
-    archive = tmp_path / "sdapp-macos-arm64.zip"
+    archive = tmp_path / "swell-macos-arm64.zip"
     archive.write_bytes(b"payload")
     if os.name == "nt":
         sign_update = tmp_path / "sign_update.cmd"
@@ -178,7 +178,7 @@ def test_sign_macos_update_script_parses_sign_update_output(tmp_path: Path) -> N
     )
 
     payload = json.loads(output.read_text(encoding="utf-8"))
-    assert payload["archive"] == "sdapp-macos-arm64.zip"
+    assert payload["archive"] == "swell-macos-arm64.zip"
     assert payload["ed_signature"] == "signed123="
     assert payload["length"] == 7
 
@@ -245,7 +245,7 @@ def test_open_request_smoke_script_passes_for_python_entrypoint() -> None:
             "--app-cmd",
             sys.executable,
             "-m",
-            "sdapp.main",
+            "swell.main",
         ],
         cwd=str(ROOT),
         capture_output=True,
@@ -289,10 +289,10 @@ def test_launch_probe_bundle_mode_uses_open_semantics(monkeypatch, tmp_path: Pat
     import importlib.util
     import plistlib
 
-    bundle = tmp_path / "SDApp.app"
+    bundle = tmp_path / "Swell.app"
     info = bundle / "Contents" / "Info.plist"
     info.parent.mkdir(parents=True)
-    info.write_bytes(plistlib.dumps({"CFBundleExecutable": "SDApp"}))
+    info.write_bytes(plistlib.dumps({"CFBundleExecutable": "Swell"}))
 
     run_calls = []
     pgrep_calls = iter(

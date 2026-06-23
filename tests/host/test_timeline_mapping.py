@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sdapp.host.ui_geometry import linear_value_to_x, linear_x_to_value
+from swell.host.ui_geometry import linear_value_to_x, linear_x_to_value
 
 
 def test_linear_mapping_round_trip_midpoints() -> None:

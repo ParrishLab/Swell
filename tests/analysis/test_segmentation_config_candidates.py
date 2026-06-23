@@ -1,5 +1,5 @@
-from sdapp.analysis.core import segmentation as segmentation_mod
-from sdapp.analysis.core.segmentation import _candidate_model_config_names
+from swell.analysis.core import segmentation as segmentation_mod
+from swell.analysis.core.segmentation import _candidate_model_config_names
 
 
 def test_base_plus_checkpoint_prefers_base_plus_configs_only() -> None:

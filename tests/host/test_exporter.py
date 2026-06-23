@@ -12,13 +12,13 @@ from PIL import Image
 import pytest
 import tifffile
 
-from sdapp.analysis.core.metrics import roi_mask_from_points
-import sdapp.host.exporter as exporter
-from sdapp.host.config import EventCandidate, FrameRef, TraceResult
-from sdapp.host.exporter import _build_event_global_mask_map, analysis_image_cache_key, export_analysis
-from sdapp.shared.frame_source import EventScopedFrameSource, SDStackFrameSource, build_visualization_stack
-from sdapp.shared.image_overlay import apply_mask_overlay
-from sdapp.shared.persistence.event_path import allocate_event_path_segment
+from swell.analysis.core.metrics import roi_mask_from_points
+import swell.host.exporter as exporter
+from swell.host.config import EventCandidate, FrameRef, TraceResult
+from swell.host.exporter import _build_event_global_mask_map, analysis_image_cache_key, export_analysis
+from swell.shared.frame_source import EventScopedFrameSource, StackReaderFrameSource, build_visualization_stack
+from swell.shared.image_overlay import apply_mask_overlay
+from swell.shared.persistence.event_path import allocate_event_path_segment
 
 
 class FakeReader:
@@ -1626,7 +1626,7 @@ def test_export_metrics_gap_warning_can_ignore(tmp_path: Path, monkeypatch: pyte
     masks[12:16, 1:7, 1:7] = 1
     decisions: list[dict[str, object]] = []
     monkeypatch.setattr(
-        "sdapp.host.exporter.compute_frame_metrics",
+        "swell.host.exporter.compute_frame_metrics",
         lambda _boundaries, min_dist_px=2.0: {  # noqa: ARG005
             "avg_dist_px": np.asarray([np.nan, 6.0, np.nan, 10.0], dtype=np.float64),
             "areas_px": np.asarray([1.0, 1.0, 1.0, 1.0], dtype=np.float64),
@@ -1684,7 +1684,7 @@ def test_export_metrics_gap_warning_can_stop_at_gap(tmp_path: Path, monkeypatch:
     masks = np.zeros((20, 8, 8), dtype=np.uint8)
     masks[12:16, 1:7, 1:7] = 1
     monkeypatch.setattr(
-        "sdapp.host.exporter.compute_frame_metrics",
+        "swell.host.exporter.compute_frame_metrics",
         lambda _boundaries, min_dist_px=2.0: {  # noqa: ARG005
             "avg_dist_px": np.asarray([np.nan, 6.0, np.nan, 10.0], dtype=np.float64),
             "areas_px": np.asarray([1.0, 1.0, 1.0, 1.0], dtype=np.float64),
@@ -1729,7 +1729,7 @@ def test_export_metrics_gap_warning_can_interpolate(tmp_path: Path, monkeypatch:
     masks = np.zeros((20, 8, 8), dtype=np.uint8)
     masks[12:16, 1:7, 1:7] = 1
     monkeypatch.setattr(
-        "sdapp.host.exporter.compute_frame_metrics",
+        "swell.host.exporter.compute_frame_metrics",
         lambda _boundaries, min_dist_px=2.0: {  # noqa: ARG005
             "avg_dist_px": np.asarray([np.nan, 6.0, np.nan, 10.0], dtype=np.float64),
             "areas_px": np.asarray([1.0, 1.0, 1.0, 1.0], dtype=np.float64),
@@ -1779,7 +1779,7 @@ def test_export_metrics_zero_growth_warning_can_set_zero(tmp_path: Path, monkeyp
     masks[12:16, 1:7, 1:7] = 1
     decisions: list[dict[str, object]] = []
     monkeypatch.setattr(
-        "sdapp.host.exporter.compute_frame_metrics",
+        "swell.host.exporter.compute_frame_metrics",
         lambda _boundaries, min_dist_px=2.0: {  # noqa: ARG005
             "avg_dist_px": np.asarray([np.nan, 6.0, np.nan, 10.0], dtype=np.float64),
             "areas_px": np.asarray([1.0, 1.0, 1.0, 1.0], dtype=np.float64),
@@ -2127,7 +2127,7 @@ def test_export_analysis_images_match_visualization_stack(tmp_path: Path) -> Non
         "000003_event_frame_0003.tif",
         "000004_event_frame_0004.tif",
     ]
-    scoped_source = EventScopedFrameSource(SDStackFrameSource(reader=reader), 1, 4)
+    scoped_source = EventScopedFrameSource(StackReaderFrameSource(reader=reader), 1, 4)
     _raw, _sub, expected_viz = build_visualization_stack(
         scoped_source,
         baseline_frames=2,
@@ -2223,7 +2223,7 @@ def test_export_analysis_images_honors_stabilization_processing_flag(tmp_path: P
     )
 
     analysis_dir = tmp_path / "event_0001" / "analysis_images"
-    scoped_source = EventScopedFrameSource(SDStackFrameSource(reader=reader), 0, 2)
+    scoped_source = EventScopedFrameSource(StackReaderFrameSource(reader=reader), 0, 2)
     _raw, _sub, expected_viz = build_visualization_stack(
         scoped_source,
         baseline_frames=1,
@@ -2336,7 +2336,7 @@ def test_export_analysis_overlay_images_use_analysis_visualization_stack(tmp_pat
         analysis_sidecar={"event_0001": {"masks_committed": masks}},
     )
 
-    scoped_source = EventScopedFrameSource(SDStackFrameSource(reader=reader), 0, 2)
+    scoped_source = EventScopedFrameSource(StackReaderFrameSource(reader=reader), 0, 2)
     _raw, _sub, expected_viz = build_visualization_stack(
         scoped_source,
         baseline_frames=1,

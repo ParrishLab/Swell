@@ -5,9 +5,9 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from sdapp.host.auto_detect_window import AutoDetectWindow
-from sdapp.host.sd_detection import detector
-from sdapp.host.sd_detection.traces import extract_lower_median_traces
+from swell.host.auto_detect_window import AutoDetectWindow
+from swell.host.event_detection import detector
+from swell.host.event_detection.traces import extract_lower_median_traces
 
 
 @pytest.fixture()
@@ -45,6 +45,14 @@ def _app(root):
 
 def _open_hidden(window: AutoDetectWindow) -> None:
     window.open(show=False)
+
+
+def _polarity_trace(sign: int) -> np.ndarray:
+    traces = np.zeros((4, 120), dtype=np.float32)
+    ramp = np.arange(61, dtype=np.float32) * int(sign)
+    traces[:, 20:81] = ramp
+    traces[:, 81:] = ramp[-1]
+    return traces
 
 
 def test_auto_detect_review_populates_and_selects_first_candidate(tk_root) -> None:
@@ -271,7 +279,7 @@ def test_auto_detect_active_borders_align_to_detector_grid_not_clipped_cell_mask
 
 
 def test_auto_detect_roi_change_repaints_grid_and_invalidates_cached_pipeline_without_rerun(tk_root, monkeypatch) -> None:
-    from sdapp.analysis.ui import roi_dialog
+    from swell.analysis.ui import roi_dialog
 
     window = AutoDetectWindow(_app(tk_root))
     _open_hidden(window)
@@ -451,6 +459,57 @@ def test_auto_detect_split_checkbox_marks_stale_without_rerun(tk_root, monkeypat
         window._on_close()
 
 
+def test_auto_detect_polarity_defaults_to_positive_and_reset_restores_it(tk_root) -> None:
+    window = AutoDetectWindow(_app(tk_root))
+    _open_hidden(window)
+    try:
+        assert window._params["polarity"] == "positive"
+        assert window._polarity_var.get() == "Positive-going (default)"
+
+        window._polarity_var.set("Negative-going")
+        window._on_polarity_change()
+
+        assert window._params["polarity"] == "negative"
+
+        window._on_reset_defaults()
+
+        assert window._params["polarity"] == "positive"
+        assert window._polarity_var.get() == "Positive-going (default)"
+    finally:
+        window._on_close()
+
+
+def test_auto_detect_polarity_change_reruns_cached_detection_only(tk_root, monkeypatch) -> None:
+    window = AutoDetectWindow(_app(tk_root))
+    _open_hidden(window)
+    try:
+        window._dirty_traces = False
+        window._dirty_find = False
+        window._dirty_gate = False
+        window._cached_traces = np.ones((1, 5), dtype=np.float32)
+        window._cached_detrended = np.ones((1, 5), dtype=np.float32)
+        window._cached_frame_indices = np.arange(5)
+        window._active_cell_cache[("stale",)] = (0, 1, np.ones((1, 2), dtype=bool))
+        runs = []
+        monkeypatch.setattr(window, "_on_run", lambda *args, **kwargs: runs.append(True))
+
+        window._polarity_var.set("Both polarities")
+        window._on_polarity_change()
+
+        assert window._params["polarity"] == "both"
+        assert window._dirty_traces is False
+        assert window._dirty_find is True
+        assert window._dirty_gate is True
+        assert window._active_cell_cache == {}
+        assert window._algorithm_rerun_after_id is not None
+
+        window._flush_algorithm_rerun()
+
+        assert runs == [True]
+    finally:
+        window._on_close()
+
+
 def test_auto_detect_stale_selection_is_ignored(tk_root) -> None:
     window = AutoDetectWindow(_app(tk_root))
     _open_hidden(window)
@@ -478,6 +537,22 @@ def test_detector_returns_no_candidates_for_too_short_trace_stack() -> None:
     traces = np.zeros((2, 1), dtype=np.float32)
 
     assert detector.find_candidates(traces, np.arange(1)) == []
+
+
+def test_detector_default_is_positive_only() -> None:
+    frame_indices = np.arange(120)
+
+    assert detector.PRESET["polarity"] == "positive"
+    assert detector.find_candidates(_polarity_trace(+1), frame_indices)
+    assert detector.find_candidates(_polarity_trace(-1), frame_indices) == []
+
+
+def test_detector_negative_and_both_polarities_remain_available() -> None:
+    frame_indices = np.arange(120)
+    negative_trace = _polarity_trace(-1)
+
+    assert detector.find_candidates(negative_trace, frame_indices, polarity="negative")
+    assert detector.find_candidates(negative_trace, frame_indices, polarity="both")
 
 
 def test_detail_window_clamps_at_stack_edges(tk_root) -> None:

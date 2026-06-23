@@ -20,11 +20,11 @@ The current analysis workflow has three major cost centers:
 
 Relevant implementation points:
 
-- preprocessing stack construction: [sdapp/shared/frame_source/preprocessing.py](/Users/claydunford/Development/Combined tool test/sdapp/shared/frame_source/preprocessing.py)
-- host popup processing and caches: [sdapp/host/processing_engine.py](/Users/claydunford/Development/Combined tool test/sdapp/host/processing_engine.py)
-- trace computation: [sdapp/host/signal_analysis.py](/Users/claydunford/Development/Combined tool test/sdapp/host/signal_analysis.py)
-- SAM 2.1 initialization: [sdapp/analysis/core/segmentation.py](/Users/claydunford/Development/Combined tool test/sdapp/analysis/core/segmentation.py)
-- prompt inference and propagation: [sdapp/analysis/core/inference_manager.py](/Users/claydunford/Development/Combined tool test/sdapp/analysis/core/inference_manager.py)
+- preprocessing stack construction: [swell/shared/frame_source/preprocessing.py](/Users/claydunford/Development/Combined tool test/swell/shared/frame_source/preprocessing.py)
+- host popup processing and caches: [swell/host/processing_engine.py](/Users/claydunford/Development/Combined tool test/swell/host/processing_engine.py)
+- trace computation: [swell/host/signal_analysis.py](/Users/claydunford/Development/Combined tool test/swell/host/signal_analysis.py)
+- SAM 2.1 initialization: [swell/analysis/core/segmentation.py](/Users/claydunford/Development/Combined tool test/swell/analysis/core/segmentation.py)
+- prompt inference and propagation: [swell/analysis/core/inference_manager.py](/Users/claydunford/Development/Combined tool test/swell/analysis/core/inference_manager.py)
 
 ## Ranking Method
 
@@ -55,7 +55,7 @@ Current behavior:
 
 Relevant code:
 
-- [sdapp/analysis/core/segmentation.py](/Users/claydunford/Development/Combined tool test/sdapp/analysis/core/segmentation.py#L440)
+- [swell/analysis/core/segmentation.py](/Users/claydunford/Development/Combined tool test/swell/analysis/core/segmentation.py#L440)
 
 Proposal:
 
@@ -88,8 +88,8 @@ Problem:
 
 Relevant code:
 
-- [sdapp/shared/frame_source/preprocessing.py](/Users/claydunford/Development/Combined tool test/sdapp/shared/frame_source/preprocessing.py#L140)
-- [sdapp/shared/frame_source/preprocessing.py](/Users/claydunford/Development/Combined tool test/sdapp/shared/frame_source/preprocessing.py#L174)
+- [swell/shared/frame_source/preprocessing.py](/Users/claydunford/Development/Combined tool test/swell/shared/frame_source/preprocessing.py#L140)
+- [swell/shared/frame_source/preprocessing.py](/Users/claydunford/Development/Combined tool test/swell/shared/frame_source/preprocessing.py#L174)
 
 Proposal:
 
@@ -118,8 +118,8 @@ Problem:
 
 Relevant code:
 
-- [sdapp/host/processing_engine.py](/Users/claydunford/Development/Combined tool test/sdapp/host/processing_engine.py#L115)
-- [sdapp/analysis/controllers/host_mode_controller.py](/Users/claydunford/Development/Combined tool test/sdapp/analysis/controllers/host_mode_controller.py)
+- [swell/host/processing_engine.py](/Users/claydunford/Development/Combined tool test/swell/host/processing_engine.py#L115)
+- [swell/analysis/controllers/host_mode_controller.py](/Users/claydunford/Development/Combined tool test/swell/analysis/controllers/host_mode_controller.py)
 
 Proposal:
 
@@ -146,7 +146,7 @@ Problem:
 
 Relevant code:
 
-- [sdapp/analysis/core/inference_manager.py](/Users/claydunford/Development/Combined tool test/sdapp/analysis/core/inference_manager.py#L359)
+- [swell/analysis/core/inference_manager.py](/Users/claydunford/Development/Combined tool test/swell/analysis/core/inference_manager.py#L359)
 
 Proposal:
 
@@ -173,7 +173,7 @@ Problem:
 
 Relevant code:
 
-- [sdapp/analysis/core/segmentation.py](/Users/claydunford/Development/Combined tool test/sdapp/analysis/core/segmentation.py#L443)
+- [swell/analysis/core/segmentation.py](/Users/claydunford/Development/Combined tool test/swell/analysis/core/segmentation.py#L443)
 
 Proposal:
 
@@ -201,7 +201,7 @@ Problem:
 
 Relevant code:
 
-- [sdapp/shared/frame_source/preprocessing.py](/Users/claydunford/Development/Combined tool test/sdapp/shared/frame_source/preprocessing.py#L192)
+- [swell/shared/frame_source/preprocessing.py](/Users/claydunford/Development/Combined tool test/swell/shared/frame_source/preprocessing.py#L192)
 
 Proposal:
 
@@ -254,7 +254,7 @@ Problem:
 
 Relevant code:
 
-- [sdapp/host/signal_analysis.py](/Users/claydunford/Development/Combined tool test/sdapp/host/signal_analysis.py#L12)
+- [swell/host/signal_analysis.py](/Users/claydunford/Development/Combined tool test/swell/host/signal_analysis.py#L12)
 
 Proposal:
 
@@ -397,7 +397,7 @@ Problem:
 
 Relevant code:
 
-- [sdapp/analysis/core/inference_manager.py](/Users/claydunford/Development/Combined tool test/sdapp/analysis/core/inference_manager.py#L359)
+- [swell/analysis/core/inference_manager.py](/Users/claydunford/Development/Combined tool test/swell/analysis/core/inference_manager.py#L359)
 
 Proposal:
 

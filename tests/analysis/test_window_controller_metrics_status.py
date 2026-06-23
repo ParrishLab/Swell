@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 import numpy as np
 
-from sdapp.analysis.controllers.window_controller import AnalysisWindowController
+from swell.analysis.controllers.window_controller import AnalysisWindowController
 
 
 class _Var:

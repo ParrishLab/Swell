@@ -1,6 +1,6 @@
 import unittest
 
-from sdapp.analysis.core.mask_import import extract_frame_number, guess_mask_mapping
+from swell.analysis.core.mask_import import extract_frame_number, guess_mask_mapping
 
 
 class ExternalMaskAlignmentTests(unittest.TestCase):

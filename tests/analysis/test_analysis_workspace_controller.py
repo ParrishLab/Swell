@@ -2,13 +2,13 @@ import unittest
 
 import numpy as np
 
-from sdapp.analysis.core.analysis_workspace import AnalysisWorkspaceController, WorkspaceUiState
-from sdapp.analysis.core.frame_source import EagerFrameSource
-from sdapp.analysis.core.project_session import ProjectSessionService
-from sdapp.analysis.core.seg_state import SegmentationState
-from sdapp.analysis.core.session_state import SessionState
-from sdapp.shared.contracts import load_contract_fixture
-from sdapp.shared.frame_source import EventScopedFrameSource
+from swell.analysis.core.analysis_workspace import AnalysisWorkspaceController, WorkspaceUiState
+from swell.analysis.core.frame_source import EagerFrameSource
+from swell.analysis.core.project_session import ProjectSessionService
+from swell.analysis.core.seg_state import SegmentationState
+from swell.analysis.core.session_state import SessionState
+from swell.shared.contracts import load_contract_fixture
+from swell.shared.frame_source import EventScopedFrameSource
 
 
 class AnalysisWorkspaceControllerTests(unittest.TestCase):
@@ -36,12 +36,12 @@ class AnalysisWorkspaceControllerTests(unittest.TestCase):
 
     def test_reset_and_open_event(self):
         self.controller.reset_workspace_for_new_stack()
-        self.assertIn("sd_event_001", self.state.event_records)
+        self.assertIn("event_001", self.state.event_records)
         self.seg_state.masks_cache[1] = np.ones((4, 4), dtype=bool)
         self.controller.sync_active_event()
-        self.controller.open_event("sd_event_001")
+        self.controller.open_event("event_001")
         self.assertIn(1, self.seg_state.masks_cache)
-        self.assertIn("sd_event_001", self.opened_events)
+        self.assertIn("event_001", self.opened_events)
 
     def test_build_session_snapshot_uses_frame_source(self):
         self.controller.reset_workspace_for_new_stack()

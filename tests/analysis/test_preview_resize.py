@@ -1,6 +1,6 @@
 import unittest
 
-from sdapp.analysis.core.preview_resize import do_resize_preview, start_resize_preview, stop_resize_preview
+from swell.analysis.core.preview_resize import do_resize_preview, start_resize_preview, stop_resize_preview
 
 
 class _Event:

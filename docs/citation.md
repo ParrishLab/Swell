@@ -1,6 +1,6 @@
-# Citing SDApp
+# Citing Swell
 
-If SDApp contributed to your research, please cite both the methods paper and the archived software release.
+If Swell contributed to your research, please cite both the methods paper and the archived software release.
 
 ## Methods paper
 
@@ -11,7 +11,7 @@ If SDApp contributed to your research, please cite both the methods paper and th
 BibTeX:
 
 ```bibtex
-@article{sdapp_methods,
+@article{swell_methods,
   author  = {Dunford, Clay and others},
   title   = {Manuscript title},
   journal = {Journal},
@@ -27,9 +27,9 @@ Each tagged release is archived on Zenodo with its own DOI. Cite the specific ve
 <!-- TODO: add Zenodo DOI badge and versioned DOI once minted -->
 
 ```bibtex
-@software{sdapp_software,
+@software{swell_software,
   author  = {Dunford, Clay},
-  title   = {SDApp: a desktop tool for SD event identification and segmentation},
+  title   = {Swell: a desktop tool for event identification and segmentation},
   year    = {YYYY},
   version = {vX.Y.Z},
   doi     = {10.5281/zenodo.xxxxxxx},
@@ -41,4 +41,4 @@ Each tagged release is archived on Zenodo with its own DOI. Cite the specific ve
 
 <!-- TODO: link example dataset, expected outputs, and the exact release tag used for the figures -->
 
-The manuscript figures were produced with SDApp version `vX.Y.Z` using the default metrics settings documented in [GUI reference](gui/analysis-window.md#metrics-settings).
+The manuscript figures were produced with Swell version `vX.Y.Z` using the default metrics settings documented in [GUI reference](gui/analysis-window.md#metrics-settings).

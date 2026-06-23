@@ -1,6 +1,6 @@
 # Local Release Runbook (No CI)
 
-This runbook produces local release artifacts for the unified `sdapp` app.
+This runbook produces local release artifacts for the unified `swell` app.
 
 ## Prerequisites
 - Python 3.12+
@@ -33,7 +33,7 @@ This runbook produces local release artifacts for the unified `sdapp` app.
    ```
 3. Run non-interactive startup/import smoke test:
    ```bash
-   python -m sdapp.main --smoke-test
+   python -m swell.main --smoke-test
    ```
 4. Run model + segmentation workflow smoke tests:
    ```bash
@@ -55,11 +55,11 @@ This runbook produces local release artifacts for the unified `sdapp` app.
 
 ## Expected artifacts
 After a successful run, `dist/` should contain:
-- `sdapp-<version>.tar.gz`
-- `sdapp-<version>-py3-none-any.whl`
-- `sdapp-macos-arm64.zip`
-- `sdapp-macos-x86_64.zip`
-- `sdapp-windows-x64.zip` (when built on Windows)
+- `swell-<version>.tar.gz`
+- `swell-<version>-py3-none-any.whl`
+- `swell-macos-arm64.zip`
+- `swell-macos-x86_64.zip`
+- `swell-windows-x64.zip` (when built on Windows)
 - `compatibility.json`
 - `SHA256SUMS.txt`
 
@@ -98,7 +98,7 @@ PR validation now includes four required jobs in `.github/workflows/release_phas
   - full test suite,
   - startup smoke,
   - model + segmentation workflow smokes,
-  - Windows x64 package build (`dist/sdapp-windows-x64.zip`),
+  - Windows x64 package build (`dist/swell-windows-x64.zip`),
   - packaged app open-request smoke for `.sdproj` handoff,
   - compatibility manifest + checksums generation.
 
@@ -132,8 +132,8 @@ Draft release automation is defined in `.github/workflows/release_phase3_tag.yml
   - validates tag format, `pyproject.toml` version match, and changelog section/headings.
 - `macos-arm64-package`:
   - startup smoke passes,
-  - `dist/macos-arm64/SDApp.app` exists,
-  - `dist/sdapp-macos-arm64.zip` exists.
+  - `dist/macos-arm64/Swell.app` exists,
+  - `dist/swell-macos-arm64.zip` exists.
 - `windows-runtime-gate`:
   - full test suite passes,
   - startup smoke returns `SMOKE_TEST:PASS`,
@@ -167,8 +167,8 @@ Draft release automation is defined in `.github/workflows/release_phase3_tag.yml
 ### Draft validation checklist
 - Draft release exists for the expected tag.
 - Assets attached:
-  - `sdapp-macos-arm64.zip`
-  - `sdapp-windows-x64.zip`
+  - `swell-macos-arm64.zip`
+  - `swell-windows-x64.zip`
   - `compatibility.json`
   - `SHA256SUMS.txt`
 - Release body text matches the version section in `CHANGELOG.md`.
@@ -197,8 +197,8 @@ Draft release automation is defined in `.github/workflows/release_phase3_tag.yml
   2. managed default model directory,
   3. explicit manual override path.
 - Managed model directory:
-  - macOS: `~/Library/Application Support/sdapp/models`
-  - Windows: `%APPDATA%\\sdapp\\models`
+  - macOS: `~/Library/Application Support/swell/models`
+  - Windows: `%APPDATA%\\swell\\models`
 - On clean machines without a local model file, analysis prompts for first-run onboarding:
   - download approved model file from catalog, or
   - select a local model file manually.
@@ -215,6 +215,6 @@ Draft release automation is defined in `.github/workflows/release_phase3_tag.yml
 4. Run one segmentation action and confirm masks are produced.
 5. Save project, reopen, and verify model metadata warning/choice flow works when the model differs.
 6. On Windows, validate portable package:
-   - unzip `sdapp-windows-x64.zip`,
-   - launch `SDApp.exe`,
+   - unzip `swell-windows-x64.zip`,
+   - launch `Swell.exe`,
    - run startup + one segmentation workflow.

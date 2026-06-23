@@ -2,9 +2,9 @@ import pytest
 from unittest.mock import patch, MagicMock
 import numpy as np
 
-from sdapp.analysis.core.inference_manager import InferenceManager
+from swell.analysis.core.inference_manager import InferenceManager
 
-@patch('sdapp.analysis.core.inference_manager.messagebox.showerror')
+@patch('swell.analysis.core.inference_manager.messagebox.showerror')
 def test_inference_propagation_logic_and_cache_coherency(mock_showerror):
     manager = InferenceManager(
         root=MagicMock(),

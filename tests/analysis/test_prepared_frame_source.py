@@ -3,8 +3,8 @@ from __future__ import annotations
 import cv2
 import numpy as np
 
-from sdapp.analysis.core.frame_source import EagerFrameSource
-from sdapp.shared.frame_source import PreparedFrameSource
+from swell.analysis.core.frame_source import EagerFrameSource
+from swell.shared.frame_source import PreparedFrameSource
 
 
 def test_prepared_frame_source_prewarm_populates_cache_without_changing_values():

@@ -15,7 +15,7 @@ CHANGELOG_SECTION_RE = re.compile(r"^##\s+\[(?P<version>\d+\.\d+\.\d+)\](?:\s+-\
 REQUIRED_HEADINGS = (
     "### Model/checkpoint compatibility",
     "### Platform/backend limitations",
-    "### .sdproj/migration notes",
+    "### .swell/migration notes",
     "### Known segmentation caveats/regressions",
 )
 
@@ -40,8 +40,8 @@ def _parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--windows-installer",
-        default="packaging/windows/sdapp_installer.nsi",
-        help="Path to Windows NSIS installer script (default: packaging/windows/sdapp_installer.nsi).",
+        default="packaging/windows/swell_installer.nsi",
+        help="Path to Windows NSIS installer script (default: packaging/windows/swell_installer.nsi).",
     )
     parser.add_argument(
         "--date",
@@ -113,7 +113,7 @@ def _release_block(version: str, release_date: str) -> str:
         "- TBD\n\n"
         "### Platform/backend limitations\n"
         "- TBD\n\n"
-        "### .sdproj/migration notes\n"
+        "### .swell/migration notes\n"
         "- TBD\n\n"
         "### Known segmentation caveats/regressions\n"
         "- TBD\n"

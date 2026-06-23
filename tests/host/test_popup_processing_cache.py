@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from sdapp.host.processing_engine import PopupProcessRequest, PopupProcessingEngine
+from swell.host.processing_engine import PopupProcessRequest, PopupProcessingEngine
 
 
 class CountingReader:

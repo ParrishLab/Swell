@@ -3,8 +3,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from sdapp.host.config import EventCandidate
-from sdapp.host.signal_analysis import compute_trace, event_to_dict
+from swell.host.config import EventCandidate
+from swell.host.signal_analysis import compute_trace, event_to_dict
 
 
 class DummyReader:

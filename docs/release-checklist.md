@@ -10,7 +10,7 @@ Work through these sections top-to-bottom before publishing a release. Steps mar
 - [ ] No unresolved `<!-- TODO -->` comments remain in any `docs/` file.
 - [ ] `docs/installation.md` reflects the current Python version requirement and install steps.
 - [ ] `docs/troubleshooting.md` covers any new error messages or failure modes introduced in this release.
-- [ ] `docs/file-formats.md` is updated if the `.sdproj` schema version changed or new export columns were added.
+- [ ] `docs/file-formats.md` is updated if the `.swell` schema version changed or new export columns were added.
 - [ ] `docs/citation.md` DOIs and version references are current (update after Zenodo archive is minted).
 
 ---
@@ -21,7 +21,7 @@ Work through these sections top-to-bottom before publishing a release. Steps mar
 - [ ] `CHANGELOG.md` has a new section `## [X.Y.Z] - YYYY-MM-DD` with all four required headings:
   - `Model/checkpoint compatibility`
   - `Platform/backend limitations`
-  - `.sdproj/migration notes`
+  - `.swell/migration notes`
   - `Known segmentation caveats/regressions`
 - [ ] The changelog section accurately describes what changed for end users (not just internal refactors).
 
@@ -45,7 +45,7 @@ python scripts/release/bump_version.py patch   # or minor / major / explicit ver
   ```
 - [ ] Startup smoke test passes (`SMOKE_TEST:PASS`): **(CI)**
   ```bash
-  python -m sdapp.main --smoke-test
+  python -m swell.main --smoke-test
   ```
 - [ ] Model and segmentation workflow smokes pass: **(CI)**
   ```bash
@@ -64,7 +64,7 @@ Run this on a machine with no existing managed model directory before publishing
 - [ ] Launch app, complete model onboarding (download or manual select).
 - [ ] Run one segmentation action and confirm masks are produced.
 - [ ] Save project, reopen it, and verify the model mismatch warning/choice flow works.
-- [ ] On Windows: unzip `sdapp-windows-x64.zip`, launch `SDApp.exe`, run startup + one segmentation workflow.
+- [ ] On Windows: unzip `swell-windows-x64.zip`, launch `Swell.exe`, run startup + one segmentation workflow.
 
 ---
 
@@ -78,7 +78,7 @@ Run this on a machine with no existing managed model directory before publishing
   ```
 - [ ] Wait for the `release-phase3-tag` workflow to finish.
 - [ ] Open GitHub Releases and verify the draft:
-  - [ ] Assets attached: `sdapp-macos-arm64.zip`, `sdapp-windows-x64.zip`, `compatibility.json`, `SHA256SUMS.txt`.
+  - [ ] Assets attached: `swell-macos-arm64.zip`, `swell-windows-x64.zip`, `compatibility.json`, `SHA256SUMS.txt`.
   - [ ] Release body matches the `CHANGELOG.md` section for this version.
   - [ ] `compatibility.json` version field matches `pyproject.toml`.
 - [ ] Publish the draft manually.

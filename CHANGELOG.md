@@ -4,8 +4,11 @@ All notable changes to this project are documented in this file.
 
 ## [0.2.0] - 2026-06-12
 
+### Auto-detect and ROI improvements
+- Auto-detect now defaults to positive-going SD signals in the workbench, reset state, committed event metadata, and detector preset. Negative-going and both-polarity detection remain selectable for dark-going recordings.
+
 ### Host project persistence
-- Added `.sdproj` container schema 3 with optional embedded source images (`images_embedded.json` plus `images/`) so projects can remain usable when the original stack folder moves.
+- Added `.swell` container schema 3 with optional embedded source images (`images_embedded.json` plus `images/`) so projects can remain usable when the original stack folder moves.
 - Embedded fallback loads now preserve the original recorded stack folder in `stack.json`; extracted temp directories are used only as live read sources and are not persisted as source folders.
 - Saving with embedding enabled now fails clearly if no source image files can be embedded, instead of silently producing a project without its image payload.
 - Saving a project from embedded fallback with embedding disabled is blocked until the user re-enables embedding or rebinds to a real source folder.
@@ -18,11 +21,11 @@ All notable changes to this project are documented in this file.
 - No checkpoint format or model selection change in this release; existing managed and local SAM2 model selections remain compatible.
 
 ### Platform/backend limitations
-- Embedding source images can substantially increase `.sdproj` size; save-time confirmation reports the source stack size before copying frames into the project.
+- Embedding source images can substantially increase `.swell` size; save-time confirmation reports the source stack size before copying frames into the project.
 
-### .sdproj/migration notes
-- Host `.sdproj` writers now emit schema 3. Schema 2 projects remain loadable.
-- SDApp 0.1.9 may open schema 3 projects but does not understand embedded source images; if a 0.1.9 build re-saves such a project, the embedded image payload can be dropped. Use 0.2.0 or later for projects that rely on embedded source images.
+### .swell/migration notes
+- Host `.swell` writers now emit schema 3. Schema 2 projects remain loadable.
+- Swell 0.1.9 may open schema 3 projects but does not understand embedded source images; if a 0.1.9 build re-saves such a project, the embedded image payload can be dropped. Use 0.2.0 or later for projects that rely on embedded source images.
 
 ### Known segmentation caveats/regressions
 - No new release-blocking segmentation regressions are known from the automated suite.
@@ -49,10 +52,10 @@ All notable changes to this project are documented in this file.
 - No checkpoint format or model selection change in this release; existing managed and local SAM2 model selections remain compatible.
 
 ### Platform/backend limitations
-- New toolbar icon assets are bundled from the `sdapp` package via PyInstaller `collect_data_files`; no backend behavior changes.
+- New toolbar icon assets are bundled from the `swell` package via PyInstaller `collect_data_files`; no backend behavior changes.
 
-### .sdproj/migration notes
-- No `.sdproj` schema version bump is required; existing projects remain loadable. Event ordering is normalized on load but does not alter stored data.
+### .swell/migration notes
+- No `.swell` schema version bump is required; existing projects remain loadable. Event ordering is normalized on load but does not alter stored data.
 
 ### Known segmentation caveats/regressions
 - No new release-blocking segmentation regressions are known from the automated suite.
@@ -71,8 +74,8 @@ All notable changes to this project are documented in this file.
 ### Platform/backend limitations
 - Visual sizing and centering fixes are Windows-specific; no behavioral changes on macOS.
 
-### .sdproj/migration notes
-- No `.sdproj` schema version bump is required; existing projects remain loadable.
+### .swell/migration notes
+- No `.swell` schema version bump is required; existing projects remain loadable.
 
 ### Known segmentation caveats/regressions
 - No new release-blocking segmentation regressions are known from the automated suite.
@@ -88,8 +91,8 @@ All notable changes to this project are documented in this file.
 - Exporter now selects ROI-scoped speed metrics when an ROI is defined, falling back to full-frame metrics otherwise.
 
 ### Performance
-- Added `DownsampledFrameSource` (`sdapp/shared/frame_source/downsampled.py`) and `compute_visualization_stats_for_preview` to compute visualization stats at 0.25× resolution during the analysis-launch preview, then upsample the baseline back to full resolution — significantly reducing preview wait time on large stacks.
-- Added `sdapp/shared/diagnostics/` with `OpenPerfTrace`: a lightweight wall-clock stage/mark tracer for the analysis-window open path. Traces are dumped to the app log on completion and silently discarded on failure.
+- Added `DownsampledFrameSource` (`swell/shared/frame_source/downsampled.py`) and `compute_visualization_stats_for_preview` to compute visualization stats at 0.25× resolution during the analysis-launch preview, then upsample the baseline back to full resolution — significantly reducing preview wait time on large stacks.
+- Added `swell/shared/diagnostics/` with `OpenPerfTrace`: a lightweight wall-clock stage/mark tracer for the analysis-window open path. Traces are dumped to the app log on completion and silently discarded on failure.
 - Analysis launch flow now wraps the full open sequence in a perf trace, attributing time to import, preview preparation, frame rendering, and options-dialog interactions.
 
 ### Model/checkpoint compatibility
@@ -99,8 +102,8 @@ All notable changes to this project are documented in this file.
 - No platform-specific regressions are known from the automated suite.
 - DC trace controller and host window controller received minor fixes to align with the updated auto-detect and analysis launch flows.
 
-### .sdproj/migration notes
-- No `.sdproj` schema version bump is required; existing projects remain loadable.
+### .swell/migration notes
+- No `.swell` schema version bump is required; existing projects remain loadable.
 - `_save_project_after_metrics_apply` now persists project state immediately after metrics are applied from the host window, reducing the chance of unsaved metric changes.
 
 ### Known segmentation caveats/regressions
@@ -125,8 +128,8 @@ All notable changes to this project are documented in this file.
 - Refined the host and analysis UI around shared runtime controllers, centered dialogs, improved preview handling, and a higher-fidelity visual hierarchy for core review/calibration screens.
 - Export flows now produce richer operator-facing artifacts, including markdown summaries alongside JSON/CSV outputs and a combined spreadsheet export path.
 
-### .sdproj/migration notes
-- No `.sdproj` schema version bump is required for this release; existing projects remain loadable.
+### .swell/migration notes
+- No `.swell` schema version bump is required for this release; existing projects remain loadable.
 - Project metadata now preserves more session context, including DC trace attachment references and autosaved metric/default updates.
 - Event labels now flow into derived project/export naming, so newly generated folders and summaries may use human-readable event labels instead of raw event IDs.
 
@@ -143,7 +146,7 @@ All notable changes to this project are documented in this file.
 ### Platform/backend limitations
 - TBD
 
-### .sdproj/migration notes
+### .swell/migration notes
 - TBD
 
 ### Known segmentation caveats/regressions
@@ -157,7 +160,7 @@ All notable changes to this project are documented in this file.
 ### Platform/backend limitations
 - TBD
 
-### .sdproj/migration notes
+### .swell/migration notes
 - TBD
 
 ### Known segmentation caveats/regressions
@@ -174,8 +177,8 @@ All notable changes to this project are documented in this file.
 - Fixed Windows analysis UI behavior where propagation range spinboxes could ignore programmatic writes while disabled.
 - macOS signing, notarization, and stapling are still not part of the release workflow.
 
-### .sdproj/migration notes
-- No `.sdproj` schema version bump in this release.
+### .swell/migration notes
+- No `.swell` schema version bump in this release.
 - Existing projects remain loadable, but Windows-authored saves now preserve generated masks and mask dimensions correctly when analysis is opened from the host window.
 
 ### Known segmentation caveats/regressions
@@ -191,7 +194,7 @@ All notable changes to this project are documented in this file.
 ### Platform/backend limitations
 - TBD
 
-### .sdproj/migration notes
+### .swell/migration notes
 - TBD
 
 ### Known segmentation caveats/regressions
@@ -207,8 +210,8 @@ All notable changes to this project are documented in this file.
 - Released source artifacts plus macOS arm64/x86_64 desktop archives.
 - Windows is validated as a runtime/test gate only in CI for this phase; packaged Windows binary is deferred.
 
-### .sdproj/migration notes
-- No `.sdproj` schema changes in release packaging phases 1-4.
+### .swell/migration notes
+- No `.swell` schema changes in release packaging phases 1-4.
 - Canonical single-stack project structure remains unchanged.
 
 ### Known segmentation caveats/regressions

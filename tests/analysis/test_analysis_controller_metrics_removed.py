@@ -1,7 +1,7 @@
 import unittest
 
-from sdapp.analysis.core.analysis_controller import AnalysisController
-from sdapp.analysis.core.analysis_context import AnalysisContext
+from swell.analysis.core.analysis_controller import AnalysisController
+from swell.analysis.core.analysis_context import AnalysisContext
 
 
 class AnalysisControllerMetricsRemovedTests(unittest.TestCase):

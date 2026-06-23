@@ -5,15 +5,15 @@ import zipfile
 
 import numpy as np
 
-from sdapp.analysis.core.project_schema import default_project_state
-from sdapp.analysis.core.project_store import ProjectStore
-from sdapp.shared.persistence.event_path import sanitize_event_path_segment
+from swell.analysis.core.project_schema import default_project_state
+from swell.analysis.core.project_store import ProjectStore
+from swell.shared.persistence.event_path import sanitize_event_path_segment
 
 
 class ProjectStoreRoundtripTests(unittest.TestCase):
     def test_save_load_roundtrip_single_event(self):
         with tempfile.TemporaryDirectory() as tmp:
-            project_path = Path(tmp) / "x.sdproj"
+            project_path = Path(tmp) / "x.swell"
             state = default_project_state("1.0.0")
             state["global"]["scale_px_per_mm"] = 2.5
             state["global"]["scale_points"] = [[10.0, 12.0], [30.0, 12.0]]
@@ -21,21 +21,21 @@ class ProjectStoreRoundtripTests(unittest.TestCase):
             state["global"]["scale_image_path"] = "/tmp/scale-ref.png"
             state["events"] = [
                 {
-                    "id": "sd_event_001",
-                    "masks_ref": "events/sd_event_001/masks.npz",
-                    "prompts_ref": "events/sd_event_001/prompts.json",
+                    "id": "event_001",
+                    "masks_ref": "events/event_001/masks.npz",
+                    "prompts_ref": "events/event_001/prompts.json",
                 }
             ]
             masks = np.zeros((3, 4, 4), dtype=np.uint8)
             masks[1, 2, 2] = 1
-            prompts = {"event_id": "sd_event_001", "frames": {"1": {"points": [{"x": 1, "y": 2, "label": 1}]}}}
+            prompts = {"event_id": "event_001", "frames": {"1": {"points": [{"x": 1, "y": 2, "label": 1}]}}}
             store = ProjectStore()
             store.save(
                 project_path,
                 project_state=state,
                 images_manifest={"images": []},
                 roi_data={"roi_points": []},
-                event_payloads={"sd_event_001": {"masks": masks, "prompts": prompts}},
+                event_payloads={"event_001": {"masks": masks, "prompts": prompts}},
                 embed_images=False,
             )
             loaded = store.load(project_path)
@@ -43,26 +43,26 @@ class ProjectStoreRoundtripTests(unittest.TestCase):
             self.assertEqual(loaded.project_state["global"]["scale_points"], [[10.0, 12.0], [30.0, 12.0]])
             self.assertIs(loaded.project_state["global"]["scale_axis_lock"], False)
             self.assertEqual(loaded.project_state["global"]["scale_image_path"], "/tmp/scale-ref.png")
-            self.assertEqual(loaded.event_payloads["sd_event_001"]["masks"].shape, (3, 4, 4))
-            self.assertIn("frames", loaded.event_payloads["sd_event_001"]["prompts"])
+            self.assertEqual(loaded.event_payloads["event_001"]["masks"].shape, (3, 4, 4))
+            self.assertIn("frames", loaded.event_payloads["event_001"]["prompts"])
 
     def test_save_load_roundtrip_with_draft_and_multi_event(self):
         with tempfile.TemporaryDirectory() as tmp:
-            project_path = Path(tmp) / "x.sdproj"
+            project_path = Path(tmp) / "x.swell"
             state = default_project_state("1.0.0")
             state["events"] = [
                 {
-                    "id": "sd_event_001",
-                    "masks_ref": "events/sd_event_001/masks.npz",
-                    "masks_draft_ref": "events/sd_event_001/masks_draft.npz",
-                    "prompts_ref": "events/sd_event_001/prompts.json",
+                    "id": "event_001",
+                    "masks_ref": "events/event_001/masks.npz",
+                    "masks_draft_ref": "events/event_001/masks_draft.npz",
+                    "prompts_ref": "events/event_001/prompts.json",
                     "propagation_completed": False,
                     "analysis_output_dir": None,
                 },
                 {
-                    "id": "sd_event_002",
-                    "masks_ref": "events/sd_event_002/masks.npz",
-                    "prompts_ref": "events/sd_event_002/prompts.json",
+                    "id": "event_002",
+                    "masks_ref": "events/event_002/masks.npz",
+                    "prompts_ref": "events/event_002/prompts.json",
                     "propagation_completed": True,
                     "analysis_output_dir": None,
                 },
@@ -80,20 +80,20 @@ class ProjectStoreRoundtripTests(unittest.TestCase):
                 images_manifest={"images": []},
                 roi_data={"roi_points": []},
                 event_payloads={
-                    "sd_event_001": {"masks": masks_1, "masks_draft": draft_1, "prompts": {"frames": {}}},
-                    "sd_event_002": {"masks": masks_2, "prompts": {"frames": {}}},
+                    "event_001": {"masks": masks_1, "masks_draft": draft_1, "prompts": {"frames": {}}},
+                    "event_002": {"masks": masks_2, "prompts": {"frames": {}}},
                 },
                 embed_images=False,
             )
             loaded = store.load(project_path)
-            self.assertIn("sd_event_001", loaded.event_payloads)
-            self.assertIn("sd_event_002", loaded.event_payloads)
-            self.assertEqual(loaded.event_payloads["sd_event_001"]["masks_draft"].shape, (2, 3, 3))
-            self.assertIsNone(loaded.event_payloads["sd_event_002"]["masks_draft"])
+            self.assertIn("event_001", loaded.event_payloads)
+            self.assertIn("event_002", loaded.event_payloads)
+            self.assertEqual(loaded.event_payloads["event_001"]["masks_draft"].shape, (2, 3, 3))
+            self.assertIsNone(loaded.event_payloads["event_002"]["masks_draft"])
 
     def test_save_load_roundtrip_with_filesystem_unsafe_event_id(self):
         with tempfile.TemporaryDirectory() as tmp:
-            project_path = Path(tmp) / "unsafe.sdproj"
+            project_path = Path(tmp) / "unsafe.swell"
             unsafe_event_id = 'bad:event?*"<>|'
             state = default_project_state("1.0.0")
             state["events"] = [

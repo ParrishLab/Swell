@@ -3,7 +3,7 @@ import time
 import unittest
 from pathlib import Path
 
-from sdapp.analysis.core.project_autosave import AutosaveSnapshot, ProjectAutosaveManager
+from swell.analysis.core.project_autosave import AutosaveSnapshot, ProjectAutosaveManager
 
 
 class ProjectRecoveryDetectionTests(unittest.TestCase):

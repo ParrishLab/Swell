@@ -5,13 +5,13 @@ $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $RepoRoot = Resolve-Path (Join-Path $ScriptDir "../..")
 $PythonBin = if ($env:PYTHON_BIN) { $env:PYTHON_BIN } else { "python" }
 
-$SpecPath = Join-Path $RepoRoot "packaging/windows/sdapp_windows.spec"
-$InstallerScript = Join-Path $RepoRoot "packaging/windows/sdapp_installer.nsi"
+$SpecPath = Join-Path $RepoRoot "packaging/windows/swell_windows.spec"
+$InstallerScript = Join-Path $RepoRoot "packaging/windows/swell_installer.nsi"
 $DistRoot = Join-Path $RepoRoot "dist"
 $ArchDist = Join-Path $DistRoot "windows-x64"
 $WorkPath = Join-Path $RepoRoot "build/pyinstaller-windows-x64"
-$ZipOut = Join-Path $DistRoot "sdapp-windows-x64.zip"
-$InstallerFlag = if ($null -ne $env:SDAPP_BUILD_INSTALLER) { "$env:SDAPP_BUILD_INSTALLER" } else { "" }
+$ZipOut = Join-Path $DistRoot "swell-windows-x64.zip"
+$InstallerFlag = if ($null -ne $env:SWELL_BUILD_INSTALLER) { "$env:SWELL_BUILD_INSTALLER" } else { "" }
 $BuildInstaller = $true
 if ($InstallerFlag) {
   $BuildInstaller = @("1", "true", "yes") -contains $InstallerFlag.ToLowerInvariant()
@@ -28,7 +28,7 @@ New-Item -ItemType Directory -Force -Path $ArchDist | Out-Null
 
 & $PythonBin -m PyInstaller $SpecPath --noconfirm --clean --distpath $ArchDist --workpath $WorkPath
 
-$AppDir = Join-Path $ArchDist "SDApp"
+$AppDir = Join-Path $ArchDist "Swell"
 if (!(Test-Path $AppDir)) {
   throw "[release] ERROR: expected app directory not found: $AppDir"
 }
@@ -53,5 +53,5 @@ if ($BuildInstaller) {
   Write-Host "[release] Windows installer build complete (NSIS)."
 }
 else {
-  Write-Host "[release] Windows installer build skipped (SDAPP_BUILD_INSTALLER disabled explicitly)."
+  Write-Host "[release] Windows installer build skipped (SWELL_BUILD_INSTALLER disabled explicitly)."
 }

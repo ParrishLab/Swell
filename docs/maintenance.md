@@ -10,7 +10,7 @@ Whenever new features, UI changes, or state persistence modifications are merged
 
 - [ ] **UI Screenshots**: Check if screenshots in `docs/gui/host-window.md` or `docs/gui/analysis-window.md` need to be updated.
 - [ ] **Keyboard Shortcuts**: Update the hotkey tables in the GUI reference pages if any keyboard bindings are added, modified, or removed.
-- [ ] **Data Schema**: If the `.sdproj` zip structure or logical prompt JSON schema is updated, increment and document the changes in `docs/file-formats.md`.
+- [ ] **Data Schema**: If the `.swell` zip structure or logical prompt JSON schema is updated, increment and document the changes in `docs/file-formats.md`.
 - [ ] **Troubleshooting**: Add entries for any new failure modes, dependency errors, or hardware warning flags to `docs/troubleshooting.md`.
 - [ ] **Zenodo DOI**: Update the BibTeX entry in `docs/citation.md` with the new release version and Zenodo DOI after minting the release archive.
 
@@ -18,13 +18,13 @@ Whenever new features, UI changes, or state persistence modifications are merged
 
 ## 2. Release Notes & Changelog Checklist
 
-SDApp enforces strict release governance rules via automated CI checks in `.github/workflows/release_phase3_tag.yml`. Before creating a release tag:
+Swell enforces strict release governance rules via automated CI checks in `.github/workflows/release_phase3_tag.yml`. Before creating a release tag:
 
 1. **Verify Version Alignment**:
    Ensure `pyproject.toml` version matches the target release tag:
    ```toml
    [project]
-   name = "sdapp"
+   name = "swell"
    version = "0.1.9"  # Must match the v0.1.9 tag base version
    ```
 
@@ -38,7 +38,7 @@ SDApp enforces strict release governance rules via automated CI checks in `.gith
    The release validation job will fail if the new release section is missing any of these four literal headings:
    * `### Model/checkpoint compatibility`
    * `### Platform/backend limitations`
-   * `### .sdproj/migration notes`
+   * `### .swell/migration notes`
    * `### Known segmentation caveats/regressions`
 
 4. **Scaffolding Tool**:
@@ -51,7 +51,7 @@ SDApp enforces strict release governance rules via automated CI checks in `.gith
 
 ## 3. Running & Verifying the Documentation Site
 
-The SDApp documentation is built using MkDocs and the Material theme.
+The Swell documentation is built using MkDocs and the Material theme.
 
 ### Installing Dependencies
 To run the documentation server locally, install the required packages:

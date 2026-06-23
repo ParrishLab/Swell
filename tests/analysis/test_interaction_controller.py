@@ -2,9 +2,9 @@ import unittest
 
 import numpy as np
 
-from sdapp.analysis.core.interaction_controller import InteractionController
-from sdapp.analysis.core.region_tools import REGION_EXCLUDE_TOOL, REGION_INCLUDE_TOOL
-from sdapp.analysis.core.seg_state import SegmentationState
+from swell.analysis.core.interaction_controller import InteractionController
+from swell.analysis.core.region_tools import REGION_EXCLUDE_TOOL, REGION_INCLUDE_TOOL
+from swell.analysis.core.seg_state import SegmentationState
 
 
 class _Var:

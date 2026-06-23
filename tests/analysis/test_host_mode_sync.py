@@ -2,13 +2,13 @@ import unittest
 
 import numpy as np
 
-from sdapp.analysis.core.analysis_workspace import AnalysisWorkspaceController
-from sdapp.analysis.core.frame_source import EagerFrameSource
-from sdapp.analysis.core.project_session import ProjectSessionService
-from sdapp.analysis.core.seg_state import SegmentationState
-from sdapp.analysis.core.session_state import SessionState
-from sdapp.shared.contracts import load_contract_fixture, validate_sync_payload
-from sdapp.shared.frame_source import EventScopedFrameSource
+from swell.analysis.core.analysis_workspace import AnalysisWorkspaceController
+from swell.analysis.core.frame_source import EagerFrameSource
+from swell.analysis.core.project_session import ProjectSessionService
+from swell.analysis.core.seg_state import SegmentationState
+from swell.analysis.core.session_state import SessionState
+from swell.shared.contracts import load_contract_fixture, validate_sync_payload
+from swell.shared.frame_source import EventScopedFrameSource
 
 
 class HostModeSyncTests(unittest.TestCase):

@@ -3,10 +3,10 @@ import unittest
 import numpy as np
 from PIL import Image
 
-from sdapp.analysis.core.render import RenderActions
-from sdapp.analysis.core.seg_state import SegmentationState
-from sdapp.analysis.core.viewport import ViewportState, compute_transform
-from sdapp.shared.image_overlay import frame_to_rgb_u8
+from swell.analysis.core.render import RenderActions
+from swell.analysis.core.seg_state import SegmentationState
+from swell.analysis.core.viewport import ViewportState, compute_transform
+from swell.shared.image_overlay import frame_to_rgb_u8
 
 
 def _build_tk_harness_or_skip(test, factory):
@@ -397,8 +397,8 @@ class RenderActionsTests(unittest.TestCase):
 
     def test_view_dock_controls_and_callbacks(self):
         import tkinter as tk
-        from sdapp.analysis.ui.layout import LayoutBuilder
-        from sdapp.analysis.ui.theme import SPACING
+        from swell.analysis.ui.layout import LayoutBuilder
+        from swell.analysis.ui.theme import SPACING
 
         class _MockApp(LayoutBuilder):
             def __init__(self):
@@ -456,7 +456,7 @@ class RenderActionsTests(unittest.TestCase):
 
     def test_region_options_bar_uses_split_region_semantics(self):
         import tkinter as tk
-        from sdapp.analysis.ui.layout import LayoutBuilder
+        from swell.analysis.ui.layout import LayoutBuilder
 
         class _MockApp(LayoutBuilder):
             def __init__(self):
@@ -521,7 +521,7 @@ class RenderActionsTests(unittest.TestCase):
 
     def test_save_current_masks_button_is_fixed_below_inspector_scroll(self):
         import tkinter as tk
-        from sdapp.analysis.ui.layout import LayoutBuilder
+        from swell.analysis.ui.layout import LayoutBuilder
 
         class _MockApp(LayoutBuilder):
             def __init__(self):
@@ -574,7 +574,7 @@ class RenderActionsTests(unittest.TestCase):
     def test_ghost_contour_roi_blend_matches_full_image(self):
         import cv2
 
-        from sdapp.analysis.core.render import GHOST_CONTOUR_THICKNESS
+        from swell.analysis.core.render import GHOST_CONTOUR_THICKNESS
 
         class _GhostBlendHarness(RenderActions):
             def __init__(self):

@@ -15,7 +15,7 @@ LEGACY_SIGNATURE_RE = re.compile(r"edSignature:\s*([A-Za-z0-9+/=:_-]+)")
 
 
 def _default_sign_update(repo_root: Path) -> Path:
-    return repo_root / "sdapp" / "resources" / "updater" / "macos" / "bin" / "sign_update"
+    return repo_root / "swell" / "resources" / "updater" / "macos" / "bin" / "sign_update"
 
 
 def _build_command(sign_update_path: Path, archive_path: Path, private_key_file: Path | None) -> list[str]:

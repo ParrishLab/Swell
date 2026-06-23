@@ -4,7 +4,7 @@ from unittest.mock import patch
 
 import numpy as np
 
-from sdapp.analysis.core.io import IOActions
+from swell.analysis.core.io import IOActions
 
 
 class _DummyIO(IOActions):
@@ -32,7 +32,7 @@ class _DummyIO(IOActions):
 class IOImportTests(unittest.TestCase):
     def test_single_multipage_tiff_file_expands_to_multiple_frames(self):
         dummy = _DummyIO()
-        with patch("sdapp.analysis.core.io.tifffile.imread", return_value=np.zeros((3, 4, 4), dtype=np.uint16)):
+        with patch("swell.analysis.core.io.tifffile.imread", return_value=np.zeros((3, 4, 4), dtype=np.uint16)):
             frames, names = dummy._load_frames_and_names([Path("stack.tif")])
         self.assertEqual(len(frames), 3)
         self.assertEqual(names, ["stack.tif_p1", "stack.tif_p2", "stack.tif_p3"])
@@ -46,8 +46,8 @@ class IOImportTests(unittest.TestCase):
         def fake_cv_read(_path, _flag):
             return np.zeros((4, 4, 3), dtype=np.uint8)
 
-        with patch("sdapp.analysis.core.io.tifffile.imread", side_effect=fake_tiff_read), patch(
-            "sdapp.analysis.core.io.cv2.imread", side_effect=fake_cv_read
+        with patch("swell.analysis.core.io.tifffile.imread", side_effect=fake_tiff_read), patch(
+            "swell.analysis.core.io.cv2.imread", side_effect=fake_cv_read
         ):
             frames, names = dummy._load_frames_and_names([Path("a.tif"), Path("b.png")])
         self.assertEqual(len(frames), 2)
@@ -61,7 +61,7 @@ class IOImportTests(unittest.TestCase):
                 return np.zeros((4, 4), dtype=np.uint8)
             return np.zeros((5, 5), dtype=np.uint8)
 
-        with patch("sdapp.analysis.core.io.tifffile.imread", side_effect=fake_tiff_read):
+        with patch("swell.analysis.core.io.tifffile.imread", side_effect=fake_tiff_read):
             frames, names = dummy._load_frames_and_names([Path("a.tif"), Path("b.tif")])
         self.assertEqual(len(frames), 1)
         self.assertEqual(names, ["a.tif"])
@@ -69,7 +69,7 @@ class IOImportTests(unittest.TestCase):
 
     def test_file_selection_order_preserved(self):
         dummy = _DummyIO()
-        with patch("sdapp.analysis.core.io.cv2.imread", return_value=np.zeros((4, 4, 3), dtype=np.uint8)):
+        with patch("swell.analysis.core.io.cv2.imread", return_value=np.zeros((4, 4, 3), dtype=np.uint8)):
             frames, names = dummy._load_frames_and_names([Path("b.png"), Path("a.png")])
         self.assertEqual(len(frames), 2)
         self.assertEqual(names, ["b.png", "a.png"])
@@ -87,15 +87,15 @@ class IOImportTests(unittest.TestCase):
 
     def test_browse_input_files_mixed_valid_invalid_warns_and_keeps_valid(self):
         dummy = _DummyIO()
-        with patch("sdapp.analysis.core.io.resolve_existing_directory", return_value="."), patch(
-            "sdapp.analysis.core.io.filedialog.askopenfilenames",
+        with patch("swell.analysis.core.io.resolve_existing_directory", return_value="."), patch(
+            "swell.analysis.core.io.filedialog.askopenfilenames",
             return_value=("/tmp/a.png", "/tmp/b.txt"),
         ), patch.object(
             dummy,
             "_validate_selected_files",
             return_value=([Path("/tmp/a.png")], [("b.txt", "unsupported extension")]),
         ), patch(
-            "sdapp.analysis.core.io.messagebox.showwarning"
+            "swell.analysis.core.io.messagebox.showwarning"
         ) as warn_mock:
             selected = dummy.browse_input_files()
         self.assertEqual(selected, [Path("/tmp/a.png")])
@@ -107,15 +107,15 @@ class IOImportTests(unittest.TestCase):
         dummy = _DummyIO()
         dummy._selected_import_files = [Path("/tmp/old.png")]
         dummy.set_input_source_hint("old")
-        with patch("sdapp.analysis.core.io.resolve_existing_directory", return_value="."), patch(
-            "sdapp.analysis.core.io.filedialog.askopenfilenames",
+        with patch("swell.analysis.core.io.resolve_existing_directory", return_value="."), patch(
+            "swell.analysis.core.io.filedialog.askopenfilenames",
             return_value=("/tmp/bad.txt",),
         ), patch.object(
             dummy,
             "_validate_selected_files",
             return_value=([], [("bad.txt", "unsupported extension")]),
         ), patch(
-            "sdapp.analysis.core.io.messagebox.showwarning"
+            "swell.analysis.core.io.messagebox.showwarning"
         ) as warn_mock:
             selected = dummy.browse_input_files()
         self.assertIsNone(selected)
@@ -126,8 +126,8 @@ class IOImportTests(unittest.TestCase):
     def test_browse_input_folder_clears_selected_files(self):
         dummy = _DummyIO()
         dummy._selected_import_files = [Path("/tmp/a.png")]
-        with patch("sdapp.analysis.core.io.resolve_existing_directory", return_value="."), patch(
-            "sdapp.analysis.core.io.filedialog.askdirectory", return_value="/tmp/images"
+        with patch("swell.analysis.core.io.resolve_existing_directory", return_value="."), patch(
+            "swell.analysis.core.io.filedialog.askdirectory", return_value="/tmp/images"
         ):
             result = dummy.browse_input_folder()
         self.assertEqual(result, "/tmp/images")

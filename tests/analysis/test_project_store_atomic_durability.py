@@ -5,9 +5,9 @@ from unittest.mock import patch
 
 import numpy as np
 
-from sdapp.analysis.core.project_schema import default_project_state
-from sdapp.analysis.core import project_store as project_store_mod
-from sdapp.analysis.core.project_store import ProjectStore, _fsync_parent_directory
+from swell.analysis.core.project_schema import default_project_state
+from swell.analysis.core import project_store as project_store_mod
+from swell.analysis.core.project_store import ProjectStore, _fsync_parent_directory
 
 
 class ProjectStoreAtomicDurabilityTests(unittest.TestCase):
@@ -30,7 +30,7 @@ class ProjectStoreAtomicDurabilityTests(unittest.TestCase):
                 self.assertTrue(fsync_mock.called)
 
     def test_parent_fsync_best_effort_on_open_error(self):
-        with patch("sdapp.analysis.core.project_store.os.open", side_effect=OSError("not supported")):
+        with patch("swell.analysis.core.project_store.os.open", side_effect=OSError("not supported")):
             _fsync_parent_directory(Path("/tmp/x.sdproj"))
 
 

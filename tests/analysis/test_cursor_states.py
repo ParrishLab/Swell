@@ -1,6 +1,6 @@
 import unittest
 
-from sdapp.analysis.app import SDSegmentationApp
+from swell.analysis.app import SwellAnalysisApp
 
 
 class _ToolModeVar:
@@ -56,7 +56,7 @@ class _RootStub:
 
 class CursorStateTests(unittest.TestCase):
     def _make_app(self):
-        app = SDSegmentationApp.__new__(SDSegmentationApp)
+        app = SwellAnalysisApp.__new__(SwellAnalysisApp)
         app.root = _RootStub(_FocusWidget("Canvas"))
         app.tool_mode = _ToolModeVar("select")
         app.brush_size = _BrushSizeVar(10.0)

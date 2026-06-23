@@ -5,8 +5,8 @@ from unittest.mock import patch
 
 import numpy as np
 
-from sdapp.host.preview_controller import HostPreviewController
-from sdapp.shared.lru_cache import LRUCache
+from swell.host.preview_controller import HostPreviewController
+from swell.shared.lru_cache import LRUCache
 
 
 class _Label:
@@ -162,7 +162,7 @@ def test_popup_mini_reuses_main_preview_normalization_cache() -> None:
 
     controller.update_preview(1)
 
-    with patch("sdapp.host.preview_controller.ImageTk.PhotoImage", side_effect=lambda image: ("photo", image.size)):
+    with patch("swell.host.preview_controller.ImageTk.PhotoImage", side_effect=lambda image: ("photo", image.size)):
         controller.update_popup_mini_raw(1)
 
     assert app.reader.read_calls == [1]

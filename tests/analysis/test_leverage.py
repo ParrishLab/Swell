@@ -1,12 +1,12 @@
 import numpy as np
 
-from sdapp.analysis.app import SDSegmentationApp
-from sdapp.analysis.core.leverage import compute_trouble
-from sdapp.analysis.core.seg_state import SegmentationState
+from swell.analysis.app import SwellAnalysisApp
+from swell.analysis.core.leverage import compute_trouble
+from swell.analysis.core.seg_state import SegmentationState
 
 
 def _make_ground_truth_app():
-    app = SDSegmentationApp.__new__(SDSegmentationApp)
+    app = SwellAnalysisApp.__new__(SwellAnalysisApp)
     app.seg_state = SegmentationState()
     app.current_frame_idx = 2
     app.undo_stack = []
@@ -80,7 +80,7 @@ def test_compute_trouble_scores_internal_instability_inside_object_span():
 
 def test_sharp_jump_produces_visible_above_floor_leverage():
     """A single-frame discontinuity must read as a high-leverage correction site."""
-    from sdapp.analysis.core.leverage import compute_leverage, LEVERAGE_FLOOR
+    from swell.analysis.core.leverage import compute_leverage, LEVERAGE_FLOOR
 
     def blob(cx):
         m = np.zeros((64, 64), dtype=bool)
@@ -97,7 +97,7 @@ def test_sharp_jump_produces_visible_above_floor_leverage():
 
 
 def test_recompute_leverage_uses_composed_final_masks_from_paint_layers(monkeypatch):
-    app = SDSegmentationApp.__new__(SDSegmentationApp)
+    app = SwellAnalysisApp.__new__(SwellAnalysisApp)
     app.seg_state = SegmentationState()
     app._get_frame_count = lambda: 3
     app._get_frame_shape = lambda: (5, 5)
@@ -115,8 +115,8 @@ def test_recompute_leverage_uses_composed_final_masks_from_paint_layers(monkeypa
         captured["user_frames"] = user_frames
         return {1: 0.5}
 
-    monkeypatch.setattr("sdapp.analysis.core.leverage.compute_trouble", fake_compute_trouble)
-    monkeypatch.setattr("sdapp.analysis.core.leverage.compute_leverage", lambda trouble, frame_count: ({1: 0.4}, 1))
+    monkeypatch.setattr("swell.analysis.core.leverage.compute_trouble", fake_compute_trouble)
+    monkeypatch.setattr("swell.analysis.core.leverage.compute_leverage", lambda trouble, frame_count: ({1: 0.4}, 1))
 
     app._recompute_leverage_map()
 
@@ -129,7 +129,7 @@ def test_recompute_leverage_uses_composed_final_masks_from_paint_layers(monkeypa
 
 def test_set_propagated_frames_recomputes_leverage():
     """Ingesting propagated masks must refresh leverage so the heatmap is current."""
-    app = SDSegmentationApp.__new__(SDSegmentationApp)
+    app = SwellAnalysisApp.__new__(SwellAnalysisApp)
     app.seg_state = SegmentationState()
     app._get_frame_count = lambda: 6
     app._propagated_history_indices = set()

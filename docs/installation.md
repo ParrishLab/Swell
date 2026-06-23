@@ -18,20 +18,20 @@ This page covers system requirements, installation steps for both packaged binar
 
 ## Packaged Desktop Release (Recommended)
 
-Packaged builds allow you to run SDApp without setting up Python locally.
+Packaged builds allow you to run Swell without setting up Python locally.
 
 1. Download the latest release zip for your platform from the [GitHub Releases](https://github.com/ClayDunford/Combined-tool-test/releases) page.
 2. Extract the archive contents:
-    * **macOS**: Extract `sdapp-macos-arm64.zip` (Apple Silicon) or `sdapp-macos-x86_64.zip` (Intel). Move `SDApp.app` to your `/Applications` directory.
-    * **Windows**: Extract `sdapp-windows-x64.zip` to a folder of your choice.
+    * **macOS**: Extract `swell-macos-arm64.zip` (Apple Silicon) or `swell-macos-x86_64.zip` (Intel). Move `Swell.app` to your `/Applications` directory.
+    * **Windows**: Extract `swell-windows-x64.zip` to a folder of your choice.
 3. Launch the application:
-    * **macOS**: Double-click `SDApp.app`.
-    * **Windows**: Double-click `SDApp.exe`.
+    * **macOS**: Double-click `Swell.app`.
+    * **Windows**: Double-click `Swell.exe`.
 
 > [!WARNING]
 > **macOS Gatekeeper Warning**
 > Packaged macOS builds are unsigned and not notarized. Upon first launch, macOS will block execution. To bypass:
-> 1. Right-click (or Control-click) `SDApp.app` and choose **Open**.
+> 1. Right-click (or Control-click) `Swell.app` and choose **Open**.
 > 2. In the warning dialog that appears, click **Open** again.
 > 3. Alternatively, navigate to **System Settings → Privacy & Security**, scroll down, and select **Open Anyway** under the security section.
 
@@ -80,14 +80,14 @@ pip install -e ".[dev,docs,model]"
 
 ### 4. Launch from Terminal
 ```bash
-python -m sdapp.main
+python -m swell.main
 ```
 
 ---
 
 ## First-Run Model Onboarding
 
-SDApp requires weights (checkpoints) for the SAM-2 model to propagate segmentations. To prevent bloated downloads, these weights are **not** bundled with the application.
+Swell requires weights (checkpoints) for the SAM-2 model to propagate segmentations. To prevent bloated downloads, these weights are **not** bundled with the application.
 
 On your very first launch (or when opening the Analysis Window without a resolved checkpoint), you will be prompted with the **Model Onboarding Dialog**:
 
@@ -100,11 +100,11 @@ Cancel = Keep model-based tools disabled
 ```
 
 ### Option A: Automatic Download (Recommended)
-Click **Yes**. SDApp will automatically fetch the default model (`sam2.1_hiera_base_plus.pt`) from Hugging Face and verify its SHA-256 integrity hash (`1620c3a8...`).
+Click **Yes**. Swell will automatically fetch the default model (`sam2.1_hiera_base_plus.pt`) from Hugging Face and verify its SHA-256 integrity hash (`1620c3a8...`).
 * **Download Directory**:
-    * macOS: `~/Library/Application Support/sdapp/models/`
-    * Windows: `%APPDATA%\sdapp\models\`
-* **Custom Models Directory**: You can override the download path by setting the `SDAPP_MODELS_DIR` environment variable before starting the application.
+    * macOS: `~/Library/Application Support/swell/models/`
+    * Windows: `%APPDATA%\swell\models\`
+* **Custom Models Directory**: You can override the download path by setting the `SWELL_MODELS_DIR` environment variable before starting the application.
 
 ### Option B: Local File Association
 If you are working offline, click **No** and select a pre-downloaded `.pt` file on your filesystem. 
@@ -119,7 +119,7 @@ Click **Cancel** to keep the model disabled. You will still be able to open proj
 To run a non-interactive startup check that verifies all modules load correctly:
 
 ```bash
-python -m sdapp.main --smoke-test
+python -m swell.main --smoke-test
 ```
 
 If the environment is fully working, it will print:

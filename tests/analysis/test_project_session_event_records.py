@@ -2,8 +2,8 @@ import unittest
 
 import numpy as np
 
-from sdapp.analysis.core.project_session import EventRecord, ProjectSessionService
-from sdapp.analysis.core.seg_state import SegmentationState
+from swell.analysis.core.project_session import EventRecord, ProjectSessionService
+from swell.analysis.core.seg_state import SegmentationState
 
 
 class ProjectSessionEventRecordTests(unittest.TestCase):

@@ -5,9 +5,9 @@ from types import SimpleNamespace
 
 import numpy as np
 
-from sdapp.host.browser_controller import BrowserController
-from sdapp.host.controllers.project_lifecycle_controller import HostProjectLifecycleController
-from sdapp.host.config import FrameRef
+from swell.host.browser_controller import BrowserController
+from swell.host.controllers.project_lifecycle_controller import HostProjectLifecycleController
+from swell.host.config import FrameRef
 
 
 class _FakeReader:

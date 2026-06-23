@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sdapp.analysis.app import SDSegmentationApp
+from swell.analysis.app import SwellAnalysisApp
 
 
 class _RuntimeStub:
@@ -18,7 +18,7 @@ class _RuntimeStub:
 
 
 def test_analysis_app_delegates_runtime_methods_to_runtime_controller() -> None:
-    app = SDSegmentationApp.__new__(SDSegmentationApp)
+    app = SwellAnalysisApp.__new__(SwellAnalysisApp)
     runtime = _RuntimeStub()
     app._get_runtime_controller = lambda: runtime
 

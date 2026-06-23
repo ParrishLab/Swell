@@ -36,7 +36,7 @@ def validate_installer_metadata(*, repo_root: Path, installer_path: Path, pyproj
             f"Windows installer APP_VERSION mismatch: installer={installer_version} pyproject={project_version}."
         )
 
-    payload_line = 'File /r "dist\\\\windows-x64\\\\SDApp\\\\*.*"'
+    payload_line = 'File /r "dist\\\\windows-x64\\\\Swell\\\\*.*"'
     if payload_line not in script:
         raise RuntimeError("Windows installer payload line is missing or changed unexpectedly.")
     if f"; {payload_line}" in script:
@@ -44,7 +44,7 @@ def validate_installer_metadata(*, repo_root: Path, installer_path: Path, pyproj
 
     for required in (
         'IfFileExists "$INSTDIR\\\\${APP_EXE}"',
-        'IfFileExists "$INSTDIR\\\\sdproj_doc_icon.ico"',
+        'IfFileExists "$INSTDIR\\\\swell_doc_icon.ico"',
     ):
         if required not in script:
             raise RuntimeError(f"Windows installer runtime payload guard is missing: {required}")
@@ -53,7 +53,7 @@ def validate_installer_metadata(*, repo_root: Path, installer_path: Path, pyproj
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Validate Windows NSIS installer metadata and payload guards.")
     parser.add_argument("--repo-root", default=None, help="Repository root path.")
-    parser.add_argument("--installer", default="packaging/windows/sdapp_installer.nsi", help="NSIS script path.")
+    parser.add_argument("--installer", default="packaging/windows/swell_installer.nsi", help="NSIS script path.")
     parser.add_argument("--pyproject", default="pyproject.toml", help="pyproject.toml path.")
     return parser.parse_args(argv)
 

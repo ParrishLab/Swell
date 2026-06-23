@@ -2,9 +2,9 @@ import csv
 from pathlib import Path
 import numpy as np
 
-from sdapp.analysis.core.metrics import compute_frame_metrics, extract_primary_boundary, smooth_boundary_fft
-from sdapp.host.config import EventCandidate, FrameRef
-from sdapp.host.exporter import export_analysis
+from swell.analysis.core.metrics import compute_frame_metrics, extract_primary_boundary, smooth_boundary_fft
+from swell.host.config import EventCandidate, FrameRef
+from swell.host.exporter import export_analysis
 
 class FakeReader:
     def __init__(self, frames: list[np.ndarray], source_ext: str = ".tif"):

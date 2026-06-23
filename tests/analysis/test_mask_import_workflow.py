@@ -3,7 +3,7 @@ from unittest.mock import patch
 
 import numpy as np
 
-from sdapp.analysis.core import mask_import_workflow
+from swell.analysis.core import mask_import_workflow
 
 
 class _DialogStub:
@@ -109,7 +109,7 @@ class _AppStub:
 
 
 class MaskImportWorkflowTests(unittest.TestCase):
-    @patch("sdapp.analysis.core.mask_import_workflow.messagebox.showinfo")
+    @patch("swell.analysis.core.mask_import_workflow.messagebox.showinfo")
     def test_import_updates_event_masks(self, info_mock):
         mask = np.ones((4, 4), dtype=bool)
         app = _AppStub(dialog=_DialogStub(paths=["a.tif"], masks=[mask, mask], offset=1))
@@ -121,8 +121,8 @@ class MaskImportWorkflowTests(unittest.TestCase):
         self.assertTrue(info_mock.called)
         self.assertEqual(app.sync_calls, [])
 
-    @patch("sdapp.analysis.core.mask_import_workflow.messagebox.showwarning")
-    @patch("sdapp.analysis.core.mask_import_workflow.messagebox.showinfo")
+    @patch("swell.analysis.core.mask_import_workflow.messagebox.showwarning")
+    @patch("swell.analysis.core.mask_import_workflow.messagebox.showinfo")
     def test_host_mode_import_emits_host_sync(self, info_mock, warning_mock):
         mask = np.ones((4, 4), dtype=bool)
         app = _AppStub(
@@ -137,8 +137,8 @@ class MaskImportWorkflowTests(unittest.TestCase):
         self.assertEqual(warning_mock.call_count, 0)
         self.assertTrue(info_mock.called)
 
-    @patch("sdapp.analysis.core.mask_import_workflow.messagebox.showwarning")
-    @patch("sdapp.analysis.core.mask_import_workflow.messagebox.showinfo")
+    @patch("swell.analysis.core.mask_import_workflow.messagebox.showwarning")
+    @patch("swell.analysis.core.mask_import_workflow.messagebox.showinfo")
     def test_host_mode_import_surfaces_host_rejection_but_keeps_local_masks(self, info_mock, warning_mock):
         mask = np.ones((4, 4), dtype=bool)
         app = _AppStub(
@@ -156,8 +156,8 @@ class MaskImportWorkflowTests(unittest.TestCase):
         self.assertTrue(warning_mock.called)
         self.assertTrue(info_mock.called)
 
-    @patch("sdapp.analysis.core.mask_import_workflow.messagebox.showwarning")
-    @patch("sdapp.analysis.core.mask_import_workflow.messagebox.showinfo")
+    @patch("swell.analysis.core.mask_import_workflow.messagebox.showwarning")
+    @patch("swell.analysis.core.mask_import_workflow.messagebox.showinfo")
     def test_host_mode_import_surfaces_host_sync_exception_but_keeps_local_masks(self, info_mock, warning_mock):
         mask = np.ones((4, 4), dtype=bool)
         app = _AppStub(

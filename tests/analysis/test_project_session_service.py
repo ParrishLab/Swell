@@ -2,8 +2,8 @@ import unittest
 
 import numpy as np
 
-from sdapp.analysis.core.project_session import ProjectSessionService, SessionSnapshot
-from sdapp.analysis.core.seg_state import SegmentationState
+from swell.analysis.core.project_session import ProjectSessionService, SessionSnapshot
+from swell.analysis.core.seg_state import SegmentationState
 
 
 class ProjectSessionServiceTests(unittest.TestCase):

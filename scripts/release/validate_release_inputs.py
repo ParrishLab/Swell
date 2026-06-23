@@ -9,7 +9,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from sdapp.shared.release_governance import validate_release_metadata
+from swell.shared.release_governance import validate_release_metadata
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:

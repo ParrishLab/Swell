@@ -5,7 +5,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from sdapp.analysis.core.metrics import (
+from swell.analysis.core.metrics import (
     compute_frame_metrics,
     compute_roi_metrics,
     compute_scale,

@@ -3,8 +3,8 @@ from __future__ import annotations
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from sdapp.host.host_models import EventMeta
-from sdapp.host.controllers.analysis_launch_controller import AnalysisLaunchController
+from swell.host.host_models import EventMeta
+from swell.host.controllers.analysis_launch_controller import AnalysisLaunchController
 
 
 def test_analyze_selected_event_blocked_when_model_gate_not_ready() -> None:
@@ -21,7 +21,7 @@ def test_analyze_selected_event_blocked_when_model_gate_not_ready() -> None:
     )
     controller = AnalysisLaunchController(app)
 
-    with patch("sdapp.host.controllers.analysis_launch_controller.messagebox.askyesno", return_value=False):
+    with patch("swell.host.controllers.analysis_launch_controller.messagebox.askyesno", return_value=False):
         controller.analyze_selected_event()
 
     assert warnings
@@ -53,7 +53,7 @@ def test_open_analysis_full_stack_fallback_cancelled_before_preview() -> None:
     controller = AnalysisLaunchController(app)
     controller.prompt_analysis_open_options = lambda **kwargs: prompted.append(dict(kwargs))  # type: ignore[method-assign]
 
-    with patch("sdapp.host.controllers.analysis_launch_controller.messagebox.askyesno", return_value=False):
+    with patch("swell.host.controllers.analysis_launch_controller.messagebox.askyesno", return_value=False):
         controller.analyze_selected_event()
 
     assert ensured == []
@@ -113,7 +113,7 @@ def test_open_analysis_full_stack_fallback_creates_event_before_preview() -> Non
     controller = AnalysisLaunchController(app)
     controller.prompt_analysis_open_options = lambda **kwargs: prompted.append(dict(kwargs)) or None  # type: ignore[method-assign]
 
-    with patch("sdapp.host.controllers.analysis_launch_controller.messagebox.askyesno", return_value=True):
+    with patch("swell.host.controllers.analysis_launch_controller.messagebox.askyesno", return_value=True):
         controller.analyze_selected_event()
 
     assert ensured == [8]
@@ -157,7 +157,7 @@ def test_open_analysis_selected_event_skips_full_stack_confirmation() -> None:
     controller = AnalysisLaunchController(app)
     controller.prompt_analysis_open_options = lambda **kwargs: prompted.append(dict(kwargs)) or None  # type: ignore[method-assign]
 
-    with patch("sdapp.host.controllers.analysis_launch_controller.messagebox.askyesno", side_effect=AssertionError("should not confirm")):
+    with patch("swell.host.controllers.analysis_launch_controller.messagebox.askyesno", side_effect=AssertionError("should not confirm")):
         controller.analyze_selected_event()
 
     assert prompted == [{"event_id": "event_0042", "event_start": 2, "event_end": 5}]

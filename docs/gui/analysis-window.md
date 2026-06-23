@@ -68,7 +68,7 @@ Configure parameters that override project-level defaults:
 * Actions to duplicate or delete selected regions.
 
 ### F. Save Actions (Bottom Dock)
-* **Save Current Masks**: Commits all drafted and propagated masks into the active `.sdproj` session.
+* **Save Current Masks**: Commits all drafted and propagated masks into the active `.swell` session.
 
 ---
 
@@ -112,6 +112,6 @@ The timeline at the bottom of the canvas combines a frame scrubber with three di
 
 ## 6. Known Limitations
 
-* **SAM2 CPU Fallback**: If PyTorch or CUDA/MPS libraries are missing, or if you run out of VRAM, the app falls back to a deterministic CPU predictor. While functional, propagation speed will be significantly slower. You can force a specific device (e.g. `cpu`, `mps`, or `cuda`) using the `SDAPP_DEVICE` environment variable.
+* **SAM2 CPU Fallback**: If PyTorch or CUDA/MPS libraries are missing, or if you run out of VRAM, the app falls back to a deterministic CPU predictor. While functional, propagation speed will be significantly slower. You can force a specific device (e.g. `cpu`, `mps`, or `cuda`) using the `SWELL_DEVICE` environment variable.
 * **Native C Extensions Warning**: A warning log about missing native `_C` extension libraries may appear on start. This is normal in environments without fully compiled C++ bindings and does not block segmentation.
 * **Timeline Redraw Optimization**: The timeline is cached to avoid rendering lag. Under heavy editing, manually scrubbing the timeline will refresh all visual overlays.

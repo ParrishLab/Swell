@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from sdapp.shared.frame_source import EventScopedFrameSource, PreparedFrameSource, build_visualization_stack
+from swell.shared.frame_source import EventScopedFrameSource, PreparedFrameSource, build_visualization_stack
 
 
 class DummyFrameSource:

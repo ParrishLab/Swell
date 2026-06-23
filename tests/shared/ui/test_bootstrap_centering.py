@@ -3,7 +3,7 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
-from sdapp.shared.ui.bootstrap import center_window_on_screen
+from swell.shared.ui.bootstrap import center_window_on_screen
 
 
 class _FakeWindow:

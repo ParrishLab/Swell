@@ -2,7 +2,7 @@ import unittest
 
 import numpy as np
 
-from sdapp.analysis.core.frame_source import EagerFrameSource
+from swell.analysis.core.frame_source import EagerFrameSource
 
 
 class FrameSourceTests(unittest.TestCase):

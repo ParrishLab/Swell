@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sdapp.shared.services import AnalysisWindowManager
+from swell.shared.services import AnalysisWindowManager
 
 
 class FakeWindow:

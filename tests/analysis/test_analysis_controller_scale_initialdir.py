@@ -3,8 +3,8 @@ from unittest.mock import patch
 
 import numpy as np
 
-from sdapp.analysis.core.analysis_controller import AnalysisController
-from sdapp.analysis.core.analysis_context import AnalysisContext
+from swell.analysis.core.analysis_controller import AnalysisController
+from swell.analysis.core.analysis_context import AnalysisContext
 
 
 def _make_controller(
@@ -72,7 +72,7 @@ def test_start_scale_selection_uses_project_source_folder_for_initialdir(tmp_pat
         captured.update(kwargs)
         return ""
 
-    with patch("sdapp.analysis.core.analysis_controller.filedialog.askopenfilename", side_effect=_fake_dialog):
+    with patch("swell.analysis.core.analysis_controller.filedialog.askopenfilename", side_effect=_fake_dialog):
         controller.start_scale_selection()
 
     assert Path(captured["initialdir"]).resolve() == stack_dir.resolve()
@@ -98,8 +98,8 @@ def test_start_scale_selection_keeps_last_scale_path_priority(tmp_path):
 
     controller._load_image_u8_from_path = lambda _path: np.zeros((8, 8), dtype=np.uint8)
 
-    with patch("sdapp.analysis.core.analysis_controller.filedialog.askopenfilename") as dialog_mock:
-        with patch("sdapp.analysis.core.analysis_controller.open_scale_dialog", return_value=None):
+    with patch("swell.analysis.core.analysis_controller.filedialog.askopenfilename") as dialog_mock:
+        with patch("swell.analysis.core.analysis_controller.open_scale_dialog", return_value=None):
             controller.start_scale_selection()
 
     dialog_mock.assert_not_called()
@@ -118,8 +118,8 @@ def test_capture_scale_selection_passes_existing_scale_points_to_dialog(tmp_path
     )
     controller._load_image_u8_from_path = lambda _path: np.zeros((40, 50), dtype=np.uint8)
 
-    with patch("sdapp.analysis.core.analysis_controller.filedialog.askopenfilename", return_value=str(image_path)):
-        with patch("sdapp.analysis.core.analysis_controller.open_scale_dialog", return_value=None) as dialog_mock:
+    with patch("swell.analysis.core.analysis_controller.filedialog.askopenfilename", return_value=str(image_path)):
+        with patch("swell.analysis.core.analysis_controller.open_scale_dialog", return_value=None) as dialog_mock:
             controller._capture_scale_selection()
 
     assert dialog_mock.call_args.kwargs["initial_scale_points"] == [(10.0, 12.0), (30.0, 12.0)]
@@ -168,8 +168,8 @@ def test_capture_scale_selection_passes_saved_axis_lock_to_dialog(tmp_path):
     )
     controller._load_image_u8_from_path = lambda _path: np.zeros((40, 50), dtype=np.uint8)
 
-    with patch("sdapp.analysis.core.analysis_controller.filedialog.askopenfilename", return_value=str(image_path)):
-        with patch("sdapp.analysis.core.analysis_controller.open_scale_dialog", return_value=None) as dialog_mock:
+    with patch("swell.analysis.core.analysis_controller.filedialog.askopenfilename", return_value=str(image_path)):
+        with patch("swell.analysis.core.analysis_controller.open_scale_dialog", return_value=None) as dialog_mock:
             controller._capture_scale_selection()
 
     assert dialog_mock.call_args.kwargs["initial_axis_lock"] is False
@@ -187,9 +187,9 @@ def test_capture_scale_selection_returns_selected_image_path(tmp_path):
     )
     controller._load_image_u8_from_path = lambda _path: np.zeros((40, 50), dtype=np.uint8)
 
-    with patch("sdapp.analysis.core.analysis_controller.filedialog.askopenfilename", return_value=str(image_path)):
+    with patch("swell.analysis.core.analysis_controller.filedialog.askopenfilename", return_value=str(image_path)):
         with patch(
-            "sdapp.analysis.core.analysis_controller.open_scale_dialog",
+            "swell.analysis.core.analysis_controller.open_scale_dialog",
             return_value={
                 "target_scope": "local",
                 "px_per_mm": 2.0,
@@ -219,8 +219,8 @@ def test_capture_scale_selection_reuses_last_scale_image_path_when_available(tmp
     loaded_paths: list[str] = []
     controller._load_image_u8_from_path = lambda path: loaded_paths.append(str(path)) or np.zeros((40, 50), dtype=np.uint8)
 
-    with patch("sdapp.analysis.core.analysis_controller.filedialog.askopenfilename") as dialog_mock:
-        with patch("sdapp.analysis.core.analysis_controller.open_scale_dialog", return_value=None):
+    with patch("swell.analysis.core.analysis_controller.filedialog.askopenfilename") as dialog_mock:
+        with patch("swell.analysis.core.analysis_controller.open_scale_dialog", return_value=None):
             controller._capture_scale_selection()
 
     dialog_mock.assert_not_called()
@@ -249,8 +249,8 @@ def test_capture_roi_selection_uses_image_picker_with_project_source_initialdir(
         captured.update(kwargs)
         return str(roi_image_path)
 
-    with patch("sdapp.analysis.core.analysis_controller.filedialog.askopenfilename", side_effect=_fake_dialog):
-        with patch("sdapp.analysis.core.analysis_controller.open_roi_dialog", return_value=None):
+    with patch("swell.analysis.core.analysis_controller.filedialog.askopenfilename", side_effect=_fake_dialog):
+        with patch("swell.analysis.core.analysis_controller.open_roi_dialog", return_value=None):
             controller._capture_roi_selection()
 
     assert Path(captured["initialdir"]).resolve() == stack_dir.resolve()
@@ -282,7 +282,7 @@ def test_capture_roi_selection_prefills_current_active_frame_name(tmp_path):
         captured.update(kwargs)
         return ""
 
-    with patch("sdapp.analysis.core.analysis_controller.filedialog.askopenfilename", side_effect=_fake_dialog):
+    with patch("swell.analysis.core.analysis_controller.filedialog.askopenfilename", side_effect=_fake_dialog):
         controller._capture_roi_selection()
 
     assert Path(captured["initialdir"]).resolve() == stack_dir.resolve()

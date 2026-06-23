@@ -23,7 +23,7 @@ def build_manifest(*, pyproject_path: Path, policy_path: Path) -> dict:
 
     manifest = {
         "manifest_version": int(policy.get("manifest_version", 1)),
-        "app_name": str(project.get("name", "sdapp")),
+        "app_name": str(project.get("name", "swell")),
         "app_version": str(project.get("version", "0.0.0")),
         "python_requires": str(project.get("requires-python", "")),
         "sam2_reference": str(policy.get("sam2_reference", "")),

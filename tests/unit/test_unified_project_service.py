@@ -4,8 +4,8 @@ from pathlib import Path
 
 import numpy as np
 
-from sdapp.shared.models import EventMeta, StackRef, UnifiedProjectState
-from sdapp.shared.services import UnifiedProjectService
+from swell.shared.models import EventMeta, StackRef, UnifiedProjectState
+from swell.shared.services import UnifiedProjectService
 
 
 def _stack_ref(tag: str) -> StackRef:
@@ -148,15 +148,15 @@ def test_unified_service_save_project_defaults_to_input_folder_name(tmp_path: Pa
 
     state = service.save_project()
 
-    assert state.project_path == "input_folder.sdproj"
-    assert (tmp_path / "input_folder.sdproj").exists()
+    assert state.project_path == "input_folder.swell"
+    assert (tmp_path / "input_folder.swell").exists()
 
 
 def test_unified_service_normal_save_rejects_missing_existing_project(tmp_path: Path) -> None:
     service = UnifiedProjectService()
     service.new_project(_stack_ref("input_folder"))
-    original = tmp_path / "original.sdproj"
-    renamed = tmp_path / "renamed.sdproj"
+    original = tmp_path / "original.swell"
+    renamed = tmp_path / "renamed.swell"
     service.save_project(str(original))
     original.rename(renamed)
 
@@ -186,7 +186,7 @@ def test_unified_service_preserves_analysis_frame_origins_on_save_load(tmp_path:
             "masks_draft_frame_origin": "analysis_scope_local",
         },
     )
-    path = tmp_path / "origins.sdproj"
+    path = tmp_path / "origins.swell"
 
     service.save_project(str(path))
     loaded = UnifiedProjectService()

@@ -4,7 +4,7 @@ import time
 import unittest
 from pathlib import Path
 
-from sdapp.analysis.core.project_store import cleanup_stale_temp_files
+from swell.analysis.core.project_store import cleanup_stale_temp_files
 
 
 class ProjectTmpCleanupTests(unittest.TestCase):

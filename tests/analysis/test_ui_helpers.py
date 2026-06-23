@@ -1,8 +1,8 @@
 import unittest
 from unittest.mock import patch
 
-from sdapp.analysis.ui.theme import apply_theme
-from sdapp.analysis.ui.widgets import build_preview_overlay
+from swell.analysis.ui.theme import apply_theme
+from swell.analysis.ui.widgets import build_preview_overlay
 
 
 class _FakeStyle:
@@ -80,7 +80,7 @@ class _FakeLabel:
 class UiHelpersTests(unittest.TestCase):
     def test_apply_theme_configures_style(self):
         fake = _FakeStyle(None)
-        with patch("sdapp.shared.ui.theme.Style", return_value=fake):
+        with patch("swell.shared.ui.theme.Style", return_value=fake):
             apply_theme(root=None)
         configured = {name for name, _ in fake.config_calls}
         self.assertIn("AppCard.TFrame", configured)
@@ -100,10 +100,10 @@ class UiHelpersTests(unittest.TestCase):
         fake.fail_scrollbar_once = True
         fallback_calls = []
         with (
-            patch("sdapp.shared.ui.theme.Style", return_value=fake),
-            patch("sdapp.shared.ui.theme.BOOTSTRAP_AVAILABLE", True),
+            patch("swell.shared.ui.theme.Style", return_value=fake),
+            patch("swell.shared.ui.theme.BOOTSTRAP_AVAILABLE", True),
             patch(
-                "sdapp.shared.ui.theme.tk_ttk.Style.configure",
+                "swell.shared.ui.theme.tk_ttk.Style.configure",
                 autospec=True,
                 side_effect=lambda style_obj, style_name, **kwargs: fallback_calls.append((style_obj, style_name, kwargs)),
             ),
@@ -113,8 +113,8 @@ class UiHelpersTests(unittest.TestCase):
         self.assertIn("TScrollbar", fake.registered)
 
     def test_build_preview_overlay_binds_drag_handlers(self):
-        with patch("sdapp.analysis.ui.widgets.ttk.Frame", _FakeFrame), patch("sdapp.analysis.ui.widgets.tk.Canvas", _FakeCanvas), patch(
-            "sdapp.analysis.ui.widgets.ttk.Label", _FakeLabel
+        with patch("swell.analysis.ui.widgets.ttk.Frame", _FakeFrame), patch("swell.analysis.ui.widgets.tk.Canvas", _FakeCanvas), patch(
+            "swell.analysis.ui.widgets.ttk.Label", _FakeLabel
         ):
             start = lambda _e: None
             drag = lambda _e: None

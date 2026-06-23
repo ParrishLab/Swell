@@ -2,7 +2,7 @@ import unittest
 
 import numpy as np
 
-from sdapp.analysis.core.seg_state import SegmentationState
+from swell.analysis.core.seg_state import SegmentationState
 
 
 class SegStatePromptSerializationTests(unittest.TestCase):

@@ -44,7 +44,7 @@ jobs:
 
       - name: Run startup smoke test
         run: |
-          OUT="$(python -m sdapp.main --smoke-test | tail -n 1)"
+          OUT="$(python -m swell.main --smoke-test | tail -n 1)"
           test "$OUT" = "SMOKE_TEST:PASS"
 
       - name: Run model init smoke test
@@ -99,7 +99,7 @@ jobs:
 
       - name: Run startup smoke test
         run: |
-          OUT="$(python -m sdapp.main --smoke-test | tail -n 1)"
+          OUT="$(python -m swell.main --smoke-test | tail -n 1)"
           test "$OUT" = "SMOKE_TEST:PASS"
 
       - name: Run model runtime smoke test
@@ -108,22 +108,22 @@ jobs:
           test "$OUT" = "MODEL_SMOKE:PASS"
 
       - name: Build macOS arm64 app
-        run: SDAPP_SIGN_UPDATES=false PYTHON_BIN=python ./scripts/release/build_macos_app_arm64.sh
+        run: SWELL_SIGN_UPDATES=false PYTHON_BIN=python ./scripts/release/build_macos_app_arm64.sh
 
       - name: Run packaged app model runtime smoke test
         run: |
-          OUT="$(dist/macos-arm64/SDApp.app/Contents/MacOS/SDApp --smoke-test --smoke-model-runtime | tail -n 1)"
+          OUT="$(dist/macos-arm64/Swell.app/Contents/MacOS/Swell --smoke-test --smoke-model-runtime | tail -n 1)"
           test "$OUT" = "SMOKE_TEST:PASS"
 
       - name: Run packaged app launch probe
         run: |
-          OUT="$(python scripts/release/run_launch_probe.py --bundle-path dist/macos-arm64/SDApp.app | tail -n 1)"
+          OUT="$(python scripts/release/run_launch_probe.py --bundle-path dist/macos-arm64/Swell.app | tail -n 1)"
           test "$OUT" = "LAUNCH_PROBE:PASS"
 
       - name: Verify macOS arm64 outputs
         run: |
-          test -d dist/macos-arm64/SDApp.app
-          test -f dist/sdapp-macos-arm64.zip
+          test -d dist/macos-arm64/Swell.app
+          test -f dist/swell-macos-arm64.zip
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v6
@@ -153,7 +153,7 @@ jobs:
 
       - name: Run startup smoke test
         run: |
-          OUT="$(python -m sdapp.main --smoke-test | tail -n 1)"
+          OUT="$(python -m swell.main --smoke-test | tail -n 1)"
           test "$OUT" = "SMOKE_TEST:PASS"
 
       - name: Run model runtime smoke test
@@ -162,22 +162,22 @@ jobs:
           test "$OUT" = "MODEL_SMOKE:PASS"
 
       - name: Build macOS x86_64 app
-        run: SDAPP_SIGN_UPDATES=false PYTHON_BIN=python ./scripts/release/build_macos_app_x86_64.sh
+        run: SWELL_SIGN_UPDATES=false PYTHON_BIN=python ./scripts/release/build_macos_app_x86_64.sh
 
       - name: Run packaged app model runtime smoke test
         run: |
-          OUT="$(dist/macos-x86_64/SDApp.app/Contents/MacOS/SDApp --smoke-test --smoke-model-runtime | tail -n 1)"
+          OUT="$(dist/macos-x86_64/Swell.app/Contents/MacOS/Swell --smoke-test --smoke-model-runtime | tail -n 1)"
           test "$OUT" = "SMOKE_TEST:PASS"
 
       - name: Run packaged app launch probe
         run: |
-          OUT="$(python scripts/release/run_launch_probe.py --bundle-path dist/macos-x86_64/SDApp.app | tail -n 1)"
+          OUT="$(python scripts/release/run_launch_probe.py --bundle-path dist/macos-x86_64/Swell.app | tail -n 1)"
           test "$OUT" = "LAUNCH_PROBE:PASS"
 
       - name: Verify macOS x86_64 outputs
         run: |
-          test -d dist/macos-x86_64/SDApp.app
-          test -f dist/sdapp-macos-x86_64.zip
+          test -d dist/macos-x86_64/Swell.app
+          test -f dist/swell-macos-x86_64.zip
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v6
@@ -223,7 +223,7 @@ jobs:
       - name: Run startup smoke test
         shell: pwsh
         run: |
-          $out = (python -m sdapp.main --smoke-test | Select-Object -Last 1)
+          $out = (python -m swell.main --smoke-test | Select-Object -Last 1)
           if ($out -ne "SMOKE_TEST:PASS") { throw "Smoke test failed: $out" }
 
       - name: Run model init smoke test
@@ -241,26 +241,26 @@ jobs:
       - name: Build Windows x64 app package
         shell: pwsh
         run: |
-          $env:SDAPP_BUILD_INSTALLER="false"
+          $env:SWELL_BUILD_INSTALLER="false"
           ./scripts/release/build_windows_app_x64.ps1
 
       - name: Run packaged app model runtime smoke test
         shell: pwsh
         run: |
-          $out = (& "dist/windows-x64/SDApp/SDApp.exe" --smoke-test --smoke-model-runtime | Select-Object -Last 1)
+          $out = (& "dist/windows-x64/Swell/Swell.exe" --smoke-test --smoke-model-runtime | Select-Object -Last 1)
           if ($out -ne "SMOKE_TEST:PASS") { throw "Packaged app smoke failed: $out" }
 
       - name: Run packaged app open-request smoke test
         shell: pwsh
         run: |
-          $out = (python scripts/release/run_open_request_smoke.py --app-cmd "dist/windows-x64/SDApp/SDApp.exe" | Select-Object -Last 1)
+          $out = (python scripts/release/run_open_request_smoke.py --app-cmd "dist/windows-x64/Swell/Swell.exe" | Select-Object -Last 1)
           if ($out -ne "OPEN_REQUEST_SMOKE:PASS") { throw "Open request smoke failed: $out" }
 
       - name: Verify Windows package outputs
         shell: pwsh
         run: |
-          if (!(Test-Path "dist/windows-x64/SDApp")) { throw "missing dist/windows-x64/SDApp" }
-          if (!(Test-Path "dist/sdapp-windows-x64.zip")) { throw "missing dist/sdapp-windows-x64.zip" }
+          if (!(Test-Path "dist/windows-x64/Swell")) { throw "missing dist/windows-x64/Swell" }
+          if (!(Test-Path "dist/swell-windows-x64.zip")) { throw "missing dist/swell-windows-x64.zip" }
 
       - name: Generate compatibility manifest
         run: python scripts/release/generate_compatibility_manifest.py

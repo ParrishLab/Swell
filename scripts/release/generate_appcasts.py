@@ -98,21 +98,21 @@ def generate_appcasts(
     release_page_url = f"https://github.com/{github_repo}/releases/tag/{stable_tag}"
     download_base_url = f"https://github.com/{github_repo}/releases/download/{stable_tag}"
     published = published_at or datetime.now(timezone.utc).strftime("%a, %d %b %Y %H:%M:%S %z")
-    windows_installer = next(iter(sorted(dist_dir.glob("SDApp-Setup-*.exe"))), None)
+    windows_installer = next(iter(sorted(dist_dir.glob("Swell-Setup-*.exe"))), None)
 
     specs = [
         ArtifactSpec(
             platform="macos",
-            artifact_path=dist_dir / "sdapp-macos-arm64.zip",
+            artifact_path=dist_dir / "swell-macos-arm64.zip",
             output_path=output_dir / "appcast-macos.xml",
-            download_url=f"{download_base_url}/sdapp-macos-arm64.zip",
-            signature_path=dist_dir / "sdapp-macos-arm64-signature.json",
+            download_url=f"{download_base_url}/swell-macos-arm64.zip",
+            signature_path=dist_dir / "swell-macos-arm64-signature.json",
         ),
         ArtifactSpec(
             platform="windows",
-            artifact_path=windows_installer or (dist_dir / "SDApp-Setup-missing.exe"),
+            artifact_path=windows_installer or (dist_dir / "Swell-Setup-missing.exe"),
             output_path=output_dir / "appcast-windows.xml",
-            download_url=f"{download_base_url}/{windows_installer.name if windows_installer else 'SDApp-Setup-missing.exe'}",
+            download_url=f"{download_base_url}/{windows_installer.name if windows_installer else 'Swell-Setup-missing.exe'}",
         ),
     ]
 
@@ -124,11 +124,11 @@ def generate_appcasts(
             raise RuntimeError(f"Missing signature metadata for {spec.platform}: {spec.signature_path}")
         rss = ET.Element("rss", attrib={"version": "2.0"})
         channel = ET.SubElement(rss, "channel")
-        ET.SubElement(channel, "title").text = f"SDApp {spec.platform} stable releases"
+        ET.SubElement(channel, "title").text = f"Swell {spec.platform} stable releases"
         ET.SubElement(channel, "link").text = release_page_url
         channel.append(
             _build_item(
-                title=f"SDApp {version}",
+                title=f"Swell {version}",
                 version=version,
                 notes_url=release_page_url,
                 download_url=spec.download_url,

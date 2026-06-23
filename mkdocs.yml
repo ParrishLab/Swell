@@ -1,6 +1,6 @@
-site_name: SDApp
-site_description: Desktop tool for identifying SD events in image stacks and running event-level segmentation analysis.
-site_url: https://sdapp.readthedocs.io/
+site_name: Swell
+site_description: Desktop tool for identifying events in image stacks and running event-level segmentation analysis.
+site_url: https://swell.readthedocs.io/
 repo_url: https://github.com/ClayDunford/Combined-tool-test
 repo_name: ClayDunford/Combined-tool-test
 edit_uri: edit/main/docs/

@@ -3,8 +3,8 @@ from unittest.mock import patch
 
 import numpy as np
 
-import sdapp.analysis.core.seg_state as seg_state_module
-from sdapp.analysis.core.seg_state import SegmentationState
+import swell.analysis.core.seg_state as seg_state_module
+from swell.analysis.core.seg_state import SegmentationState
 
 
 class SegmentationStateTests(unittest.TestCase):

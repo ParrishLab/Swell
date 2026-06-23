@@ -2,14 +2,14 @@ import unittest
 
 import numpy as np
 
-from sdapp.analysis.app import SDSegmentationApp
-from sdapp.analysis.controllers.host_mode_controller import AnalysisHostModeController
-from sdapp.shared.frame_source.preprocessing import compute_visualization_stats
+from swell.analysis.app import SwellAnalysisApp
+from swell.analysis.controllers.host_mode_controller import AnalysisHostModeController
+from swell.shared.frame_source.preprocessing import compute_visualization_stats
 
 
 class SessionStateProxyTests(unittest.TestCase):
     def test_lazy_session_state_for_new_instances(self):
-        app = SDSegmentationApp.__new__(SDSegmentationApp)
+        app = SwellAnalysisApp.__new__(SwellAnalysisApp)
         app._export_range_auto_follow = False
         app.active_event_id = "ev_1"
         app.event_states = {"ev_1": {}}
@@ -18,7 +18,7 @@ class SessionStateProxyTests(unittest.TestCase):
         self.assertIn("ev_1", app.event_states)
 
     def test_open_from_host_handoff_binds_provided_frame_source(self):
-        app = SDSegmentationApp.__new__(SDSegmentationApp)
+        app = SwellAnalysisApp.__new__(SwellAnalysisApp)
 
         class _Workspace:
             def __init__(self):
@@ -51,7 +51,7 @@ class SessionStateProxyTests(unittest.TestCase):
         self.assertEqual(workspace.open_kwargs["sync_emitter"], emitter)
 
     def test_prepare_host_mode_buffers_creates_lazy_sequences(self):
-        app = SDSegmentationApp.__new__(SDSegmentationApp)
+        app = SwellAnalysisApp.__new__(SwellAnalysisApp)
 
         class _Source:
             frame_count = 2
@@ -80,7 +80,7 @@ class SessionStateProxyTests(unittest.TestCase):
         self.assertEqual(app.frame_names, ["a", "b"])
 
     def test_prepare_host_mode_buffers_can_queue_async_launch_build_with_preview_seed(self):
-        app = SDSegmentationApp.__new__(SDSegmentationApp)
+        app = SwellAnalysisApp.__new__(SwellAnalysisApp)
 
         class _Source:
             frame_count = 4
@@ -136,7 +136,7 @@ class SessionStateProxyTests(unittest.TestCase):
         self.assertEqual(np.asarray(app._host_launch_preparation["viz_frame"]).shape, (3, 4))
 
     def test_prepare_host_mode_buffers_async_apply_populates_frames_without_numpy_truthiness_error(self):
-        app = SDSegmentationApp.__new__(SDSegmentationApp)
+        app = SwellAnalysisApp.__new__(SwellAnalysisApp)
 
         class _Source:
             frame_count = 3
@@ -189,7 +189,7 @@ class SessionStateProxyTests(unittest.TestCase):
         self.assertEqual(getattr(app, "_post_open_message", ""), "Host workspace initialized.")
 
     def test_open_from_host_handoff_scopes_frame_source_to_event_bounds(self):
-        app = SDSegmentationApp.__new__(SDSegmentationApp)
+        app = SwellAnalysisApp.__new__(SwellAnalysisApp)
 
         class _Workspace:
             def __init__(self):
@@ -242,7 +242,7 @@ class SessionStateProxyTests(unittest.TestCase):
         self.assertTrue(getattr(app, "_thread_started", False))
 
     def test_open_from_host_handoff_defers_model_init_until_frames_ready(self):
-        app = SDSegmentationApp.__new__(SDSegmentationApp)
+        app = SwellAnalysisApp.__new__(SwellAnalysisApp)
 
         class _Workspace:
             def bind_frame_source(self, _frame_source):
@@ -290,7 +290,7 @@ class SessionStateProxyTests(unittest.TestCase):
         self.assertEqual(getattr(app, "_host_pending_model_init_reason", None), "host_handoff_open")
 
     def test_host_mode_controller_starts_pending_model_init_once_frames_exist(self):
-        app = SDSegmentationApp.__new__(SDSegmentationApp)
+        app = SwellAnalysisApp.__new__(SwellAnalysisApp)
         app.frames_sub_viz = np.zeros((2, 3, 4), dtype=np.uint8)
         app._host_pending_model_init_reason = "host_context_open"
         app.log_info = lambda *_args, **_kwargs: None
@@ -304,7 +304,7 @@ class SessionStateProxyTests(unittest.TestCase):
         self.assertIsNone(getattr(app, "_host_pending_model_init_reason", None))
 
     def test_post_host_mode_open_ui_reloads_active_event_state_after_finalize(self):
-        app = SDSegmentationApp.__new__(SDSegmentationApp)
+        app = SwellAnalysisApp.__new__(SwellAnalysisApp)
         opened: list[str] = []
         finalized: list[bool] = []
         recomputed: list[str] = []
@@ -337,7 +337,7 @@ class SessionStateProxyTests(unittest.TestCase):
         self.assertEqual(synced, ["masks"])
 
     def test_open_from_host_context_ready_path_completes_host_open_once(self):
-        app = SDSegmentationApp.__new__(SDSegmentationApp)
+        app = SwellAnalysisApp.__new__(SwellAnalysisApp)
 
         class _Workspace:
             def bind_frame_source(self, _frame_source):

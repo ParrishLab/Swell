@@ -19,9 +19,9 @@ The current analysis stack uses SAM 2.1 as an interactive video segmentation and
 
 Relevant implementation points:
 
-- preprocessing stack generation: [sdapp/shared/frame_source/preprocessing.py](/Users/claydunford/Development/Combined tool test/sdapp/shared/frame_source/preprocessing.py)
-- SAM 2.1 video predictor initialization: [sdapp/analysis/core/segmentation.py](/Users/claydunford/Development/Combined tool test/sdapp/analysis/core/segmentation.py)
-- prompt-driven frame inference and propagation: [sdapp/analysis/core/inference_manager.py](/Users/claydunford/Development/Combined tool test/sdapp/analysis/core/inference_manager.py)
+- preprocessing stack generation: [swell/shared/frame_source/preprocessing.py](/Users/claydunford/Development/Combined tool test/swell/shared/frame_source/preprocessing.py)
+- SAM 2.1 video predictor initialization: [swell/analysis/core/segmentation.py](/Users/claydunford/Development/Combined tool test/swell/analysis/core/segmentation.py)
+- prompt-driven frame inference and propagation: [swell/analysis/core/inference_manager.py](/Users/claydunford/Development/Combined tool test/swell/analysis/core/inference_manager.py)
 
 This architecture is strong for interactive editing, but it may not be the most data-efficient way to learn a narrow scientific segmentation task with a relatively small labeled dataset.
 

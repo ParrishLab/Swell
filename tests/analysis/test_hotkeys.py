@@ -1,7 +1,7 @@
 import unittest
 
-from sdapp.analysis.app import SDSegmentationApp
-from sdapp.analysis.core.region_tools import REGION_EXCLUDE_TOOL, REGION_INCLUDE_TOOL
+from swell.analysis.app import SwellAnalysisApp
+from swell.analysis.core.region_tools import REGION_EXCLUDE_TOOL, REGION_INCLUDE_TOOL
 
 
 class _ToolModeVar:
@@ -53,7 +53,7 @@ class _WheelEvent:
 
 class HotkeysTests(unittest.TestCase):
     def _make_app(self, focused_class):
-        app = SDSegmentationApp.__new__(SDSegmentationApp)
+        app = SwellAnalysisApp.__new__(SwellAnalysisApp)
         app.root = _RootStub(_FocusWidget(focused_class))
         app.tool_mode = _ToolModeVar("select")
         # Tool hotkeys must not call update_display directly; the redraw is

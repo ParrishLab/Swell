@@ -10,4 +10,4 @@ fi
 
 unset MallocStackLogging MallocStackLoggingNoCompact MallocStackLoggingDirectory
 
-python3 -m sdapp.main "$@"
+python3 -m swell.main "$@"

@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from sdapp.host.dc_trace import WaveSurferH5Adapter
+from swell.host.dc_trace import WaveSurferH5Adapter
 
 
 class _FakeDataset:
@@ -203,7 +203,7 @@ def _active_subset_coeff_tree() -> _FakeFile:
 
 def test_wavesurfer_metadata_reads_active_channels(monkeypatch) -> None:
     adapter = WaveSurferH5Adapter()
-    monkeypatch.setattr("sdapp.host.dc_trace._load_h5py", lambda: _fake_h5_module(_valid_tree()))
+    monkeypatch.setattr("swell.host.dc_trace._load_h5py", lambda: _fake_h5_module(_valid_tree()))
 
     metadata = adapter.load_metadata(Path("/tmp/example.h5"))
 
@@ -217,7 +217,7 @@ def test_wavesurfer_metadata_reads_active_channels(monkeypatch) -> None:
 
 def test_wavesurfer_load_trace_scales_and_concatenates_sweeps(monkeypatch) -> None:
     adapter = WaveSurferH5Adapter()
-    monkeypatch.setattr("sdapp.host.dc_trace._load_h5py", lambda: _fake_h5_module(_valid_tree()))
+    monkeypatch.setattr("swell.host.dc_trace._load_h5py", lambda: _fake_h5_module(_valid_tree()))
 
     record = adapter.load_trace(Path("/tmp/example.h5"), channel_selection=1)
 
@@ -230,7 +230,7 @@ def test_wavesurfer_load_trace_scales_and_concatenates_sweeps(monkeypatch) -> No
 
 def test_wavesurfer_load_trace_returns_expected_scaled_values(monkeypatch) -> None:
     adapter = WaveSurferH5Adapter()
-    monkeypatch.setattr("sdapp.host.dc_trace._load_h5py", lambda: _fake_h5_module(_valid_tree()))
+    monkeypatch.setattr("swell.host.dc_trace._load_h5py", lambda: _fake_h5_module(_valid_tree()))
 
     record = adapter.load_trace(Path("/tmp/example.h5"), channel_selection=0)
 
@@ -240,7 +240,7 @@ def test_wavesurfer_load_trace_returns_expected_scaled_values(monkeypatch) -> No
 def test_wavesurfer_metadata_rejects_missing_sweeps(monkeypatch) -> None:
     adapter = WaveSurferH5Adapter()
     tree = _FakeFile({"header": _FakeGroup({})})
-    monkeypatch.setattr("sdapp.host.dc_trace._load_h5py", lambda: _fake_h5_module(tree))
+    monkeypatch.setattr("swell.host.dc_trace._load_h5py", lambda: _fake_h5_module(tree))
 
     with pytest.raises(ValueError):
         adapter.load_metadata(Path("/tmp/invalid.h5"))
@@ -248,7 +248,7 @@ def test_wavesurfer_metadata_rejects_missing_sweeps(monkeypatch) -> None:
 
 def test_wavesurfer_metadata_does_not_read_full_analog_datasets(monkeypatch) -> None:
     adapter = WaveSurferH5Adapter()
-    monkeypatch.setattr("sdapp.host.dc_trace._load_h5py", lambda: _fake_h5_module(_metadata_only_tree()))
+    monkeypatch.setattr("swell.host.dc_trace._load_h5py", lambda: _fake_h5_module(_metadata_only_tree()))
 
     metadata = adapter.load_metadata(Path("/tmp/large.h5"))
 
@@ -258,7 +258,7 @@ def test_wavesurfer_metadata_does_not_read_full_analog_datasets(monkeypatch) -> 
 
 def test_wavesurfer_legacy_header_and_channel_first_layout(monkeypatch) -> None:
     adapter = WaveSurferH5Adapter()
-    monkeypatch.setattr("sdapp.host.dc_trace._load_h5py", lambda: _fake_h5_module(_legacy_channel_first_tree()))
+    monkeypatch.setattr("swell.host.dc_trace._load_h5py", lambda: _fake_h5_module(_legacy_channel_first_tree()))
 
     metadata = adapter.load_metadata(Path("/tmp/legacy.h5"))
     record = adapter.load_trace(Path("/tmp/legacy.h5"), channel_selection=0)
@@ -273,7 +273,7 @@ def test_wavesurfer_legacy_header_and_channel_first_layout(monkeypatch) -> None:
 
 def test_wavesurfer_accepts_coefficients_stored_as_coefficients_by_channel(monkeypatch) -> None:
     adapter = WaveSurferH5Adapter()
-    monkeypatch.setattr("sdapp.host.dc_trace._load_h5py", lambda: _fake_h5_module(_column_oriented_coeff_tree()))
+    monkeypatch.setattr("swell.host.dc_trace._load_h5py", lambda: _fake_h5_module(_column_oriented_coeff_tree()))
 
     record_a = adapter.load_trace(Path("/tmp/column-oriented.h5"), channel_selection=0)
     record_b = adapter.load_trace(Path("/tmp/column-oriented.h5"), channel_selection=1)
@@ -284,7 +284,7 @@ def test_wavesurfer_accepts_coefficients_stored_as_coefficients_by_channel(monke
 
 def test_wavesurfer_handles_coefficients_for_active_channels_only(monkeypatch) -> None:
     adapter = WaveSurferH5Adapter()
-    monkeypatch.setattr("sdapp.host.dc_trace._load_h5py", lambda: _fake_h5_module(_active_subset_coeff_tree()))
+    monkeypatch.setattr("swell.host.dc_trace._load_h5py", lambda: _fake_h5_module(_active_subset_coeff_tree()))
 
     metadata = adapter.load_metadata(Path("/tmp/active-subset.h5"))
     record = adapter.load_trace(Path("/tmp/active-subset.h5"), channel_selection=0)

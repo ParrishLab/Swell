@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from sdapp.analysis.app import SDSegmentationApp
+from swell.analysis.app import SwellAnalysisApp
 
 
 class _DummyVar:
@@ -16,8 +16,8 @@ class _DummyVar:
         self.value = value
 
 
-def _build_app() -> SDSegmentationApp:
-    app = SDSegmentationApp.__new__(SDSegmentationApp)
+def _build_app() -> SwellAnalysisApp:
+    app = SwellAnalysisApp.__new__(SwellAnalysisApp)
     app.current_project_path = None
     app.active_event_id = "event_0001"
     app.project_dirty = False
@@ -42,7 +42,7 @@ def test_save_current_masks_warns_when_no_masks(monkeypatch):
     app = _build_app()
     warned: list[tuple[str, str]] = []
     monkeypatch.setattr(
-        "sdapp.analysis.app.messagebox.showwarning",
+        "swell.analysis.app.messagebox.showwarning",
         lambda title, text, **_kwargs: warned.append((str(title), str(text))),
     )
 
@@ -60,7 +60,7 @@ def test_save_current_masks_blocks_while_inference_is_busy(monkeypatch):
     save_calls: list[str] = []
     app.save_project = lambda: save_calls.append("save")
     monkeypatch.setattr(
-        "sdapp.analysis.app.messagebox.showwarning",
+        "swell.analysis.app.messagebox.showwarning",
         lambda title, text, **_kwargs: warned.append((str(title), str(text))),
     )
 
@@ -78,7 +78,7 @@ def test_save_current_masks_declines_overwrite_when_saved_masks_exist(monkeypatc
     app._saved_project_masks_by_event = {"event_0001": True}
     save_calls: list[str] = []
     app.save_project = lambda: save_calls.append("save")
-    monkeypatch.setattr("sdapp.analysis.app.messagebox.askyesno", lambda *_args, **_kwargs: False)
+    monkeypatch.setattr("swell.analysis.app.messagebox.askyesno", lambda *_args, **_kwargs: False)
 
     app.save_current_masks()
 
@@ -92,10 +92,10 @@ def test_save_current_masks_prompts_save_as_when_no_project(monkeypatch):
     info_calls: list[tuple[str, str]] = []
     app.save_project_as = lambda: save_as_calls.append("save_as")
     monkeypatch.setattr(
-        "sdapp.analysis.app.messagebox.showinfo",
+        "swell.analysis.app.messagebox.showinfo",
         lambda title, text, **_kwargs: info_calls.append((str(title), str(text))),
     )
-    monkeypatch.setattr("sdapp.analysis.app.messagebox.askyesno", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr("swell.analysis.app.messagebox.askyesno", lambda *_args, **_kwargs: True)
 
     app.save_current_masks()
 
@@ -114,10 +114,10 @@ def test_save_current_masks_uses_host_project_path_provider_without_save_as(monk
     app.save_project = lambda: save_calls.append("save")
     app.save_project_as = lambda: save_as_calls.append("save_as")
     monkeypatch.setattr(
-        "sdapp.analysis.app.messagebox.showinfo",
+        "swell.analysis.app.messagebox.showinfo",
         lambda title, text, **_kwargs: info_calls.append((str(title), str(text))),
     )
-    monkeypatch.setattr("sdapp.analysis.app.messagebox.askyesno", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr("swell.analysis.app.messagebox.askyesno", lambda *_args, **_kwargs: True)
 
     app.save_current_masks()
 
@@ -135,8 +135,8 @@ def test_save_current_masks_emits_host_analysis_sync_before_save(monkeypatch):
     calls: list[str] = []
     app._emit_host_sync = lambda reason="": calls.append(f"sync:{reason}") or {"ok": True}
     app.save_project = lambda: calls.append("save")
-    monkeypatch.setattr("sdapp.analysis.app.messagebox.askyesno", lambda *_args, **_kwargs: True)
-    monkeypatch.setattr("sdapp.analysis.app.messagebox.showinfo", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr("swell.analysis.app.messagebox.askyesno", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr("swell.analysis.app.messagebox.showinfo", lambda *_args, **_kwargs: None)
 
     app.save_current_masks()
 
@@ -150,7 +150,7 @@ def test_save_current_masks_handles_invalid_host_project_path_provider(monkeypat
     app._host_project_path_provider = lambda: "bad\0path.sdproj"
     save_as_calls: list[str] = []
     app.save_project_as = lambda: save_as_calls.append("save_as")
-    monkeypatch.setattr("sdapp.analysis.app.messagebox.showinfo", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr("swell.analysis.app.messagebox.showinfo", lambda *_args, **_kwargs: None)
 
     app.save_current_masks()
 
@@ -167,11 +167,11 @@ def test_save_current_masks_saves_to_existing_project_without_overwrite_prompt(m
     info_calls: list[tuple[str, str]] = []
     app.save_project = lambda: save_calls.append("save")
     monkeypatch.setattr(
-        "sdapp.analysis.app.messagebox.showinfo",
+        "swell.analysis.app.messagebox.showinfo",
         lambda title, text, **_kwargs: info_calls.append((str(title), str(text))),
     )
     monkeypatch.setattr(
-        "sdapp.analysis.app.messagebox.askyesno",
+        "swell.analysis.app.messagebox.askyesno",
         lambda *_args, **_kwargs: ask_calls.append("ask") or True,
     )
 
@@ -193,7 +193,7 @@ def test_save_current_masks_shows_error_when_save_project_raises_non_runtime_err
 
     app.save_project = _raise_os_error
     monkeypatch.setattr(
-        "sdapp.analysis.app.messagebox.showerror",
+        "swell.analysis.app.messagebox.showerror",
         lambda title, text, **_kwargs: errors.append((str(title), str(text))),
     )
 
@@ -220,11 +220,11 @@ def test_save_current_masks_uses_committed_payload_when_live_mask_set_empty(monk
     warned: list[tuple[str, str]] = []
     app.save_project = lambda: save_calls.append("save")
     monkeypatch.setattr(
-        "sdapp.analysis.app.messagebox.showwarning",
+        "swell.analysis.app.messagebox.showwarning",
         lambda title, text, **_kwargs: warned.append((str(title), str(text))),
     )
-    monkeypatch.setattr("sdapp.analysis.app.messagebox.askyesno", lambda *_args, **_kwargs: True)
-    monkeypatch.setattr("sdapp.analysis.app.messagebox.showinfo", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr("swell.analysis.app.messagebox.askyesno", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr("swell.analysis.app.messagebox.showinfo", lambda *_args, **_kwargs: None)
 
     app.save_current_masks()
 
@@ -250,11 +250,11 @@ def test_save_current_masks_uses_draft_payload_when_live_mask_set_empty(monkeypa
     warned: list[tuple[str, str]] = []
     app.save_project = lambda: save_calls.append("save")
     monkeypatch.setattr(
-        "sdapp.analysis.app.messagebox.showwarning",
+        "swell.analysis.app.messagebox.showwarning",
         lambda title, text, **_kwargs: warned.append((str(title), str(text))),
     )
-    monkeypatch.setattr("sdapp.analysis.app.messagebox.askyesno", lambda *_args, **_kwargs: True)
-    monkeypatch.setattr("sdapp.analysis.app.messagebox.showinfo", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr("swell.analysis.app.messagebox.askyesno", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr("swell.analysis.app.messagebox.showinfo", lambda *_args, **_kwargs: None)
 
     app.save_current_masks()
 
@@ -280,11 +280,11 @@ def test_save_current_masks_uses_seg_state_masks_when_collect_returns_empty(monk
     warned: list[tuple[str, str]] = []
     app.save_project = lambda: save_calls.append("save")
     monkeypatch.setattr(
-        "sdapp.analysis.app.messagebox.showwarning",
+        "swell.analysis.app.messagebox.showwarning",
         lambda title, text, **_kwargs: warned.append((str(title), str(text))),
     )
-    monkeypatch.setattr("sdapp.analysis.app.messagebox.askyesno", lambda *_args, **_kwargs: True)
-    monkeypatch.setattr("sdapp.analysis.app.messagebox.showinfo", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr("swell.analysis.app.messagebox.askyesno", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr("swell.analysis.app.messagebox.showinfo", lambda *_args, **_kwargs: None)
 
     app.save_current_masks()
 

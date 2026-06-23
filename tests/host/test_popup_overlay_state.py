@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from sdapp.host.preview_controller import HostPreviewController
+from swell.host.preview_controller import HostPreviewController
 
 
 def test_popup_overlay_draws_baseline_before_event_span() -> None:

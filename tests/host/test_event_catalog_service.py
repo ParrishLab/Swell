@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from sdapp.host.event_catalog_service import EventCatalogService
+from swell.host.event_catalog_service import EventCatalogService
 
 
 def test_event_catalog_crud_and_active_selection() -> None:

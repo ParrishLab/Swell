@@ -6,8 +6,8 @@ from pathlib import Path
 
 import numpy as np
 
-from sdapp.analysis.app import SDSegmentationApp
-from sdapp.analysis.core.segmentation import (
+from swell.analysis.app import SwellAnalysisApp
+from swell.analysis.core.segmentation import (
     CheckpointOnboardingResult,
     _candidate_model_config_names,
     _disable_sam2_hole_filling_without_extension,
@@ -24,7 +24,7 @@ class _RuntimeStub:
     def ensure_initialized(self, *, model_path, frames_viz, build_predictor):
         self.predictor = object()
         self.inference_state = {"model_path": model_path, "frames": int(frames_viz.shape[0])}
-        self.temp_dir = "/tmp/sdapp_test_model"
+        self.temp_dir = "/tmp/swell_test_model"
         return type("S", (), {"state": "READY", "message": "ok"})()
 
 
@@ -33,7 +33,7 @@ def test_init_runtime_background_uses_preflight_without_dialog_prompts() -> None
         model_path = Path(tmp) / "sam2.1_hiera_base_plus.pt"
         model_path.write_bytes(b"model")
 
-        app = SDSegmentationApp.__new__(SDSegmentationApp)
+        app = SwellAnalysisApp.__new__(SwellAnalysisApp)
         app.frames_sub_viz = np.zeros((2, 4, 4), dtype=np.uint8)
         app._get_frame_count = lambda: 2
         app._get_visual_frame = lambda idx: app.frames_sub_viz[int(idx)]
@@ -78,7 +78,7 @@ def test_init_runtime_background_uses_preflight_without_dialog_prompts() -> None
 
 
 def test_start_model_initialization_legacy_fallback_without_runtime_service() -> None:
-    app = SDSegmentationApp.__new__(SDSegmentationApp)
+    app = SwellAnalysisApp.__new__(SwellAnalysisApp)
     app.checkpoint_runtime = None
     called = {"count": 0}
 
@@ -93,7 +93,7 @@ def test_start_model_initialization_legacy_fallback_without_runtime_service() ->
 
 
 def test_trigger_background_propagation_blocks_when_model_not_ready() -> None:
-    app = SDSegmentationApp.__new__(SDSegmentationApp)
+    app = SwellAnalysisApp.__new__(SwellAnalysisApp)
     app.model_ready = False
     app.predictor = None
     app.inference_state = None
@@ -104,19 +104,19 @@ def test_trigger_background_propagation_blocks_when_model_not_ready() -> None:
     opened = {"count": 0}
     app.open_checkpoint_manager = lambda: opened.__setitem__("count", opened["count"] + 1)
 
-    with patch("sdapp.analysis.core.segmentation.messagebox.askyesno", return_value=True):
+    with patch("swell.analysis.core.segmentation.messagebox.askyesno", return_value=True):
         app._trigger_background_propagation()
 
     assert opened["count"] == 1
 
 
 def test_resolve_checkpoint_preflight_runtime_missing_disables_model() -> None:
-    app = SDSegmentationApp.__new__(SDSegmentationApp)
+    app = SwellAnalysisApp.__new__(SwellAnalysisApp)
     app.checkpoint_runtime = object()
     disabled: list[dict] = []
     app._disable_model_with_status = lambda **kwargs: disabled.append(dict(kwargs))
 
-    with patch("sdapp.analysis.core.segmentation.importlib.util.find_spec", return_value=None):
+    with patch("swell.analysis.core.segmentation.importlib.util.find_spec", return_value=None):
         result = app.resolve_checkpoint_preflight()
 
     assert result.ok is False
@@ -126,7 +126,7 @@ def test_resolve_checkpoint_preflight_runtime_missing_disables_model() -> None:
 
 
 def test_resolve_checkpoint_preflight_host_mode_does_not_prompt_on_missing_model() -> None:
-    app = SDSegmentationApp.__new__(SDSegmentationApp)
+    app = SwellAnalysisApp.__new__(SwellAnalysisApp)
     app._host_mode = True
     app.checkpoint_runtime = object()
     app._resolve_sam2_checkpoint = lambda: type("R", (), {"ok": False})()
@@ -137,8 +137,8 @@ def test_resolve_checkpoint_preflight_host_mode_does_not_prompt_on_missing_model
     app.root = type("Root", (), {"after": staticmethod(lambda _ms, fn: fn())})()
     app._set_activity_message = lambda _msg: None
 
-    with patch("sdapp.analysis.core.segmentation.importlib.util.find_spec", return_value=object()), patch(
-        "sdapp.analysis.core.segmentation.torch",
+    with patch("swell.analysis.core.segmentation.importlib.util.find_spec", return_value=object()), patch(
+        "swell.analysis.core.segmentation.torch",
         object(),
     ), patch.object(
         app, "_prompt_checkpoint_onboarding", side_effect=AssertionError("onboarding should not run in host mode")
@@ -172,7 +172,7 @@ def test_sam2_hole_filling_disabled_when_native_extension_missing(monkeypatch) -
     predictor = type("Predictor", (), {"fill_hole_area": 8})()
     warnings: list[tuple[str, str]] = []
 
-    monkeypatch.setattr("sdapp.analysis.core.segmentation.importlib.util.find_spec", lambda name: None)
+    monkeypatch.setattr("swell.analysis.core.segmentation.importlib.util.find_spec", lambda name: None)
 
     changed = _disable_sam2_hole_filling_without_extension(
         predictor,
@@ -189,7 +189,7 @@ def test_sam2_hole_filling_disabled_when_native_extension_missing(monkeypatch) -
 def test_sam2_hole_filling_kept_when_native_extension_available(monkeypatch) -> None:
     predictor = type("Predictor", (), {"fill_hole_area": 8})()
 
-    monkeypatch.setattr("sdapp.analysis.core.segmentation.importlib.util.find_spec", lambda name: object())
+    monkeypatch.setattr("swell.analysis.core.segmentation.importlib.util.find_spec", lambda name: object())
 
     changed = _disable_sam2_hole_filling_without_extension(predictor)
 

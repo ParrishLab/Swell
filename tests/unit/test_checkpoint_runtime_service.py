@@ -6,8 +6,8 @@ from urllib.error import HTTPError
 
 import pytest
 
-import sdapp.shared.services.checkpoint_runtime_service as checkpoint_module
-from sdapp.shared.services.checkpoint_runtime_service import (
+import swell.shared.services.checkpoint_runtime_service as checkpoint_module
+from swell.shared.services.checkpoint_runtime_service import (
     CheckpointRuntimeService,
     MODEL_CHECKPOINT_METADATA_KEY,
     is_managed_uri,
@@ -66,7 +66,7 @@ def test_resolution_prefers_project_recorded(tmp_path: Path) -> None:
 
 def test_resolution_uses_managed_default_before_manual_override(tmp_path: Path, monkeypatch) -> None:
     catalog = _write_catalog(tmp_path / "catalog.json")
-    monkeypatch.setenv("SDAPP_MODELS_DIR", str((tmp_path / "managed_models").resolve()))
+    monkeypatch.setenv("SWELL_MODELS_DIR", str((tmp_path / "managed_models").resolve()))
     service = CheckpointRuntimeService(catalog_path=catalog)
     managed_dir = service.managed_models_dir()
     managed_file = managed_dir / "sam2.1_hiera_base_plus.pt"
@@ -96,7 +96,7 @@ def test_compare_metadata_detects_mismatch(tmp_path: Path) -> None:
 
 def test_download_descriptor_raises_clear_error_on_http_403(tmp_path: Path, monkeypatch) -> None:
     catalog = _write_catalog(tmp_path / "catalog.json")
-    monkeypatch.setenv("SDAPP_MODELS_DIR", str((tmp_path / "managed_models").resolve()))
+    monkeypatch.setenv("SWELL_MODELS_DIR", str((tmp_path / "managed_models").resolve()))
     service = CheckpointRuntimeService(catalog_path=catalog)
     descriptor = service.default_descriptor()
     assert descriptor is not None
@@ -129,7 +129,7 @@ def test_download_descriptor_raises_clear_error_on_http_403(tmp_path: Path, monk
 
 def test_download_descriptor_uses_fallback_url_when_primary_fails(tmp_path: Path, monkeypatch) -> None:
     catalog = _write_catalog(tmp_path / "catalog.json")
-    monkeypatch.setenv("SDAPP_MODELS_DIR", str((tmp_path / "managed_models").resolve()))
+    monkeypatch.setenv("SWELL_MODELS_DIR", str((tmp_path / "managed_models").resolve()))
     service = CheckpointRuntimeService(catalog_path=catalog)
     descriptor = service.default_descriptor()
     assert descriptor is not None

@@ -5,7 +5,7 @@
 The project now locks **canonical host `.sdproj`** with a single-stack runtime model:
 
 - Canonical owner: **host `.sdproj`**
-- Container model: **one stack + many SD events**
+- Container model: **one stack + many events**
 - Analysis bridge: per-event sidecar analysis payloads keyed by `event_id`
 - Save path always emits canonical host `.sdproj`
 

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from sdapp.host.analysis_payload_mapper import (
+from swell.host.analysis_payload_mapper import (
     apply_analysis_scope_flags,
     EventBounds,
     FRAME_ORIGIN_EVENT_LOCAL,

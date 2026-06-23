@@ -3,7 +3,7 @@ requires = ["setuptools>=69", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "sdapp"
+name = "swell"
 version = "0.2.0"
 description = "Unified multi-window SD identification and analysis application."
 readme = "README.md"
@@ -41,13 +41,14 @@ docs = [
 ]
 
 [project.scripts]
-sdapp = "sdapp.main:main"
+swell = "swell.main:main"
+sdapp = "swell.main:main"
 
 [tool.setuptools]
 include-package-data = true
 
 [tool.setuptools.packages.find]
-include = ["sdapp*"]
+include = ["swell*"]
 
 [tool.setuptools.package-data]
-sdapp = ["resources/**/*"]
+swell = ["resources/**/*"]

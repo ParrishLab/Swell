@@ -4,8 +4,8 @@ from types import SimpleNamespace
 
 import numpy as np
 
-from sdapp.host.controllers.dc_trace_controller import HostDCTraceController
-from sdapp.shared.trace import TimeAlignment, TraceAttachment, TraceRecord
+from swell.host.controllers.dc_trace_controller import HostDCTraceController
+from swell.shared.trace import TimeAlignment, TraceAttachment, TraceRecord
 
 
 class _FakeBrowserController:
@@ -75,7 +75,7 @@ def test_import_dc_trace_blocks_without_stack() -> None:
 def test_import_dc_trace_requires_explicit_project_fps(monkeypatch) -> None:
     app = _build_app(with_stack=True, defaults={})
     controller = HostDCTraceController(app)
-    monkeypatch.setattr("sdapp.host.controllers.dc_trace_controller.messagebox.askyesno", lambda *args, **kwargs: True)
+    monkeypatch.setattr("swell.host.controllers.dc_trace_controller.messagebox.askyesno", lambda *args, **kwargs: True)
 
     controller.import_dc_trace()
 

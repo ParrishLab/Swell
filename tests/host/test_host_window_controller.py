@@ -6,11 +6,11 @@ import importlib.util
 
 import numpy as np
 
-import sdapp.host.controllers.host_window_controller as host_window_controller
-from sdapp.host.config import EventCandidate
-from sdapp.host.controllers.host_window_controller import HostWindowController
-from sdapp.host.exporter import analysis_image_cache_key
-from sdapp.shared.models import clone_analysis_payload
+import swell.host.controllers.host_window_controller as host_window_controller
+from swell.host.config import EventCandidate
+from swell.host.controllers.host_window_controller import HostWindowController
+from swell.host.exporter import analysis_image_cache_key
+from swell.shared.models import clone_analysis_payload
 
 
 class _NonMaterializedFrames:

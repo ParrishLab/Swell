@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from sdapp.analysis.app import SDSegmentationApp
+from swell.analysis.app import SwellAnalysisApp
 
 
 def test_log_messages_forward_to_host_notifier_in_host_mode() -> None:
-    app = SDSegmentationApp.__new__(SDSegmentationApp)
+    app = SwellAnalysisApp.__new__(SwellAnalysisApp)
     app._is_release_branch = False
     app._host_mode = True
     calls: list[tuple[str, str, str]] = []

@@ -9,7 +9,7 @@ from PIL import Image
 
 
 ROOT = Path(__file__).resolve().parents[2]
-ASSET_DIR = ROOT / "sdapp" / "resources" / "assets"
+ASSET_DIR = ROOT / "swell" / "resources" / "assets"
 SOURCE_DEFAULT = ASSET_DIR / "app_icon_source.png"
 LAYER_DIR = ASSET_DIR / "app_icon_tahoe_layers"
 
@@ -92,7 +92,7 @@ def generate(source: Path) -> None:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Generate SDApp app icons and Tahoe Icon Composer layer sources.")
+    parser = argparse.ArgumentParser(description="Generate Swell app icons and Tahoe Icon Composer layer sources.")
     parser.add_argument("source", nargs="?", default=str(SOURCE_DEFAULT), help="RGBA source PNG for the app icon.")
     args = parser.parse_args()
     source = Path(args.source)

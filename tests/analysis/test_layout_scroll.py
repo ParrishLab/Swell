@@ -1,5 +1,5 @@
-from sdapp.analysis.ui.layout import LayoutBuilder
-from sdapp.analysis.core.region_tools import REGION_INCLUDE_TOOL
+from swell.analysis.ui.layout import LayoutBuilder
+from swell.analysis.core.region_tools import REGION_INCLUDE_TOOL
 
 
 class _FakeRoot:
