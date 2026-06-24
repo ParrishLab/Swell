@@ -187,7 +187,7 @@ class StackReader:
                 arr = self._read_tiff_page_with_pillow(ref.source_path, key)
         else:
             with Image.open(ref.source_path) as img:
-                arr = np.asarray(img)
+                arr = _pil_image_to_array(img)
 
         frame = _to_grayscale(arr, channel_mode=self._channel_mode)
 
@@ -248,7 +248,7 @@ class StackReader:
             page_idx = max(0, min(int(key), max(0, page_count - 1)))
             if page_idx:
                 img.seek(page_idx)
-            arr = np.asarray(img)
+            arr = _pil_image_to_array(img)
         return arr
 
     def _close_tiff_handles(self) -> None:
@@ -336,6 +336,12 @@ def _to_grayscale(arr: np.ndarray, channel_mode: str = "average") -> np.ndarray:
         if squeezed.ndim == 3:
             return _to_grayscale(squeezed, channel_mode=channel_mode)
     raise ValueError(f"Unsupported frame shape: {arr.shape}")
+
+
+def _pil_image_to_array(img: Image.Image) -> np.ndarray:
+    # Force a normal copy so older Pillow/NumPy combinations never request
+    # copy=False during preview decode.
+    return np.array(img, copy=True)
 
 
 def _normalized_frame_shape_from_shape(raw_shape) -> tuple[int, int] | None:

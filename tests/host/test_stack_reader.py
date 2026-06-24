@@ -104,6 +104,24 @@ def test_open_stack_png_uses_metadata_during_indexing(tmp_path: Path, monkeypatc
     assert info.frame_count == 2
 
 
+def test_read_frame_png_does_not_depend_on_asarray_image_conversion(tmp_path: Path, monkeypatch) -> None:
+    arr = np.full((6, 7), 10, dtype=np.uint8)
+    _save_png(tmp_path / "a.png", arr)
+    reader = StackReader()
+    reader.open_stack(tmp_path)
+
+    real_asarray = np.asarray
+
+    def _guard(value, *args, **kwargs):
+        if isinstance(value, Image.Image):
+            raise ValueError("Unable to avoid copy while creating an array as requested.")
+        return real_asarray(value, *args, **kwargs)
+
+    monkeypatch.setattr("swell.host.stack_reader.np.asarray", _guard)
+
+    assert np.array_equal(reader.read_frame(0, use_cache=False), arr)
+
+
 def test_open_stack_tiff_multipage_creates_page_names(tmp_path: Path) -> None:
     tiff_path = tmp_path / "stack.tif"
     page0 = np.full((4, 5), 11, dtype=np.uint16)
@@ -221,6 +239,14 @@ def test_read_tiff_falls_back_to_pillow_when_tifffile_decode_fails(tmp_path: Pat
     reader.open_stack(tmp_path)
 
     monkeypatch.setattr(reader, "_read_tiff_page", lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("codec")))
+    real_asarray = np.asarray
+
+    def _guard(value, *args, **kwargs):
+        if isinstance(value, Image.Image):
+            raise ValueError("Unable to avoid copy while creating an array as requested.")
+        return real_asarray(value, *args, **kwargs)
+
+    monkeypatch.setattr("swell.host.stack_reader.np.asarray", _guard)
     out0 = reader.read_frame(0, use_cache=False)
     out1 = reader.read_frame(1, use_cache=False)
 

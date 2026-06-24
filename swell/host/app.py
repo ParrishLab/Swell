@@ -590,16 +590,23 @@ class SwellHostApp:
         return tip
 
     def _show_main_overlay_tooltip(self, event, text: str) -> None:
+        text = str(text or "").strip()
         if not text:
             self._hide_main_overlay_tooltip()
             return
         tip = self._ensure_main_overlay_tooltip()
-        self._main_overlay_tooltip_label.configure(text=str(text))
+        self._main_overlay_tooltip_label.configure(text=text)
         tip.geometry(f"+{int(event.x_root) + 12}+{int(event.y_root) + 12}")
         tip.deiconify()
         tip.lift()
 
     def _hide_main_overlay_tooltip(self, _event=None) -> None:
+        label = getattr(self, "_main_overlay_tooltip_label", None)
+        if label is not None:
+            try:
+                label.configure(text="")
+            except Exception:
+                pass
         tip = getattr(self, "_main_overlay_tooltip", None)
         if tip is None:
             return

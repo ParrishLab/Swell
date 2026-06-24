@@ -68,10 +68,14 @@ class TooltipManager:
 
     def schedule(self, widget, text: str, event=None, *, delay_ms: int | None = None) -> None:
         self._cancel_pending()
+        text = str(text or "").strip()
+        if not text:
+            self.hide()
+            return
         if self._clock() < self._cooldown_until:
             return
         self._pending_widget = widget
-        self._pending_text = str(text or "")
+        self._pending_text = text
         self._pending_origin = self._event_root_xy(event, widget)
         delay = self.hover_delay_ms if delay_ms is None else int(delay_ms)
         self._pending_job = self.root.after(max(0, delay), self._show_pending)
@@ -119,12 +123,13 @@ class TooltipManager:
         self._show(widget, text, x, y)
 
     def _show(self, widget, text: str, x_root: int, y_root: int) -> None:
+        text = str(text or "").strip()
         if not text:
             self.hide()
             return
         window, label = self._ensure_window()
         try:
-            label.configure(text=str(text), wraplength=self.wraplength)
+            label.configure(text=text, wraplength=self.wraplength)
             window.update_idletasks()
         except Exception:
             pass

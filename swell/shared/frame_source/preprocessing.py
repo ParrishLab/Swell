@@ -60,7 +60,7 @@ def normalize_visual_frame(frame: np.ndarray, *, p1: float | None = None, p99: f
 
 
 def _sample_percentile_pixels(frame: np.ndarray, max_pixels: int = MAX_PERCENTILE_SAMPLE_PIXELS_PER_FRAME) -> np.ndarray:
-    flat = np.asarray(frame, dtype=np.float32, copy=False).reshape(-1)
+    flat = np.asarray(frame, dtype=np.float32).reshape(-1)
     limit = max(1, int(max_pixels))
     if flat.size <= limit:
         return flat
@@ -103,7 +103,7 @@ def _gaussian_blur_2d(frame: np.ndarray, sigma: float = 0.5) -> np.ndarray:
 
 
 def _processed_frame(raw: np.ndarray, *, apply_horizontal_bar_denoise: bool, apply_smoothing: bool) -> np.ndarray:
-    source = np.asarray(raw, dtype=np.float32, copy=False)
+    source = np.asarray(raw, dtype=np.float32)
     if bool(apply_horizontal_bar_denoise):
         source = remove_horizontal_bar_artifacts(source)
     if not bool(apply_smoothing):
@@ -127,7 +127,7 @@ def _processed_source_frame(
 
 
 def _stabilize_frame(raw: np.ndarray, offset_xy: np.ndarray | tuple[float, float] | None) -> np.ndarray:
-    arr = np.asarray(raw, dtype=np.float32, copy=False)
+    arr = np.asarray(raw, dtype=np.float32)
     if arr.ndim != 2 or arr.size == 0:
         return arr.astype(np.float32, copy=False)
     dx = 0.0
@@ -255,7 +255,7 @@ def _prepare_stats_frame_cache(
     should_cancel: Callable[[], bool] | None = None,
     progress_callback=None,
 ) -> tuple[dict[int, np.ndarray], list[int]]:
-    raw_cache: dict[int, np.ndarray] = {0: np.asarray(first_frame, dtype=np.float32, copy=False)}
+    raw_cache: dict[int, np.ndarray] = {0: np.asarray(first_frame, dtype=np.float32)}
     processed_cache: dict[int, np.ndarray] = {}
     sample_indices = _stats_sample_indices(frame_count) if bool(apply_global_normalization) else []
     work_indices: list[int] = []
@@ -342,7 +342,7 @@ def compute_visualization_stats(
     )
     baseline = None
     if bool(apply_baseline_subtraction):
-        baseline_parts = [np.asarray(processed_cache[int(idx)], dtype=np.float32, copy=False) for idx in range(baseline_count)]
+        baseline_parts = [np.asarray(processed_cache[int(idx)], dtype=np.float32) for idx in range(baseline_count)]
         baseline = np.median(np.stack(baseline_parts, axis=0), axis=0).astype(np.float32, copy=False)
 
     p1 = None
@@ -351,7 +351,7 @@ def compute_visualization_stats(
         sampled_parts: list[np.ndarray] = []
         for idx in sample_indices:
             _raise_if_cancelled(should_cancel)
-            source = np.asarray(processed_cache[int(idx)], dtype=np.float32, copy=False)
+            source = np.asarray(processed_cache[int(idx)], dtype=np.float32)
             if baseline is not None:
                 source = source - baseline
             sampled_parts.append(_sample_percentile_pixels(source))

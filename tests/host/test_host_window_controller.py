@@ -55,6 +55,15 @@ def test_seed_analysis_image_export_cache_keeps_live_sequence_without_materializ
     assert entry["frame_count"] == 4
 
 
+def test_attach_disabled_tooltip_skips_blank_messages(monkeypatch) -> None:
+    def _unexpected_toplevel(_parent):
+        raise AssertionError("blank tooltip messages should not create a Toplevel")
+
+    monkeypatch.setattr(host_window_controller.tk, "Toplevel", _unexpected_toplevel)
+
+    HostWindowController.attach_disabled_tooltip(object(), object(), "   ")
+
+
 def test_combined_metric_spreadsheet_requires_at_least_one_metric_selection() -> None:
     assert (
         HostWindowController._can_export_combined_metric_spreadsheet(

@@ -261,7 +261,7 @@ class IOActions:
 
     def _prepare_frame_arrays(self, frames):
         self.log_info("Import", "Preparing shared preprocessing pipeline...")
-        source = EagerFrameSource(raw_frames=[np.asarray(frame, dtype=np.float32, copy=False) for frame in frames])
+        source = EagerFrameSource(raw_frames=[np.asarray(frame, dtype=np.float32) for frame in frames])
         return build_visualization_stack(
             source,
             baseline_frames=max(1, int(self.get_baseline_frame_count())),

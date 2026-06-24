@@ -433,14 +433,20 @@ class HostWindowController:
 
     @staticmethod
     def attach_disabled_tooltip(parent, widget, message: str) -> None:
+        message = str(message or "").strip()
+        if not message:
+            return
         tip = tk.Toplevel(parent)
         tip.withdraw()
         tip.overrideredirect(True)
         apply_theme(tip)
-        tip_label = ttk.Label(tip, text=str(message), padding=6, style="Card.TLabel", justify="left")
+        tip_label = ttk.Label(tip, text=message, padding=6, style="Card.TLabel", justify="left")
         tip_label.pack()
 
         def _show_tip(event) -> None:
+            if not message:
+                _hide_tip()
+                return
             x = int(event.x_root) + 10
             y = int(event.y_root) + 10
             tip.geometry(f"+{x}+{y}")
@@ -452,6 +458,8 @@ class HostWindowController:
 
         widget.bind("<Enter>", _show_tip)
         widget.bind("<Leave>", _hide_tip)
+        widget.bind("<ButtonPress>", _hide_tip, add="+")
+        widget.bind("<FocusOut>", _hide_tip, add="+")
         widget.bind("<Destroy>", lambda _e: tip.destroy())
 
     @staticmethod

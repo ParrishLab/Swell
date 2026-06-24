@@ -166,6 +166,18 @@ def test_leave_before_delay_cancels_pending_show() -> None:
     assert manager.create_count == 0
 
 
+def test_scheduled_blank_tooltip_does_not_create_window() -> None:
+    root = _FakeRoot()
+    widget = _FakeWidget(root)
+    manager = _manager(root)
+
+    manager.schedule(widget, "   ")
+    root.run_jobs()
+
+    assert root.jobs == {}
+    assert manager.create_count == 0
+
+
 def test_rapid_tooltip_switches_reuse_one_window() -> None:
     root = _FakeRoot()
     first = _FakeWidget(root, x=10, y=10)

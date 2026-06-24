@@ -44,6 +44,15 @@ def test_sample_percentile_pixels_is_deterministic_and_bounded() -> None:
     assert np.array_equal(_sample_percentile_pixels(frame, max_pixels=100), frame.reshape(-1))
 
 
+def test_sample_percentile_pixels_allows_dtype_conversion_copy() -> None:
+    frame = np.arange(100, dtype=np.uint8).reshape(10, 10)
+
+    sampled = _sample_percentile_pixels(frame, max_pixels=8)
+
+    assert sampled.dtype == np.float32
+    assert sampled.shape == (8,)
+
+
 def test_preprocessing_options_disable_all_stages() -> None:
     frames = [
         np.array([[0, 10], [20, 30]], dtype=np.float32),
