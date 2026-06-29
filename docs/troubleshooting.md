@@ -38,7 +38,7 @@ For each issue, map the **Symptom** to its **Root Cause**, apply the **Fix**, an
 
 ## 2. Environment Diagnostics for Bug Reports
 
-If you encounter an issue not covered in this guide, please file a bug report on the [GitHub Repository](https://github.com/ClayDunford/Swell/issues) and include the following diagnostic information:
+If you encounter an issue not covered in this guide, please file a bug report on the [GitHub Repository](https://github.com/ParrishLab/Swell/issues) and include the following diagnostic information:
 
 1. **System Metadata**:
     * Operating System and version (e.g., macOS 14.5, Windows 11 x64).

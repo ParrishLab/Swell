@@ -20,7 +20,7 @@ This page covers system requirements, installation steps for both packaged binar
 
 Packaged builds allow you to run Swell without setting up Python locally.
 
-1. Download the latest release zip for your platform from the [GitHub Releases](https://github.com/ClayDunford/Swell/releases) page.
+1. Download the latest release zip for your platform from the [GitHub Releases](https://github.com/ParrishLab/Swell/releases) page.
 2. Extract the archive contents:
     * **macOS**: Extract `swell-macos-arm64.zip` (Apple Silicon) or `swell-macos-x86_64.zip` (Intel). Move `Swell.app` to your `/Applications` directory.
     * **Windows**: Extract `swell-windows-x64.zip` to a folder of your choice.
@@ -43,7 +43,7 @@ If you prefer to run or modify the code directly, set up a local Python environm
 
 ### 1. Clone the Repository
 ```bash
-git clone https://github.com/ClayDunford/Swell.git
+git clone https://github.com/ParrishLab/Swell.git
 cd Swell
 ```
 

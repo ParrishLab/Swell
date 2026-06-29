@@ -28,7 +28,7 @@ The app is organized around a two-window workflow:
 ### Packaged Releases
 
 Packaged desktop builds are available from
-[GitHub Releases](https://github.com/ClayDunford/Swell/releases).
+[GitHub Releases](https://github.com/ParrishLab/Swell/releases).
 
 See [docs/installation.md](docs/installation.md) for platform-specific setup,
 first-run model onboarding, and troubleshooting notes.
@@ -38,7 +38,7 @@ first-run model onboarding, and troubleshooting notes.
 Swell requires Python 3.12 or newer.
 
 ```bash
-git clone https://github.com/ClayDunford/Swell.git
+git clone https://github.com/ParrishLab/Swell.git
 cd Swell
 python3 -m venv .venv
 source .venv/bin/activate
