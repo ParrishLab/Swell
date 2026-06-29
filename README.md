@@ -20,15 +20,13 @@ producing event-level segmentation and metrics outputs.
 
 ## Download
 
-Download the latest packaged desktop build:
+Download the latest packaged desktop build from the
+[GitHub Releases page](https://github.com/ParrishLab/Swell/releases/latest).
 
-- [macOS Apple Silicon](https://github.com/ParrishLab/Swell/releases/download/v0.1.8/sdapp-macos-arm64.zip)
-- [Windows x64](https://github.com/ParrishLab/Swell/releases/download/v0.1.8/sdapp-windows-x64.zip)
-- [All releases](https://github.com/ParrishLab/Swell/releases)
-
-Packaged builds do not require a local Python setup. See
-[Installation](docs/installation.md) for first-run model setup, platform notes,
-and source installation instructions.
+Packaged builds do not require a local Python setup. Choose the macOS or
+Windows archive for your platform, then see [Installation](docs/installation.md)
+for first-run model setup, platform notes, and source installation
+instructions.
 
 The app is organized around a two-window workflow:
 
