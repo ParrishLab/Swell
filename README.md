@@ -1,4 +1,8 @@
-# Swell
+<p align="center">
+  <img src="swell/resources/assets/app_icon_runtime.png" alt="Swell app icon" width="112">
+</p>
+
+<h1 align="center">Swell</h1>
 
 [![Python](https://img.shields.io/badge/python-%3E%3D3.12-blue.svg)](https://www.python.org/downloads/)
 [![CI](https://github.com/ParrishLab/Swell/actions/workflows/ci.yml/badge.svg)](https://github.com/ParrishLab/Swell/actions/workflows/ci.yml)
