@@ -42,8 +42,19 @@ def _service(platform_key: str = "windows") -> UpdateService:
     return service
 
 
+def _config() -> AppConfig:
+    return AppConfig(
+        default_output="output",
+        default_model="managed://sam2.1_hiera_base_plus",
+        default_baseline=30,
+        auto_check_enabled=True,
+        release_channel="stable",
+        update_channels={"stable": {"windows": "https://example.test/swell-windows.xml"}},
+    )
+
+
 def test_should_check_automatically_requires_daily_interval() -> None:
-    cfg = AppConfig.load()
+    cfg = _config()
     cfg.last_update_check_at = "2026-03-23T10:00:00+00:00"
     service = _service()
 
@@ -52,7 +63,7 @@ def test_should_check_automatically_requires_daily_interval() -> None:
 
 
 def test_check_for_updates_returns_available_release() -> None:
-    cfg = AppConfig.load()
+    cfg = _config()
     service = _service()
 
     result = service.check_for_updates(cfg, automatic=False, now=datetime(2026, 3, 23, 12, 0, tzinfo=timezone.utc))
@@ -64,7 +75,7 @@ def test_check_for_updates_returns_available_release() -> None:
 
 
 def test_automatic_check_honors_ignored_version() -> None:
-    cfg = AppConfig.load()
+    cfg = _config()
     cfg.ignored_version = "0.1.4"
     cfg.last_update_check_at = None
     service = _service()
@@ -75,7 +86,7 @@ def test_automatic_check_honors_ignored_version() -> None:
 
 
 def test_manual_check_bypasses_ignored_version() -> None:
-    cfg = AppConfig.load()
+    cfg = _config()
     cfg.ignored_version = "0.1.4"
     service = _service()
 
