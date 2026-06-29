@@ -1,5 +1,5 @@
 site_name: Swell
-site_description: Desktop tool for identifying events in image stacks and running event-level segmentation analysis.
+site_description: Intrinsic optical signal imaging analysis for spreading depolarization and cortical spreading depression event segmentation.
 site_url: https://swell.readthedocs.io/
 repo_url: https://github.com/ParrishLab/Swell
 repo_name: ParrishLab/Swell
@@ -62,6 +62,7 @@ nav:
       - Host window: gui/host-window.md
       - Analysis window: gui/analysis-window.md
   - File formats: file-formats.md
+  - Glossary: glossary.md
   - Developer Guide: developer-guide.md
   - Maintenance:
       - Overview: maintenance.md

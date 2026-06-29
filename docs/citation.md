@@ -29,7 +29,7 @@ Each tagged release is archived on Zenodo with its own DOI. Cite the specific ve
 ```bibtex
 @software{swell_software,
   author  = {Dunford, Clay},
-  title   = {Swell: a desktop tool for event identification and segmentation},
+  title   = {Swell: intrinsic optical signal imaging analysis for spreading depolarization event identification and segmentation},
   year    = {YYYY},
   version = {vX.Y.Z},
   doi     = {10.5281/zenodo.xxxxxxx},

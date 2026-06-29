@@ -1,0 +1,30 @@
+{
+  "@context": "https://doi.org/10.5063/schema/codemeta-2.0",
+  "@type": "SoftwareSourceCode",
+  "name": "Swell",
+  "description": "Desktop intrinsic optical signal imaging analysis for spreading depolarization and cortical spreading depression events.",
+  "codeRepository": "https://github.com/ParrishLab/Swell",
+  "issueTracker": "https://github.com/ParrishLab/Swell/issues",
+  "license": "https://spdx.org/licenses/BSD-3-Clause.html",
+  "programmingLanguage": "Python",
+  "runtimePlatform": "Python 3.12",
+  "version": "0.2.0",
+  "keywords": [
+    "intrinsic optical signal imaging",
+    "spreading depolarization",
+    "cortical spreading depression",
+    "spreading depression",
+    "neuroscience",
+    "optical imaging",
+    "image analysis",
+    "segmentation",
+    "bioimage analysis"
+  ],
+  "author": [
+    {
+      "@type": "Person",
+      "givenName": "Clay",
+      "familyName": "Dunford"
+    }
+  ]
+}

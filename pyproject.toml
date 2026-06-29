@@ -5,9 +5,32 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "swell"
 version = "0.2.0"
-description = "Unified multi-window SD identification and analysis application."
+description = "Desktop intrinsic optical signal imaging analysis for spreading depolarization and cortical spreading depression events."
 readme = "README.md"
 requires-python = ">=3.12"
+license = "BSD-3-Clause"
+keywords = [
+  "intrinsic optical signal imaging",
+  "spreading depolarization",
+  "cortical spreading depression",
+  "spreading depression",
+  "neuroscience",
+  "optical imaging",
+  "image analysis",
+  "segmentation",
+  "bioimage analysis",
+]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Science/Research",
+  "Operating System :: MacOS",
+  "Operating System :: Microsoft :: Windows",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Scientific/Engineering",
+  "Topic :: Scientific/Engineering :: Bio-Informatics",
+  "Topic :: Scientific/Engineering :: Image Processing",
+]
 dependencies = [
   "numpy",
   "scipy",
@@ -44,6 +67,13 @@ docs = [
 swell = "swell.main:main"
 # Legacy CLI alias retained for existing SDApp-era launch scripts.
 sdapp = "swell.main:main"
+
+[project.urls]
+Homepage = "https://github.com/ParrishLab/Swell"
+Documentation = "https://swell.readthedocs.io/"
+Repository = "https://github.com/ParrishLab/Swell"
+Issues = "https://github.com/ParrishLab/Swell/issues"
+Changelog = "https://github.com/ParrishLab/Swell/blob/main/CHANGELOG.md"
 
 [tool.setuptools]
 include-package-data = true

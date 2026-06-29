@@ -6,9 +6,10 @@
 [![Release](https://img.shields.io/badge/release-v0.1.8-blue.svg)](https://github.com/ParrishLab/Swell/releases)
 [![License](https://img.shields.io/badge/license-BSD%203--Clause-blue.svg)](LICENSE)
 
-Swell is a desktop application for reviewing image stacks, identifying
-spreading depression (SD) events, and producing event-level segmentation and
-metrics outputs.
+Swell is an open-source desktop application for intrinsic optical signal
+imaging analysis, focused on identifying spreading depolarization, cortical
+spreading depression, and spreading depression (SD) events in image stacks and
+producing event-level segmentation and metrics outputs.
 
 The app is organized around a two-window workflow:
 
@@ -45,6 +46,14 @@ The app is organized around a two-window workflow:
   plots, and consolidated Excel workbooks.
 - Calculate propagation speed, area recruited, relative area recruited, and
   ROI-based intensity metrics including baseline-normalized intensity change.
+
+## Research Applications
+
+Swell is designed for neuroscience image-analysis workflows involving intrinsic
+optical signal imaging and optical imaging time-series data. It supports
+spreading depolarization event detection, cortical spreading depression
+analysis, SD wavefront segmentation, and quantitative reporting of propagation
+speed, recruited area, relative area, and ROI-based intensity dynamics.
 
 ## Installation
 
@@ -135,6 +144,7 @@ For the full walkthrough, see [docs/user-guide.md](docs/user-guide.md).
 - [Analysis Window Reference](docs/gui/analysis-window.md)
 - [Developer Guide](docs/developer-guide.md)
 - [File Formats](docs/file-formats.md)
+- [Glossary](docs/glossary.md)
 - [Troubleshooting](docs/troubleshooting.md)
 - [Changelog](CHANGELOG.md)
 

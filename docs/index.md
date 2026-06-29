@@ -1,6 +1,10 @@
-# Swell: Spreading Depression Analysis Tool
+# Swell: Intrinsic Optical Signal Imaging Analysis for Spreading Depolarization
 
-Welcome to the documentation for **Swell**, a unified desktop application designed for identifying Spreading Depression (SD) events in image stacks and performing event-level segmentation analysis in a dedicated workspace.
+Welcome to the documentation for **Swell**, an open-source desktop application
+for intrinsic optical signal imaging analysis. Swell helps researchers identify
+spreading depolarization, cortical spreading depression, and spreading
+depression (SD) events in image stacks, segment SD wavefronts, and export
+quantitative event metrics.
 
 ## Two-Stage Architecture
 
@@ -26,7 +30,7 @@ graph TD
 * **Interactive Tool Rail**: Annotate events using positive/negative points, bounding boxes, brushes, erasers, flood fill, and persistent include/exclude polygon regions.
 * **SAM-2 Propagation**: Run automated mask propagation forwards and backwards across frames, with real-time progress indicators.
 * **Diagnostic Overlays**: Track frame-to-frame mask changes using **ghost outlines** and identify regions needing corrections with a localized **leverage heatmap**.
-* **Comprehensive Export**: Output event-level images, binary masks, overlay visualizations, temporal propagation speed, area graphs, and consolidated multi-sheet Excel reports.
+* **Comprehensive Export**: Output event-level images, binary masks, overlay visualizations, temporal propagation speed, recruited-area graphs, ROI intensity metrics, and consolidated multi-sheet Excel reports.
 
 ---
 
