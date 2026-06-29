@@ -118,7 +118,7 @@ def test_generate_appcasts_script_writes_platform_feeds(tmp_path: Path) -> None:
             "--release-tag",
             f"v{version}",
             "--github-repo",
-            "ClayDunford/Swell",
+            "ParrishLab/Swell",
             "--published-at",
             "Mon, 23 Mar 2026 12:00:00 +0000",
         ],

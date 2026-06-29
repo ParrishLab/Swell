@@ -7,7 +7,7 @@ Work through these sections top-to-bottom before publishing a release. Steps mar
 ## 1. Documentation
 
 - [ ] Screenshots in `docs/gui/host-window.md` and `docs/gui/analysis-window.md` are current (UI hasn't changed since last capture).
-- [ ] No unresolved `<!-- TODO -->` comments remain in any `docs/` file.
+- [ ] No unresolved HTML TODO comments remain in any `docs/` file.
 - [ ] `docs/installation.md` reflects the current Python version requirement and install steps.
 - [ ] `docs/troubleshooting.md` covers any new error messages or failure modes introduced in this release.
 - [ ] `docs/file-formats.md` is updated if the `.swell` schema version changed or new export columns were added.

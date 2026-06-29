@@ -4,7 +4,8 @@ If Swell contributed to your research, please cite both the methods paper and th
 
 ## Methods paper
 
-<!-- TODO: replace with final citation once published -->
+The methods paper citation is pending publication. Until the final citation is
+available, cite the archived software release used for your analysis.
 
 > Dunford, C. et al. *Manuscript title*. Journal (Year). DOI: `10.xxxx/xxxxxx`
 
@@ -24,7 +25,8 @@ BibTeX:
 
 Each tagged release is archived on Zenodo with its own DOI. Cite the specific version you used.
 
-<!-- TODO: add Zenodo DOI badge and versioned DOI once minted -->
+The project-level Zenodo DOI is pending. Replace the placeholder DOI below with
+the versioned DOI for the release used in your analysis once it is available.
 
 ```bibtex
 @software{swell_software,
@@ -39,6 +41,7 @@ Each tagged release is archived on Zenodo with its own DOI. Cite the specific ve
 
 ## Reproducing manuscript results
 
-<!-- TODO: link example dataset, expected outputs, and the exact release tag used for the figures -->
+Example datasets, expected outputs, and the exact release tag used for
+manuscript figures will be linked when the manuscript materials are finalized.
 
 The manuscript figures were produced with Swell version `vX.Y.Z` using the default metrics settings documented in [GUI reference](gui/analysis-window.md#metrics-settings).

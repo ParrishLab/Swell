@@ -10,7 +10,7 @@
 [![Python](https://img.shields.io/badge/python-%3E%3D3.12-blue.svg)](https://www.python.org/downloads/)
 [![CI](https://github.com/ParrishLab/Swell/actions/workflows/ci.yml/badge.svg)](https://github.com/ParrishLab/Swell/actions/workflows/ci.yml)
 [![Docs](https://readthedocs.org/projects/swell/badge/?version=latest)](https://swell.readthedocs.io/)
-[![Release](https://img.shields.io/badge/release-v0.1.8-blue.svg)](https://github.com/ParrishLab/Swell/releases)
+[![Release](https://img.shields.io/github/v/release/ParrishLab/Swell?sort=semver)](https://github.com/ParrishLab/Swell/releases/latest)
 [![License](https://img.shields.io/badge/license-BSD%203--Clause-blue.svg)](LICENSE)
 
 Swell is an open-source desktop application for intrinsic optical signal
