@@ -1,7 +1,7 @@
 # Swell
 
 [![Python](https://img.shields.io/badge/python-%3E%3D3.12-blue.svg)](https://www.python.org/downloads/)
-[![Tests](https://github.com/ParrishLab/Swell/actions/workflows/release_phase2_pr.yml/badge.svg)](https://github.com/ParrishLab/Swell/actions/workflows/release_phase2_pr.yml)
+[![CI](https://github.com/ParrishLab/Swell/actions/workflows/ci.yml/badge.svg)](https://github.com/ParrishLab/Swell/actions/workflows/ci.yml)
 [![Docs](https://readthedocs.org/projects/swell/badge/?version=latest)](https://swell.readthedocs.io/)
 [![Release](https://img.shields.io/github/v/release/ParrishLab/Swell?sort=semver)](https://github.com/ParrishLab/Swell/releases)
 [![License](https://img.shields.io/badge/license-BSD%203--Clause-blue.svg)](LICENSE)
