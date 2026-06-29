@@ -6,28 +6,45 @@
 [![Release](https://img.shields.io/github/v/release/ParrishLab/Swell?sort=semver)](https://github.com/ParrishLab/Swell/releases)
 [![License](https://img.shields.io/badge/license-not%20provided-lightgrey.svg)](#license)
 
-Swell is a desktop application for identifying spreading depression events in
-image stacks and performing event-level segmentation analysis in a dedicated
-workspace.
+Swell is a desktop application for reviewing image stacks, identifying
+spreading depression (SD) events, and producing event-level segmentation and
+metrics outputs.
 
 The app is organized around a two-window workflow:
 
 - **Host window**: load image stacks, mark event ranges, manage project state,
-  and export results.
-- **Analysis window**: open a single event, refine masks, run propagation, and
-  save analysis artifacts back to the project.
+  review auto-detected candidates, attach DC traces, and export results.
+- **Analysis window**: open a single event, refine masks with interactive tools,
+  run SAM-2 propagation, inspect temporal diagnostics, and save analysis
+  artifacts back to the project.
 
 ## Features
 
-- Import image sequences and multi-page image stacks.
-- Mark, edit, review, and delete event frame ranges.
-- Open event-scoped analysis workspaces for segmentation.
-- Annotate masks with points, brush, eraser, and region tools.
-- Run SAM-2-based propagation when model dependencies and checkpoints are
-  available.
-- Import external masks and save reviewed masks into `.swell` projects.
-- Export event images, baseline images, masks, metrics, and spreadsheet reports.
-- Save and reopen full project state using the `.swell` project format.
+- Import PNG, JPG, BMP, TIFF, and multi-page TIFF image stacks with natural
+  frame ordering and grayscale conversion.
+- Catalog events manually or review auto-detected SD candidates from the host
+  window's temporal grid-coherence workbench.
+- Configure event bounds, baseline frame ranges, global metrics defaults, scale
+  calibration, and regions of interest.
+- Attach electrophysiological DC traces and keep trace data aligned with the
+  project timeline.
+- Open event-scoped analysis workspaces with prompt, box, brush, eraser, fill,
+  and persistent include/exclude region tools.
+- Run SAM-2 propagation forward, backward, or bidirectionally when model
+  dependencies and checkpoints are available.
+- Manage model checkpoints from the app, including default downloads, local
+  model selection, checksum validation, and project/model compatibility checks.
+- Review masks with ghost outlines, leverage heatmaps, timeline markers, and
+  jump-to-correction navigation.
+- Import external masks and save reviewed masks, prompts, regions, and draft
+  state into `.swell` projects.
+- Save portable `.swell` project containers with optional embedded source images
+  so projects can reopen after the original stack folder moves.
+- Export raw and processed event images, baseline images, binary masks,
+  ROI-cropped masks, overlays, contour maps, CSV/JSON/Markdown summaries,
+  plots, and consolidated Excel workbooks.
+- Calculate propagation speed, area recruited, relative area recruited, and
+  ROI-based intensity metrics including baseline-normalized intensity change.
 
 ## Installation
 
@@ -37,7 +54,7 @@ Packaged desktop builds are available from
 [GitHub Releases](https://github.com/ParrishLab/Swell/releases).
 
 See [docs/installation.md](docs/installation.md) for platform-specific setup,
-first-run model onboarding, and troubleshooting notes.
+first-run model onboarding, packaged-app warnings, and troubleshooting notes.
 
 ### From Source
 
@@ -99,12 +116,13 @@ python -m swell.main --smoke-test
 ## Basic Workflow
 
 1. Create a new project and choose an image folder or stack.
-2. Mark event ranges in the host window.
-3. Open an event in the analysis window.
-4. Add prompts or manual mask edits.
-5. Run propagation when model support is configured.
-6. Review metrics settings, including frame rate, scale, and ROI.
-7. Save masks back to the project.
+2. Mark events manually or use auto-detect to review candidate SD events.
+3. Set event bounds, baseline frame settings, scale, FPS, and ROI defaults.
+4. Open an event in the analysis window.
+5. Add prompts, boxes, brush edits, fill operations, or persistent regions.
+6. Run propagation when model support is configured, then use diagnostic
+   overlays to find frames that need correction.
+7. Save masks and analysis artifacts back to the `.swell` project.
 8. Export selected events or the full project.
 
 For the full walkthrough, see [docs/user-guide.md](docs/user-guide.md).
