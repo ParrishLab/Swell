@@ -4,7 +4,7 @@
 [![Tests](https://github.com/ParrishLab/Swell/actions/workflows/release_phase2_pr.yml/badge.svg)](https://github.com/ParrishLab/Swell/actions/workflows/release_phase2_pr.yml)
 [![Docs](https://readthedocs.org/projects/swell/badge/?version=latest)](https://swell.readthedocs.io/)
 [![Release](https://img.shields.io/github/v/release/ParrishLab/Swell?sort=semver)](https://github.com/ParrishLab/Swell/releases)
-[![License](https://img.shields.io/badge/license-not%20provided-lightgrey.svg)](#license)
+[![License](https://img.shields.io/badge/license-BSD%203--Clause-blue.svg)](LICENSE)
 
 Swell is a desktop application for reviewing image stacks, identifying
 spreading depression (SD) events, and producing event-level segmentation and
@@ -199,5 +199,4 @@ For code changes:
 
 ## License
 
-No license file is currently included in this repository. Until a license is
-added, reuse rights are not granted by default.
+Swell is licensed under the BSD 3-Clause License. See [LICENSE](LICENSE).
