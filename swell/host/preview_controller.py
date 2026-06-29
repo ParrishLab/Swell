@@ -12,6 +12,7 @@ from swell.host.controllers import HostWindowController
 from swell.host.ui_geometry import linear_value_to_x, linear_x_to_value, normalize_overlay_bounds
 from swell.shared.frame_source import normalize_visual_frame
 from swell.shared.frame_source.preprocessing import _sample_percentile_pixels
+from swell.shared.ui.theme import APP_COLORS
 
 
 class HostPreviewController:
@@ -271,7 +272,7 @@ class HostPreviewController:
         if w <= 2 or h <= 2:
             return
 
-        canvas.create_rectangle(0, 0, w, h, fill="#232830", outline="")
+        canvas.create_rectangle(0, 0, w, h, fill=APP_COLORS["raised_bg"], outline="")
         if end_idx < start_idx:
             return
 
@@ -299,8 +300,8 @@ class HostPreviewController:
             self.draw_overlay_bar(self.app.preview_overlay, self.app.preview_scale, 0, 0, [], [], [])
             return
 
-        spans = [(event.start_idx, event.end_idx, "#7a57c7") for event in self.app.events]
-        markers = [(self.app.current_frame_idx, "#e6e6e6")]
+        spans = [(event.start_idx, event.end_idx, APP_COLORS["purple"]) for event in self.app.events]
+        markers = [(self.app.current_frame_idx, APP_COLORS["white"])]
         hover_regions: list[tuple[float, float, str]] = []
         width = max(1, self.app.preview_overlay.winfo_width())
         for event in self.app.events:
@@ -441,14 +442,14 @@ class HostPreviewController:
                 baseline_count, baseline_end = self.app._get_popup_controller().processing_controller.parse_baseline_controls()
                 baseline_start = max(0, baseline_end - baseline_count + 1)
                 if baseline_end >= 0:
-                    spans.append((baseline_start, baseline_end, "#2f6fa5"))
+                    spans.append((baseline_start, baseline_end, APP_COLORS["accent_soft"]))
             except Exception:
                 pass
 
         if mark_start is not None and mark_end is not None:
             left = min(mark_start, mark_end)
             right = max(mark_start, mark_end)
-            spans.append((left, right, "#00aebf"))
+            spans.append((left, right, APP_COLORS["cyan"]))
 
         if self.app.stack_info is not None:
             try:
@@ -461,12 +462,12 @@ class HostPreviewController:
 
         # Draw baseline-start before event start/end so the event markers remain visible
         # when they are only a frame or two apart.
-        markers = [(self.app._popup.mark_popup_current_idx, "#e6e6e6")]
+        markers = [(self.app._popup.mark_popup_current_idx, APP_COLORS["white"])]
         if baseline_start is not None:
-            markers.append((baseline_start, "#79ccff"))
+            markers.append((baseline_start, APP_COLORS["info"]))
         if mark_start is not None:
-            markers.append((mark_start, "#00d26a"))
+            markers.append((mark_start, APP_COLORS["success"]))
         if mark_end is not None:
-            markers.append((mark_end, "#ff5c5c"))
+            markers.append((mark_end, APP_COLORS["danger"]))
 
         self.draw_overlay_bar(self.app._popup.mark_overlay, self.app._popup.mark_scale, start_idx, end_idx, spans, markers)

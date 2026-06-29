@@ -4,6 +4,7 @@ import tkinter as tk
 from typing import Any
 
 from swell.host.ui_geometry import clamp_popup_range, linear_value_to_x, linear_x_to_value
+from swell.shared.ui.theme import APP_COLORS
 
 
 class PopupRangeController:
@@ -38,24 +39,24 @@ class PopupRangeController:
             return
 
         y = h // 2
-        c.create_line(6, y, w - 6, y, fill="#4c5058", width=4, capstyle=tk.ROUND)
+        c.create_line(6, y, w - 6, y, fill=APP_COLORS["border"], width=4, capstyle=tk.ROUND)
         x0 = self.range_idx_to_x(self.app._popup.mark_range_start_idx)
         x1 = self.range_idx_to_x(self.app._popup.mark_range_end_idx)
         left = min(x0, x1)
         right = max(x0, x1)
-        c.create_line(left, y, right, y, fill="#9cdb8f", width=6, capstyle=tk.ROUND)
-        c.create_rectangle(left, y - 4, right, y + 4, fill="#9cdb8f", outline="")
+        c.create_line(left, y, right, y, fill=APP_COLORS["success_soft"], width=6, capstyle=tk.ROUND)
+        c.create_rectangle(left, y - 4, right, y + 4, fill=APP_COLORS["success_soft"], outline="")
 
         handle_radius = 7
         inner_radius = 4
-        for x_pos, fill in ((x0, "#b7ffd9"), (x1, "#ffd1d1")):
+        for x_pos, fill in ((x0, APP_COLORS["success"]), (x1, APP_COLORS["danger_soft"])):
             c.create_oval(
                 x_pos - handle_radius,
                 y - handle_radius,
                 x_pos + handle_radius,
                 y + handle_radius,
-                fill="#171b20",
-                outline="#e7edf2",
+                fill=APP_COLORS["app_bg"],
+                outline=APP_COLORS["text"],
                 width=2,
             )
             c.create_oval(

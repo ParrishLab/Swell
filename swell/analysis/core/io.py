@@ -9,6 +9,7 @@ from swell.shared.ui import dialogs as messagebox
 
 from swell.analysis.core.frame_source import EagerFrameSource
 from swell.shared.frame_source import build_visualization_stack
+from swell.shared.ui.theme import APP_COLORS
 from swell.shared.utils.paths import resolve_existing_directory
 
 
@@ -148,7 +149,7 @@ class IOActions:
             if not proceed:
                 return
 
-        self._set_busy(True, "Status: Loading...", "orange")
+        self._set_busy(True, "Status: Loading...", APP_COLORS["warning"])
         self.log_info("Import", f"Started import from: {source_label}")
         self._current_image_source_paths = [str(Path(p)) for p in image_files]
         self._run_thread(lambda: self._process_stack(list(image_files)), loading_text="Loading image stack...")
@@ -236,7 +237,7 @@ class IOActions:
             self.frame_names = list(frame_names)
             if not frames:
                 self.root.after(0, lambda: messagebox.showwarning("Input Error", "No valid image frames found.", parent=self.root))
-                self.root.after(0, lambda: self._set_busy(False, "Status: Idle", "gray"))
+                self.root.after(0, lambda: self._set_busy(False, "Status: Idle", APP_COLORS["muted"]))
                 return
 
             frames_raw, frames_sub, frames_sub_viz = self._prepare_frame_arrays(frames)
@@ -256,8 +257,8 @@ class IOActions:
             self.log_error("Import", f"Import failed: {e}")
             if hasattr(self, "btn_save_masks"):
                 self.root.after(0, lambda: self.btn_save_masks.configure(state="disabled"))
-            self.root.after(0, lambda: self.lbl_status.configure(text=f"Error: {str(e)}", foreground="red"))
-            self.root.after(0, lambda: self._set_busy(False, "Status: Error", "red"))
+            self.root.after(0, lambda: self.lbl_status.configure(text=f"Error: {str(e)}", foreground=APP_COLORS["danger"]))
+            self.root.after(0, lambda: self._set_busy(False, "Status: Error", APP_COLORS["danger"]))
 
     def _prepare_frame_arrays(self, frames):
         self.log_info("Import", "Preparing shared preprocessing pipeline...")
@@ -274,7 +275,7 @@ class IOActions:
         count = int(self._get_frame_count()) if hasattr(self, "_get_frame_count") else 0
         if count == 0:
             self._set_data_controls_enabled(False)
-            self._set_busy(False, "Status: Idle", "gray")
+            self._set_busy(False, "Status: Idle", APP_COLORS["muted"])
             return
 
         self.slider.configure(to=count - 1)
@@ -291,12 +292,12 @@ class IOActions:
         if self._get_frames_raw() is None or self._get_frames_sub_viz() is None:
             self.update_display()
             self._set_data_controls_enabled(False)
-            self._set_busy(True, "Status: Preparing frames...", "orange")
+            self._set_busy(True, "Status: Preparing frames...", APP_COLORS["warning"])
             return
 
         self.update_display()
         if not bool(preserve_workspace_state):
             self._recompute_slider_jump_markers()
         self._set_data_controls_enabled(True)
-        self._set_busy(False, "Status: Ready", "green")
+        self._set_busy(False, "Status: Ready", APP_COLORS["success"])
         self.log_success("Import", f"Completed import with {count} frame(s).")

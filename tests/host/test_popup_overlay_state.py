@@ -3,6 +3,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 from swell.host.preview_controller import HostPreviewController
+from swell.shared.ui.theme import APP_COLORS
 
 
 def test_popup_overlay_draws_baseline_before_event_span() -> None:
@@ -34,10 +35,10 @@ def test_popup_overlay_draws_baseline_before_event_span() -> None:
 
     assert recorded["start_idx"] == 0
     assert recorded["end_idx"] == 149
-    assert recorded["spans"] == [(18, 22, "#2f6fa5"), (42, 57, "#00aebf")]
-    assert recorded["markers"][0] == (50, "#e6e6e6")
+    assert recorded["spans"] == [(18, 22, APP_COLORS["accent_soft"]), (42, 57, APP_COLORS["cyan"])]
+    assert recorded["markers"][0] == (50, APP_COLORS["white"])
     assert recorded["markers"][1:] == [
-        (18, "#79ccff"),
-        (42, "#00d26a"),
-        (57, "#ff5c5c"),
+        (18, APP_COLORS["info"]),
+        (42, APP_COLORS["success"]),
+        (57, APP_COLORS["danger"]),
     ]

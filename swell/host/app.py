@@ -15,7 +15,7 @@ from swell.shared.ui import dialogs as simpledialog
 import numpy as np
 from PIL import Image, ImageTk
 
-from swell.shared.ui.theme import CANVAS_BACKGROUND, SLIDER_OVERLAY_BACKGROUND, SPACING
+from swell.shared.ui.theme import APP_COLORS, CANVAS_BACKGROUND, SLIDER_OVERLAY_BACKGROUND, SPACING
 from swell.shared.config import AppConfig
 from .auto_detect_controller import AutoDetectController
 from .browser_controller import BrowserController
@@ -374,8 +374,8 @@ class SwellHostApp:
             wrap="word",
             state="disabled",
             bg=CANVAS_BACKGROUND,
-            fg="#c4cdd6",
-            insertbackground="#c4cdd6",
+            fg=APP_COLORS["muted_soft"],
+            insertbackground=APP_COLORS["muted_soft"],
             relief="flat",
             highlightthickness=0,
             bd=0,
@@ -1461,6 +1461,9 @@ class SwellHostApp:
     def _has_binary_masks_for_events(self, event_ids: list[str]) -> bool:
         return bool(self._get_window_controller().has_binary_masks_for_events(list(event_ids or [])))
 
+    def _has_valid_roi_for_events(self, event_ids: list[str]) -> bool:
+        return bool(self._get_window_controller().has_valid_roi_for_events(list(event_ids or [])))
+
     @staticmethod
     def _has_valid_scale(metrics_settings: dict) -> bool:
         return HostWindowController._has_valid_scale(metrics_settings)
@@ -1535,6 +1538,7 @@ class SwellHostApp:
         self._log_info(
             f"Export complete: {result['events_exported']} event(s), {result['frames_exported']} frame(s), "
             f"analysis_images={int(result.get('analysis_images_exported', 0))}, "
+            f"roi_cropped_masks={int(result.get('roi_cropped_masks_exported', 0))}, "
             f"mask_overlays={int(result.get('mask_overlay_images_exported', 0))}, "
             f"analysis_overlays={int(result.get('analysis_overlay_images_exported', 0))}, "
             f"contour_maps={int(result.get('contour_maps_exported', 0))}, "

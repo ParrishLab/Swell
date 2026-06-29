@@ -115,6 +115,9 @@ my_export_output/
 │   ├── binary_masks/            # Single-channel 8-bit binary TIFF masks
 │   │   ├── 000090_event_mask.tiff  # 255 = wavefront, 0 = background
 │   │   └── ...
+│   ├── binary_masks_roi_cropped/ # Optional ROI-constrained masks cropped to the ROI bounding box
+│   │   ├── roi_crop_metadata.json # Full-frame shape and crop bounds
+│   │   └── 000090_event_mask_roi_cropped.tiff
 │   ├── mask_overlays/           # Masks overlaid on raw input frames (PNG)
 │   ├── contour_map/             # Visual contour outlines superimposed on canvas (PNG)
 │   ├── metrics/                 # Quantitative spreadsheets

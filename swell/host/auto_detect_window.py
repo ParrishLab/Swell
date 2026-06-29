@@ -31,14 +31,14 @@ from swell.host.auto_detect_timeline import AutoDetectTimelineController
 from swell.host.config import DEFAULT_BASELINE_PRE_FRAMES
 from swell.shared.ui import BackgroundTaskRunner
 from swell.shared.ui.bootstrap import center_window_on_screen
-from swell.shared.ui.theme import CANVAS_BACKGROUND, SPACING, apply_theme
+from swell.shared.ui.theme import APP_COLORS, CANVAS_BACKGROUND, SPACING, apply_theme
 
 # Colors drawn directly onto tk.Canvas — must stay in sync with theme.py palette.
-_C_ACCENT      = "#1b75bc"
-_C_BORDER      = "#2a3139"
-_C_TEXT        = "#edf1f3"
-_C_MUTED       = "#8d97a2"
-_C_MUTED_SOFT  = "#aeb7bf"
+_C_ACCENT      = APP_COLORS["accent"]
+_C_BORDER      = APP_COLORS["border"]
+_C_TEXT        = APP_COLORS["text"]
+_C_MUTED       = APP_COLORS["muted"]
+_C_MUTED_SOFT  = APP_COLORS["muted_soft"]
 
 from .event_detection import detector as _detector
 from .event_detection import grid as _grid

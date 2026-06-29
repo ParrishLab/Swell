@@ -15,6 +15,7 @@ from swell.shared.ui import dialogs as messagebox
 import numpy as np
 
 from swell.shared.errors import InferenceRuntimeError
+from swell.shared.ui.theme import APP_COLORS
 
 from swell.analysis.core.seg_state import SegmentationState
 
@@ -243,7 +244,7 @@ class InferenceManager:
         self._prop_pause_event.set()
         self._log_info("Propagation", "Propagation paused.")
         if self.is_ui_alive():
-            self.root.after(0, lambda: self.set_status("Propagation Paused", "orange"))
+            self.root.after(0, lambda: self.set_status("Propagation Paused", APP_COLORS["warning"]))
         return True
 
     def resume_propagation(self) -> bool:
@@ -252,7 +253,7 @@ class InferenceManager:
         self._prop_pause_event.clear()
         self._log_info("Propagation", "Propagation resumed.")
         if self.is_ui_alive():
-            self.root.after(0, lambda: self.set_status("Propagating...", "purple"))
+            self.root.after(0, lambda: self.set_status("Propagating...", APP_COLORS["purple"]))
         return True
 
     def request_stop_propagation(self, *, preserve_generated_masks: bool = False) -> bool:
@@ -270,7 +271,7 @@ class InferenceManager:
             else "Stopping propagation and restoring previous masks.",
         )
         if self.is_ui_alive():
-            self.root.after(0, lambda: self.set_status("Stopping Propagation...", "orange"))
+            self.root.after(0, lambda: self.set_status("Stopping Propagation...", APP_COLORS["warning"]))
         return True
 
     def _frame_shape_hw(self) -> tuple[int, int] | None:
@@ -791,7 +792,7 @@ class InferenceManager:
                 anchor=anchor_frame,
             )
             if self.is_ui_alive():
-                self.root.after(0, lambda: self.set_status("Propagating...", "purple"))
+                self.root.after(0, lambda: self.set_status("Propagating...", APP_COLORS["purple"]))
 
             def cleanup():
                 gc.collect()
@@ -983,7 +984,7 @@ class InferenceManager:
                     self.on_propagation_status(stop_status, int(prop_start), int(prop_end))
                 if self.is_ui_alive():
                     self.root.after(0, self.recompute_markers)
-                    self.root.after(0, lambda: self.set_status("Propagation Stopped", "orange"))
+                    self.root.after(0, lambda: self.set_status("Propagation Stopped", APP_COLORS["warning"]))
             else:
                 self.prop_log_finish("complete", run_id=prop_log_run_id)
                 if self.on_propagation_status is not None:
@@ -991,7 +992,7 @@ class InferenceManager:
                 if self.is_ui_alive():
                     completed_run_indices = set(range(int(prop_start), int(prop_end) + 1))
                     self.root.after(0, lambda f=completed_run_indices: self.set_propagated_frames(f))
-                    self.root.after(0, lambda: self.set_status("Propagation Complete", "green"))
+                    self.root.after(0, lambda: self.set_status("Propagation Complete", APP_COLORS["success"]))
 
         except Exception as e:
             handled_oom = self._recover_from_accelerator_oom("Propagation", e)
@@ -1001,9 +1002,9 @@ class InferenceManager:
             if self.is_ui_alive():
                 self.root.after(0, self.recompute_markers)
                 if handled_oom:
-                    self.root.after(0, lambda: self.set_status("Switched to CPU Fallback", "orange"))
+                    self.root.after(0, lambda: self.set_status("Switched to CPU Fallback", APP_COLORS["warning"]))
                 else:
-                    self.root.after(0, lambda: self.set_status("Propagation Error", "red"))
+                    self.root.after(0, lambda: self.set_status("Propagation Error", APP_COLORS["danger"]))
             if handled_oom:
                 self._log_warn("Propagation", "Propagation stopped after accelerator OOM; CPU fallback is now active.")
                 if self.is_ui_alive():

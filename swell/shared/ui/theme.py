@@ -15,47 +15,66 @@ class LayoutSpacing:
 
 
 SPACING = LayoutSpacing()
-CANVAS_BACKGROUND = "#0c1015"
-SLIDER_OVERLAY_BACKGROUND = "#1a2027"
+APP_COLORS: dict[str, str] = {
+    "app_bg": "#171b20",
+    "surface_bg": "#1f242b",
+    "raised_bg": "#222830",
+    "inset_bg": "#0f1318",
+    "canvas_bg": "#0c1015",
+    "timeline_track": "#1a2028",
+    "control_bg": "#2a3038",
+    "control_active": "#313842",
+    "border": "#39424f",
+    "text": "#edf1f3",
+    "muted": "#8d97a2",
+    "muted_soft": "#aeb7bf",
+    "white": "#ffffff",
+    "accent": "#1b75bc",
+    "accent_hover": "#2484d1",
+    "accent_pressed": "#165f98",
+    "accent_soft": "#2f6fa5",
+    "info": "#4db3ff",
+    "success": "#00d26a",
+    "success_soft": "#9cdb8f",
+    "danger": "#ff5c5c",
+    "danger_soft": "#ffd1d1",
+    "warning": "#f5c451",
+    "measurement": "#ffd24d",
+    "purple": "#b26bff",
+    "cyan": "#00aebf",
+    "roi_active": "#00ff66",
+    "roi_inactive": "#61a8ff",
+    "selection": "#31597c",
+    "progress_trail": "#30404a",
+}
+CANVAS_BACKGROUND = APP_COLORS["canvas_bg"]
+SLIDER_OVERLAY_BACKGROUND = APP_COLORS["timeline_track"]
 
 
 def _theme_palette(style) -> dict[str, str]:
+    palette = {
+        "app_bg": APP_COLORS["app_bg"],
+        "surface_bg": APP_COLORS["surface_bg"],
+        "strip_bg": APP_COLORS["surface_bg"],
+        "sidebar_bg": APP_COLORS["surface_bg"],
+        "subpanel_bg": APP_COLORS["raised_bg"],
+        "inset_bg": APP_COLORS["inset_bg"],
+        "control_bg": APP_COLORS["control_bg"],
+        "control_active": APP_COLORS["control_active"],
+        "text": APP_COLORS["text"],
+        "muted": APP_COLORS["muted"],
+        "muted_soft": APP_COLORS["muted_soft"],
+        "border": APP_COLORS["border"],
+        "danger": APP_COLORS["danger"],
+        "danger_active": APP_COLORS["danger"],
+        "accent": APP_COLORS["accent"],
+        "accent_hover": APP_COLORS["accent_hover"],
+        "accent_pressed": APP_COLORS["accent_pressed"],
+    }
     colors = getattr(style, "colors", None)
     if colors is None:
-        return {
-            "app_bg": "#171b20",
-            "surface_bg": "#1f242b",
-            "strip_bg": "#1c2128",
-            "sidebar_bg": "#1d2229",
-            "subpanel_bg": "#222830",
-            "inset_bg": "#0f1318",
-            "control_bg": "#2a3038",
-            "control_active": "#313842",
-            "text": "#edf1f3",
-            "muted": "#8d97a2",
-            "muted_soft": "#aeb7bf",
-            "border": "#2a3139",
-            "danger": "#7e4348",
-            "danger_active": "#915157",
-            "accent": "#1b75bc",
-        }
-    return {
-        "app_bg": "#171b20",
-        "surface_bg": "#1f242b",
-        "strip_bg": "#1c2128",
-        "sidebar_bg": "#1d2229",
-        "subpanel_bg": "#222830",
-        "inset_bg": "#0f1318",
-        "control_bg": "#2a3038",
-        "control_active": "#313842",
-        "text": str(getattr(colors, "fg", "#edf1f3")),
-        "muted": "#8d97a2",
-        "muted_soft": "#aeb7bf",
-        "border": "#2a3139",
-        "danger": "#7e4348",
-        "danger_active": "#915157",
-        "accent": "#1b75bc",
-    }
+        return palette
+    return palette | {"text": str(getattr(colors, "fg", APP_COLORS["text"]))}
 
 
 def apply_theme(root, *, themename: str = "darkly"):
@@ -181,19 +200,19 @@ def apply_theme(root, *, themename: str = "darkly"):
     )
     style.configure(
         "AppOverlay.TFrame",
-        background="#161b21",
+        background=palette["app_bg"],
         borderwidth=0,
         relief="flat",
     )
     style.configure(
         "AppOverlayValue.TLabel",
-        background="#161b21",
+        background=palette["app_bg"],
         foreground=palette["text"],
         font=("TkDefaultFont", 9, "bold"),
     )
     style.configure(
         "AppOverlayMeta.TLabel",
-        background="#161b21",
+        background=palette["app_bg"],
         foreground=palette["muted"],
         font=("TkDefaultFont", 8),
     )
@@ -240,9 +259,9 @@ def apply_theme(root, *, themename: str = "darkly"):
     )
     style.map(
         "AppAccent.TButton",
-        background=[("active", "#2484d1"), ("pressed", "#165f98")],
-        darkcolor=[("active", "#2484d1"), ("pressed", "#165f98")],
-        lightcolor=[("active", "#2484d1"), ("pressed", "#165f98")],
+        background=[("active", palette["accent_hover"]), ("pressed", palette["accent_pressed"])],
+        darkcolor=[("active", palette["accent_hover"]), ("pressed", palette["accent_pressed"])],
+        lightcolor=[("active", palette["accent_hover"]), ("pressed", palette["accent_pressed"])],
         foreground=[("disabled", palette["muted"])],
     )
     style.configure(
@@ -285,9 +304,9 @@ def apply_theme(root, *, themename: str = "darkly"):
     )
     style.map(
         "AppSegmentedActive.TButton",
-        background=[("active", "#2484d1"), ("pressed", "#165f98")],
-        darkcolor=[("active", "#2484d1"), ("pressed", "#165f98")],
-        lightcolor=[("active", "#2484d1"), ("pressed", "#165f98")],
+        background=[("active", palette["accent_hover"]), ("pressed", palette["accent_pressed"])],
+        darkcolor=[("active", palette["accent_hover"]), ("pressed", palette["accent_pressed"])],
+        lightcolor=[("active", palette["accent_hover"]), ("pressed", palette["accent_pressed"])],
     )
 
     style.configure(
@@ -435,7 +454,7 @@ def apply_theme(root, *, themename: str = "darkly"):
     )
 
     style.configure("Treeview", font=("TkDefaultFont", 9), background=palette["inset_bg"], fieldbackground=palette["inset_bg"], foreground=palette["text"], borderwidth=0)
-    style.map("Treeview", background=[("selected", "#31597c")], foreground=[("selected", palette["text"])])
+    style.map("Treeview", background=[("selected", APP_COLORS["selection"])], foreground=[("selected", palette["text"])])
     style.configure("Treeview.Heading", background=palette["surface_bg"], foreground=palette["muted"], font=("TkDefaultFont", 8, "bold"), borderwidth=0)
     _configure_scrollbar_style(
         style,

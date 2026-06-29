@@ -9,13 +9,13 @@ from typing import Any
 
 import numpy as np
 
-from swell.shared.ui.theme import SPACING, apply_theme
+from swell.shared.ui.theme import APP_COLORS, SPACING, apply_theme
 from swell.host.dc_trace import WaveSurferH5Adapter
 from swell.shared.trace import TimeAlignment, TraceAttachment, TraceRecord
 from swell.shared.ui import BackgroundTaskRunner
 from swell.shared.ui.bootstrap import center_window_on_screen, semantic_button_options, ttk
 
-TRACE_EVENT_SPAN_COLOR = "#c9b4f2"
+TRACE_EVENT_SPAN_COLOR = APP_COLORS["purple"]
 TRACE_DISPLAY_LOWPASS_HZ = 10.0
 TRACE_DISPLAY_TARGET_FS = 50.0
 TRACE_DISPLAY_FILTER_ORDER = 4
@@ -514,7 +514,7 @@ class HostDCTraceController:
         cursor_t = self.get_trace_time_for_frame(current_frame)
         self._cursor_artist = None
         if cursor_t is not None:
-            self._cursor_artist = axes.axvline(float(cursor_t), color="#dc2626", linewidth=1.2)
+            self._cursor_artist = axes.axvline(float(cursor_t), color=APP_COLORS["danger"], linewidth=1.2)
             try:
                 self._cursor_artist.set_animated(True)
             except Exception:

@@ -5,7 +5,7 @@ import threading
 import tkinter as tk
 from tkinter import ttk
 
-from swell.shared.ui.theme import apply_theme, _theme_palette
+from swell.shared.ui.theme import APP_COLORS, apply_theme, _theme_palette
 
 
 def _get_parent_and_verify(parent=None):
@@ -47,7 +47,7 @@ class CustomDialog(tk.Toplevel):
         palette = _theme_palette(style)
 
         # Set dialog background explicitly to match theme
-        self.configure(background=palette.get("app_bg", "#171b20"))
+        self.configure(background=palette.get("app_bg", APP_COLORS["app_bg"]))
 
         # Grid config
         self.columnconfigure(0, weight=1)
@@ -149,13 +149,13 @@ class CustomDialog(tk.Toplevel):
 
     def _get_icon_props(self, dialog_type: str, palette: dict) -> tuple[str, str]:
         if dialog_type == "info":
-            return "ℹ", palette.get("accent", "#1b75bc")
+            return "ℹ", palette.get("accent", APP_COLORS["accent"])
         elif dialog_type == "warning":
-            return "⚠", "#e0a800"
+            return "⚠", APP_COLORS["warning"]
         elif dialog_type == "error":
-            return "🛑", palette.get("danger", "#7e4348")
+            return "🛑", palette.get("danger", APP_COLORS["danger"])
         elif dialog_type == "question":
-            return "❓", palette.get("accent", "#1b75bc")
+            return "❓", palette.get("accent", APP_COLORS["accent"])
         return "", ""
 
     def _on_button_click(self, value):

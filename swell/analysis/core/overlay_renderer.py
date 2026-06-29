@@ -6,13 +6,15 @@ import time
 
 import tkinter as tk
 
+from swell.shared.ui.theme import APP_COLORS
+
 
 _LEVERAGE_CMAP = None
 
-_TIMELINE_BG = "#232830"
-_TIMELINE_TRACK = "#1a2028"
-_TIMELINE_PROGRESS = "#1b75bc"
-_TIMELINE_PROGRESS_TRAIL = "#30404a"
+_TIMELINE_BG = APP_COLORS["raised_bg"]
+_TIMELINE_TRACK = APP_COLORS["timeline_track"]
+_TIMELINE_PROGRESS = APP_COLORS["accent"]
+_TIMELINE_PROGRESS_TRAIL = APP_COLORS["progress_trail"]
 
 
 def _leverage_hex(norm: float) -> str:
@@ -75,7 +77,7 @@ def _draw_leverage_heatmap(app, canvas, w, h, total) -> None:
         # A small tick within the heatmap strip; the full-height white bar is the
         # current-frame playhead, so the suggestion stays low to avoid confusion.
         canvas.create_rectangle(
-            left, strip_top, right, h, fill="#ffffff", outline="", tags=("leverage_heatmap",),
+            left, strip_top, right, h, fill=APP_COLORS["white"], outline="", tags=("leverage_heatmap",),
         )
         app._slider_overlay_regions.append(
             (left, right, f"Suggested correction: frame {int(suggested) + 1}")
@@ -528,7 +530,7 @@ def redraw_slider_overlay(app) -> None:
     if w <= 2 or h <= 2:
         return
 
-    canvas.create_rectangle(0, 0, w, h, fill="#232830", outline="")
+    canvas.create_rectangle(0, 0, w, h, fill=_TIMELINE_BG, outline="")
 
     total = app._get_frame_count() if hasattr(app, "_get_frame_count") else 0
     if total <= 0:
@@ -577,19 +579,19 @@ def redraw_slider_overlay(app) -> None:
     for frame_idx, marker_type, x in marker_positions:
         left, right = marker_bounds.get(frame_idx, (x - 1.0, x + 1.0))
         if marker_type == "start":
-            color = "#00d26a"
+            color = APP_COLORS["success"]
             band_left = max(0.0, left - 1.5)
             band_right = min(float(w), right + 1.5)
             canvas.create_rectangle(band_left, 2, band_right, h - 2, fill=color, outline="", tags=("timeline_marker",))
             app._slider_overlay_regions.append((left, right, f"Propagation start: frame {frame_idx + 1}"))
         elif marker_type == "end":
-            color = "#ff5c5c"
+            color = APP_COLORS["danger"]
             band_left = max(0.0, left - 1.5)
             band_right = min(float(w), right + 1.5)
             canvas.create_rectangle(band_left, 2, band_right, h - 2, fill=color, outline="", tags=("timeline_marker",))
             app._slider_overlay_regions.append((left, right, f"Propagation end: frame {frame_idx + 1}"))
         else:
-            color = "#b26bff"
+            color = APP_COLORS["purple"]
             canvas.create_rectangle(left, 3, right, h - 3, fill=color, outline="", tags=("timeline_marker",))
             app._slider_overlay_regions.append((left, right, f"Prompt frame {frame_idx + 1}"))
 
@@ -631,5 +633,5 @@ def update_slider_playhead(app) -> None:
     left = max(0.0, x - 1.0)
     right = min(float(w), x + 1.0)
     canvas.create_rectangle(
-        left, 0, right, h, fill="#ffffff", outline="", tags=("timeline_playhead",)
+        left, 0, right, h, fill=APP_COLORS["white"], outline="", tags=("timeline_playhead",)
     )

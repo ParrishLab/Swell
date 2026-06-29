@@ -38,6 +38,7 @@ from swell.analysis.core.preview_resize import start_resize_preview as do_start_
 from swell.analysis.core.preview_resize import do_resize_preview as do_preview_resize
 from swell.analysis.core.preview_resize import stop_resize_preview as do_stop_resize_preview
 from swell.analysis.core.propagation_progress import PropagationProgressLogger
+from swell.shared.ui.theme import APP_COLORS
 from swell.analysis.core.app_context import AppContext
 from swell.analysis.core import project_workflow
 from swell.analysis.core.region_tools import REGION_EXCLUDE_TOOL, REGION_INCLUDE_TOOL, region_tool_mode_for_region_mode
@@ -1662,7 +1663,7 @@ class SwellAnalysisApp(LayoutBuilder, IOActions, SegmentationActions, RenderActi
         if enabled:
             self._controls_hint_logged = False
             if hasattr(self, "lbl_status") and "Import image sequence to enable" in self.lbl_status.cget("text"):
-                self.lbl_status.configure(text="Status: Idle", foreground="gray")
+                self.lbl_status.configure(text="Status: Idle", foreground=APP_COLORS["muted"])
         else:
             if not self._controls_hint_logged:
                 self.log_info(
@@ -1953,7 +1954,7 @@ class SwellAnalysisApp(LayoutBuilder, IOActions, SegmentationActions, RenderActi
         if missing:
             msg = "Missing " + ", ".join(missing) + ". Place assets in swell/resources/models and swell/resources/configs."
             self.log_warn("App", msg)
-            self.lbl_status.configure(text="Status: Assets Missing", foreground="orange")
+            self.lbl_status.configure(text="Status: Assets Missing", foreground=APP_COLORS["warning"])
 
     def load_model_from_menu(self):
         self.log_info("Model", "Loading SAM2 model...")
@@ -2106,7 +2107,7 @@ class SwellAnalysisApp(LayoutBuilder, IOActions, SegmentationActions, RenderActi
         self.log_warn("Autosave", f"Autosave failed ({context}): {exc}")
         if hasattr(self, "lbl_status"):
             try:
-                self.lbl_status.configure(text="Status: Autosave warning (see log)", foreground="orange")
+                self.lbl_status.configure(text="Status: Autosave warning (see log)", foreground=APP_COLORS["warning"])
             except Exception:
                 pass
 
@@ -2331,12 +2332,12 @@ class SwellAnalysisApp(LayoutBuilder, IOActions, SegmentationActions, RenderActi
 
         r = self.brush_size.get() * self.display_ratio
         x, y = self.last_mouse_x, self.last_mouse_y
-        color = "white" if mode == "brush" else "red"
+        color = APP_COLORS["white"] if mode == "brush" else APP_COLORS["danger"]
 
         self.canvas_left.create_oval(x - r, y - r, x + r, y + r, outline=color, width=2, fill="", tag="cursor_brush")
 
     def _draw_paint_preview_segment_on_canvas(self, x0, y0, x1, y1, radius, mode):
-        color = "#00ffff" if mode == "brush" else "#ff4d4d"
+        color = APP_COLORS["cyan"] if mode == "brush" else APP_COLORS["danger"]
         width = max(1.0, float(radius) * 2.0)
         if abs(x1 - x0) < 0.001 and abs(y1 - y0) < 0.001:
             self.canvas_left.create_oval(
@@ -2372,7 +2373,7 @@ class SwellAnalysisApp(LayoutBuilder, IOActions, SegmentationActions, RenderActi
             y0,
             x1,
             y1,
-            outline="#1b75bc",
+            outline=APP_COLORS["accent"],
             width=2,
             dash=(4, 3),
             tags="box_preview",

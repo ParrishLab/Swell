@@ -5,7 +5,7 @@ import tkinter as tk
 
 from PIL import Image, ImageTk
 
-from swell.shared.ui.theme import CANVAS_BACKGROUND, SLIDER_OVERLAY_BACKGROUND, SPACING, apply_theme
+from swell.shared.ui.theme import APP_COLORS, CANVAS_BACKGROUND, SLIDER_OVERLAY_BACKGROUND, SPACING, apply_theme
 from swell.analysis.ui.tooltips import TooltipManager
 from swell.analysis.ui.widgets import build_preview_overlay
 from swell.shared.utils.paths import get_resources_root
@@ -303,7 +303,7 @@ class LayoutBuilder:
         self.panel_right = dock
         self.inspector_dock = dock
 
-        canvas = tk.Canvas(dock, bg="#1d2229", highlightthickness=0, bd=0)
+        canvas = tk.Canvas(dock, bg=APP_COLORS["surface_bg"], highlightthickness=0, bd=0)
         canvas.grid(row=0, column=0, sticky="nsew")
         scrollbar = ttk.Scrollbar(dock, orient="vertical", command=canvas.yview, style="Vertical.TScrollbar")
         scrollbar.grid(row=0, column=1, sticky="ns", padx=(SPACING.gap, 0))
@@ -1333,9 +1333,9 @@ class LayoutBuilder:
         right = int((end_idx / max(1, total - 1)) * (width - 1))
         if right <= left:
             right = min(width, left + 3)
-        canvas.create_rectangle(left, 3, right, height - 3, fill="#1b75bc", outline="")
-        canvas.create_rectangle(max(0, left - 1), 1, min(width, left + 2), height - 1, fill="#00d26a", outline="")
-        canvas.create_rectangle(max(0, right - 2), 1, min(width, right + 1), height - 1, fill="#ff5c5c", outline="")
+        canvas.create_rectangle(left, 3, right, height - 3, fill=APP_COLORS["accent"], outline="")
+        canvas.create_rectangle(max(0, left - 1), 1, min(width, left + 2), height - 1, fill=APP_COLORS["success"], outline="")
+        canvas.create_rectangle(max(0, right - 2), 1, min(width, right + 1), height - 1, fill=APP_COLORS["danger"], outline="")
 
     def _ensure_overlay_tooltip(self):
         return getattr(self, "_tooltip_manager", None) or _tooltip_manager_for_widget(self.root)
@@ -1365,7 +1365,7 @@ class LayoutBuilder:
             separator.grid(row=0, column=column, sticky="ns", padx=SPACING.inner)
 
     def _configure_text_cursor(self):
-        insert_cursor = "#edf1f3"
+        insert_cursor = APP_COLORS["text"]
         for text_widget in [getattr(self, "spin_prop_start", None), getattr(self, "spin_prop_end", None), getattr(self, "entry_frames_per_sec", None)]:
             if text_widget is None:
                 continue

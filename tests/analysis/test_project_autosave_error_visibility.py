@@ -4,6 +4,7 @@ import unittest
 
 from swell.analysis.app import SwellAnalysisApp
 from swell.analysis.core.project_autosave import AutosaveSnapshot, ProjectAutosaveManager
+from swell.shared.ui.theme import APP_COLORS
 
 
 class _LabelStub:
@@ -55,7 +56,7 @@ class ProjectAutosaveErrorVisibilityTests(unittest.TestCase):
         self.assertEqual(logs[0][0], "Autosave")
         self.assertIn("Autosave failed", logs[0][1])
         self.assertIn("Autosave warning", app.lbl_status.last.get("text", ""))
-        self.assertEqual(app.lbl_status.last.get("foreground"), "orange")
+        self.assertEqual(app.lbl_status.last.get("foreground"), APP_COLORS["warning"])
 
 
 if __name__ == "__main__":

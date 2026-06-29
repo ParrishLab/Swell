@@ -11,7 +11,7 @@ from tkinter import filedialog
 from swell.shared.ui import dialogs as messagebox
 from PIL import Image, ImageTk
 
-from swell.shared.ui.theme import SPACING, apply_theme
+from swell.shared.ui.theme import APP_COLORS, SPACING, apply_theme
 from swell.shared.ui.bootstrap import center_window_on_screen, semantic_button_options, ttk
 from swell.shared.image_overlay import apply_mask_overlay
 
@@ -168,7 +168,7 @@ class MaskImportDialogService:
 
         canvas_shell = ttk.Frame(shell, padding=SPACING.card, style="AppInset.TFrame")
         canvas_shell.pack(fill="both", expand=True, pady=(SPACING.inner, SPACING.inner))
-        canvas = tk.Canvas(canvas_shell, width=760, height=460, bg="#1f2023", highlightthickness=0)
+        canvas = tk.Canvas(canvas_shell, width=760, height=460, bg=APP_COLORS["inset_bg"], highlightthickness=0)
         canvas.pack(fill="both", expand=True)
         image_ref = {"tk": None}
 

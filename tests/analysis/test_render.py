@@ -7,6 +7,7 @@ from swell.analysis.core.render import RenderActions
 from swell.analysis.core.seg_state import SegmentationState
 from swell.analysis.core.viewport import ViewportState, compute_transform
 from swell.shared.image_overlay import frame_to_rgb_u8
+from swell.shared.ui.theme import APP_COLORS
 
 
 def _build_tk_harness_or_skip(test, factory):
@@ -295,11 +296,11 @@ class RenderActionsTests(unittest.TestCase):
 
         rectangles = [item for item in harness.canvas_left.items if item[0] == "rectangle"]
         self.assertEqual(len(rectangles), 9)
-        self.assertEqual(rectangles[0][2].get("outline"), "yellow")
+        self.assertEqual(rectangles[0][2].get("outline"), APP_COLORS["measurement"])
         handle_fills = [kwargs.get("fill") for _kind, _args, kwargs in rectangles[1:]]
         self.assertTrue(all(isinstance(fill, str) and fill.startswith("#") for fill in handle_fills))
         handle_outlines = [kwargs.get("outline") for _kind, _args, kwargs in rectangles[1:]]
-        self.assertEqual(set(handle_outlines), {"yellow"})
+        self.assertEqual(set(handle_outlines), {APP_COLORS["measurement"]})
 
     def test_unselected_box_outline_matches_unselected_point_outline(self):
         harness = _DisplayHarness()
@@ -312,7 +313,7 @@ class RenderActionsTests(unittest.TestCase):
 
         rectangles = [item for item in harness.canvas_left.items if item[0] == "rectangle"]
         self.assertEqual(len(rectangles), 1)
-        self.assertEqual(rectangles[0][2].get("outline"), "white")
+        self.assertEqual(rectangles[0][2].get("outline"), APP_COLORS["white"])
 
     def test_ghost_outlines_caching_and_rendering(self):
         import tkinter as tk

@@ -18,7 +18,7 @@ from swell.analysis.core.viewport import (
     zoom_viewport_at,
     pan_viewport,
 )
-from swell.shared.ui.theme import SPACING, apply_theme
+from swell.shared.ui.theme import APP_COLORS, SPACING, apply_theme
 from swell.shared.ui.bootstrap import center_window_on_screen, semantic_button_options, ttk
 
 ROI_ICON_LABELS = {
@@ -441,12 +441,12 @@ def open_roi_dialog(
             if not region:
                 continue
             is_active = region_idx == int(state["active_region_idx"])
-            color = "#00ff66" if is_active else "#61a8ff"
+            color = APP_COLORS["roi_active"] if is_active else APP_COLORS["roi_inactive"]
             for point_idx, (px, py) in enumerate(region):
                 x, y = transform.image_to_canvas(px, py)
                 selected = is_active and state["selected_idx"] == point_idx
                 r = 7 if selected else 5
-                outline = "yellow" if selected else color
+                outline = APP_COLORS["measurement"] if selected else color
                 canvas.create_oval(x - r, y - r, x + r, y + r, fill=color, outline=outline, width=2 if selected else 1, tags="overlay")
             if len(region) >= 2:
                 pts = []

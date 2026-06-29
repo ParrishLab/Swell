@@ -8,13 +8,14 @@ from swell.shared.frame_source import EventScopedFrameSource, PreparedFrameSourc
 from swell.shared.frame_source.launch_preparation import build_launch_preparation_cache_key
 from swell.shared.services import MODEL_CHECKPOINT_METADATA_KEY
 from swell.shared.diagnostics import stage as perf_stage
+from swell.shared.ui.theme import APP_COLORS
 
 
 class AnalysisHostModeController:
     def __init__(self, app) -> None:
         self.app = app
 
-    def _set_host_open_status(self, message: str, color: str = "gray") -> None:
+    def _set_host_open_status(self, message: str, color: str = APP_COLORS["muted"]) -> None:
         try:
             self.app.lbl_status.configure(text=f"Status: {str(message)}", foreground=str(color))
         except Exception:
@@ -199,7 +200,7 @@ class AnalysisHostModeController:
                             message = str(result.get("message", "Host rejected update."))
                             self.app.log_warn("HostSync", f"Host rejected update [{code}]: {message}")
                             try:
-                                self.app.lbl_status.configure(text=f"Status: Host rejected sync ({code})", foreground="orange")
+                                self.app.lbl_status.configure(text=f"Status: Host rejected sync ({code})", foreground=APP_COLORS["warning"])
                             except Exception:
                                 pass
                         notifier = getattr(self.app, "_host_sync_result_notifier", None)
@@ -351,7 +352,7 @@ class AnalysisHostModeController:
         except TypeError:
             self.app._sync_saved_mask_overlay_state()
         self._log_overlay_snapshot("after_host_context_initial_sync")
-        self._set_host_open_status("Preparing host workspace...", "orange")
+        self._set_host_open_status("Preparing host workspace...", APP_COLORS["warning"])
         if self.app.frame_source is not None:
             try:
                 ready = bool(
@@ -434,7 +435,7 @@ class AnalysisHostModeController:
         except TypeError:
             self.app._sync_saved_mask_overlay_state()
         self._log_overlay_snapshot("after_host_handoff_initial_sync")
-        self._set_host_open_status("Preparing host workspace...", "orange")
+        self._set_host_open_status("Preparing host workspace...", APP_COLORS["warning"])
 
         if self.app.frame_source is not None:
             try:

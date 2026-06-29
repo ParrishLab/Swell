@@ -1271,6 +1271,55 @@ def test_build_event_global_mask_map_uses_event_local_dict_indices_for_legacy_si
     assert int(np.count_nonzero(mask_map[12])) == 25
 
 
+def test_build_event_global_mask_map_limits_global_arrays_to_requested_frames() -> None:
+    event = _event("event_0001", 10, 12)
+    masks = np.zeros((20, 5, 5), dtype=np.uint8)
+    masks[9, 0:2, 0:2] = 1
+    masks[11, 1:4, 1:4] = 1
+    masks[13, 0:5, 0:5] = 1
+
+    mask_map = _build_event_global_mask_map(
+        event=event,
+        masks_payload=masks,
+        baseline_pre_frames=0,
+        analysis_sidecar_payload={"masks_committed_frame_origin": "global"},
+        frame_indices={11},
+    )
+
+    assert sorted(mask_map) == [11]
+    assert int(np.count_nonzero(mask_map[11])) == 9
+
+
+def test_event_global_mask_map_restricts_region_prompts_without_copying_unrequested_masks() -> None:
+    event = _event("event_0001", 2, 5)
+    sidecar = {
+        "prompts_frame_origin": "analysis_scope_local",
+        "prompts": {
+            "persistent_regions": [
+                {
+                    "id": "include_a",
+                    "mode": "include",
+                    "enabled": True,
+                    "frame_start": 0,
+                    "frame_end": 2,
+                    "polygon": [[1, 1], [6, 1], [6, 6], [1, 6]],
+                },
+            ]
+        },
+    }
+
+    mask_map = _build_event_global_mask_map(
+        event=event,
+        masks_payload={"99": np.zeros((8, 8), dtype=np.uint8)},
+        baseline_pre_frames=0,
+        analysis_sidecar_payload=sidecar,
+        frame_indices={3},
+    )
+
+    assert sorted(mask_map) == [3]
+    assert mask_map[3][2, 2]
+
+
 def test_export_metrics_uses_analysis_scope_local_mask_arrays(tmp_path: Path) -> None:
     frames = [np.full((8, 8), i, dtype=np.uint8) for i in range(20)]
     reader = FakeReader(frames)
@@ -1854,6 +1903,63 @@ def test_export_binary_masks_writes_mask_images_when_available(tmp_path: Path) -
     assert event_mask.dtype == np.uint8
     assert set(np.unique(baseline_mask).tolist()) == {0, 255}
     assert set(np.unique(event_mask).tolist()) == {0, 255}
+
+
+def test_export_roi_cropped_binary_masks_constrains_and_crops_to_roi(tmp_path: Path) -> None:
+    frames = [np.full((8, 8), i, dtype=np.uint8) for i in range(8)]
+    reader = FakeReader(frames)
+    events = [_event("event_0001", 2, 3)]
+    roi_mask = np.zeros((8, 8), dtype=bool)
+    roi_mask[2:6, 3:7] = True
+    masks = np.zeros((8, 8, 8), dtype=np.uint8)
+    masks[1, 0:2, 0:2] = 1  # baseline mask outside ROI; should not be exported
+    masks[2, 3:5, 4:6] = 1
+    masks[3, 5:7, 6:8] = 1  # only one pixel intersects the ROI
+
+    result = export_analysis(
+        reader=reader,
+        events=events,
+        output_dir=tmp_path,
+        baseline_pre_frames=1,
+        include_event_images=False,
+        include_baseline_images=False,
+        include_roi_cropped_binary_masks=True,
+        analysis_sidecar={
+            "event_0001": {
+                "masks_committed": masks,
+                "metrics_settings": {"roi_mask": roi_mask},
+            }
+        },
+    )
+
+    cropped_dir = tmp_path / "event_0001" / "binary_masks_roi_cropped"
+    exported_masks = sorted(p.name for p in cropped_dir.glob("*.tiff"))
+    assert exported_masks == [
+        "000002_event_mask_roi_cropped.tiff",
+        "000003_event_mask_roi_cropped.tiff",
+    ]
+    assert not (tmp_path / "event_0001" / "binary_masks").exists()
+    assert result["frames_exported"] == 0
+    assert result["roi_cropped_masks_exported"] == 2
+
+    mask_2 = tifffile.imread(str(cropped_dir / "000002_event_mask_roi_cropped.tiff"))
+    mask_3 = tifffile.imread(str(cropped_dir / "000003_event_mask_roi_cropped.tiff"))
+    assert mask_2.shape == (4, 4)
+    assert mask_3.shape == (4, 4)
+    assert int(np.count_nonzero(mask_2)) == 4
+    assert int(np.count_nonzero(mask_3)) == 1
+    assert mask_3[-1, -1] == 255
+
+    metadata = json.loads((cropped_dir / "roi_crop_metadata.json").read_text(encoding="utf-8"))
+    assert metadata["frame_shape"] == [8, 8]
+    assert metadata["crop_bounds"] == {
+        "y_min": 2,
+        "y_max_exclusive": 6,
+        "x_min": 3,
+        "x_max_exclusive": 7,
+        "height": 4,
+        "width": 4,
+    }
 
 
 def test_export_binary_masks_writes_region_only_prompt_masks(tmp_path: Path) -> None:

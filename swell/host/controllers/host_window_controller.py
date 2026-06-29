@@ -13,7 +13,7 @@ import numpy as np
 from swell.analysis.core.metrics import compute_scale
 from swell.analysis.ui.roi_dialog import _call_preserving_geometry, open_roi_dialog
 from swell.analysis.ui.scale_dialog import open_scale_dialog
-from swell.shared.ui.theme import SPACING, apply_theme
+from swell.shared.ui.theme import APP_COLORS, SPACING, apply_theme
 from swell.host.exporter import analysis_image_cache_key, export_analysis
 from swell.shared.models import clone_analysis_payload
 from swell.shared.services import MetricsSettingsResolver
@@ -286,17 +286,17 @@ class HostWindowController:
         width = int(float(canvas.cget("width")))
         height = int(float(canvas.cget("height")))
         canvas.delete("all")
-        canvas.create_rectangle(0, 0, width, height, fill="#11161d", outline="")
+        canvas.create_rectangle(0, 0, width, height, fill=APP_COLORS["inset_bg"], outline="")
         if not frame_indices or values.size == 0:
-            canvas.create_text(width / 2, height / 2, text="No preview", fill="#7e8794")
+            canvas.create_text(width / 2, height / 2, text="No preview", fill=APP_COLORS["muted"])
             return
         for start, end in affected_runs:
             x0 = 10 if len(frame_indices) <= 1 else 10 + ((width - 20) * (start / float(len(frame_indices) - 1)))
             x1 = 10 if len(frame_indices) <= 1 else 10 + ((width - 20) * (end / float(len(frame_indices) - 1)))
-            canvas.create_rectangle(x0 - 3, 8, x1 + 3, height - 18, fill="#2b3c52", outline="")
+            canvas.create_rectangle(x0 - 3, 8, x1 + 3, height - 18, fill=APP_COLORS["progress_trail"], outline="")
         finite = np.isfinite(values)
         if not np.any(finite):
-            canvas.create_text(width / 2, height / 2, text="No speed values", fill="#7e8794")
+            canvas.create_text(width / 2, height / 2, text="No speed values", fill=APP_COLORS["muted"])
             return
         finite_values = values[finite]
         y_min = min(0.0, float(np.nanmin(finite_values)))
@@ -313,7 +313,7 @@ class HostWindowController:
             return 10 + ((height - 30) * (1.0 - ((val - y_min) / (y_max - y_min))))
 
         zero_y = _y(0.0)
-        canvas.create_line(10, zero_y, width - 10, zero_y, fill="#39424f", dash=(3, 3))
+        canvas.create_line(10, zero_y, width - 10, zero_y, fill=APP_COLORS["border"], dash=(3, 3))
 
         segment: list[float] = []
         for pos, val in enumerate(values):
@@ -326,8 +326,8 @@ class HostWindowController:
         if len(segment) >= 4:
             canvas.create_line(*segment, fill=color, width=2, smooth=True)
 
-        canvas.create_text(10, height - 8, text=str(frame_indices[0]), fill="#7e8794", anchor="sw")
-        canvas.create_text(width - 10, height - 8, text=str(frame_indices[-1]), fill="#7e8794", anchor="se")
+        canvas.create_text(10, height - 8, text=str(frame_indices[0]), fill=APP_COLORS["muted"], anchor="sw")
+        canvas.create_text(width - 10, height - 8, text=str(frame_indices[-1]), fill=APP_COLORS["muted"], anchor="se")
 
     def has_binary_masks_for_events(self, event_ids: list[str]) -> bool:
         try:
@@ -351,6 +351,19 @@ class HostWindowController:
             if arr.ndim == 3 and arr.size > 0 and np.any(arr):
                 return True
         return False
+
+    def has_valid_roi_for_events(self, event_ids: list[str]) -> bool:
+        ids = [str(v) for v in list(event_ids or [])]
+        if not ids:
+            return False
+        for event_id in ids:
+            try:
+                metrics_settings = self.app.browser_controller.resolve_event_metrics_settings(event_id)
+            except Exception:
+                return False
+            if not self._has_valid_roi(dict(metrics_settings or {})):
+                return False
+        return True
 
     @staticmethod
     def _has_valid_scale(metrics_settings: dict) -> bool:
@@ -495,6 +508,7 @@ class HostWindowController:
         include_baseline_var = tk.BooleanVar(value=True)
         include_analysis_var = tk.BooleanVar(value=False)
         include_masks_var = tk.BooleanVar(value=True)
+        include_roi_cropped_masks_var = tk.BooleanVar(value=False)
         include_mask_overlay_var = tk.BooleanVar(value=True)
         include_analysis_overlay_var = tk.BooleanVar(value=False)
         include_contour_map_var = tk.BooleanVar(value=False)
@@ -508,6 +522,7 @@ class HostWindowController:
         output_dir_var = tk.StringVar(value=self.app.output_var.get().strip())
         result: dict[str, str | bool] | None = None
         has_masks = self.has_binary_masks_for_events(event_ids)
+        has_roi = self.has_valid_roi_for_events(event_ids)
         metric_ready = self.resolve_export_metric_prerequisites(event_ids)
 
         shell = ttk.Frame(dialog, padding=SPACING.outer, style="AppShell.TFrame")
@@ -536,6 +551,12 @@ class HostWindowController:
         ttk.Checkbutton(checks, text="Analysis Images", variable=include_analysis_var).pack(anchor="w")
         masks_check = ttk.Checkbutton(checks, text="Binary Masks", variable=include_masks_var)
         masks_check.pack(anchor="w")
+        roi_cropped_masks_check = ttk.Checkbutton(
+            checks,
+            text="ROI-Cropped Binary Masks",
+            variable=include_roi_cropped_masks_var,
+        )
+        roi_cropped_masks_check.pack(anchor="w")
         overlay_check = ttk.Checkbutton(checks, text="Mask Overlay Images", variable=include_mask_overlay_var)
         overlay_check.pack(anchor="w")
         analysis_overlay_check = ttk.Checkbutton(
@@ -550,6 +571,9 @@ class HostWindowController:
             include_masks_var.set(False)
             masks_check.configure(state="disabled")
             self.attach_disabled_tooltip(dialog, masks_check, "No binary masks exist for the selected events.")
+            include_roi_cropped_masks_var.set(False)
+            roi_cropped_masks_check.configure(state="disabled")
+            self.attach_disabled_tooltip(dialog, roi_cropped_masks_check, "No binary masks exist for the selected events.")
             include_mask_overlay_var.set(False)
             overlay_check.configure(state="disabled")
             self.attach_disabled_tooltip(dialog, overlay_check, "No binary masks exist for the selected events.")
@@ -559,6 +583,10 @@ class HostWindowController:
             include_contour_map_var.set(False)
             contour_map_check.configure(state="disabled")
             self.attach_disabled_tooltip(dialog, contour_map_check, "No binary masks exist for the selected events.")
+        elif not has_roi:
+            include_roi_cropped_masks_var.set(False)
+            roi_cropped_masks_check.configure(state="disabled")
+            self.attach_disabled_tooltip(dialog, roi_cropped_masks_check, "No valid ROI exists for the selected events.")
 
         ttk.Separator(checks, orient="horizontal").pack(fill="x", pady=(6, 4))
         ttk.Label(checks, text="Metrics", style="AppMeta.TLabel").pack(anchor="w")
@@ -683,6 +711,7 @@ class HostWindowController:
                 or bool(include_baseline_var.get())
                 or bool(include_analysis_var.get())
                 or bool(include_masks_var.get())
+                or bool(include_roi_cropped_masks_var.get())
                 or bool(include_mask_overlay_var.get())
                 or bool(include_analysis_overlay_var.get())
                 or bool(include_contour_map_var.get())
@@ -705,6 +734,7 @@ class HostWindowController:
                 "include_baseline_images": bool(include_baseline_var.get()),
                 "include_analysis_images": bool(include_analysis_var.get()),
                 "include_binary_masks": bool(include_masks_var.get()),
+                "include_roi_cropped_binary_masks": bool(include_roi_cropped_masks_var.get()),
                 "include_mask_overlay_images": bool(include_mask_overlay_var.get()),
                 "include_analysis_overlay_images": bool(include_analysis_overlay_var.get()),
                 "include_contour_map": bool(include_contour_map_var.get()),
@@ -793,16 +823,16 @@ class HostWindowController:
         previews = ttk.Frame(shell, style="AppShell.TFrame")
         previews.pack(fill="x", pady=(0, SPACING.card))
         preview_colors = {
-            "ignore": "#c58cff",
-            "zero": "#f5c451",
-            "stop": "#ef7d57",
-            "interpolate": "#4db3ff",
+            "ignore": APP_COLORS["purple"],
+            "zero": APP_COLORS["warning"],
+            "stop": APP_COLORS["danger"],
+            "interpolate": APP_COLORS["info"],
         }
         for index, spec in enumerate(action_specs):
             card = ttk.Frame(previews, padding=SPACING.card, style="AppInset.TFrame")
             card.pack(side="left", fill="both", expand=True, padx=(SPACING.gap if index else 0, 0))
             ttk.Label(card, text=str(spec["label"]), style="AppSectionTitle.TLabel").pack(anchor="w")
-            canvas = tk.Canvas(card, width=240, height=120, bg="#11161d", highlightthickness=0, bd=0)
+            canvas = tk.Canvas(card, width=240, height=120, bg=APP_COLORS["inset_bg"], highlightthickness=0, bd=0)
             canvas.pack(fill="x", pady=(SPACING.inner, SPACING.inner))
             preview_series = self._apply_preview_action(preview_values, preview_runs, str(spec["action"]))
             self._draw_propagation_preview(
@@ -810,7 +840,7 @@ class HostWindowController:
                 frame_indices=preview_frame_indices,
                 values=preview_series,
                 affected_runs=preview_runs,
-                color=preview_colors.get(str(spec["action"]), "#4db3ff"),
+                color=preview_colors.get(str(spec["action"]), APP_COLORS["info"]),
             )
             ttk.Label(
                 card,
@@ -1190,6 +1220,7 @@ class HostWindowController:
             f"baseline_images={bool(options.get('include_baseline_images'))}, "
             f"analysis_images={bool(options.get('include_analysis_images'))}, "
             f"binary_masks={bool(options.get('include_binary_masks'))}, "
+            f"roi_cropped_binary_masks={bool(options.get('include_roi_cropped_binary_masks'))}, "
             f"mask_overlay_images={bool(options.get('include_mask_overlay_images'))}, "
             f"analysis_overlay_images={bool(options.get('include_analysis_overlay_images'))}, "
             f"contour_map={bool(options.get('include_contour_map'))}, "
@@ -1263,6 +1294,7 @@ class HostWindowController:
                     include_baseline_images=bool(options.get("include_baseline_images")),
                     include_analysis_images=bool(options.get("include_analysis_images")),
                     include_binary_masks=bool(options.get("include_binary_masks")),
+                    include_roi_cropped_binary_masks=bool(options.get("include_roi_cropped_binary_masks")),
                     include_mask_overlay_images=bool(options.get("include_mask_overlay_images")),
                     include_analysis_overlay_images=bool(options.get("include_analysis_overlay_images")),
                     include_contour_map=bool(options.get("include_contour_map")),

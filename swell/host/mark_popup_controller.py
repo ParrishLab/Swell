@@ -3,7 +3,7 @@ from __future__ import annotations
 import tkinter as tk
 from swell.shared.ui import dialogs as messagebox
 
-from swell.shared.ui.theme import SPACING, apply_theme
+from swell.shared.ui.theme import APP_COLORS, SPACING, apply_theme
 from swell.host.analysis_payload_mapper import apply_analysis_scope_flags
 from swell.host.popup_processing_controller import PopupProcessingController
 from swell.host.popup_preview_controller import PopupPreviewController
@@ -149,7 +149,7 @@ class MarkPopupController:
 
         top_row = ttk.Frame(content, style="AppShell.TFrame")
         top_row.pack(fill="x", pady=(0, 6))
-        self.app._popup.mark_range_canvas = tk.Canvas(top_row, height=28, bg="#24262a", highlightthickness=0, bd=0, cursor="hand2")
+        self.app._popup.mark_range_canvas = tk.Canvas(top_row, height=28, bg=APP_COLORS["raised_bg"], highlightthickness=0, bd=0, cursor="hand2")
         self.app._popup.mark_range_canvas.pack(side="left", fill="x", expand=True, padx=(0, 8))
         self.app._popup.mark_range_canvas.bind("<Configure>", lambda _e: self.range_controller.redraw_range_selector())
         self.app._popup.mark_range_canvas.bind("<Button-1>", self.range_controller.range_press)
@@ -200,7 +200,7 @@ class MarkPopupController:
         self.app._popup.mark_loading_label = ttk.Label(content, textvariable=self.app._popup.mark_loading_var, style="AppMeta.TLabel")
         self.app._popup.mark_loading_bar = ttk.Progressbar(content, mode="indeterminate", style="AppLoading.Horizontal.TProgressbar")
 
-        self.app._popup.mark_overlay = tk.Canvas(content, height=12, bg="#2a2b2f", highlightthickness=0, bd=0)
+        self.app._popup.mark_overlay = tk.Canvas(content, height=12, bg=APP_COLORS["control_bg"], highlightthickness=0, bd=0)
         self.app._popup.mark_overlay.pack(fill="x", pady=(4, 2))
         self.app._popup.mark_overlay.bind("<Configure>", lambda _e: self.preview_controller.redraw_overlay())
 
@@ -213,10 +213,10 @@ class MarkPopupController:
             relief="flat",
             highlightthickness=0,
             bd=0,
-            bg="#1f242b",
-            fg="#edf1f3",
-            troughcolor="#2a3038",
-            activebackground="#1b75bc",
+            bg=APP_COLORS["surface_bg"],
+            fg=APP_COLORS["text"],
+            troughcolor=APP_COLORS["control_bg"],
+            activebackground=APP_COLORS["accent"],
             command=self.preview_controller.on_slide,
         )
         self.app._popup.mark_scale.pack(fill="x", pady=(0, 6))

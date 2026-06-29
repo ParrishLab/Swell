@@ -304,6 +304,7 @@ def test_run_export_passes_contour_map_option(monkeypatch, tmp_path) -> None:
             "events_exported": 1,
             "frames_exported": 0,
             "analysis_images_exported": 0,
+            "roi_cropped_masks_exported": 0,
             "mask_overlay_images_exported": 0,
             "analysis_overlay_images_exported": 0,
             "contour_maps_exported": 1,
@@ -346,10 +347,12 @@ def test_run_export_passes_contour_map_option(monkeypatch, tmp_path) -> None:
             "output_dir": str(tmp_path),
             "include_event_images": False,
             "include_baseline_images": False,
+            "include_roi_cropped_binary_masks": True,
             "include_contour_map": True,
             "include_metric_intensity": True,
         },
     )
 
+    assert captured["include_roi_cropped_binary_masks"] is True
     assert captured["include_contour_map"] is True
     assert captured["include_metric_intensity"] is True

@@ -13,6 +13,7 @@ from swell.analysis.core.overlay_renderer import (
     update_timeline_propagation_progress,
 )
 from swell.analysis.core.seg_state import SegmentationState
+from swell.shared.ui.theme import APP_COLORS
 
 
 class PropagationOverlayStateTests(unittest.TestCase):
@@ -341,10 +342,10 @@ class PropagationOverlayStateTests(unittest.TestCase):
 
         self.assertIn(3, app._slider_marker_bounds)
         self.assertFalse(
-            any(item["coords"][0] == 0 and item["coords"][2] == 100 and item["kwargs"].get("fill") == "#1b75bc" for item in app.slider_overlay.items)
+            any(item["coords"][0] == 0 and item["coords"][2] == 100 and item["kwargs"].get("fill") == APP_COLORS["accent"] for item in app.slider_overlay.items)
         )
-        progress_track_idx = max(idx for idx, item in enumerate(app.slider_overlay.items) if item["kwargs"].get("fill") == "#1a2028")
-        marker_idx = max(idx for idx, item in enumerate(app.slider_overlay.items) if item["kwargs"].get("fill") == "#b26bff")
+        progress_track_idx = max(idx for idx, item in enumerate(app.slider_overlay.items) if item["kwargs"].get("fill") == APP_COLORS["timeline_track"])
+        marker_idx = max(idx for idx, item in enumerate(app.slider_overlay.items) if item["kwargs"].get("fill") == APP_COLORS["purple"])
         self.assertGreater(marker_idx, progress_track_idx)
         self.assertIn("timeline_marker", app.slider_overlay.raised_tags)
 
@@ -363,7 +364,7 @@ class PropagationOverlayStateTests(unittest.TestCase):
         self.assertAlmostEqual(coords[2], 46.0)
         self.assertEqual(coords[1], 0)  # spans full height
         self.assertEqual(coords[3], 18)
-        self.assertEqual(playheads[0]["kwargs"].get("fill"), "#ffffff")
+        self.assertEqual(playheads[0]["kwargs"].get("fill"), APP_COLORS["white"])
 
     def test_playhead_moves_without_duplicating(self):
         app = self._make_app(frame_count=10)

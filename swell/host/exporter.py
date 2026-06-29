@@ -87,6 +87,7 @@ def export_analysis(
     include_baseline_images: bool = True,
     include_analysis_images: bool = False,
     include_binary_masks: bool = False,
+    include_roi_cropped_binary_masks: bool = False,
     include_mask_overlay_images: bool = False,
     include_analysis_overlay_images: bool = False,
     include_contour_map: bool = False,
@@ -118,6 +119,7 @@ def export_analysis(
     )
     include_any_mask_exports = (
         bool(include_binary_masks)
+        or bool(include_roi_cropped_binary_masks)
         or bool(include_mask_overlay_images)
         or bool(include_analysis_overlay_images)
     )
@@ -164,6 +166,7 @@ def export_analysis(
     event_summaries: list[dict] = []
     analysis_images_exported = 0
     masks_exported = 0
+    roi_cropped_masks_exported = 0
     mask_overlay_images_exported = 0
     analysis_overlay_images_exported = 0
     contour_maps_exported = 0
@@ -220,6 +223,10 @@ def export_analysis(
             if bool(include_binary_masks):
                 masks_dir = event_dir / "binary_masks"
                 masks_dir.mkdir(parents=True, exist_ok=True)
+            roi_cropped_masks_dir: Path | None = None
+            if bool(include_roi_cropped_binary_masks):
+                roi_cropped_masks_dir = event_dir / "binary_masks_roi_cropped"
+                roi_cropped_masks_dir.mkdir(parents=True, exist_ok=True)
             overlay_dir: Path | None = None
             if bool(include_mask_overlay_images):
                 overlay_dir = event_dir / "mask_overlays"
@@ -294,21 +301,54 @@ def export_analysis(
             manifest_records.extend([rec for _idx, _role, rec in event_records])
 
             event_sidecar = dict(analysis_sidecar_snapshot.get(str(event.event_id), {}) or {})
-            mask_map = _build_event_global_mask_map(
-                event=event,
-                masks_payload=event_sidecar.get("masks_committed"),
-                baseline_pre_frames=int(baseline_pre_frames),
-                analysis_sidecar_payload=event_sidecar,
-            )
             analysis_viz_frames = None
             analysis_scope_start: int | None = None
             analysis_scope_end: int | None = None
+            analysis_baseline_pre: int | None = None
+            analysis_processing = None
             if (analysis_dir is not None or analysis_overlay_dir is not None) and stack_frame_source is not None:
-                analysis_scope_start, analysis_scope_end, analysis_baseline_pre, processing = analysis_image_export_plan(
+                analysis_scope_start, analysis_scope_end, analysis_baseline_pre, analysis_processing = analysis_image_export_plan(
                     event,
                     default_baseline_pre_frames=int(baseline_pre_frames),
                 )
 
+            needed_mask_indices: set[int] = set()
+            if masks_dir is not None or roi_cropped_masks_dir is not None or overlay_dir is not None:
+                needed_mask_indices.update(int(v) for v in baseline_scope_indices)
+                needed_mask_indices.update(int(v) for v in event_scope_indices)
+            if contour_map_dir is not None:
+                needed_mask_indices.update(int(v) for v in event_scope_indices)
+            if analysis_overlay_dir is not None and analysis_scope_start is not None and analysis_scope_end is not None:
+                needed_mask_indices.update(range(int(analysis_scope_start), int(analysis_scope_end) + 1))
+
+            mask_map: dict[int, np.ndarray] = {}
+            if needed_mask_indices:
+                mask_map = _build_event_global_mask_map(
+                    event=event,
+                    masks_payload=event_sidecar.get("masks_committed"),
+                    baseline_pre_frames=int(baseline_pre_frames),
+                    analysis_sidecar_payload=event_sidecar,
+                    frame_indices=needed_mask_indices,
+                )
+            roi_mask_for_cropped_masks = None
+            roi_crop_bounds = None
+            if roi_cropped_masks_dir is not None:
+                metrics_settings = MetricsSettingsResolver.resolve_for_event(
+                    event_id=str(event.event_id),
+                    analysis_sidecar={str(event.event_id): event_sidecar},
+                    project_metadata=project_metadata if isinstance(project_metadata, dict) else {},
+                )
+                frame_shape = _infer_reader_frame_shape(reader)
+                roi_mask_for_cropped_masks = _resolve_roi_mask(metrics_settings, frame_shape)
+                if roi_mask_for_cropped_masks is None or not np.any(roi_mask_for_cropped_masks):
+                    raise ValueError(f"Event {event.event_id} ROI-cropped binary mask export requires a valid ROI.")
+                roi_crop_bounds = _roi_crop_bounds(roi_mask_for_cropped_masks)
+                _write_roi_crop_metadata(
+                    roi_cropped_masks_dir / "roi_crop_metadata.json",
+                    frame_shape=frame_shape,
+                    bounds=roi_crop_bounds,
+                )
+            if (analysis_dir is not None or analysis_overlay_dir is not None) and stack_frame_source is not None:
                 def _notify_analysis_prepare(progress: dict, *, event_id=str(event.event_id)) -> None:
                     if not callable(progress_callback):
                         return
@@ -334,8 +374,8 @@ def export_analysis(
                     event=event,
                     scope_start=int(analysis_scope_start),
                     scope_end=int(analysis_scope_end),
-                    baseline_pre=int(analysis_baseline_pre),
-                    processing=processing,
+                    baseline_pre=int(analysis_baseline_pre or 0),
+                    processing=analysis_processing,
                     analysis_viz_frames=analysis_viz_frames,
                 )
             if analysis_dir is not None and analysis_viz_frames is not None:
@@ -375,6 +415,20 @@ def export_analysis(
                     mask_name = f"{int(frame_idx):06d}_{role}_mask.tiff"
                     _write_mask(masks_dir / mask_name, mask)
                     masks_exported += 1
+            if roi_cropped_masks_dir is not None and roi_mask_for_cropped_masks is not None and roi_crop_bounds is not None:
+                for frame_idx in sorted(set(baseline_scope_indices + event_scope_indices)):
+                    mask = mask_map.get(int(frame_idx))
+                    if mask is None:
+                        continue
+                    role = "baseline" if int(frame_idx) in baseline_scope_indices else "event"
+                    mask_name = f"{int(frame_idx):06d}_{role}_mask_roi_cropped.tiff"
+                    if _write_roi_cropped_mask(
+                        roi_cropped_masks_dir / mask_name,
+                        mask=mask,
+                        roi_mask=roi_mask_for_cropped_masks,
+                        bounds=roi_crop_bounds,
+                    ):
+                        roi_cropped_masks_exported += 1
             if overlay_dir is not None:
                 overlay_indices = sorted(set(baseline_scope_indices + event_scope_indices))
                 for frame_idx in overlay_indices:
@@ -455,6 +509,7 @@ def export_analysis(
         "frames_exported": len(manifest_records),
         "analysis_images_exported": int(analysis_images_exported),
         "masks_exported": int(masks_exported),
+        "roi_cropped_masks_exported": int(roi_cropped_masks_exported),
         "mask_overlay_images_exported": int(mask_overlay_images_exported),
         "analysis_overlay_images_exported": int(analysis_overlay_images_exported),
         "contour_maps_exported": int(contour_maps_exported),
@@ -606,6 +661,75 @@ def _resolve_roi_mask(metrics_settings: dict[str, object], frame_shape: tuple[in
         if mask is not None and mask.shape == frame_shape and np.any(mask):
             return np.asarray(mask, dtype=bool).copy()
     return None
+
+
+def _infer_reader_frame_shape(reader: StackReader) -> tuple[int, int]:
+    try:
+        info = reader.get_stack_info()
+        height = int(getattr(info, "frame_height", 0) or 0)
+        width = int(getattr(info, "frame_width", 0) or 0)
+        if height > 0 and width > 0:
+            return height, width
+    except Exception:
+        pass
+    frame0 = np.asarray(reader.read_frame(0, use_cache=True))
+    if frame0.ndim < 2:
+        raise ValueError("Unable to infer frame shape for ROI-cropped binary mask export.")
+    return int(frame0.shape[0]), int(frame0.shape[1])
+
+
+def _roi_crop_bounds(roi_mask: np.ndarray) -> tuple[int, int, int, int]:
+    arr = np.asarray(roi_mask, dtype=bool)
+    if arr.ndim != 2 or not np.any(arr):
+        raise ValueError("ROI-cropped binary mask export requires a non-empty 2D ROI.")
+    ys, xs = np.nonzero(arr)
+    y0 = int(np.min(ys))
+    y1 = int(np.max(ys)) + 1
+    x0 = int(np.min(xs))
+    x1 = int(np.max(xs)) + 1
+    return y0, y1, x0, x1
+
+
+def _write_roi_crop_metadata(path: Path, *, frame_shape: tuple[int, int], bounds: tuple[int, int, int, int]) -> None:
+    y0, y1, x0, x1 = bounds
+    payload = {
+        "frame_shape": [int(frame_shape[0]), int(frame_shape[1])],
+        "crop_bounds": {
+            "y_min": int(y0),
+            "y_max_exclusive": int(y1),
+            "x_min": int(x0),
+            "x_max_exclusive": int(x1),
+            "height": int(y1 - y0),
+            "width": int(x1 - x0),
+        },
+        "mask_values": {"background": 0, "foreground": 255},
+    }
+    path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+
+def _write_roi_cropped_mask(
+    path: Path,
+    *,
+    mask: np.ndarray,
+    roi_mask: np.ndarray,
+    bounds: tuple[int, int, int, int],
+) -> bool:
+    mask_arr = np.asarray(mask)
+    roi_arr = np.asarray(roi_mask)
+    if mask_arr.ndim != 2 or roi_arr.ndim != 2 or mask_arr.shape != roi_arr.shape:
+        return False
+    y0, y1, x0, x1 = (int(v) for v in bounds)
+    if y0 < 0 or x0 < 0 or y1 > mask_arr.shape[0] or x1 > mask_arr.shape[1] or y0 >= y1 or x0 >= x1:
+        return False
+    mask_crop = np.asarray(mask_arr[y0:y1, x0:x1], dtype=bool)
+    if not np.any(mask_crop):
+        return False
+    roi_crop = np.asarray(roi_arr[y0:y1, x0:x1], dtype=bool)
+    cropped = mask_crop & roi_crop
+    if not np.any(cropped):
+        return False
+    _write_mask(path, cropped)
+    return True
 
 
 def _write_metric_csv(path: Path, frame_indices: list[int], time_sec: list[float], values: np.ndarray, value_column: str) -> None:
@@ -1721,6 +1845,7 @@ def _build_event_global_mask_map(
     masks_payload,
     baseline_pre_frames: int,
     analysis_sidecar_payload: dict[str, object] | None = None,
+    frame_indices: Iterable[int] | None = None,
 ) -> dict[int, np.ndarray]:
     """Build the host-side final-mask map used by every export artifact.
 
@@ -1731,9 +1856,20 @@ def _build_event_global_mask_map(
     """
     out: dict[int, np.ndarray] = {}
     sidecar = dict(analysis_sidecar_payload or {})
+    requested_indices = {int(v) for v in frame_indices} if frame_indices is not None else None
+
+    def _include_frame(frame_idx: int) -> bool:
+        return requested_indices is None or int(frame_idx) in requested_indices
+
     if masks_payload is None:
         shape_hw = _infer_mask_map_shape(out, sidecar)
-        _apply_prompt_regions_to_global_mask_map(out, event=event, sidecar=sidecar, shape_hw=shape_hw)
+        _apply_prompt_regions_to_global_mask_map(
+            out,
+            event=event,
+            sidecar=sidecar,
+            shape_hw=shape_hw,
+            frame_indices=requested_indices,
+        )
         return out
     if isinstance(masks_payload, dict):
         flags = dict(getattr(event, "flags", {}) or {})
@@ -1772,12 +1908,20 @@ def _build_event_global_mask_map(
                     global_idx = int(event.start_idx) + idx
                 else:
                     global_idx = idx
+            if global_idx is not None and not _include_frame(int(global_idx)):
+                continue
             arr = np.asarray(mask, dtype=bool)
             if arr.ndim != 2 or global_idx is None:
                 continue
             out[int(global_idx)] = arr.copy()
-        shape_hw = _infer_mask_map_shape(out, sidecar)
-        _apply_prompt_regions_to_global_mask_map(out, event=event, sidecar=sidecar, shape_hw=shape_hw)
+        shape_hw = _infer_mask_map_shape(out, sidecar) or _infer_mask_payload_shape(masks_payload)
+        _apply_prompt_regions_to_global_mask_map(
+            out,
+            event=event,
+            sidecar=sidecar,
+            shape_hw=shape_hw,
+            frame_indices=requested_indices,
+        )
         return out
 
     arr = np.asarray(masks_payload)
@@ -1814,36 +1958,68 @@ def _build_event_global_mask_map(
     if origin_hint == "analysis_scope_local" or (scope_len > 0 and frame_count == scope_len):
         for local_idx in range(frame_count):
             global_idx = int(scope_start) + int(local_idx)
+            if not _include_frame(global_idx):
+                continue
             mask = np.asarray(arr[local_idx], dtype=bool)
             if mask.ndim == 2:
                 out[int(global_idx)] = mask.copy()
-        _apply_prompt_regions_to_global_mask_map(out, event=event, sidecar=sidecar, shape_hw=tuple(arr.shape[1:3]))
+        _apply_prompt_regions_to_global_mask_map(
+            out,
+            event=event,
+            sidecar=sidecar,
+            shape_hw=tuple(arr.shape[1:3]),
+            frame_indices=requested_indices,
+        )
         return out
 
     if origin_hint == "event_local" or (event_len > 0 and frame_count == event_len):
         for local_idx in range(frame_count):
             global_idx = int(event.start_idx) + int(local_idx)
+            if not _include_frame(global_idx):
+                continue
             mask = np.asarray(arr[local_idx], dtype=bool)
             if mask.ndim == 2:
                 out[int(global_idx)] = mask.copy()
-        _apply_prompt_regions_to_global_mask_map(out, event=event, sidecar=sidecar, shape_hw=tuple(arr.shape[1:3]))
+        _apply_prompt_regions_to_global_mask_map(
+            out,
+            event=event,
+            sidecar=sidecar,
+            shape_hw=tuple(arr.shape[1:3]),
+            frame_indices=requested_indices,
+        )
         return out
 
     # If payload looks global, keep indices as-is; otherwise treat it as event-scope local.
     if origin_hint == "global" or frame_count > int(event.end_idx):
         for idx in range(frame_count):
+            if not _include_frame(idx):
+                continue
             mask = np.asarray(arr[idx], dtype=bool)
             if mask.ndim == 2:
                 out[int(idx)] = mask.copy()
-        _apply_prompt_regions_to_global_mask_map(out, event=event, sidecar=sidecar, shape_hw=tuple(arr.shape[1:3]))
+        _apply_prompt_regions_to_global_mask_map(
+            out,
+            event=event,
+            sidecar=sidecar,
+            shape_hw=tuple(arr.shape[1:3]),
+            frame_indices=requested_indices,
+        )
         return out
 
     for local_idx in range(frame_count):
         global_idx = int(event.start_idx) + int(local_idx)
+        if not _include_frame(global_idx):
+            continue
         mask = np.asarray(arr[local_idx], dtype=bool)
         if mask.ndim == 2:
             out[int(global_idx)] = mask.copy()
-    _apply_prompt_regions_to_global_mask_map(out, event=event, sidecar=sidecar, shape_hw=tuple(arr.shape[1:3]))
+    _apply_prompt_regions_to_global_mask_map(
+        out,
+        event=event,
+        sidecar=sidecar,
+        shape_hw=tuple(arr.shape[1:3]),
+        frame_indices=requested_indices,
+    )
     return out
 
 
@@ -1864,12 +2040,23 @@ def _infer_mask_map_shape(mask_map: dict[int, np.ndarray], sidecar: dict[str, ob
     return None
 
 
+def _infer_mask_payload_shape(masks_payload) -> tuple[int, int] | None:
+    if not isinstance(masks_payload, dict):
+        return None
+    for mask in masks_payload.values():
+        arr = np.asarray(mask)
+        if arr.ndim == 2:
+            return int(arr.shape[0]), int(arr.shape[1])
+    return None
+
+
 def _apply_prompt_regions_to_global_mask_map(
     mask_map: dict[int, np.ndarray],
     *,
     event: EventCandidate,
     sidecar: dict[str, object],
     shape_hw: tuple[int, int] | None,
+    frame_indices: set[int] | None = None,
 ) -> None:
     if shape_hw is None:
         return
@@ -1915,6 +2102,8 @@ def _apply_prompt_regions_to_global_mask_map(
         normalized["frame_start"] = min(int(start), int(end))
         normalized["frame_end"] = max(int(start), int(end))
         for frame_idx in range(int(normalized["frame_start"]), int(normalized["frame_end"]) + 1):
+            if frame_indices is not None and int(frame_idx) not in frame_indices:
+                continue
             regions_by_frame.setdefault(frame_idx, []).append(normalized)
 
     for frame_idx, regions in regions_by_frame.items():

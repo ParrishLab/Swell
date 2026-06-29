@@ -1,96 +1,179 @@
 # Swell
 
-Swell is a desktop tool for identifying events in image stacks and running
-event-level segmentation analysis in a dedicated analysis workspace.
+Swell is a desktop application for identifying spreading depression events in
+image stacks and performing event-level segmentation analysis in a dedicated
+workspace.
 
-It is organized as a two-stage workflow:
-- Host window: load a stack, mark events, manage project-level actions.
-- Analysis window: open one event and run segmentation/mask workflows.
+The app is organized around a two-window workflow:
 
-## What The App Does
+- **Host window**: load image stacks, mark event ranges, manage project state,
+  and export results.
+- **Analysis window**: open a single event, refine masks, run propagation, and
+  save analysis artifacts back to the project.
 
-Swell helps you:
-- Import an image stack and inspect frames.
-- Mark, edit, and manage event ranges.
-- Open an event in an analysis workspace for segmentation.
-- Run propagation and save masks back to the project.
-- Export event outputs and metrics.
-- Save and reopen work as `.swell` project files.
+## Features
 
-## Core Workflow
+- Import image sequences and multi-page image stacks.
+- Mark, edit, review, and delete event frame ranges.
+- Open event-scoped analysis workspaces for segmentation.
+- Annotate masks with points, brush, eraser, and region tools.
+- Run SAM-2-based propagation when model dependencies and checkpoints are
+  available.
+- Import external masks and save reviewed masks into `.swell` projects.
+- Export event images, baseline images, masks, metrics, and spreadsheet reports.
+- Save and reopen full project state using the `.swell` project format.
 
-1. Start Swell.
-2. Click `New Project` and choose an image folder.
-3. Mark events in the host window (`Mark Event`, edit/delete, review table).
-4. Select an event and click `Open Analysis...`.
-5. In analysis:
-   - Place points/brush edits.
-   - Run propagation.
-   - Adjust metrics settings (frames/sec, scale, ROI).
-   - Save current masks.
-6. Return to host to export selected/all events and save the Swell project.
+## Installation
 
-## Main Functions
+### Packaged Releases
 
-### Host Window (Project + Event Management)
-- **New Project**: prompts for an image folder and loads a fresh stack.
-- **Open/Save Swell Project**: read and write `.swell` files.
-- **Event tools**:
-  - Mark new events.
-  - Edit or delete selected events.
-  - View event list and timeline overlays.
-- **Open Analysis...**: launches analysis for the active event.
-- **Metrics Defaults...**: set global frames/sec, scale, and ROI defaults.
-- **Export Selected / Export All**:
-  - Export event images and baseline images.
-  - Export binary masks.
-  - Export metrics outputs.
+Packaged desktop builds are available from
+[GitHub Releases](https://github.com/ClayDunford/Swell/releases).
 
-### Analysis Window (Event Segmentation)
-- **Interactive selection tools**: positive/negative points, brush, eraser.
-- **Propagation**: run segmentation across a selected frame range.
-- **Metrics Settings**: configure event-level frames/sec, scale, ROI.
-- **Import External Masks**: map masks from files/folder into current event.
-- **Save Current Masks**: persist masks into the active Swell project.
+See [docs/installation.md](docs/installation.md) for platform-specific setup,
+first-run model onboarding, and troubleshooting notes.
 
-### Project Model
-- Swell project files use the `.swell` format.
-- A project stores event ranges plus associated analysis artifacts.
-- On macOS/Windows packaged builds, `.swell` can be opened directly into Swell.
+### From Source
 
-## Running The App
+Swell requires Python 3.12 or newer.
+
+```bash
+git clone https://github.com/ClayDunford/Swell.git
+cd Swell
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -e .
+```
+
+Install optional model support for SAM-2 propagation:
+
+```bash
+pip install -e ".[model]"
+```
+
+Install developer and documentation dependencies:
+
+```bash
+pip install -e ".[dev,docs,model]"
+```
+
+On Windows, create and activate the virtual environment with:
+
+```cmd
+python -m venv .venv
+.venv\Scripts\activate.bat
+```
+
+## Usage
+
+Launch Swell from an editable/source install:
 
 ```bash
 python -m swell.main
 ```
 
-macOS helper:
+Or use the installed console script:
+
+```bash
+swell
+```
+
+On macOS, the repository also includes a helper script:
 
 ```bash
 ./run_mac.command
 ```
 
-Optional startup smoke check:
+Run a non-interactive startup smoke check:
 
 ```bash
 python -m swell.main --smoke-test
 ```
 
-## Packaged macOS Warning
+## Basic Workflow
 
-- Current macOS release builds are intentionally unsigned and not notarized.
-- Gatekeeper warnings are expected on macOS packaged builds.
-- Sparkle update metadata is still produced, but end users may need manual trust overrides to open or update the app.
+1. Create a new project and choose an image folder or stack.
+2. Mark event ranges in the host window.
+3. Open an event in the analysis window.
+4. Add prompts or manual mask edits.
+5. Run propagation when model support is configured.
+6. Review metrics settings, including frame rate, scale, and ROI.
+7. Save masks back to the project.
+8. Export selected events or the full project.
 
-## Repository Layout
+For the full walkthrough, see [docs/user-guide.md](docs/user-guide.md).
 
-- `swell/`: application package (`host`, `analysis`, `shared`).
-- `tests/`: unit, host, analysis, integration, and migration tests.
-- `docs/`: architecture and release planning docs.
-- `tests/fixtures/seam_contract/`: seam-contract validation fixtures.
-- `archive/legacy-integration/`: historical integration/refactor notes.
+## Documentation
 
-## Development Notes
+- [Installation](docs/installation.md)
+- [User Guide](docs/user-guide.md)
+- [Host Window Reference](docs/gui/host-window.md)
+- [Analysis Window Reference](docs/gui/analysis-window.md)
+- [Developer Guide](docs/developer-guide.md)
+- [File Formats](docs/file-formats.md)
+- [Troubleshooting](docs/troubleshooting.md)
+- [Changelog](CHANGELOG.md)
 
-- `pyproject.toml` is the source of truth for dependencies and package metadata.
-- Entry point is `swell.main` (`python -m swell.main`).
+## Development
+
+Install development dependencies:
+
+```bash
+pip install -e ".[dev,docs,model]"
+```
+
+Run the test suite:
+
+```bash
+pytest
+```
+
+Run the startup smoke check:
+
+```bash
+python -m swell.main --smoke-test
+```
+
+Build the documentation locally:
+
+```bash
+mkdocs serve
+```
+
+## Project Layout
+
+```text
+swell/             Application package
+  host/            Host-window project and event management
+  analysis/        Event-level segmentation workspace
+  shared/          Shared services, metadata, and UI helpers
+  resources/       Application resources and model catalogs
+tests/             Pytest suite
+docs/              User, developer, and release documentation
+packaging/         Packaging configuration
+scripts/release/   Release and packaging automation
+```
+
+## Packaging Status
+
+Current macOS release builds are unsigned and not notarized. Gatekeeper warnings
+are expected when opening packaged macOS builds for the first time. See
+[docs/installation.md](docs/installation.md) for the recommended launch steps.
+
+## Contributing
+
+Contributions are welcome. Before opening a large change, please open an issue
+or discussion describing the problem and proposed direction.
+
+For code changes:
+
+- Keep host, analysis, and shared-module boundaries intact.
+- Add or update tests for behavior changes.
+- Run `pytest` before submitting a pull request.
+- Update user-facing docs when workflows, file formats, or packaging behavior
+  changes.
+
+## License
+
+No license file is currently included in this repository. Until a license is
+added, reuse rights are not granted by default.

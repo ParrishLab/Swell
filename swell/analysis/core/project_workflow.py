@@ -16,6 +16,7 @@ from swell.analysis.core.project_migration import migrate_project_state
 from swell.analysis.core.project_schema import validate_project_state, utc_now_iso
 from swell.shared.persistence.schema import PROJECT_EXTENSION, PROJECT_FILETYPE_LABEL
 from swell.shared.project_naming import derive_project_name
+from swell.shared.ui.theme import APP_COLORS
 
 
 @dataclass
@@ -306,7 +307,7 @@ def apply_loaded_project_plan(app, plan: ProjectLoadPlan) -> None:
     if plan.fingerprint_mismatches:
         app.lbl_status.configure(
             text="Status: Project loaded with image mismatch warnings",
-            foreground="orange",
+            foreground=APP_COLORS["warning"],
         )
 
     nonempty = app._collect_nonempty_final_mask_frames()

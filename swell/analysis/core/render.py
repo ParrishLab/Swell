@@ -7,10 +7,11 @@ import zlib
 
 from swell.shared.image_overlay import apply_mask_overlay, frame_to_rgb_u8
 from swell.analysis.core.viewport import compute_fit_scale
+from swell.shared.ui.theme import APP_COLORS
 
 
 CANVAS_FILL_RGB = (12, 16, 21)
-CANVAS_FILL_HEX = "#0c1015"
+CANVAS_FILL_HEX = APP_COLORS["canvas_bg"]
 
 GHOST_CONTOUR_THICKNESS = 2
 
@@ -152,7 +153,7 @@ class RenderActions:
             self.tk_img_left = ImageTk.PhotoImage(img_pil_left)
             self.canvas_left.delete("all")
             self.canvas_left.create_image(0, 0, image=self.tk_img_left, anchor="nw")
-            self.canvas_left.create_text(12, 12, text="Preparing frames...", fill="orange", anchor="nw")
+            self.canvas_left.create_text(12, 12, text="Preparing frames...", fill=APP_COLORS["warning"], anchor="nw")
 
             right_pil, _ = self._render_array_to_canvas_image(
                 self.canvas_right,
@@ -163,7 +164,7 @@ class RenderActions:
             self.tk_img_right = ImageTk.PhotoImage(right_pil)
             self.canvas_right.delete("all")
             self.canvas_right.create_image(0, 0, image=self.tk_img_right, anchor="nw")
-            self.canvas_right.create_text(12, 12, text="Preparing frames...", fill="orange", anchor="nw")
+            self.canvas_right.create_text(12, 12, text="Preparing frames...", fill=APP_COLORS["warning"], anchor="nw")
 
             if preview_raw is not None:
                 orig_h, orig_w = np.asarray(preview_raw).shape[:2]
@@ -179,7 +180,7 @@ class RenderActions:
                 max(40, int(canvas.winfo_width()) // 2),
                 max(40, int(canvas.winfo_height()) // 2),
                 text="Preparing frames...",
-                fill="gray",
+                fill=APP_COLORS["muted"],
             )
 
     def _iter_reference_canvases(self):
@@ -416,7 +417,7 @@ class RenderActions:
         if idx in self.points:
             for pt_i, pt in enumerate(self.points[idx]):
                 cx, cy = transform.image_to_canvas(pt["x"], pt["y"])
-                color = "#00FF00" if pt["label"] == 1 else "#FF0000"
+                color = APP_COLORS["success"] if pt["label"] == 1 else APP_COLORS["danger"]
 
                 is_selected = False
                 if self.selected_point:
@@ -425,9 +426,9 @@ class RenderActions:
                         is_selected = True
 
                 if is_selected:
-                    self.canvas_left.create_oval(cx - 5, cy - 5, cx + 5, cy + 5, fill=color, outline="yellow", width=2)
+                    self.canvas_left.create_oval(cx - 5, cy - 5, cx + 5, cy + 5, fill=color, outline=APP_COLORS["measurement"], width=2)
                 else:
-                    self.canvas_left.create_oval(cx - 3, cy - 3, cx + 3, cy + 3, fill=color, outline="white")
+                    self.canvas_left.create_oval(cx - 3, cy - 3, cx + 3, cy + 3, fill=color, outline=APP_COLORS["white"])
 
         boxes = getattr(self, "boxes", {}) or {}
         box = boxes.get(idx)
@@ -447,7 +448,7 @@ class RenderActions:
                 cy0,
                 cx1,
                 cy1,
-                outline="yellow" if is_selected else "white",
+                outline=APP_COLORS["measurement"] if is_selected else APP_COLORS["white"],
                 width=3 if is_selected else 2,
             )
             if is_selected:
@@ -471,7 +472,7 @@ class RenderActions:
                         hx + handle_radius,
                         hy + handle_radius,
                         fill=CANVAS_FILL_HEX,
-                        outline="yellow",
+                        outline=APP_COLORS["measurement"],
                         width=1,
                     )
 
@@ -490,8 +491,8 @@ class RenderActions:
             if len(points) < 6:
                 continue
             is_selected = str(normalized["id"]) == str(selected_region_id)
-            color = "#ff5c5c" if str(normalized.get("mode")) == "exclude" else "#1b75bc"
-            outline = "yellow" if is_selected else color
+            color = APP_COLORS["danger"] if str(normalized.get("mode")) == "exclude" else APP_COLORS["accent"]
+            outline = APP_COLORS["measurement"] if is_selected else color
             width = 3 if is_selected else 2
             self.canvas_left.create_line(*points, points[0], points[1], fill=outline, width=width, dash=() if is_selected else (5, 3))
             if is_selected:
@@ -503,7 +504,7 @@ class RenderActions:
                         hx + handle_radius,
                         hy + handle_radius,
                         fill=CANVAS_FILL_HEX,
-                        outline="yellow",
+                        outline=APP_COLORS["measurement"],
                         width=1,
                     )
 
@@ -523,9 +524,9 @@ class RenderActions:
                 line_points = list(points)
                 if draft_closed and len(points) >= 6:
                     line_points.extend([points[0], points[1]])
-                self.canvas_left.create_line(*line_points, fill="#ffd24d", width=2, dash=(4, 3))
+                self.canvas_left.create_line(*line_points, fill=APP_COLORS["measurement"], width=2, dash=(4, 3))
             for hx, hy in zip(points[0::2], points[1::2]):
-                self.canvas_left.create_rectangle(hx - 3, hy - 3, hx + 3, hy + 3, fill=CANVAS_FILL_HEX, outline="#ffd24d")
+                self.canvas_left.create_rectangle(hx - 3, hy - 3, hx + 3, hy + 3, fill=CANVAS_FILL_HEX, outline=APP_COLORS["measurement"])
 
     def _draw_analysis_overlay_on_right(self, idx):
         raw_frame = self._get_raw_frame(idx) if hasattr(self, "_get_raw_frame") else None
@@ -544,6 +545,6 @@ class RenderActions:
                 cx, cy = transform.image_to_canvas(x, y)
                 pts.extend([cx, cy])
             if len(pts) >= 4:
-                self.canvas_right.create_line(*pts, fill="#00ff66", width=2)
+                self.canvas_right.create_line(*pts, fill=APP_COLORS["roi_active"], width=2)
             if len(pts) >= 6 and self.roi_mask is not None:
-                self.canvas_right.create_line(*pts[:2], *pts[-2:], fill="#00ff66", width=2)
+                self.canvas_right.create_line(*pts[:2], *pts[-2:], fill=APP_COLORS["roi_active"], width=2)

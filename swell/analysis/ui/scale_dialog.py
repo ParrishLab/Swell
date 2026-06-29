@@ -5,7 +5,7 @@ import cv2
 import numpy as np
 from PIL import Image, ImageTk
 
-from swell.shared.ui.theme import SPACING, apply_theme
+from swell.shared.ui.theme import APP_COLORS, SPACING, apply_theme
 from swell.shared.ui.bootstrap import center_window_on_screen, semantic_button_options, ttk
 
 
@@ -305,7 +305,7 @@ def open_scale_dialog(
                     y - point_radius,
                     x + point_radius,
                     y + point_radius,
-                    outline="yellow",
+                    outline=APP_COLORS["measurement"],
                     width=max(2, int(round(line_width))),
                     tags="overlay",
                 )
@@ -322,7 +322,7 @@ def open_scale_dialog(
                     cc1y,
                     cc2x,
                     cc2y,
-                    fill="#1b75bc",
+                    fill=APP_COLORS["accent"],
                     width=max(2, int(round(line_width))),
                     tags="overlay",
                 )
@@ -331,7 +331,7 @@ def open_scale_dialog(
                     cc1y - point_radius,
                     cc1x + point_radius,
                     cc1y + point_radius,
-                    outline="yellow" if state["dragging_idx"] == 0 else "#1b75bc",
+                    outline=APP_COLORS["measurement"] if state["dragging_idx"] == 0 else APP_COLORS["accent"],
                     width=max(2, int(round(line_width))),
                     tags="overlay",
                 )
@@ -340,7 +340,7 @@ def open_scale_dialog(
                     cc2y - point_radius,
                     cc2x + point_radius,
                     cc2y + point_radius,
-                    outline="yellow" if state["dragging_idx"] == 1 else "#1b75bc",
+                    outline=APP_COLORS["measurement"] if state["dragging_idx"] == 1 else APP_COLORS["accent"],
                     width=max(2, int(round(line_width))),
                     tags="overlay",
                 )

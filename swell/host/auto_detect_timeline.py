@@ -9,12 +9,13 @@ from swell.host.auto_detect_helpers import (
     frame_from_overview_x,
     overview_x_from_frame,
 )
+from swell.shared.ui.theme import APP_COLORS
 
-_C_ACCENT = "#1b75bc"
-_C_BORDER = "#2a3139"
-_C_TEXT = "#edf1f3"
-_C_MUTED = "#8d97a2"
-_C_MUTED_SOFT = "#aeb7bf"
+_C_ACCENT = APP_COLORS["accent"]
+_C_BORDER = APP_COLORS["border"]
+_C_TEXT = APP_COLORS["text"]
+_C_MUTED = APP_COLORS["muted"]
+_C_MUTED_SOFT = APP_COLORS["muted_soft"]
 
 
 class AutoDetectTimelineController:

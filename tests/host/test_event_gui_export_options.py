@@ -89,6 +89,22 @@ def test_has_binary_masks_for_events_detects_available_masks() -> None:
     assert app._has_binary_masks_for_events(["event_0002"]) is False
 
 
+def test_has_valid_roi_for_events_requires_all_selected_events() -> None:
+    app = SwellHostApp.__new__(SwellHostApp)
+    by_event = {
+        "event_0001": {"roi_mask": np.ones((4, 4), dtype=bool)},
+        "event_0002": {},
+    }
+    app.browser_controller = type(
+        "BC",
+        (),
+        {"resolve_event_metrics_settings": lambda self, event_id: dict(by_event.get(str(event_id), {}))},
+    )()
+
+    assert app._has_valid_roi_for_events(["event_0001"]) is True
+    assert app._has_valid_roi_for_events(["event_0001", "event_0002"]) is False
+
+
 def test_resolve_export_metric_prerequisites_disables_when_scale_or_roi_missing() -> None:
     app = SwellHostApp.__new__(SwellHostApp)
     by_event = {

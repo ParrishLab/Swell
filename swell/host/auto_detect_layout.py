@@ -108,7 +108,7 @@ class AutoDetectLayoutBuilder:
         canvas_frame = ttk.Frame(center, style="AppInset.TFrame")
         canvas_frame.grid(row=0, column=0, sticky="nsew")
 
-        w._viewer_canvas = tk.Canvas(canvas_frame, bg="#1a1a1a", highlightthickness=0)
+        w._viewer_canvas = tk.Canvas(canvas_frame, bg=CANVAS_BACKGROUND, highlightthickness=0)
         w._viewer_canvas.pack(fill="both", expand=True)
         w._viewer_canvas.bind("<Configure>", lambda _e: w._render_viewer_frame(w._current_frame))
 
