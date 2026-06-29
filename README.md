@@ -18,6 +18,18 @@ imaging analysis, focused on identifying spreading depolarization, cortical
 spreading depression, and spreading depression (SD) events in image stacks and
 producing event-level segmentation and metrics outputs.
 
+## Download
+
+Download the latest packaged desktop build:
+
+- [macOS Apple Silicon](https://github.com/ParrishLab/Swell/releases/download/v0.1.8/sdapp-macos-arm64.zip)
+- [Windows x64](https://github.com/ParrishLab/Swell/releases/download/v0.1.8/sdapp-windows-x64.zip)
+- [All releases](https://github.com/ParrishLab/Swell/releases)
+
+Packaged builds do not require a local Python setup. See
+[Installation](docs/installation.md) for first-run model setup, platform notes,
+and source installation instructions.
+
 The app is organized around a two-window workflow:
 
 - **Host window**: load image stacks, mark event ranges, manage project state,
