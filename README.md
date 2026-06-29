@@ -1,5 +1,11 @@
 # Swell
 
+[![Python](https://img.shields.io/badge/python-%3E%3D3.12-blue.svg)](https://www.python.org/downloads/)
+[![Tests](https://github.com/ParrishLab/Swell/actions/workflows/release_phase2_pr.yml/badge.svg)](https://github.com/ParrishLab/Swell/actions/workflows/release_phase2_pr.yml)
+[![Docs](https://readthedocs.org/projects/swell/badge/?version=latest)](https://swell.readthedocs.io/)
+[![Release](https://img.shields.io/github/v/release/ParrishLab/Swell?sort=semver)](https://github.com/ParrishLab/Swell/releases)
+[![License](https://img.shields.io/badge/license-not%20provided-lightgrey.svg)](#license)
+
 Swell is a desktop application for identifying spreading depression events in
 image stacks and performing event-level segmentation analysis in a dedicated
 workspace.
