@@ -4,6 +4,8 @@
 
 <h1 align="center">Swell</h1>
 
+<p align="center"><strong>Intrinsic Optical Signal Analysis</strong></p>
+
 [![Python](https://img.shields.io/badge/python-%3E%3D3.12-blue.svg)](https://www.python.org/downloads/)
 [![CI](https://github.com/ParrishLab/Swell/actions/workflows/ci.yml/badge.svg)](https://github.com/ParrishLab/Swell/actions/workflows/ci.yml)
 [![Docs](https://readthedocs.org/projects/swell/badge/?version=latest)](https://swell.readthedocs.io/)
