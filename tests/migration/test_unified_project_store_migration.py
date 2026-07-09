@@ -149,6 +149,41 @@ def test_embed_source_images_override_preserves_persisted_stack_ref(tmp_path) ->
         assert {f"images/{name}" for name in frame_names} <= names
 
 
+def test_embed_source_images_duplicate_basenames_extract_distinct_files(tmp_path) -> None:
+    store = UnifiedProjectStore()
+    dir_a = tmp_path / "A"
+    dir_b = tmp_path / "B"
+    dir_a.mkdir()
+    dir_b.mkdir()
+    img_a = dir_a / "1.png"
+    img_b = dir_b / "1.png"
+    img_a.write_bytes(b"from-a")
+    img_b.write_bytes(b"from-b")
+    original_dir = str(tmp_path / "original_missing")
+    state = _state()
+    state.stack_ref = StackRef(
+        input_dir=original_dir, frame_count=2, frame_height=16, frame_width=16, dtype="uint8"
+    )
+    state.metadata["embed_source_images"] = True
+
+    out = tmp_path / "duplicate_basename_embed.swell"
+    store.save(out, state, embedded_images_input_dir=[img_a, img_b])
+
+    with zipfile.ZipFile(out, "r") as zf:
+        names = set(zf.namelist())
+        assert "images/1.png" in names
+        assert "images/1_2.png" in names
+        index = json.loads(zf.read("images_embedded.json").decode("utf-8"))
+        assert index["embedded"] == {"1.png": "images/1.png", "1_2.png": "images/1_2.png"}
+
+    extract_to = tmp_path / "dupe_extract"
+    extracted = store.extract_embedded_images(out, extract_to)
+
+    assert extracted is not None
+    assert (extract_to / "1.png").read_bytes() == b"from-a"
+    assert (extract_to / "1_2.png").read_bytes() == b"from-b"
+
+
 def test_embed_toggle_off_keeps_reference_only(tmp_path) -> None:
     store = UnifiedProjectStore()
     stack_dir = _stack_dir_with_frames(tmp_path, ["frame_001.png"])

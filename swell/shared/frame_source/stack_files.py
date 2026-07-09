@@ -9,7 +9,10 @@ SUPPORTED_STACK_EXTENSIONS = (".tif", ".tiff", ".png", ".jpg", ".jpeg", ".bmp")
 
 def is_supported_stack_file(path: str | Path) -> bool:
     p = Path(path)
-    if not p.is_file():
+    try:
+        if not p.is_file():
+            return False
+    except OSError:
         return False
     name = p.name
     if name.startswith(".") or name.startswith("._"):
@@ -29,10 +32,14 @@ def natural_stack_sort_key(path: str | Path) -> tuple:
 
 
 def list_stack_files(input_dir: str | Path) -> list[Path]:
-    input_path = Path(input_dir).expanduser().resolve()
-    if not input_path.exists() or not input_path.is_dir():
+    try:
+        input_path = Path(input_dir).expanduser().resolve()
+        if not input_path.exists() or not input_path.is_dir():
+            return []
+        entries = list(input_path.iterdir())
+    except OSError:
         return []
     return sorted(
-        [p for p in input_path.iterdir() if is_supported_stack_file(p)],
+        [p for p in entries if is_supported_stack_file(p)],
         key=natural_stack_sort_key,
     )

@@ -1,10 +1,40 @@
 import pytest
+import zipfile
 from unittest.mock import patch, MagicMock
+
+import numpy as np
 
 from swell.shared.errors import DataCorruptionError, ProjectLoadError, InferenceRuntimeError
 from swell.host.exporter import _resolve_roi_mask, _apply_propagation_gap_policy
+from swell.shared.models import EventMeta, StackRef, UnifiedProjectState
+from swell.shared.persistence.schema import METADATA_GLOBAL_METRICS_DEFAULTS_KEY
+from swell.shared.persistence.unified_project_store import UnifiedProjectStore
 from swell.shared.persistence.unified_project_store import _coerce_stack_ref, _coerce_events
 from swell.analysis.core.inference_manager import InferenceManager
+
+
+def _replace_zip_member(path, arcname: str, data: bytes | None) -> None:
+    tmp = path.with_suffix(".tmp")
+    with zipfile.ZipFile(path, "r") as src, zipfile.ZipFile(tmp, "w", compression=zipfile.ZIP_DEFLATED) as dst:
+        for info in src.infolist():
+            if info.filename == arcname:
+                if data is not None:
+                    dst.writestr(info.filename, data)
+                continue
+            dst.writestr(info, src.read(info.filename))
+    tmp.replace(path)
+
+
+def _valid_unified_state(**kwargs) -> UnifiedProjectState:
+    metadata = kwargs.pop("metadata", {})
+    analysis_sidecar = kwargs.pop("analysis_sidecar", {})
+    return UnifiedProjectState(
+        stack_ref=StackRef(input_dir="/tmp/images", frame_count=2, frame_height=2, frame_width=2, dtype="uint8"),
+        events=[EventMeta(event_id="event_001", label="Event 1", global_start_idx=0, global_end_idx=1)],
+        active_event_id="event_001",
+        analysis_sidecar=analysis_sidecar,
+        metadata=metadata,
+    )
 
 def test_project_load_validation_stack_ref():
     with pytest.raises(ProjectLoadError):
@@ -19,6 +49,50 @@ def test_project_load_validation_events():
 
     with pytest.raises(ProjectLoadError):
         _coerce_events("not a list")
+
+
+def test_unified_project_load_rejects_corrupt_present_mask_npz(tmp_path):
+    project_path = tmp_path / "corrupt_mask.swell"
+    store = UnifiedProjectStore()
+    state = _valid_unified_state(
+        analysis_sidecar={"event_001": {"masks_committed": np.zeros((2, 2, 2), dtype=np.uint8)}}
+    )
+    store.save(project_path, state)
+    _replace_zip_member(project_path, "events/event_001/masks.npz", b"not an npz")
+
+    with pytest.raises(ProjectLoadError, match="masks.npz"):
+        store.load(project_path)
+
+
+def test_unified_project_load_rejects_corrupt_present_roi_npz(tmp_path):
+    project_path = tmp_path / "corrupt_roi.swell"
+    store = UnifiedProjectStore()
+    state = _valid_unified_state(
+        metadata={
+            METADATA_GLOBAL_METRICS_DEFAULTS_KEY: {
+                "roi_mask": np.ones((2, 2), dtype=bool),
+            }
+        }
+    )
+    store.save(project_path, state)
+    _replace_zip_member(project_path, "global/roi_mask.npz", b"not an npz")
+
+    with pytest.raises(ProjectLoadError, match="roi_mask.npz"):
+        store.load(project_path)
+
+
+def test_unified_project_load_tolerates_missing_optional_mask_npz(tmp_path):
+    project_path = tmp_path / "missing_mask.swell"
+    store = UnifiedProjectStore()
+    state = _valid_unified_state(
+        analysis_sidecar={"event_001": {"masks_committed": np.zeros((2, 2, 2), dtype=np.uint8)}}
+    )
+    store.save(project_path, state)
+    _replace_zip_member(project_path, "events/event_001/masks.npz", None)
+
+    loaded = store.load(project_path)
+
+    assert "masks_committed" not in loaded.analysis_sidecar["event_001"]
 
 @patch('swell.host.exporter.MetricsSettingsResolver.normalize')
 @patch('swell.host.exporter.roi_mask_from_points')

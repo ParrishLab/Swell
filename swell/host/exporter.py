@@ -33,6 +33,7 @@ from swell.shared.persistence.event_path import allocate_event_path_segment, san
 from swell.shared.services import MetricsSettingsResolver
 from swell.shared.errors import DataCorruptionError, InferenceRuntimeError
 from swell.shared.app_metadata import detect_app_version
+from swell.shared.matplotlib_rendering import create_agg_figure, get_colormap, render_lock, save_agg_figure
 from .config import EventCandidate, ExportRecord, TraceResult
 from .signal_analysis import event_to_dict
 from .stack_reader import StackReader
@@ -63,15 +64,6 @@ def _event_output_name(event: EventCandidate) -> str:
 
 def _event_file_suffix(event: EventCandidate) -> str:
     return f"_{sanitize_event_path_segment(_event_output_name(event))}"
-
-
-def _load_pyplot():
-    import matplotlib
-
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
-
-    return plt
 
 
 def export_analysis(
@@ -840,25 +832,22 @@ def _intensity_rows(
 
 
 def _write_metric_plot(path: Path, time_sec: list[float], values: np.ndarray, title: str, ylabel: str) -> None:
-    plt = _load_pyplot()
-    plt.figure()
-    plt.plot(np.asarray(time_sec, dtype=np.float64), np.asarray(values, dtype=np.float64), color="k", linewidth=2)
-    plt.xlabel("Time (sec)")
-    plt.ylabel(str(ylabel))
-    plt.title(str(title))
-    plt.tight_layout()
-    plt.savefig(path, dpi=150)
-    plt.close()
+    with render_lock():
+        fig = create_agg_figure()
+        ax = fig.subplots()
+        ax.plot(np.asarray(time_sec, dtype=np.float64), np.asarray(values, dtype=np.float64), color="k", linewidth=2)
+        ax.set_xlabel("Time (sec)")
+        ax.set_ylabel(str(ylabel))
+        ax.set_title(str(title))
+        fig.tight_layout()
+        save_agg_figure(fig, path, dpi=150)
 
 
 def _contour_map_colors(count: int) -> list[tuple[int, int, int]]:
     if count <= 0:
         return []
-    plt = _load_pyplot()
-    try:
-        cmap = plt.get_cmap("parula")
-    except ValueError:
-        cmap = plt.get_cmap("viridis")
+    with render_lock():
+        cmap = get_colormap("parula", fallback="viridis")
     if count == 1:
         samples = [0.0]
     else:
@@ -2454,26 +2443,26 @@ def _write_trace_data_csv(path: Path, trace: TraceResult) -> None:
 
 
 def _write_trace_plot(path: Path, trace: TraceResult, events: list[EventCandidate]) -> None:
-    plt = _load_pyplot()
     x = np.asarray(trace.frame_indices)
     y_mean = np.asarray(trace.mean) if trace.mean else np.array([])
 
-    fig, axes = plt.subplots(2, 1, figsize=(12, 7), sharex=True)
-    if y_mean.size > 0:
-        axes[0].plot(x, y_mean, color="black", linewidth=1)
-    axes[0].set_ylabel("Mean intensity")
-    axes[0].set_title("Global Signal")
+    with render_lock():
+        fig = create_agg_figure(figsize=(12, 7))
+        axes = fig.subplots(2, 1, sharex=True)
+        if y_mean.size > 0:
+            axes[0].plot(x, y_mean, color="black", linewidth=1)
+        axes[0].set_ylabel("Mean intensity")
+        axes[0].set_title("Global Signal")
 
-    for ev in events:
-        axes[1].axvspan(ev.start_idx, ev.end_idx, color="tab:red", alpha=0.2)
-    axes[1].set_xlabel("Frame index")
-    axes[1].set_ylabel("Event labels")
-    axes[1].set_yticks([])
-    axes[1].set_title("Marked Events")
+        for ev in events:
+            axes[1].axvspan(ev.start_idx, ev.end_idx, color="tab:red", alpha=0.2)
+        axes[1].set_xlabel("Frame index")
+        axes[1].set_ylabel("Event labels")
+        axes[1].set_yticks([])
+        axes[1].set_title("Marked Events")
 
-    fig.tight_layout()
-    fig.savefig(path, dpi=150)
-    plt.close(fig)
+        fig.tight_layout()
+        save_agg_figure(fig, path, dpi=150)
 
 
 def _write_manifest_csv(path: Path, records: list[ExportRecord]) -> None:

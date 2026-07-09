@@ -40,6 +40,12 @@ class UndoActions:
         return "break"
 
     def _apply_state(self, frame_idx, data, action_type, *, action=None, direction="undo"):
+        defer_display_until_navigation = bool(getattr(self, "current_frame_idx", frame_idx) != frame_idx)
+
+        def _update_display_if_current_frame():
+            if not defer_display_until_navigation:
+                self.update_display()
+
         if action_type == "point":
             restored_mask = False
             if data is None:
@@ -61,16 +67,16 @@ class UndoActions:
                 if self.model_ready:
                     self._update_mask_prediction(frame_idx)
                 else:
-                    self.update_display()
+                    _update_display_if_current_frame()
             else:
-                self.update_display()
+                _update_display_if_current_frame()
 
         elif action_type == "paint":
             if data is None:
                 self.seg_state.clear_paint_layer(frame_idx)
             else:
                 self.seg_state.set_paint_layer(frame_idx, data["plus"].copy(), data["minus"].copy())
-            self.update_display()
+            _update_display_if_current_frame()
         elif action_type == "box":
             if data is None:
                 self.seg_state.clear_box(frame_idx)
@@ -79,7 +85,7 @@ class UndoActions:
             if self.model_ready:
                 self._update_mask_prediction(frame_idx)
             else:
-                self.update_display()
+                _update_display_if_current_frame()
         elif action_type == "region":
             if isinstance(data, dict):
                 normalized = self.seg_state._normalize_persistent_region(data)
@@ -111,12 +117,12 @@ class UndoActions:
                 self._refresh_regions_dock()
             if hasattr(self, "_sync_region_options_from_selection"):
                 self._sync_region_options_from_selection()
-            self.update_display()
+            _update_display_if_current_frame()
         elif action_type == "ground_truth":
             self.seg_state.set_ground_truth(frame_idx, bool(data))
             if hasattr(self, "_refresh_ground_truth_controls"):
                 self._refresh_ground_truth_controls()
-            self.update_display()
+            _update_display_if_current_frame()
         elif action_type == "clear_frame":
             payload = dict(data or {})
             points_payload = payload.get("points")
@@ -152,7 +158,7 @@ class UndoActions:
                 self.seg_state.set_mask(frame_idx, np.asarray(mask_payload, dtype=bool).copy())
             else:
                 self.seg_state.clear_mask(frame_idx)
-            self.update_display()
+            _update_display_if_current_frame()
 
         self._prune_empty_point_frames()
         self._recompute_slider_jump_markers()

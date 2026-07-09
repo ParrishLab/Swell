@@ -81,8 +81,8 @@ Opened via **Metrics Defaults... → Set ROI**:
 ### Auto-Detect Event Window
 Opened via the **Auto-Detect SD** button in the sidebar:
 * Launches an automated temporal grid coherence pipeline that analyzes frame intensity changes.
-* **Dual-Pane Timeline**: Renders a high-level overview timeline and a detail timeline showing grid cell activity.
-* **Opacity & Border Controls**: Adjust the visibility of cell overlays.
+* **Dual-Pane Timeline**: Renders a high-level overview timeline and a detail timeline showing grid subsection activity.
+* **Opacity & Border Controls**: Adjust the visibility of subsection overlays.
 * **Signal Polarity**: Defaults to positive-going intensity changes. Switch to negative-going or both polarities when reviewing dark-going recordings.
 * **Incremental Rerun**: Parameter modifications (coherence gates, quiet Median Absolute Deviation tolerance sliders) trigger a debounced rerun of the algorithm in the background without locking the user interface.
 

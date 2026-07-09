@@ -30,7 +30,7 @@ class AutoDetectLayoutBuilder:
         ttk.Button(btn_row, text="Clear ROI", command=w._on_clear_roi, **semantic_button_options("secondary")).pack(side="left")
 
         ttk.Separator(left, orient="horizontal").pack(fill="x", pady=(SPACING.inner, SPACING.inner))
-        w._grid_label_var = tk.StringVar(value=f"Grid density  ({w._n_grid}×{w._n_grid} cells)")
+        w._grid_label_var = tk.StringVar(value=f"Grid density  ({w._n_grid}×{w._n_grid} subsections)")
         ttk.Label(left, textvariable=w._grid_label_var, style="AppMeta.TLabel").pack(anchor="w")
         w._grid_var = tk.DoubleVar(value=w._n_grid)
         w._grid_scale = ttk.Scale(left, from_=10, to=80, orient="horizontal", variable=w._grid_var, style="AppFlat.Horizontal.TScale")

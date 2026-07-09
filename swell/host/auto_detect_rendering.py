@@ -5,6 +5,68 @@ from PIL import Image, ImageDraw
 
 from swell.host.auto_detect_helpers import grid_bounds_for_layout
 
+_GRID_FOREGROUND = (125, 175, 215)
+_GRID_HALO = (0, 0, 0)
+_ACTIVE_FILL = (77, 179, 255)
+_ACTIVE_FILL_ALPHA = 190
+_GRID_FOREGROUND_ALPHA = 170
+_GRID_HALO_ALPHA = 125
+_GRID_FOREGROUND_WIDTH = 2
+_GRID_HALO_WIDTH = 4
+
+
+def _alpha(value: float, opacity: float) -> int:
+    return max(0, min(255, int(round(float(value) * max(0.0, min(1.0, float(opacity)))))))
+
+
+def _draw_contrast_line(
+    draw: ImageDraw.ImageDraw,
+    points: list[tuple[int, int]],
+    *,
+    color: tuple[int, int, int],
+    opacity: float,
+    foreground_alpha: float,
+    halo_alpha: float,
+    foreground_width: int,
+    halo_width: int,
+) -> None:
+    draw.line(points, fill=(*_GRID_HALO, _alpha(halo_alpha, opacity)), width=int(halo_width))
+    draw.line(points, fill=(*color, _alpha(foreground_alpha, opacity)), width=int(foreground_width))
+
+
+def active_rects_for_overlay(
+    active_cells: np.ndarray | None,
+    border_rects: list[tuple[int, int, int, int]],
+) -> list[tuple[int, int, int, int]]:
+    if active_cells is None or not np.any(active_cells) or not border_rects:
+        return []
+    rects: list[tuple[int, int, int, int]] = []
+    for cell_idx in np.flatnonzero(active_cells):
+        if int(cell_idx) < len(border_rects):
+            rects.append(tuple(int(v) for v in border_rects[int(cell_idx)]))
+    return rects
+
+
+def fill_active_regions_on_overlay(
+    overlay: Image.Image,
+    rects: list[tuple[int, int, int, int]],
+) -> None:
+    pad = max(1, int(_GRID_HALO_WIDTH))
+    width, height = overlay.size
+    for x0, y0, x1, y1 in rects:
+        overlay.paste(
+            (0, 0, 0, 0),
+            (
+                max(0, int(x0) - pad),
+                max(0, int(y0) - pad),
+                min(width, int(x1) + pad + 1),
+                min(height, int(y1) + pad + 1),
+            ),
+        )
+    draw = ImageDraw.Draw(overlay)
+    for x0, y0, x1, y1 in rects:
+        draw.rectangle((int(x0), int(y0), int(x1), int(y1)), fill=(*_ACTIVE_FILL, _ACTIVE_FILL_ALPHA))
+
 
 def build_grid_overlay_image(
     img_u8: np.ndarray,
@@ -30,8 +92,6 @@ def build_grid_overlay_image(
     grid_overlay = Image.new("RGBA", (cw, ch), (0, 0, 0, 0))
     draw = ImageDraw.Draw(grid_overlay)
 
-    minor_alpha = int(round(96 * float(grid_opacity)))
-    major_alpha = int(round(150 * float(grid_opacity)))
     layout = (cw, ch, dw, dh, ox, oy)
     grid_bounds = grid_bounds_for_layout(layout, extraction)
     if grid_bounds is not None:
@@ -39,12 +99,32 @@ def build_grid_overlay_image(
         n = int(grid_density)
         for i in range(1, n):
             x = grid_x + int(grid_w * i / n)
-            alpha = major_alpha if i % 5 == 0 else minor_alpha
-            draw.line([(x, grid_y), (x, grid_y + grid_h)], fill=(125, 175, 215, alpha), width=1)
+            _draw_contrast_line(
+                draw,
+                [(x, grid_y), (x, grid_y + grid_h)],
+                color=_GRID_FOREGROUND,
+                opacity=grid_opacity,
+                foreground_alpha=_GRID_FOREGROUND_ALPHA,
+                halo_alpha=_GRID_HALO_ALPHA,
+                foreground_width=_GRID_FOREGROUND_WIDTH,
+                halo_width=_GRID_HALO_WIDTH,
+            )
         for i in range(1, n):
             y = grid_y + int(grid_h * i / n)
-            alpha = major_alpha if i % 5 == 0 else minor_alpha
-            draw.line([(grid_x, y), (grid_x + grid_w, y)], fill=(125, 175, 215, alpha), width=1)
+            _draw_contrast_line(
+                draw,
+                [(grid_x, y), (grid_x + grid_w, y)],
+                color=_GRID_FOREGROUND,
+                opacity=grid_opacity,
+                foreground_alpha=_GRID_FOREGROUND_ALPHA,
+                halo_alpha=_GRID_HALO_ALPHA,
+                foreground_width=_GRID_FOREGROUND_WIDTH,
+                halo_width=_GRID_HALO_WIDTH,
+            )
+
+    active_rects = active_rects_for_overlay(active_cells, border_rects)
+    if active_rects:
+        fill_active_regions_on_overlay(grid_overlay, active_rects)
 
     if roi_mask is not None:
         try:
@@ -55,13 +135,5 @@ def build_grid_overlay_image(
             grid_overlay = Image.composite(grid_overlay, empty, roi_mask_img)
         except Exception:
             pass
-
-    if active_cells is not None and np.any(active_cells) and border_rects:
-        draw = ImageDraw.Draw(grid_overlay)
-        for cell_idx in np.flatnonzero(active_cells):
-            if int(cell_idx) >= len(border_rects):
-                continue
-            x0, y0, x1, y1 = border_rects[int(cell_idx)]
-            draw.rectangle((x0, y0, x1, y1), outline=(27, 117, 188, 96), width=1)
 
     return Image.alpha_composite(canvas_pil.convert("RGBA"), grid_overlay).convert("RGB")

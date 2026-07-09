@@ -70,7 +70,7 @@ sdapp = "swell.main:main"
 
 [project.urls]
 Homepage = "https://github.com/ParrishLab/Swell"
-Documentation = "https://swell.readthedocs.io/"
+Documentation = "https://parrishlab.github.io/Swell/"
 Repository = "https://github.com/ParrishLab/Swell"
 Issues = "https://github.com/ParrishLab/Swell/issues"
 Changelog = "https://github.com/ParrishLab/Swell/blob/main/CHANGELOG.md"

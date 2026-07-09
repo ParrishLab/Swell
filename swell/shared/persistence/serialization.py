@@ -1,18 +1,28 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 import numpy as np
 
-from swell.shared.frame_source.stack_files import list_stack_files
+from swell.shared.frame_source.stack_files import is_supported_stack_file, list_stack_files
+from swell.shared.persistence.embedded_images import reserve_embedded_image_arcname
 from swell.shared.persistence.event_path import allocate_event_path_segment
 from swell.shared.persistence.zip_io import read_json, read_npz, write_json, write_npz
 from .schema import (
-    EMBEDDED_IMAGES_DIR,
     EMBEDDED_IMAGES_INDEX_KEY,
     METADATA_GLOBAL_METRICS_DEFAULTS_KEY,
     METRICS_SETTINGS_KEY,
 )
+
+
+def _embedded_source_files(input_source: Any) -> list[Path]:
+    if isinstance(input_source, (str, Path)):
+        return list_stack_files(input_source)
+    try:
+        return [Path(p) for p in list(input_source or []) if is_supported_stack_file(p)]
+    except TypeError:
+        return list_stack_files(input_source)
 
 
 def encode_embedded_images(input_dir: Any, zf, *, require_sources: bool = False) -> dict[str, Any] | None:
@@ -25,16 +35,14 @@ def encode_embedded_images(input_dir: Any, zf, *, require_sources: bool = False)
     """
     embedded: dict[str, str] = {}
     used_arcnames: set[str] = set()
-    files = list_stack_files(input_dir)
+    files = _embedded_source_files(input_dir)
     for src in files:
         if not src.exists() or not src.is_file():
             continue
-        arcname = f"{EMBEDDED_IMAGES_DIR}/{src.name}"
-        if arcname in used_arcnames:
-            continue
-        used_arcnames.add(arcname)
+        arcname = reserve_embedded_image_arcname(src.name, used_arcnames)
         zf.write(src, arcname=arcname)
-        embedded[src.name] = arcname
+        key = src.name if src.name not in embedded else Path(arcname).name
+        embedded[key] = arcname
     if not embedded:
         if require_sources:
             source = str(input_dir or "").strip() or "<empty>"

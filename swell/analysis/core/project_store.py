@@ -14,6 +14,7 @@ from swell.shared.persistence.schema import (
     PROJECT_EXTENSION,
     PROJECT_TEMP_SUFFIX,
 )
+from swell.shared.persistence.embedded_images import reserve_embedded_image_arcname
 from swell.shared.persistence.event_path import allocate_event_path_segment
 from swell.shared.persistence.zip_io import (
     cleanup_stale_temp_files,
@@ -120,6 +121,7 @@ class ProjectStore:
 
                 embedded_map = {}
                 if embed_images:
+                    used_arcnames: set[str] = set()
                     for entry in images_manifest.get("images", []):
                         src = entry.get("absolute_path") or entry.get("relative_path")
                         if not src:
@@ -127,9 +129,9 @@ class ProjectStore:
                         src_path = Path(src)
                         if not src_path.exists() or not src_path.is_file():
                             continue
-                        arcname = f"images/{src_path.name}"
+                        arcname = reserve_embedded_image_arcname(src_path.name, used_arcnames)
                         zf.write(src_path, arcname=arcname)
-                        embedded_map[entry.get("id", src_path.name)] = arcname
+                        embedded_map[str(entry.get("id") or src_path.name)] = arcname
                     if embedded_map:
                         write_json(zf, "images_embedded.json", {"embedded": embedded_map})
 

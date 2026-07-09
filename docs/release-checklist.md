@@ -12,6 +12,7 @@ Work through these sections top-to-bottom before publishing a release. Steps mar
 - [ ] `docs/troubleshooting.md` covers any new error messages or failure modes introduced in this release.
 - [ ] `docs/file-formats.md` is updated if the `.swell` schema version changed or new export columns were added.
 - [ ] `docs/citation.md` DOIs and version references are current (update after Zenodo archive is minted).
+- [ ] The `Deploy docs` workflow publishes successfully to GitHub Pages after documentation changes are merged.
 
 ---
 

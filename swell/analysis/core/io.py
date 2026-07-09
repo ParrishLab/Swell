@@ -8,7 +8,7 @@ from tkinter import filedialog
 from swell.shared.ui import dialogs as messagebox
 
 from swell.analysis.core.frame_source import EagerFrameSource
-from swell.shared.frame_source import build_visualization_stack
+from swell.shared.frame_source import build_visualization_stack, natural_stack_sort_key
 from swell.shared.ui.theme import APP_COLORS
 from swell.shared.utils.paths import resolve_existing_directory
 
@@ -159,7 +159,7 @@ class IOActions:
         for ext in sorted(self._supported_image_extensions):
             image_files.extend(list(Path(input_folder).glob(f"*{ext}")))
             image_files.extend(list(Path(input_folder).glob(f"*{ext.upper()}")))
-        return sorted(list(set(image_files)))
+        return sorted(set(image_files), key=natural_stack_sort_key)
 
     def _as_gray_frames(self, img):
         arr = np.asarray(img)

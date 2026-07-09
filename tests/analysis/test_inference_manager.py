@@ -180,6 +180,40 @@ def test_single_frame_inference_accepts_box_only_prompt():
     assert 2 in seg_state.masks_cache
 
 
+def test_single_frame_inference_skips_mask_write_during_active_propagation():
+    seg_state = SegmentationState()
+    seg_state.set_points(2, [{"x": 1.0, "y": 2.0, "label": 1}])
+    predictor = _FakePredictor()
+    manager = InferenceManager(
+        state=seg_state,
+        root=_ImmediateRoot(),
+        predictor_lock=threading.Lock(),
+        get_sensitivity=lambda: 0.5,
+        get_current_frame_idx=lambda: 2,
+        get_frame_count=lambda: 5,
+        get_frame_shape=lambda: (10, 10),
+        set_slider_frame=lambda _idx: None,
+        update_display=lambda: None,
+        recompute_markers=lambda: None,
+        set_propagated_frames=lambda _frames: None,
+        set_status=lambda _text, _color: None,
+        prop_log_start=lambda _total, _label, **_kwargs: 1,
+        prop_log_tick=lambda **_kwargs: None,
+        prop_log_finish=lambda _status, **_kwargs: None,
+        on_propagation_status=None,
+        log=lambda *_args: None,
+        is_ui_alive=lambda: True,
+    )
+    manager.on_model_ready(predictor, object())
+    manager.propagate_thread = threading.current_thread()
+
+    manager.enqueue_frame_inference(2, reason="test")
+    manager._run_single_frame_inference_core(2, None)
+
+    assert predictor.point_or_box_calls == []
+    assert 2 not in seg_state.masks_cache
+
+
 def test_single_frame_inference_retries_without_box_for_legacy_predictor():
     seg_state = SegmentationState()
     seg_state.set_box(2, [1.0, 2.0, 8.0, 9.0])

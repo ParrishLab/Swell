@@ -26,9 +26,10 @@ from swell.host.auto_detect_helpers import (
     onset_active_window,
 )
 from swell.host.auto_detect_layout import AutoDetectLayoutBuilder
-from swell.host.auto_detect_rendering import build_grid_overlay_image
+from swell.host.auto_detect_rendering import active_rects_for_overlay, build_grid_overlay_image, fill_active_regions_on_overlay
 from swell.host.auto_detect_timeline import AutoDetectTimelineController
 from swell.host.config import DEFAULT_BASELINE_PRE_FRAMES
+from swell.shared.app_metadata import format_window_title
 from swell.shared.ui import BackgroundTaskRunner
 from swell.shared.ui.bootstrap import center_window_on_screen
 from swell.shared.ui.theme import APP_COLORS, CANVAS_BACKGROUND, SPACING, apply_theme
@@ -123,7 +124,7 @@ class AutoDetectWindow:
         popup = tk.Toplevel(self.app.root)
         if not show:
             popup.withdraw()
-        popup.title("Auto-detect SDs - Scientific Workbench")
+        popup.title(format_window_title("Swell Autodetect"))
         apply_theme(popup)
         popup.minsize(_WINDOW_W, _WINDOW_H)
         popup.protocol("WM_DELETE_WINDOW", self._on_close)
@@ -160,7 +161,7 @@ class AutoDetectWindow:
         self._coh_var.set(float(self._params["coherence_threshold"]))
         self._split_var.set(bool(self._params["split_broad_windows"]))
         self._polarity_var.set(self._polarity_label_for_param())
-        self._grid_label_var.set(f"Grid density  ({self._n_grid}×{self._n_grid} cells)")
+        self._grid_label_var.set(f"Grid density  ({self._n_grid}×{self._n_grid} subsections)")
         self._grid_opacity_label_var.set(f"Grid opacity  ({int(round(self._grid_opacity * 100))}%)")
         self._update_setup_labels()
         self._invalidate_pipeline_results()
@@ -170,7 +171,8 @@ class AutoDetectWindow:
     def _push_history(self) -> None:
         state = {
             "params": dict(self._params),
-            "n_grid": self._n_grid
+            "n_grid": self._n_grid,
+            "grid_opacity": self._grid_opacity,
         }
         if self._param_history and self._param_history[self._param_history_idx] == state:
             return
@@ -192,13 +194,16 @@ class AutoDetectWindow:
     def _apply_history_state(self, state: dict) -> None:
         self._params = dict(state["params"])
         self._n_grid = int(state["n_grid"])
+        self._grid_opacity = float(state.get("grid_opacity", self._grid_opacity))
         self._grid_var.set(self._n_grid)
+        self._grid_opacity_var.set(self._grid_opacity)
         self._sens_var.set(self._k_mad_to_sens(float(self._params["diff_k_mad"])))
         self._part_var.set(float(self._params["peak_height_fraction"]))
         self._coh_var.set(float(self._params["coherence_threshold"]))
         self._split_var.set(bool(self._params["split_broad_windows"]))
         self._polarity_var.set(self._polarity_label_for_param())
-        self._grid_label_var.set(f"Grid density  ({self._n_grid}×{self._n_grid} cells)")
+        self._grid_label_var.set(f"Grid density  ({self._n_grid}×{self._n_grid} subsections)")
+        self._grid_opacity_label_var.set(f"Grid opacity  ({int(round(self._grid_opacity * 100))}%)")
         self._update_setup_labels()
         self._invalidate_pipeline_results()
         self._update_history_buttons()
@@ -268,6 +273,9 @@ class AutoDetectWindow:
         self._refresh_after_pipeline_invalidation()
 
     def _invalidate_pipeline_results(self) -> None:
+        if self._is_pipeline_running():
+            self._run_generation += 1
+            self._pending_algorithm_rerun = True
         self._dirty_traces = True
         self._dirty_find = True
         self._dirty_gate = True
@@ -292,7 +300,7 @@ class AutoDetectWindow:
         n = max(10, min(80, int(round(raw / 10.0)) * 10))
         if n != self._n_grid:
             self._n_grid = n
-            self._grid_label_var.set(f"Grid density  ({n}×{n} cells)")
+            self._grid_label_var.set(f"Grid density  ({n}×{n} subsections)")
             self._invalidate_pipeline_results()
             self._refresh_after_pipeline_invalidation()
 
@@ -331,6 +339,9 @@ class AutoDetectWindow:
     def _on_split_change(self) -> None:
         self._params["split_broad_windows"] = bool(self._split_var.get())
         self._dirty_find = True
+        self._dirty_gate = True
+        self._update_setup_labels()
+        self._schedule_algorithm_rerun()
 
     def _on_polarity_change(self, _event=None) -> None:
         selected = _POLARITY_VALUES_BY_LABEL.get(str(self._polarity_var.get()), "positive")
@@ -414,7 +425,7 @@ class AutoDetectWindow:
             self._report("Building grid...")
             extraction = _grid.build_detector_grid(roi_mask, (h, w), n_grid, n_grid)
             if not extraction.cell_masks:
-                raise RuntimeError("Grid has no cells inside the ROI.")
+                raise RuntimeError("Grid has no subsections inside the ROI.")
             
             raw_traces = _traces.extract_lower_median_traces(
                 app.reader,
@@ -424,16 +435,21 @@ class AutoDetectWindow:
                 progress_callback=lambda frac, msg: self._report(f"Extracting: {int(frac*100)}%")
             )
             frame_indices = np.arange(frame_count, dtype=np.int64)
+            self._report("Detrending traces...")
             detrended = _traces.detrend_traces(raw_traces)
+            self._report("Finding candidates...")
             raw_cands = _find_with_params(detrended, frame_indices, params)
+            self._report("Applying coherence filter...")
             accepted = _gate_with_params(raw_cands, detrended, frame_indices, params)
             
-            # Aggregate for global trace
+            self._report("Preparing review...")
             agg = np.mean(detrended, axis=0) if detrended.shape[0] > 0 else np.zeros(frame_count)
             return extraction, raw_traces, frame_indices, detrended, raw_cands, accepted, agg
 
         def on_done(result):
-            if generation != self._run_generation: return
+            if generation != self._run_generation:
+                self._run_pending_algorithm_rerun()
+                return
             extraction, raw_traces, frame_indices, detrended, raw_cands, accepted, agg = result
             self._cached_grid_extraction = extraction
             self._cached_traces = raw_traces
@@ -445,7 +461,7 @@ class AutoDetectWindow:
             self._clear_active_cell_overlay_cache()
             self._dirty_traces = False
             if self._pending_algorithm_rerun:
-                self._run_pending_algorithm_rerun(generation)
+                self._run_pending_algorithm_rerun()
                 return
             self._dirty_find = False
             self._dirty_gate = False
@@ -461,17 +477,21 @@ class AutoDetectWindow:
         params = dict(self._params)
 
         def worker():
+            self._report("Finding candidates...")
             raw_cands = _find_with_params(detrended, frame_indices, params)
+            self._report("Applying coherence filter...")
             return raw_cands, _gate_with_params(raw_cands, detrended, frame_indices, params)
 
         def on_done(result):
-            if generation != self._run_generation: return
+            if generation != self._run_generation:
+                self._run_pending_algorithm_rerun()
+                return
             raw_cands, accepted = result
             self._cached_raw_candidates = raw_cands
             self._review_candidates = accepted
             self._clear_active_cell_overlay_cache()
             if self._pending_algorithm_rerun:
-                self._run_pending_algorithm_rerun(generation)
+                self._run_pending_algorithm_rerun()
                 return
             self._dirty_find = False
             self._dirty_gate = False
@@ -488,26 +508,34 @@ class AutoDetectWindow:
         params = dict(self._params)
 
         def worker():
+            self._report("Applying coherence filter...")
             return _gate_with_params(raw_cands, detrended, frame_indices, params)
 
         def on_done(accepted):
-            if generation != self._run_generation: return
+            if generation != self._run_generation:
+                self._run_pending_algorithm_rerun()
+                return
             self._review_candidates = accepted
             self._clear_active_cell_overlay_cache()
             if self._pending_algorithm_rerun:
-                self._run_pending_algorithm_rerun(generation)
+                self._run_pending_algorithm_rerun()
                 return
             self._dirty_gate = False
             self._finalize_run(generation)
 
         self._task_runner.start(target=worker, on_success=on_done, on_error=lambda e: self._on_run_error(e, generation), key="auto_detect", drop_if_running=True)
 
-    def _run_pending_algorithm_rerun(self, generation: int) -> None:
-        if generation != self._run_generation or not self._is_open():
+    def _run_pending_algorithm_rerun(self, generation: int | None = None) -> None:
+        if generation is not None and generation != self._run_generation:
+            return
+        if not self._is_open() or not self._pending_algorithm_rerun:
+            return
+        if self._is_pipeline_running():
+            self._popup.after(25, self._run_pending_algorithm_rerun)
             return
         self._pending_algorithm_rerun = False
-        if self._dirty_find or self._dirty_gate:
-            self._popup.after(0, self._on_run)
+        if self._dirty_traces or self._dirty_find or self._dirty_gate:
+            self._popup.after(0, lambda: self._on_run(push_history=False))
 
     def _finalize_run(self, generation: int | None = None) -> None:
         if generation is None:
@@ -530,7 +558,10 @@ class AutoDetectWindow:
     def _on_run_error(self, exc: Exception, generation: int | None = None) -> None:
         if generation is None:
             generation = self._run_generation
-        if not self._is_open() or generation != self._run_generation: 
+        if not self._is_open():
+            return
+        if generation != self._run_generation:
+            self._run_pending_algorithm_rerun()
             return
         self._run_btn.config(state="normal")
         self._cancel_btn.config(state="disabled")
@@ -598,11 +629,14 @@ class AutoDetectWindow:
         self._on_delete()
 
     def _on_accept_all(self) -> None:
-        for cand in list(self._review_candidates):
-            self._accept_candidate(cand)
+        candidates = list(self._review_candidates)
+        for cand in candidates:
+            self._accept_candidate(cand, sync=False)
+        if candidates:
+            self.app._sync_event_projections()
         self._on_close()
 
-    def _accept_candidate(self, cand: dict) -> None:
+    def _accept_candidate(self, cand: dict, *, sync: bool = True) -> None:
         flags = apply_analysis_scope_flags({}, event_start=int(cand["start_frame"]), event_end=int(cand["end_frame"]), baseline_pre_frames=DEFAULT_BASELINE_PRE_FRAMES)
         flags["source"] = "auto-detect"
         flags["diff_k_mad"] = float(self._params["diff_k_mad"])
@@ -611,7 +645,8 @@ class AutoDetectWindow:
         flags["polarity"] = self._params.get("polarity", "positive")
         flags["persistence_frames"] = int(self._params.get("persistence_frames", 1))
         self.app.browser_controller.create_event(start_idx=int(cand["start_frame"]), end_idx=int(cand["end_frame"]), frame_count=int(self.app.stack_info.frame_count), flags=flags)
-        self.app._sync_event_projections()
+        if sync:
+            self.app._sync_event_projections()
 
     def _render_viewer_frame(self, frame_idx: int) -> None:
         if self.app.reader is None: return
@@ -695,14 +730,7 @@ class AutoDetectWindow:
         if not border_rects:
             return
         # Kept as a compatibility path for callers that draw into an existing overlay.
-        from PIL import ImageDraw
-
-        draw = ImageDraw.Draw(overlay)
-        for cell_idx in np.flatnonzero(active_cells):
-            if int(cell_idx) >= len(border_rects):
-                continue
-            x0, y0, x1, y1 = border_rects[int(cell_idx)]
-            draw.rectangle((x0, y0, x1, y1), outline=(27, 117, 188, 96), width=1)
+        fill_active_regions_on_overlay(overlay, active_rects_for_overlay(active_cells, border_rects))
 
     def _cell_border_rects_for_layout(self, layout: tuple[int, int, int, int, int, int]) -> list[tuple[int, int, int, int]]:
         extraction = self._cached_grid_extraction

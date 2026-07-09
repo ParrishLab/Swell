@@ -1,4 +1,5 @@
 import copy
+import sys
 
 import cv2
 import numpy as np
@@ -6,6 +7,17 @@ import numpy as np
 from swell.analysis.core.region_tools import is_region_tool_mode, region_mode_from_tool_mode
 
 DEFAULT_FILL_TOLERANCE = 8.0
+SHIFT_MASK = 0x0001
+ALT_MASK = 0x0008
+MAC_OPTION_MASK = 0x0010
+
+
+def _has_tool_inversion_modifier(event) -> bool:
+    state = int(getattr(event, "state", 0) or 0)
+    if state & (SHIFT_MASK | ALT_MASK):
+        return True
+    # Tk reports 0x0010 as Option on macOS, but as Num Lock on Windows.
+    return sys.platform == "darwin" and bool(state & MAC_OPTION_MASK)
 
 
 class InteractionController:
@@ -59,6 +71,8 @@ class InteractionController:
         get_model_ready,
         record_action,
         prune_empty_point_frames,
+        can_mutate_segmentation=None,
+        on_mutation_blocked=None,
     ):
         self.seg_state = seg_state
         self.points = points
@@ -110,6 +124,8 @@ class InteractionController:
         self.get_model_ready = get_model_ready
         self.record_action = record_action
         self.prune_empty_point_frames = prune_empty_point_frames
+        self.can_mutate_segmentation = can_mutate_segmentation
+        self.on_mutation_blocked = on_mutation_blocked
         self._pending_dirty = False
         self._box_drag_start_img = None
         self._box_drag_start_canvas = None
@@ -123,6 +139,22 @@ class InteractionController:
         self._region_drag_original = None
         self._region_drag_start_img = None
         self._region_drag_handle = None
+
+    def _mutation_allowed(self, action: str = "edit") -> bool:
+        checker = self.can_mutate_segmentation
+        if callable(checker):
+            try:
+                if not bool(checker()):
+                    blocker = self.on_mutation_blocked
+                    if callable(blocker):
+                        blocker(str(action or "edit"))
+                    return False
+            except Exception:
+                blocker = self.on_mutation_blocked
+                if callable(blocker):
+                    blocker(str(action or "edit"))
+                return False
+        return True
 
     @staticmethod
     def _paint_payloads_equal(before, after) -> bool:
@@ -187,6 +219,8 @@ class InteractionController:
         mode = self.tool_mode.get()
         idx = self.get_current_frame_idx()
         if mode in ["brush", "eraser"]:
+            if not self._mutation_allowed("paint"):
+                return False
             self.set_is_dragging(True)
             self.clear_paint_preview()
             self.set_last_mouse_x(event.x)
@@ -202,10 +236,14 @@ class InteractionController:
                 self.set_paint_snapshot_before(None)
             self._handle_tool(event, is_click=True)
         elif mode in ("fill", "fill_erase"):
+            if not self._mutation_allowed("fill"):
+                return False
             self.set_selected_point(None)
             self.set_selected_region_id(None)
             return bool(self._handle_tool(event, is_click=True))
         elif mode == "box":
+            if not self._mutation_allowed("box"):
+                return False
             coords = self._canvas_event_to_image(event, clamp=True)
             if coords is None:
                 return
@@ -219,6 +257,8 @@ class InteractionController:
             self.clear_box_preview()
             self.draw_box_preview(event.x, event.y, event.x, event.y)
         elif is_region_tool_mode(mode):
+            if not self._mutation_allowed("region"):
+                return False
             coords = self._canvas_event_to_image(event, clamp=True)
             if coords is None:
                 return
@@ -257,6 +297,8 @@ class InteractionController:
                 self.set_points_snapshot_before(None)
             self.set_is_dragging(True)
         else:
+            if not self._mutation_allowed("point"):
+                return False
             self.set_is_dragging(True)
             self._handle_tool(event, is_click=True)
             self.set_selected_point(None)
@@ -297,6 +339,14 @@ class InteractionController:
                 self._pending_dirty = True
 
         if mode == "box":
+            if not self._mutation_allowed("box"):
+                self.clear_box_preview()
+                self._box_drag_start_img = None
+                self._box_drag_start_canvas = None
+                self._box_snapshot_before = None
+                self._box_drag_original = None
+                self._box_drag_handle = None
+                return False
             self.clear_box_preview()
             before = copy.deepcopy(self._box_snapshot_before)
             start = self._box_drag_start_img
@@ -473,6 +523,8 @@ class InteractionController:
         return start, end
 
     def commit_region_draft(self):
+        if not self._mutation_allowed("region"):
+            return False
         if len(self._region_draft_points) < 3:
             return False
         idx = self.get_current_frame_idx()
@@ -506,6 +558,8 @@ class InteractionController:
         return True
 
     def apply_selected_region_options(self):
+        if not self._mutation_allowed("region"):
+            return False
         region_id = self.get_selected_region_id()
         if not region_id:
             return False
@@ -531,6 +585,8 @@ class InteractionController:
         return True
 
     def set_selected_region_mode(self, mode):
+        if not self._mutation_allowed("region"):
+            return False
         region_id = self.get_selected_region_id()
         if not region_id:
             return False
@@ -552,6 +608,8 @@ class InteractionController:
         return True
 
     def delete_selected_region(self):
+        if not self._mutation_allowed("region"):
+            return False
         region_id = self.get_selected_region_id()
         if not region_id:
             return False
@@ -569,6 +627,8 @@ class InteractionController:
         return True
 
     def duplicate_selected_region(self):
+        if not self._mutation_allowed("region"):
+            return False
         region_id = self.get_selected_region_id()
         region = self.seg_state.get_persistent_region(region_id) if region_id else None
         if region is None:
@@ -587,6 +647,8 @@ class InteractionController:
         return True
 
     def set_region_flag(self, region_id: str, key: str, value: bool):
+        if not self._mutation_allowed("region"):
+            return False
         if key not in {"enabled", "visible"}:
             return False
         before = copy.deepcopy(self.seg_state.get_persistent_region(region_id))
@@ -869,6 +931,8 @@ class InteractionController:
     def delete_selected_point(self, _event=None):
         selected_point = self.get_selected_point()
         if selected_point:
+            if not self._mutation_allowed("delete"):
+                return False
             idx, pt_i = selected_point
             if pt_i == "box" and idx in self.boxes:
                 data_before = copy.deepcopy(self.boxes.get(idx))
@@ -921,8 +985,7 @@ class InteractionController:
         idx = self.get_current_frame_idx()
         mode = self.tool_mode.get()
         
-        # Modifier inversion (Shift: 1, Alt/Option: 8 or 16)
-        has_modifier = bool(getattr(event, "state", 0) & 0x0019)
+        has_modifier = _has_tool_inversion_modifier(event)
         if has_modifier:
             if mode == "point_pos":
                 mode = "point_neg"
@@ -941,10 +1004,14 @@ class InteractionController:
         if mode == "select":
             selected_region_id = self.get_selected_region_id()
             if selected_region_id and self.get_is_dragging():
+                if not self._mutation_allowed("region"):
+                    return False
                 self._move_selected_region(idx, img_x, img_y, orig_w, orig_h)
                 return False
             selected_point = self.get_selected_point()
             if selected_point and self.get_is_dragging():
+                if not self._mutation_allowed("edit"):
+                    return False
                 s_idx, s_pt_i = selected_point
                 if s_idx == idx and s_pt_i == "box":
                     self._move_selected_box(idx, img_x, img_y, orig_w, orig_h)
@@ -957,6 +1024,8 @@ class InteractionController:
 
         elif mode in ["point_pos", "point_neg"]:
             if is_click:
+                if not self._mutation_allowed("point"):
+                    return False
                 data_before = copy.deepcopy(self.points.get(idx))
                 mask_before = None
                 if data_before is None and idx in self.masks_cache and self.masks_cache[idx] is not None:
@@ -983,6 +1052,8 @@ class InteractionController:
                     self.update_display()
 
         elif mode in ["brush", "eraser"]:
+            if not self._mutation_allowed("paint"):
+                return False
             if is_click:
                 self._apply_paint(idx, img_x, img_y, mode, orig_w, orig_h)
                 self._preview_paint_segment(img_x, img_y, img_x, img_y, ratio, offset_x, offset_y, mode)
@@ -1005,6 +1076,8 @@ class InteractionController:
 
         elif mode in ("fill", "fill_erase"):
             if is_click:
+                if not self._mutation_allowed("fill"):
+                    return False
                 return self._apply_bucket_fill(idx, img_x, img_y, orig_w, orig_h)
         return False
 
@@ -1213,6 +1286,8 @@ class InteractionController:
             return mask_bool | holes
 
     def fill_current_frame_holes(self):
+        if not self._mutation_allowed("fill_holes"):
+            return False
         frame_count = int(self.get_frame_count())
         if frame_count <= 0:
             return False
@@ -1239,6 +1314,8 @@ class InteractionController:
         return changed
 
     def clear_current_frame_data(self):
+        if not self._mutation_allowed("clear_frame"):
+            return False
         idx = self.get_current_frame_idx()
         frame_before = self._snapshot_frame_state(idx)
         had_points = bool(idx in self.points and self.points[idx])

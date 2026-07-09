@@ -211,9 +211,9 @@ class UnifiedProjectStore:
                 extract_root = Path(dest_dir)
                 extract_root.mkdir(parents=True, exist_ok=True)
             extracted_any = False
-            for name, arcname in embedded.items():
+            for _name, arcname in embedded.items():
                 try:
-                    out_path = extract_root / Path(str(name)).name
+                    out_path = extract_root / Path(str(arcname)).name
                     with zf.open(str(arcname), "r") as src_f, out_path.open("wb") as out_f:
                         out_f.write(src_f.read())
                     extracted_any = True

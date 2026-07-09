@@ -1,6 +1,8 @@
 import tempfile
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from unittest.mock import patch
 
 import numpy as np
 import pandas as pd
@@ -16,6 +18,16 @@ from swell.analysis.core.metrics import (
 
 
 class MetricsTests(unittest.TestCase):
+    def _metrics_frame_df(self):
+        return pd.DataFrame(
+            {
+                "time_sec": [0.0, 1.0],
+                "speed_um_per_sec": [1.0, 2.0],
+                "area_mm2": [0.1, 0.2],
+                "relative_area_pct": [10.0, 20.0],
+            }
+        )
+
     def test_compute_scale(self):
         result = compute_scale(((0, 0), (3, 4)), mm_length=2.0)
         self.assertAlmostEqual(result["scale_bar_pixels"], 5.0)
@@ -54,14 +66,7 @@ class MetricsTests(unittest.TestCase):
 
     def test_write_outputs_and_generate_plots(self):
         with tempfile.TemporaryDirectory() as tmp:
-            frame_df = pd.DataFrame(
-                {
-                    "time_sec": [0.0, 1.0],
-                    "speed_um_per_sec": [1.0, 2.0],
-                    "area_mm2": [0.1, 0.2],
-                    "relative_area_pct": [10.0, 20.0],
-                }
-            )
+            frame_df = self._metrics_frame_df()
             summary = {"a": 1}
             write_metrics_outputs(tmp, frame_df, summary)
             generate_metrics_plots(tmp, frame_df, summary)
@@ -70,6 +75,26 @@ class MetricsTests(unittest.TestCase):
             self.assertTrue((Path(tmp) / "summary_metrics.json").exists())
             self.assertTrue((Path(tmp) / "propagation_speed.png").exists())
             self.assertTrue((Path(tmp) / "area_speed_combo.png").exists())
+
+    def test_generate_metrics_plots_does_not_switch_matplotlib_backend(self):
+        with tempfile.TemporaryDirectory() as tmp, patch("matplotlib.use", side_effect=AssertionError("backend switched")):
+            generate_metrics_plots(tmp, self._metrics_frame_df(), {"a": 1})
+            self.assertTrue((Path(tmp) / "propagation_speed.png").exists())
+
+    def test_generate_metrics_plots_runs_concurrently(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            frame_df = self._metrics_frame_df()
+
+            def render(idx):
+                out = root / f"plot_{idx}"
+                generate_metrics_plots(str(out), frame_df, {"idx": idx})
+                return out / "area_speed_combo.png"
+
+            with ThreadPoolExecutor(max_workers=3) as pool:
+                paths = list(pool.map(render, range(3)))
+
+            self.assertTrue(all(path.exists() for path in paths))
 
 
 if __name__ == "__main__":

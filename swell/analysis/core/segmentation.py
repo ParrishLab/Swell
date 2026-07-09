@@ -604,29 +604,47 @@ class SegmentationActions:
     _RAM_RECOVERY_REINIT_POLL_MS = 500
     _RAM_RECOVERY_REINIT_MAX_POLLS = 60  # ~30 s
 
+    @staticmethod
+    def _ram_recovery_target_bytes(available_bytes: int, total_bytes: int) -> int:
+        try:
+            available = max(0, int(available_bytes))
+            total = max(0, int(total_bytes))
+        except Exception:
+            return 0
+        if available <= 0 or total <= 0:
+            return 0
+        lower_bound = int(total * 0.25)
+        upper_bound = int(total * 0.80)
+        return min(max(available, lower_bound), upper_bound)
+
     def _start_ram_recovery_monitor(self, prop_params):
         """Begin polling for available RAM after an OOM shutdown.
 
         prop_params: tuple (prop_start, prop_end, anchor_frame) or None.
         """
         available_bytes = 0
+        total_bytes = 0
         available_mb = 0
+        target_bytes = 0
         try:
             import psutil
-            available_bytes = psutil.virtual_memory().available
+            mem = psutil.virtual_memory()
+            available_bytes = int(mem.available)
+            total_bytes = int(mem.total)
             available_mb = available_bytes // (1024 * 1024)
+            target_bytes = self._ram_recovery_target_bytes(available_bytes, total_bytes)
         except Exception:
             pass
 
         self._ram_recovery_prop_params = prop_params
-        # Target: 2× the available RAM recorded right after the model shutdown.
-        # If we cannot read RAM, set target to 0 so the first poll immediately
-        # offers re-initialization (graceful degradation).
-        self._ram_recovery_target_bytes = available_bytes * 2
+        # If RAM cannot be read, target is 0 so the first poll immediately
+        # offers re-initialization instead of waiting forever.
+        self._ram_recovery_target_bytes = target_bytes
+        target_mb = target_bytes // (1024 * 1024)
         self.log_info("Model", f"RAM recovery monitor started. Available now: {available_mb} MB. "
-                               f"Target: {available_mb * 2} MB.")
+                               f"Target: {target_mb} MB.")
         if self._ui_alive():
-            self._set_activity_message(f"Waiting for RAM\u2026 ({available_mb} MB free)")
+            self._set_activity_message(f"Waiting for RAM\u2026 ({available_mb} MB free / {target_mb} MB target)")
             self.root.after(self._RAM_RECOVERY_POLL_MS, self._check_ram_recovery)
 
     def _check_ram_recovery(self):
@@ -653,7 +671,8 @@ class SegmentationActions:
             else:
                 self._set_activity_message("RAM available \u2014 re-initialize the model to continue.")
         else:
-            self._set_activity_message(f"Waiting for RAM\u2026 ({available_mb} MB free)")
+            target_mb = int(target) // (1024 * 1024)
+            self._set_activity_message(f"Waiting for RAM\u2026 ({available_mb} MB free / {target_mb} MB target)")
             self.root.after(self._RAM_RECOVERY_POLL_MS, self._check_ram_recovery)
 
     def _resume_propagation_after_reinit(self):

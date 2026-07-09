@@ -12,6 +12,7 @@ from typing import Any
 
 import numpy as np
 
+from swell.shared.errors import ProjectLoadError
 from swell.shared.persistence.schema import (
     EMBEDDED_EXTRACT_ACTIVE_MARKER,
     EMBEDDED_EXTRACT_PREFIX,
@@ -59,9 +60,13 @@ def write_npz(zf: zipfile.ZipFile, arcname: str, array: Any, *, key: str = "mask
 def read_npz(zf: zipfile.ZipFile, arcname: str, *, key: str = "masks") -> np.ndarray | None:
     try:
         with zf.open(arcname, "r") as f:
-            return read_npz_bytes(f.read(), key=key)
-    except Exception:
+            blob = f.read()
+    except KeyError:
         return None
+    try:
+        return read_npz_bytes(blob, key=key)
+    except Exception as exc:
+        raise ProjectLoadError(f"Failed to read NPZ data '{arcname}' with key '{key}': {exc}") from exc
 
 
 def cleanup_stale_temp_files(

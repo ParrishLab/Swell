@@ -9,6 +9,7 @@ import numpy as np
 from swell.analysis.app import SwellAnalysisApp
 from swell.analysis.core.segmentation import (
     CheckpointOnboardingResult,
+    SegmentationActions,
     _candidate_model_config_names,
     _disable_sam2_hole_filling_without_extension,
 )
@@ -195,3 +196,23 @@ def test_sam2_hole_filling_kept_when_native_extension_available(monkeypatch) -> 
 
     assert changed is False
     assert predictor.fill_hole_area == 8
+
+
+def test_ram_recovery_target_is_reachable_after_high_available_shutdown() -> None:
+    gib = 1024**3
+    target = SegmentationActions._ram_recovery_target_bytes(available_bytes=4 * gib, total_bytes=8 * gib)
+
+    assert target == 4 * gib
+    assert target != 8 * gib
+
+
+def test_ram_recovery_target_has_floor_but_stays_below_physical_total() -> None:
+    gib = 1024**3
+    target = SegmentationActions._ram_recovery_target_bytes(available_bytes=100 * 1024**2, total_bytes=8 * gib)
+
+    assert target == 2 * gib
+    assert target < 8 * gib
+
+
+def test_ram_recovery_target_zero_when_memory_probe_unavailable() -> None:
+    assert SegmentationActions._ram_recovery_target_bytes(available_bytes=0, total_bytes=0) == 0

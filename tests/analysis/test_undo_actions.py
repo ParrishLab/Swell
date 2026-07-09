@@ -75,6 +75,39 @@ class UndoActionsTests(unittest.TestCase):
         self.assertIn(0, s.seg_state.paint_layers)
         self.assertEqual(s.updated, 1)
 
+    def test_cross_frame_apply_state_defers_display_until_slider_navigation(self):
+        s = self._make_subject()
+        plus = np.zeros((3, 3), dtype=bool)
+        minus = np.zeros((3, 3), dtype=bool)
+        plus[1, 1] = True
+
+        s._apply_state(3, {"plus": plus, "minus": minus}, "paint")
+
+        self.assertIn(3, s.seg_state.paint_layers)
+        self.assertEqual(s.updated, 0)
+        self.assertEqual(s.slider.values, [3])
+
+    def test_same_frame_apply_state_still_updates_display_once(self):
+        s = self._make_subject()
+        plus = np.zeros((3, 3), dtype=bool)
+        minus = np.zeros((3, 3), dtype=bool)
+
+        s._apply_state(0, {"plus": plus, "minus": minus}, "paint")
+
+        self.assertEqual(s.updated, 1)
+        self.assertEqual(s.slider.values, [])
+
+    def test_cross_frame_model_ready_point_undo_keeps_mask_prediction(self):
+        s = self._make_subject()
+        s.model_ready = True
+        point = [{"x": 1, "y": 1, "label": 1}]
+
+        s._apply_state(4, point, "point")
+
+        self.assertEqual(s.inferred, 1)
+        self.assertEqual(s.updated, 0)
+        self.assertEqual(s.slider.values, [4])
+
     def test_undo_and_redo_box(self):
         s = self._make_subject()
         before = [1.0, 2.0, 8.0, 9.0]

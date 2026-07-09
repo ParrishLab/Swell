@@ -74,6 +74,19 @@ class IOImportTests(unittest.TestCase):
         self.assertEqual(len(frames), 2)
         self.assertEqual(names, ["b.png", "a.png"])
 
+    def test_folder_import_uses_natural_frame_order(self):
+        dummy = _DummyIO()
+        with self.subTest("non_zero_padded_names"):
+            import tempfile
+
+            with tempfile.TemporaryDirectory() as tmp:
+                for name in ("frame10.png", "frame2.png", "frame1.png"):
+                    (Path(tmp) / name).write_bytes(b"")
+
+                ordered = dummy._collect_image_files_from_folder(tmp)
+
+        self.assertEqual([p.name for p in ordered], ["frame1.png", "frame2.png", "frame10.png"])
+
     def test_validate_selected_files_rejects_unsupported_and_duplicates(self):
         dummy = _DummyIO()
         with patch("pathlib.Path.exists", return_value=True), patch("pathlib.Path.is_dir", return_value=False), patch(

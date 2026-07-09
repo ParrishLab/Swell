@@ -3,7 +3,9 @@ from __future__ import annotations
 import csv
 import hashlib
 import json
+import sys
 from pathlib import Path
+from unittest.mock import patch
 
 import cv2
 import numpy as np
@@ -172,6 +174,25 @@ def test_export_with_trace_writes_trace_files(tmp_path: Path) -> None:
 
     assert (tmp_path / "trace_data.csv").exists()
     assert (tmp_path / "trace_plot.png").exists()
+
+
+def test_export_plot_helpers_do_not_switch_backend_or_import_pyplot(tmp_path: Path) -> None:
+    sys.modules.pop("matplotlib.pyplot", None)
+    trace = TraceResult(
+        frame_indices=[0, 1, 2],
+        time_sec=[0.0, 1.0, 2.0],
+        mean=[10.0, 11.0, 12.0],
+        median=[9.0, 10.0, 11.0],
+        std=[1.0, 1.1, 1.2],
+    )
+
+    with patch("matplotlib.use", side_effect=AssertionError("backend switched")):
+        exporter._write_metric_plot(tmp_path / "metric.png", [0.0, 1.0], np.asarray([1.0, 2.0]), "Metric", "Value")
+        exporter._write_trace_plot(tmp_path / "trace_plot.png", trace, [_event("event_0001", 1, 2)])
+
+    assert (tmp_path / "metric.png").exists()
+    assert (tmp_path / "trace_plot.png").exists()
+    assert "matplotlib.pyplot" not in sys.modules
 
 
 def test_export_selected_event_ids_filters_output(tmp_path: Path) -> None:

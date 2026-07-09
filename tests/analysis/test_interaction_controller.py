@@ -1,4 +1,5 @@
 import unittest
+from unittest.mock import patch
 
 import numpy as np
 
@@ -53,13 +54,14 @@ class _LabelStub:
 
 
 class _Event:
-    def __init__(self, x, y):
+    def __init__(self, x, y, state=0):
         self.x = x
         self.y = y
+        self.state = state
 
 
 class InteractionControllerTests(unittest.TestCase):
-    def _make_controller(self, *, display_transform=(1.0, 0.0, 0.0)):
+    def _make_controller(self, *, display_transform=(1.0, 0.0, 0.0), can_mutate_segmentation=None, on_mutation_blocked=None):
         seg_state = SegmentationState()
         points = {}
         boxes = {}
@@ -158,6 +160,8 @@ class InteractionControllerTests(unittest.TestCase):
             get_model_ready=lambda: holder["model_ready"],
             record_action=lambda *args: holder["records"].append(args),
             prune_empty_point_frames=lambda: holder.__setitem__("prunes", holder["prunes"] + 1),
+            can_mutate_segmentation=can_mutate_segmentation,
+            on_mutation_blocked=on_mutation_blocked,
         )
         return c, holder, tool_mode, lbl, fill_mode, fill_tolerance
 
@@ -187,6 +191,37 @@ class InteractionControllerTests(unittest.TestCase):
         self.assertEqual(len(holder["records"]), 1)
         self.assertEqual(holder["mask_updates"], 1)
 
+    def test_point_click_is_blocked_when_segmentation_mutation_disallowed(self):
+        blocked = []
+        controller, holder, mode, _lbl, _fill_mode, _fill_tolerance = self._make_controller(
+            can_mutate_segmentation=lambda: False,
+            on_mutation_blocked=lambda action: blocked.append(action),
+        )
+        mode.set("point_pos")
+
+        changed = controller._handle_tool(_Event(5, 6), is_click=True)
+
+        self.assertFalse(changed)
+        self.assertEqual(controller.points, {})
+        self.assertEqual(holder["records"], [])
+        self.assertEqual(blocked, ["point"])
+
+    def test_shift_modifier_flips_positive_point_to_negative(self):
+        controller, _holder, mode, _lbl, _fill_mode, _fill_tolerance = self._make_controller()
+        mode.set("point_pos")
+
+        controller._handle_tool(_Event(5, 6, state=0x0001), is_click=True)
+
+        self.assertEqual(controller.points[0][0]["label"], 0)
+
+    def test_alt_modifier_flips_positive_point_to_negative(self):
+        controller, _holder, mode, _lbl, _fill_mode, _fill_tolerance = self._make_controller()
+        mode.set("point_pos")
+
+        controller._handle_tool(_Event(5, 6, state=0x0008), is_click=True)
+
+        self.assertEqual(controller.points[0][0]["label"], 0)
+
     def test_delete_selected_point_removes_frame_when_last(self):
         controller, holder, _mode, _lbl, _fill_mode, _fill_tolerance = self._make_controller()
         controller.points[0] = [{"x": 1, "y": 1, "label": 1}]
@@ -213,6 +248,65 @@ class InteractionControllerTests(unittest.TestCase):
         self.assertEqual(holder["updates"], 2)
         self.assertEqual(len(holder["records"]), 1)
         self.assertTrue(changed)
+
+    def test_brush_down_is_blocked_when_segmentation_mutation_disallowed(self):
+        blocked = []
+        controller, holder, mode, _lbl, _fill_mode, _fill_tolerance = self._make_controller(
+            can_mutate_segmentation=lambda: False,
+            on_mutation_blocked=lambda action: blocked.append(action),
+        )
+        mode.set("brush")
+
+        changed = controller.on_mouse_down(_Event(5, 6))
+
+        self.assertFalse(changed)
+        self.assertFalse(holder["is_dragging"])
+        self.assertEqual(controller.paint_layers, {})
+        self.assertEqual(holder["records"], [])
+        self.assertEqual(blocked, ["paint"])
+
+    def test_windows_num_lock_does_not_flip_brush_to_eraser(self):
+        controller, _holder, mode, _lbl, _fill_mode, _fill_tolerance = self._make_controller()
+        mode.set("brush")
+
+        with patch("swell.analysis.core.interaction_controller.sys.platform", "win32"):
+            controller._handle_tool(_Event(5, 6, state=0x0010), is_click=True)
+
+        layer = controller.paint_layers[0]
+        self.assertTrue(np.any(layer["plus"]))
+        self.assertFalse(np.any(layer["minus"]))
+
+    def test_windows_num_lock_does_not_flip_eraser_to_brush(self):
+        controller, _holder, mode, _lbl, _fill_mode, _fill_tolerance = self._make_controller()
+        mode.set("eraser")
+
+        with patch("swell.analysis.core.interaction_controller.sys.platform", "win32"):
+            controller._handle_tool(_Event(5, 6, state=0x0010), is_click=True)
+
+        layer = controller.paint_layers[0]
+        self.assertTrue(np.any(layer["minus"]))
+        self.assertFalse(np.any(layer["plus"]))
+
+    def test_shift_modifier_flips_brush_to_eraser(self):
+        controller, _holder, mode, _lbl, _fill_mode, _fill_tolerance = self._make_controller()
+        mode.set("brush")
+
+        controller._handle_tool(_Event(5, 6, state=0x0001), is_click=True)
+
+        layer = controller.paint_layers[0]
+        self.assertTrue(np.any(layer["minus"]))
+        self.assertFalse(np.any(layer["plus"]))
+
+    def test_mac_option_modifier_flips_brush_to_eraser(self):
+        controller, _holder, mode, _lbl, _fill_mode, _fill_tolerance = self._make_controller()
+        mode.set("brush")
+
+        with patch("swell.analysis.core.interaction_controller.sys.platform", "darwin"):
+            controller._handle_tool(_Event(5, 6, state=0x0010), is_click=True)
+
+        layer = controller.paint_layers[0]
+        self.assertTrue(np.any(layer["minus"]))
+        self.assertFalse(np.any(layer["plus"]))
 
     def test_mouse_up_compares_paint_payloads_without_numpy_truthiness_error(self):
         controller, holder, mode, _lbl, _fill_mode, _fill_tolerance = self._make_controller()

@@ -75,3 +75,18 @@ mkdocs build --strict
 ```
 
 If the compilation succeeds without errors, the production site is generated under the `site/` folder and is ready to be published.
+
+### Publishing to GitHub Pages
+Documentation is published to GitHub Pages by the `Deploy docs` workflow. Before
+merging documentation changes, run:
+
+```bash
+mkdocs build --strict
+```
+
+After changes are merged to `main`, confirm the `Deploy docs` workflow succeeds,
+then check the published site at `https://parrishlab.github.io/Swell/`.
+
+The repository's GitHub Pages settings must use `GitHub Actions` as the Pages
+build and deployment source. The generated `site/` directory is build output and
+should not be committed.

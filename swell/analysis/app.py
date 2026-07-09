@@ -26,6 +26,8 @@ from swell.analysis.core.inference_manager import InferenceManager
 from swell.analysis.core.interaction_controller import InteractionController
 from swell.analysis.core.project_schema import utc_now_iso
 from swell.analysis.core.project_store import ProjectStore
+from swell.analysis.core.project_autosave import AutosaveSnapshot, ProjectAutosaveManager
+from swell.analysis.core.autosave_naming import derive_autosave_tag
 from swell.analysis.core.session_state import SessionState
 from swell.analysis.core import mask_import_workflow
 from swell.analysis.core.mask_import_dialog import MaskImportDialogService
@@ -198,6 +200,7 @@ class SwellAnalysisApp(LayoutBuilder, IOActions, SegmentationActions, RenderActi
         self._timeline_loading_animation_job = None
         self._timeline_loading_animation_phase = 0.0
         self._initial_frame_nav_ts = None
+        self._last_segmentation_edit_blocked_ts = 0.0
 
         self.ghost_outlines_enabled_var = tk.BooleanVar(value=False)
         self.ghost_range_var = tk.IntVar(value=2)
@@ -219,7 +222,7 @@ class SwellAnalysisApp(LayoutBuilder, IOActions, SegmentationActions, RenderActi
             on_event_opened=self._on_workspace_event_opened,
         )
         self.mask_import_dialog = MaskImportDialogService()
-        self.autosave_manager = None
+        self.autosave_manager = self._create_project_autosave_manager()
 
         with perf_stage("SwellAnalysisApp.setup_ui"):
             self.setup_ui()
@@ -368,6 +371,8 @@ class SwellAnalysisApp(LayoutBuilder, IOActions, SegmentationActions, RenderActi
             get_model_ready=lambda: self.model_ready,
             record_action=self.record_action,
             prune_empty_point_frames=self._prune_empty_point_frames,
+            can_mutate_segmentation=self._segmentation_edits_allowed,
+            on_mutation_blocked=self._on_segmentation_edit_blocked,
         )
         self.app_context = AppContext(
             app_root=Path(self.app_root),
@@ -2102,6 +2107,88 @@ class SwellAnalysisApp(LayoutBuilder, IOActions, SegmentationActions, RenderActi
 
     def _mark_project_dirty(self, reason=""):
         self.project_dirty = True
+        manager = getattr(self, "autosave_manager", None)
+        if manager is not None and hasattr(manager, "schedule"):
+            try:
+                if self._has_loaded_stack():
+                    manager.schedule(str(reason or "dirty"))
+            except Exception as exc:
+                self._on_autosave_error(exc, f"schedule:{reason}")
+
+    def _segmentation_edits_allowed(self) -> bool:
+        manager = getattr(self, "inference_manager", None)
+        if manager is None or not hasattr(manager, "is_propagation_running"):
+            return True
+        try:
+            return not bool(manager.is_propagation_running())
+        except Exception:
+            return False
+
+    def _on_segmentation_edit_blocked(self, action: str = "edit") -> None:
+        now = time.monotonic()
+        if now - float(getattr(self, "_last_segmentation_edit_blocked_ts", 0.0)) < 1.0:
+            return
+        self._last_segmentation_edit_blocked_ts = now
+        message = "Segmentation edits are blocked while propagation is running."
+        if hasattr(self, "lbl_status"):
+            try:
+                self.lbl_status.configure(text=f"Status: {message}", foreground=APP_COLORS["warning"])
+            except Exception:
+                pass
+        if callable(getattr(self, "log_warn", None)):
+            try:
+                self.log_warn("Propagation", f"{message} Attempted action: {action}.")
+            except Exception:
+                pass
+
+    def _create_project_autosave_manager(self) -> ProjectAutosaveManager:
+        autosave_dir = Path(self.app_root) / "autosaves"
+        return ProjectAutosaveManager(
+            snapshot_callable=self._build_autosave_snapshot,
+            write_callable=self._write_autosave_snapshot,
+            autosave_dir=autosave_dir,
+            name_tag_provider=self._autosave_name_tag,
+            dispatch_to_main=self._dispatch_autosave_to_main,
+            on_error=self._on_autosave_error,
+        )
+
+    def _build_autosave_snapshot(self) -> AutosaveSnapshot | None:
+        if not self._has_loaded_stack():
+            return None
+        state, images_manifest, roi_data, event_payloads = self._build_project_payload()
+        return AutosaveSnapshot(
+            project_state=state,
+            images_manifest=images_manifest,
+            roi_data=roi_data,
+            event_payloads=event_payloads,
+            embed_images=bool(getattr(self, "_project_embed_images", False)),
+        )
+
+    def _write_autosave_snapshot(self, snapshot: AutosaveSnapshot, target_path: Path) -> None:
+        self.project_store.save(
+            target_path,
+            snapshot.project_state,
+            snapshot.images_manifest,
+            snapshot.roi_data,
+            snapshot.event_payloads,
+            embed_images=bool(snapshot.embed_images),
+        )
+
+    def _autosave_name_tag(self) -> str:
+        source_paths = list(getattr(self, "_current_image_source_paths", []) or [])
+        entry_value = ""
+        try:
+            entry_value = str(self.get_input_source_hint() or "")
+        except Exception:
+            entry_value = ""
+        return derive_autosave_tag(source_paths, entry_value)
+
+    def _dispatch_autosave_to_main(self, fn) -> None:
+        root = getattr(self, "root", None)
+        if root is not None and hasattr(root, "after"):
+            root.after(0, fn)
+        else:
+            fn()
 
     def _on_autosave_error(self, exc: Exception, context: str):
         self.log_warn("Autosave", f"Autosave failed ({context}): {exc}")
@@ -2170,6 +2257,9 @@ class SwellAnalysisApp(LayoutBuilder, IOActions, SegmentationActions, RenderActi
         return project_workflow.resolve_project_image_paths(self, loaded)
 
     def import_external_masks(self):
+        if not self._segmentation_edits_allowed():
+            self._on_segmentation_edit_blocked("import_external_masks")
+            return False
         return mask_import_workflow.import_external_masks(self)
 
     def _apply_loaded_project(self, loaded, project_path):
@@ -2424,6 +2514,9 @@ class SwellAnalysisApp(LayoutBuilder, IOActions, SegmentationActions, RenderActi
             self.region_end_var.set(str(int(region.get("frame_end", 0)) + 1))
 
     def commit_region_draft(self):
+        if not self._segmentation_edits_allowed():
+            self._on_segmentation_edit_blocked("region_add")
+            return False
         changed = bool(self.interaction_controller.commit_region_draft())
         if changed:
             self._schedule_leverage_recompute()
@@ -2440,6 +2533,9 @@ class SwellAnalysisApp(LayoutBuilder, IOActions, SegmentationActions, RenderActi
         return bool(self.interaction_controller.close_region_draft())
 
     def apply_selected_region_options(self):
+        if not self._segmentation_edits_allowed():
+            self._on_segmentation_edit_blocked("region_options")
+            return False
         changed = bool(self.interaction_controller.apply_selected_region_options())
         if changed:
             self._schedule_leverage_recompute()
@@ -2453,6 +2549,9 @@ class SwellAnalysisApp(LayoutBuilder, IOActions, SegmentationActions, RenderActi
         return "break" if changed and event is not None else None
 
     def convert_selected_region_mode(self):
+        if not self._segmentation_edits_allowed():
+            self._on_segmentation_edit_blocked("region_convert")
+            return False
         region_id = getattr(self, "selected_region_id", None)
         region = self.seg_state.get_persistent_region(region_id) if region_id else None
         if region is None:
@@ -2467,6 +2566,9 @@ class SwellAnalysisApp(LayoutBuilder, IOActions, SegmentationActions, RenderActi
         return changed
 
     def delete_selected_region(self):
+        if not self._segmentation_edits_allowed():
+            self._on_segmentation_edit_blocked("region_delete")
+            return False
         changed = bool(self.interaction_controller.delete_selected_region())
         if changed:
             self._schedule_leverage_recompute()
@@ -2474,6 +2576,9 @@ class SwellAnalysisApp(LayoutBuilder, IOActions, SegmentationActions, RenderActi
         return changed
 
     def duplicate_selected_region(self):
+        if not self._segmentation_edits_allowed():
+            self._on_segmentation_edit_blocked("region_duplicate")
+            return False
         changed = bool(self.interaction_controller.duplicate_selected_region())
         if changed:
             self._schedule_leverage_recompute()
@@ -2481,6 +2586,9 @@ class SwellAnalysisApp(LayoutBuilder, IOActions, SegmentationActions, RenderActi
         return changed
 
     def _set_region_enabled(self, region_id, value):
+        if not self._segmentation_edits_allowed():
+            self._on_segmentation_edit_blocked("region_enabled")
+            return False
         changed = bool(self.interaction_controller.set_region_flag(str(region_id), "enabled", bool(value)))
         if changed:
             self._schedule_leverage_recompute()
@@ -2488,12 +2596,18 @@ class SwellAnalysisApp(LayoutBuilder, IOActions, SegmentationActions, RenderActi
         return changed
 
     def _set_region_visible(self, region_id, value):
+        if not self._segmentation_edits_allowed():
+            self._on_segmentation_edit_blocked("region_visible")
+            return False
         changed = bool(self.interaction_controller.set_region_flag(str(region_id), "visible", bool(value)))
         if changed:
             self._mark_project_dirty("region_visible")
         return changed
 
     def fill_current_frame_holes(self):
+        if not self._segmentation_edits_allowed():
+            self._on_segmentation_edit_blocked("fill_holes")
+            return False
         changed = bool(self.interaction_controller.fill_current_frame_holes())
         if changed:
             self._schedule_leverage_recompute()
@@ -2523,6 +2637,9 @@ class SwellAnalysisApp(LayoutBuilder, IOActions, SegmentationActions, RenderActi
             pass
 
     def toggle_ground_truth_current_frame(self):
+        if not self._segmentation_edits_allowed():
+            self._on_segmentation_edit_blocked("ground_truth")
+            return False
         idx = int(self.current_frame_idx)
         locked = self.seg_state.is_ground_truth_frame(idx)
         if not locked and not self._current_frame_has_nonempty_mask():
@@ -2722,6 +2839,9 @@ class SwellAnalysisApp(LayoutBuilder, IOActions, SegmentationActions, RenderActi
         # this guard a Backspace there deletes the selected region.
         if event is not None and self._focus_is_text_input():
             return None
+        if not self._segmentation_edits_allowed():
+            self._on_segmentation_edit_blocked("delete_point")
+            return None
         changed = bool(self.interaction_controller.delete_selected_point(event))
         if changed:
             self._mark_project_dirty("delete_point")
@@ -2897,6 +3017,9 @@ class SwellAnalysisApp(LayoutBuilder, IOActions, SegmentationActions, RenderActi
         return self.save_current_masks()
 
     def clear_current_frame_data(self):
+        if not self._segmentation_edits_allowed():
+            self._on_segmentation_edit_blocked("clear_frame")
+            return False
         changed = bool(self.interaction_controller.clear_current_frame_data())
         self._sync_saved_mask_overlay_state(reset_history=True)
         if changed:

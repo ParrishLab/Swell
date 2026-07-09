@@ -228,6 +228,9 @@ class InferenceManager:
         with self._prop_thread_lock:
             return self.propagate_thread is not None and self.propagate_thread.is_alive()
 
+    def is_segmentation_mutation_blocked(self) -> bool:
+        return self.is_propagation_running()
+
     def is_propagation_paused(self) -> bool:
         return self.is_propagation_running() and self._prop_pause_event.is_set()
 
@@ -463,6 +466,10 @@ class InferenceManager:
 
         if not self.model_ready or self.predictor is None or self.inference_state is None:
             return
+        if self.is_propagation_running():
+            self._log_debug("Model", f"Skipping frame inference for frame {int(frame_idx) + 1} during propagation.")
+            self._finish_pending_marker_batch_frame(frame_idx)
+            return
 
         valid_frames = self.state.get_valid_point_frames() | self.state.get_valid_box_frames()
         if frame_idx not in valid_frames:
@@ -547,6 +554,8 @@ class InferenceManager:
     def _try_rethreshold_from_cache(self, frame_idx) -> bool:
         if not self.model_ready:
             return False
+        if self.is_propagation_running():
+            return False
         self.state.prune_invalid_points()
         if frame_idx not in self._prompted_frames():
             return False
@@ -614,6 +623,8 @@ class InferenceManager:
                     self.root.after(0, self.recompute_markers)
 
     def _run_single_frame_inference_core(self, frame_idx, generation):
+        if self.is_propagation_running():
+            return
         self.state.prune_invalid_points()
         if frame_idx not in self._prompted_frames():
             return
@@ -622,7 +633,7 @@ class InferenceManager:
 
         try:
             with self.predictor_lock:
-                if self._infer_worker_stop.is_set() or self._prop_stop_event.is_set():
+                if self._infer_worker_stop.is_set() or self._prop_stop_event.is_set() or self.is_propagation_running():
                     return
                 self.predictor.reset_state(self.inference_state)
                 pt_list = list(self.state.points.get(frame_idx) or [])
@@ -652,6 +663,8 @@ class InferenceManager:
             if latest_generation != generation:
                 with self._infer_state_lock:
                     self._infer_stale_skip_count += 1
+                return
+            if self.is_propagation_running():
                 return
 
             thresh = float(self.get_sensitivity())
@@ -700,6 +713,11 @@ class InferenceManager:
             self._prop_pause_event.clear()
             self._preserve_generated_masks_on_stop = False
             self._active_propagation_generation += 1
+            with self._infer_state_lock:
+                self._infer_generation += 1
+                self._infer_frame_generation.clear()
+                self._infer_pending_frames.clear()
+                self._pending_marker_batch_frames.clear()
             generation = self._active_propagation_generation
             self.propagate_thread = threading.Thread(
                 target=self._run_background_propagation,

@@ -155,10 +155,7 @@ def write_metrics_outputs(output_dir: str, frame_metrics_df: "pd.DataFrame", sum
 
 
 def generate_metrics_plots(output_dir: str, frame_metrics_df: "pd.DataFrame", summary: dict) -> None:
-    import matplotlib
-
-    matplotlib.use("Agg", force=True)
-    import matplotlib.pyplot as plt
+    from swell.shared.matplotlib_rendering import create_agg_figure, render_lock, save_agg_figure
 
     os.makedirs(output_dir, exist_ok=True)
 
@@ -167,46 +164,47 @@ def generate_metrics_plots(output_dir: str, frame_metrics_df: "pd.DataFrame", su
     area_mm2 = frame_metrics_df["area_mm2"].to_numpy()
     rel_area_pct = frame_metrics_df["relative_area_pct"].to_numpy()
 
-    plt.figure()
-    plt.plot(t, speed, color="k", linewidth=2)
-    plt.xlabel("Time (sec)")
-    plt.ylabel("Propagation Speed (um/sec)")
-    plt.title("Propagation Speed")
-    plt.tight_layout()
-    plt.savefig(os.path.join(output_dir, "propagation_speed.png"), dpi=150)
-    plt.close()
+    with render_lock():
+        fig = create_agg_figure()
+        ax = fig.subplots()
+        ax.plot(t, speed, color="k", linewidth=2)
+        ax.set_xlabel("Time (sec)")
+        ax.set_ylabel("Propagation Speed (um/sec)")
+        ax.set_title("Propagation Speed")
+        fig.tight_layout()
+        save_agg_figure(fig, os.path.join(output_dir, "propagation_speed.png"), dpi=150)
 
-    plt.figure()
-    plt.plot(t, area_mm2, color="k", linewidth=2)
-    plt.xlabel("Time (sec)")
-    plt.ylabel("Area (mm^2)")
-    plt.title("Area Recruited")
-    plt.tight_layout()
-    plt.savefig(os.path.join(output_dir, "area_mm2.png"), dpi=150)
-    plt.close()
+        fig = create_agg_figure()
+        ax = fig.subplots()
+        ax.plot(t, area_mm2, color="k", linewidth=2)
+        ax.set_xlabel("Time (sec)")
+        ax.set_ylabel("Area (mm^2)")
+        ax.set_title("Area Recruited")
+        fig.tight_layout()
+        save_agg_figure(fig, os.path.join(output_dir, "area_mm2.png"), dpi=150)
 
-    plt.figure()
-    plt.plot(t, rel_area_pct, color="k", linewidth=2)
-    plt.xlabel("Time (sec)")
-    plt.ylabel("Area (% ROI)")
-    plt.title("Relative Area Recruited")
-    plt.tight_layout()
-    plt.savefig(os.path.join(output_dir, "area_relative_pct.png"), dpi=150)
-    plt.close()
+        fig = create_agg_figure()
+        ax = fig.subplots()
+        ax.plot(t, rel_area_pct, color="k", linewidth=2)
+        ax.set_xlabel("Time (sec)")
+        ax.set_ylabel("Area (% ROI)")
+        ax.set_title("Relative Area Recruited")
+        fig.tight_layout()
+        save_agg_figure(fig, os.path.join(output_dir, "area_relative_pct.png"), dpi=150)
 
-    fig, ax_left = plt.subplots()
-    ax_right = ax_left.twinx()
-    l1 = ax_right.plot(t, area_mm2, color="k", linewidth=2.5, linestyle="-", label="Area (mm^2)")
-    l2 = ax_left.plot(t, speed, color="k", linewidth=2.5, linestyle=":", label="Propagation Speed (um/sec)")
-    ax_left.set_xlabel("Time (sec)")
-    ax_left.set_ylabel("Propagation Speed (um/sec)")
-    ax_right.set_ylabel("Area (mm^2)")
-    lines = l1 + l2
-    labels = [l.get_label() for l in lines]
-    ax_left.legend(lines, labels, loc="upper center")
-    fig.tight_layout()
-    fig.savefig(os.path.join(output_dir, "area_speed_combo.png"), dpi=150)
-    plt.close(fig)
+        fig = create_agg_figure()
+        ax_left = fig.subplots()
+        ax_right = ax_left.twinx()
+        l1 = ax_right.plot(t, area_mm2, color="k", linewidth=2.5, linestyle="-", label="Area (mm^2)")
+        l2 = ax_left.plot(t, speed, color="k", linewidth=2.5, linestyle=":", label="Propagation Speed (um/sec)")
+        ax_left.set_xlabel("Time (sec)")
+        ax_left.set_ylabel("Propagation Speed (um/sec)")
+        ax_right.set_ylabel("Area (mm^2)")
+        lines = l1 + l2
+        labels = [l.get_label() for l in lines]
+        ax_left.legend(lines, labels, loc="upper center")
+        fig.tight_layout()
+        save_agg_figure(fig, os.path.join(output_dir, "area_speed_combo.png"), dpi=150)
 
 
 def roi_mask_from_points(
