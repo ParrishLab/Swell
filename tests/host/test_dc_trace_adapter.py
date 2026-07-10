@@ -108,6 +108,27 @@ def _column_oriented_coeff_tree() -> _FakeFile:
     )
 
 
+def _square_column_oriented_coeff_tree() -> _FakeFile:
+    return _FakeFile(
+        {
+            "header": _FakeGroup(
+                {
+                    "AcquisitionSampleRate": _FakeDataset(1000.0),
+                    "Acquisition": _FakeGroup(
+                        {
+                            "AnalogScalingCoefficients": _FakeDataset([[1.0, 3.0], [0.5, 0.25]]),
+                            "AnalogChannelNames": _FakeDataset([b"A", b"B"]),
+                            "AnalogChannelUnits": _FakeDataset([b"mV", b"mV"]),
+                            "AnalogChannelScales": _FakeDataset([1.0, 1.0]),
+                        }
+                    ),
+                }
+            ),
+            "sweep_0001": _FakeGroup({"analogScans": _FakeDataset(np.asarray([[1, 2], [3, 4]], dtype=np.int16))}),
+        }
+    )
+
+
 def _metadata_only_tree() -> _FakeFile:
     return _FakeFile(
         {
@@ -300,6 +321,17 @@ def test_wavesurfer_accepts_coefficients_stored_as_coefficients_by_channel(monke
 
     assert np.array_equal(np.asarray(record_a.signals[:, 0]), np.asarray([3.0, 5.0]))
     assert np.array_equal(np.asarray(record_b.signals[:, 0]), np.asarray([14.0, 16.0]))
+
+
+def test_wavesurfer_resolves_square_column_oriented_coefficients(monkeypatch) -> None:
+    adapter = WaveSurferH5Adapter()
+    monkeypatch.setattr("swell.host.dc_trace._load_h5py", lambda: _fake_h5_module(_square_column_oriented_coeff_tree()))
+
+    record_a = adapter.load_trace(Path("/tmp/square-column-oriented.h5"), channel_selection=0)
+    record_b = adapter.load_trace(Path("/tmp/square-column-oriented.h5"), channel_selection=1)
+
+    assert np.array_equal(np.asarray(record_a.signals[:, 0]), np.asarray([1.5, 2.5]))
+    assert np.array_equal(np.asarray(record_b.signals[:, 0]), np.asarray([3.5, 4.0]))
 
 
 def test_wavesurfer_handles_coefficients_for_active_channels_only(monkeypatch) -> None:

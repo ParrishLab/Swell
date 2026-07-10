@@ -45,6 +45,13 @@
   background-color: rgba(15, 19, 24, 0.26);
 }
 
+.md-header__button.md-logo img,
+.md-header__button.md-logo svg {
+  height: 1.65rem;
+  width: 1.65rem;
+  object-fit: contain;
+}
+
 .md-typeset mark {
   background-color: rgba(245, 196, 81, 0.32);
   color: inherit;

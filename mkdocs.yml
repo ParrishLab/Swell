@@ -9,12 +9,14 @@ docs_dir: docs
 
 theme:
   name: material
+  logo: assets/swell-logo-lines-white.png
   features:
     - navigation.instant
     - navigation.tracking
     - navigation.sections
     - navigation.top
     - navigation.indexes
+    - navigation.footer
     - content.code.copy
     - content.action.edit
     - search.suggest
@@ -40,6 +42,12 @@ extra:
 
 extra_css:
   - stylesheets/extra.css
+  - stylesheets/prompt-demo.css
+
+extra_javascript:
+  - javascripts/prompt-demo.js
+  - javascripts/mask-edit-demo.js?v=20260710.1
+  - javascripts/region-demo.js?v=20260710.9
 
 markdown_extensions:
   - admonition
@@ -63,7 +71,18 @@ plugins:
 nav:
   - Home: index.md
   - Installation: installation.md
-  - User Guide: user-guide.md
+  - User Guide:
+      - Overview: user-guide/index.md
+      - 1. First Launch & Model Setup: user-guide/1-first-launch.md
+      - 2. Creating a Project & Loading Image Stacks: user-guide/2-load-images.md
+      - 3. Marking Events: user-guide/3-mark-events.md
+      - 4. Opening the Analysis Workspace: user-guide/4-open-analysis.md
+      - 5. Segmenting Events: user-guide/5-segment-events.md
+      - 6. Running Mask Propagation: user-guide/6-propagate-masks.md
+      - 7. Reviewing Diagnostic Overlays: user-guide/7-review-overlays.md
+      - 8. Setting Event Metrics: user-guide/8-event-metrics.md
+      - 9. Saving Masks & Project Portability: user-guide/9-save-project.md
+      - 10. Exporting Results: user-guide/10-export-results.md
   - GUI Reference:
       - Host window: gui/host-window.md
       - Analysis window: gui/analysis-window.md

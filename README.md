@@ -151,13 +151,13 @@ python -m swell.main --smoke-test
 7. Save masks and analysis artifacts back to the `.swell` project.
 8. Export selected events or the full project.
 
-For the full walkthrough, see [docs/user-guide.md](docs/user-guide.md).
+For the full walkthrough, see [docs/user-guide/index.md](docs/user-guide/index.md).
 
 ## Documentation
 
 - [Hosted Documentation](https://parrishlab.github.io/Swell/)
 - [Installation](docs/installation.md)
-- [User Guide](docs/user-guide.md)
+- [User Guide](docs/user-guide/index.md)
 - [Host Window Reference](docs/gui/host-window.md)
 - [Analysis Window Reference](docs/gui/analysis-window.md)
 - [Developer Guide](docs/developer-guide.md)

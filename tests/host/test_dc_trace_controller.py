@@ -116,6 +116,18 @@ def test_trace_frame_mapping_round_trip_uses_manual_offset() -> None:
     assert value is not None
 
 
+def test_trace_frame_mapping_rejects_non_finite_times() -> None:
+    app = _build_app(with_stack=True, defaults={"frames_per_sec": 2.0})
+    controller = HostDCTraceController(app)
+    controller._attachment = TraceAttachment(
+        source_type="wavesurfer_h5", source_path="/tmp/dc.h5", channel_index=0,
+        channel_name="LFP 1", sample_rate_hz=10.0, unit="mV", alignment=TimeAlignment(),
+    )
+
+    assert controller.get_frame_for_trace_time(float("nan")) is None
+    assert controller.get_frame_for_trace_time(float("inf")) is None
+
+
 def test_remove_dc_trace_clears_runtime_and_project_metadata() -> None:
     app = _build_app(with_stack=True, defaults={"frames_per_sec": 2.0})
     controller = HostDCTraceController(app)

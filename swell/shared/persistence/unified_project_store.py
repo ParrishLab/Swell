@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 import tempfile
 import zipfile
 from dataclasses import asdict
@@ -200,26 +201,34 @@ class UnifiedProjectStore:
         The returned directory can be handed to ``StackReader.open_stack`` unchanged.
         """
         src = Path(source_path).expanduser().resolve()
-        with zipfile.ZipFile(src, "r") as zf:
-            index = read_json(zf, EMBEDDED_IMAGES_FILENAME, default={EMBEDDED_IMAGES_INDEX_KEY: {}})
-            embedded = index.get(EMBEDDED_IMAGES_INDEX_KEY, {}) if isinstance(index, dict) else {}
-            if not embedded:
-                return None
-            if dest_dir is None:
-                extract_root = Path(tempfile.mkdtemp(prefix=EMBEDDED_EXTRACT_PREFIX))
-            else:
-                extract_root = Path(dest_dir)
-                extract_root.mkdir(parents=True, exist_ok=True)
-            extracted_any = False
-            for _name, arcname in embedded.items():
-                try:
-                    out_path = extract_root / Path(str(arcname)).name
-                    with zf.open(str(arcname), "r") as src_f, out_path.open("wb") as out_f:
-                        out_f.write(src_f.read())
-                    extracted_any = True
-                except KeyError:
-                    continue
-            if not extracted_any:
-                return None
-            touch_extract_dir_marker(extract_root)
-            return str(extract_root)
+        created_extract_root = False
+        extract_root: Path | None = None
+        try:
+            with zipfile.ZipFile(src, "r") as zf:
+                index = read_json(zf, EMBEDDED_IMAGES_FILENAME, default={EMBEDDED_IMAGES_INDEX_KEY: {}})
+                embedded = index.get(EMBEDDED_IMAGES_INDEX_KEY, {}) if isinstance(index, dict) else {}
+                if not embedded:
+                    return None
+                if dest_dir is None:
+                    extract_root = Path(tempfile.mkdtemp(prefix=EMBEDDED_EXTRACT_PREFIX))
+                    created_extract_root = True
+                else:
+                    extract_root = Path(dest_dir)
+                    extract_root.mkdir(parents=True, exist_ok=True)
+                extracted_any = False
+                for _name, arcname in embedded.items():
+                    try:
+                        out_path = extract_root / Path(str(arcname)).name
+                        with zf.open(str(arcname), "r") as src_f, out_path.open("wb") as out_f:
+                            out_f.write(src_f.read())
+                        extracted_any = True
+                    except KeyError:
+                        continue
+                if not extracted_any:
+                    return None
+                touch_extract_dir_marker(extract_root)
+                return str(extract_root)
+        except Exception:
+            if created_extract_root and extract_root is not None:
+                shutil.rmtree(extract_root, ignore_errors=True)
+            raise

@@ -1,0 +1,549 @@
+.swell-prompt-demo {
+  margin: 1.25rem 0 0.75rem;
+  max-width: 49.5rem;
+}
+
+.swell-prompt-demo__shell {
+  background: #171b20;
+  border: 1px solid #39424f;
+  border-radius: 6px;
+  box-sizing: border-box;
+  overflow: hidden;
+  width: 100%;
+}
+
+.swell-prompt-demo__tool-help {
+  color: #d7dde3;
+  font-size: 0.78rem;
+  line-height: 1.45;
+  margin: 0;
+  padding: 0.7rem 0.85rem;
+}
+
+.swell-prompt-demo__stage {
+  aspect-ratio: 792 / 612;
+  background: #0f1318;
+  position: relative;
+  touch-action: none;
+  width: 100%;
+}
+
+.swell-prompt-demo__canvas {
+  display: block;
+  height: 100%;
+  outline: 0;
+  width: 100%;
+}
+
+.swell-prompt-demo__canvas:focus-visible {
+  box-shadow: inset 0 0 0 2px #1b75bc;
+}
+
+.swell-prompt-demo__rail {
+  background: #222830;
+  border: 1px solid #39424f;
+  border-radius: 5px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.32);
+  display: grid;
+  gap: 4px;
+  left: 14px;
+  padding: 5px;
+  position: absolute;
+  top: 14px;
+  z-index: 2;
+}
+
+.swell-prompt-demo__tool {
+  align-items: center;
+  background: #2a3038;
+  border: 1px solid #39424f;
+  border-radius: 4px;
+  box-sizing: border-box;
+  cursor: pointer;
+  display: inline-flex;
+  height: 38px;
+  justify-content: center;
+  padding: 6px;
+  width: 38px;
+}
+
+.swell-prompt-demo__tool:hover {
+  border-color: #8d97a2;
+}
+
+.swell-prompt-demo__tool:focus-visible {
+  outline: 2px solid #edf1f3;
+  outline-offset: 1px;
+}
+
+.swell-prompt-demo__tool[aria-pressed="true"] {
+  background: #1b75bc;
+  border-color: #2484d1;
+}
+
+.swell-prompt-demo__tool img {
+  height: 24px;
+  margin: 0;
+  object-fit: contain;
+  pointer-events: none;
+  width: 24px;
+}
+
+.swell-prompt-demo__tool[aria-pressed="true"] img {
+  filter: brightness(0) invert(1);
+}
+
+.swell-prompt-demo__tool--clear {
+  border-top-color: #8d97a2;
+  margin-top: 5px;
+}
+
+.swell-prompt-demo__fallback {
+  background: #171b20;
+  border: 1px solid #39424f;
+  border-radius: 6px;
+  color: #edf1f3;
+  margin: 0;
+  padding: 1rem;
+}
+
+.swell-prompt-demo__sr-status {
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  height: 1px;
+  overflow: hidden;
+  position: absolute;
+  white-space: nowrap;
+  width: 1px;
+}
+
+.swell-mask-edit-demo {
+  margin: 1.25rem 0 0.75rem;
+  max-width: 49.5rem;
+}
+
+.swell-mask-edit-demo__shell {
+  background: #171b20;
+  border: 1px solid #39424f;
+  border-radius: 6px;
+  box-sizing: border-box;
+  overflow: hidden;
+  width: 100%;
+}
+
+.swell-mask-edit-demo__stage {
+  aspect-ratio: 792 / 612;
+  background: #0f1318;
+  position: relative;
+  touch-action: none;
+  width: 100%;
+}
+
+.swell-mask-edit-demo__canvas {
+  display: block;
+  height: 100%;
+  outline: 0;
+  width: 100%;
+}
+
+.swell-mask-edit-demo__canvas:focus-visible {
+  box-shadow: inset 0 0 0 2px #1b75bc;
+}
+
+.swell-mask-edit-demo__rail {
+  background: #222830;
+  border: 1px solid #39424f;
+  border-radius: 5px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.32);
+  display: grid;
+  gap: 4px;
+  left: 14px;
+  padding: 5px;
+  position: absolute;
+  top: 14px;
+  z-index: 2;
+}
+
+.swell-mask-edit-demo__tool {
+  align-items: center;
+  background: #2a3038;
+  border: 1px solid #39424f;
+  border-radius: 4px;
+  box-sizing: border-box;
+  cursor: pointer;
+  display: inline-flex;
+  height: 38px;
+  justify-content: center;
+  padding: 6px;
+  width: 38px;
+}
+
+.swell-mask-edit-demo__tool:hover {
+  border-color: #8d97a2;
+}
+
+.swell-mask-edit-demo__tool:focus-visible {
+  outline: 2px solid #edf1f3;
+  outline-offset: 1px;
+}
+
+.swell-mask-edit-demo__tool[aria-pressed="true"] {
+  background: #1b75bc;
+  border-color: #2484d1;
+}
+
+.swell-mask-edit-demo__tool img {
+  height: 24px;
+  margin: 0;
+  object-fit: contain;
+  pointer-events: none;
+  width: 24px;
+}
+
+.swell-mask-edit-demo__tool[aria-pressed="true"] img {
+  filter: brightness(0) invert(1);
+}
+
+.swell-mask-edit-demo__tool--clear {
+  border-top-color: #8d97a2;
+  margin-top: 5px;
+}
+
+.swell-mask-edit-demo__options {
+  align-items: center;
+  border-bottom: 1px solid #39424f;
+  color: #d7dde3;
+  display: grid;
+  gap: 0.65rem;
+  grid-template-columns: auto minmax(6rem, 1fr) auto;
+  padding: 0.6rem 0.85rem;
+}
+
+.swell-mask-edit-demo__options label,
+.swell-mask-edit-demo__options output {
+  font-size: 0.78rem;
+}
+
+.swell-mask-edit-demo__options input {
+  accent-color: #1b75bc;
+  margin: 0;
+  min-width: 0;
+  width: 100%;
+}
+
+.swell-mask-edit-demo__tool-help {
+  color: #d7dde3;
+  font-size: 0.78rem;
+  line-height: 1.45;
+  margin: 0;
+  padding: 0.7rem 0.85rem;
+}
+
+.swell-mask-edit-demo__fallback {
+  background: #171b20;
+  border: 1px solid #39424f;
+  border-radius: 6px;
+  color: #edf1f3;
+  margin: 0;
+  padding: 1rem;
+}
+
+.swell-mask-edit-demo__sr-status {
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  height: 1px;
+  overflow: hidden;
+  position: absolute;
+  white-space: nowrap;
+  width: 1px;
+}
+
+@media screen and (max-width: 30rem) {
+  .swell-prompt-demo__rail {
+    gap: 3px;
+    left: 8px;
+    padding: 4px;
+    top: 8px;
+  }
+
+  .swell-prompt-demo__tool {
+    height: 34px;
+    padding: 5px;
+    width: 34px;
+  }
+
+  .swell-prompt-demo__tool img {
+    height: 22px;
+    width: 22px;
+  }
+
+  .swell-mask-edit-demo__rail {
+    gap: 3px;
+    left: 8px;
+    padding: 4px;
+    top: 8px;
+  }
+
+  .swell-mask-edit-demo__tool {
+    height: 34px;
+    padding: 5px;
+    width: 34px;
+  }
+
+  .swell-mask-edit-demo__tool img {
+    height: 22px;
+    width: 22px;
+  }
+
+  .swell-mask-edit-demo__options {
+    grid-template-columns: auto minmax(4rem, 1fr) auto;
+  }
+
+}
+
+.swell-region-demo {
+  margin: 1.25rem 0;
+}
+
+.swell-region-demo__shell {
+  background: #171b20;
+  border: 1px solid #39424f;
+  border-radius: 6px;
+  color: #d7dde3;
+  overflow: hidden;
+}
+
+.swell-region-demo__stage {
+  aspect-ratio: 792 / 612;
+  background: #0f1318;
+  position: relative;
+}
+
+.swell-region-demo__canvas {
+  display: block;
+  height: 100%;
+  outline: 0;
+  touch-action: none;
+  width: 100%;
+}
+
+.swell-region-demo__canvas:focus-visible {
+  box-shadow: inset 0 0 0 2px #1b75bc;
+}
+
+.swell-region-demo__rail {
+  background: #222830;
+  border: 1px solid #39424f;
+  border-radius: 5px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.32);
+  display: grid;
+  gap: 4px;
+  left: 14px;
+  padding: 5px;
+  position: absolute;
+  top: 14px;
+  z-index: 2;
+}
+
+.swell-region-demo__tool {
+  align-items: center;
+  background: #2a3038;
+  border: 1px solid #39424f;
+  border-radius: 4px;
+  box-sizing: border-box;
+  cursor: pointer;
+  display: inline-flex;
+  height: 38px;
+  justify-content: center;
+  padding: 6px;
+  width: 38px;
+}
+
+.swell-region-demo__tool:hover:not(:disabled) {
+  border-color: #8d97a2;
+}
+
+.swell-region-demo__tool:focus-visible,
+.swell-region-demo__controls button:focus-visible,
+.swell-region-demo__region-row button:focus-visible {
+  outline: 2px solid #edf1f3;
+  outline-offset: 1px;
+}
+
+.swell-region-demo__tool[aria-pressed="true"] {
+  background: #1b75bc;
+  border-color: #2484d1;
+}
+
+.swell-region-demo__tool:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.swell-region-demo__tool img {
+  height: 24px;
+  margin: 0;
+  object-fit: contain;
+  pointer-events: none;
+  width: 24px;
+}
+
+.swell-region-demo__tool[aria-pressed="true"] img {
+  filter: brightness(0) invert(1);
+}
+
+.swell-region-demo__tool--clear {
+  border-top-color: #8d97a2;
+  margin-top: 5px;
+}
+
+.swell-region-demo__tool-help {
+  border-bottom: 1px solid #39424f;
+  color: #c5cdd5;
+  font-size: 0.8rem;
+  line-height: 1.45;
+  margin: 0;
+  min-height: 2.75rem;
+  padding: 0.65rem 0.85rem;
+}
+
+.swell-region-demo__controls {
+  align-items: center;
+  border-bottom: 1px solid #39424f;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+  padding: 0.6rem 0.85rem;
+}
+
+.swell-region-demo__controls label,
+.swell-region-demo__controls span,
+.swell-region-demo__controls output {
+  font-size: 0.78rem;
+  white-space: nowrap;
+}
+
+.swell-region-demo__controls input[type="range"] {
+  accent-color: #1b75bc;
+  flex: 1 1 7rem;
+  margin: 0;
+  min-width: 6rem;
+}
+
+.swell-region-demo__controls input[type="number"] {
+  background: #0f1318;
+  border: 1px solid #53606e;
+  border-radius: 3px;
+  color: #edf1f3;
+  flex: 0 0 auto;
+  min-width: 0;
+  padding: 0.3rem 0.35rem;
+  width: 3.75rem;
+}
+
+.swell-region-demo__controls button,
+.swell-region-demo__region-row button {
+  background: #2a3038;
+  border: 1px solid #53606e;
+  border-radius: 3px;
+  color: #edf1f3;
+  cursor: pointer;
+  font-size: 0.75rem;
+  min-height: 2rem;
+  padding: 0.3rem 0.55rem;
+  white-space: nowrap;
+}
+
+.swell-region-demo__controls button:hover:not(:disabled),
+.swell-region-demo__region-row button:hover {
+  border-color: #8d97a2;
+}
+
+.swell-region-demo__controls button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.swell-region-demo__panel {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 0.75rem;
+  min-height: 3.5rem;
+  padding: 0.7rem 0.85rem;
+}
+
+.swell-region-demo__panel > strong {
+  color: #edf1f3;
+  font-size: 0.8rem;
+}
+
+.swell-region-demo__panel > span {
+  color: #9da9b5;
+  font-size: 0.78rem;
+}
+
+.swell-region-demo__region-row {
+  align-items: center;
+  display: inline-flex;
+  gap: 0.4rem;
+}
+
+.swell-region-demo__region-row label {
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+
+.swell-region-demo__region-row--selected {
+  background: #1b75bc !important;
+  border-color: #2484d1 !important;
+}
+
+.swell-region-demo__fallback {
+  background: #171b20;
+  border: 1px solid #39424f;
+  border-radius: 6px;
+  color: #edf1f3;
+  margin: 0;
+  padding: 1rem;
+}
+
+.swell-region-demo__sr-status {
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  height: 1px;
+  overflow: hidden;
+  position: absolute;
+  white-space: nowrap;
+  width: 1px;
+}
+
+@media screen and (max-width: 30rem) {
+  .swell-region-demo__rail {
+    gap: 3px;
+    left: 8px;
+    padding: 4px;
+    top: 8px;
+  }
+
+  .swell-region-demo__tool {
+    height: 34px;
+    padding: 5px;
+    width: 34px;
+  }
+
+  .swell-region-demo__tool img {
+    height: 22px;
+    width: 22px;
+  }
+
+  .swell-region-demo__controls {
+    padding: 0.55rem 0.65rem;
+  }
+
+  .swell-region-demo__panel {
+    align-items: flex-start;
+    flex-direction: column;
+    padding: 0.65rem;
+  }
+}

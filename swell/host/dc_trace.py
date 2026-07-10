@@ -195,6 +195,11 @@ def _coefficients_by_channel(
         elif cols == data_channel_count and rows != data_channel_count:
             matrix = arr.transpose()
             resolved_orientation = True
+        elif rows == cols == data_channel_count:
+            # WaveSurfer stores coefficients by row and channels by column. A
+            # square matrix is otherwise ambiguous, so retain that convention.
+            matrix = arr.transpose()
+            resolved_orientation = True
     if not resolved_orientation and configured_channel_count > 0:
         if rows == configured_channel_count and cols != configured_channel_count:
             matrix = arr

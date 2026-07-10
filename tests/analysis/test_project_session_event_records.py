@@ -1,4 +1,5 @@
 import unittest
+from types import SimpleNamespace
 
 import numpy as np
 
@@ -75,6 +76,18 @@ class ProjectSessionEventRecordTests(unittest.TestCase):
         svc.load_event_into_workspace(event_id="sd_event_001", event_records=records, seg_state=loaded)
         self.assertEqual(loaded.ground_truth_frames, {2})
         self.assertIn(2, loaded.get_prompt_anchor_frames())
+
+    def test_coerce_event_record_accepts_attribute_based_legacy_payload(self):
+        svc = ProjectSessionService()
+        raw = {
+            "metadata": SimpleNamespace(event_id="legacy", label="Legacy", start_idx=1, end_idx=3),
+            "analysis": SimpleNamespace(points={}, boxes={}, persistent_regions=[], paint_layers={}, masks_committed={}),
+        }
+
+        record = svc.coerce_event_records({"legacy": raw}, 5)["legacy"]
+
+        self.assertEqual(record.metadata.label, "Legacy")
+        self.assertEqual(record.metadata.start_idx, 1)
 
 
 if __name__ == "__main__":

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
@@ -89,6 +90,13 @@ class PropagationTransition:
 
 
 class ProjectSessionService:
+    @staticmethod
+    def _field(value: Any, name: str, default: Any = None) -> Any:
+        """Read a serialized field from a mapping or a legacy attribute object."""
+        if isinstance(value, Mapping):
+            return value.get(name, default)
+        return getattr(value, name, default)
+
     def copy_points_dict(self, points: dict[int, list[dict]]) -> dict[int, list[dict]]:
         out = {}
         for frame_idx, pt_list in points.items():
@@ -241,22 +249,23 @@ class ProjectSessionService:
             md = raw["metadata"]
             an = raw["analysis"]
             metadata = md if isinstance(md, EventMetadata) else EventMetadata(
-                event_id=str(getattr(md, "event_id", None) or md.get("event_id") or event_id),
-                label=str(getattr(md, "label", None) or md.get("label") or event_id),
-                start_idx=int(getattr(md, "start_idx", None) if hasattr(md, "start_idx") else md.get("start_idx", 0)),
-                end_idx=int(getattr(md, "end_idx", None) if hasattr(md, "end_idx") else md.get("end_idx", max(0, frame_count - 1))),
-                analysis_output_dir=getattr(md, "analysis_output_dir", None) if hasattr(md, "analysis_output_dir") else md.get("analysis_output_dir"),
-                propagation_completed=bool(getattr(md, "propagation_completed", True) if hasattr(md, "propagation_completed") else md.get("propagation_completed", True)),
+                event_id=str(self._field(md, "event_id") or event_id),
+                label=str(self._field(md, "label") or event_id),
+                start_idx=int(self._field(md, "start_idx", 0)),
+                end_idx=int(self._field(md, "end_idx", max(0, frame_count - 1))),
+                analysis_output_dir=self._field(md, "analysis_output_dir"),
+                propagation_completed=bool(self._field(md, "propagation_completed", True)),
             )
             analysis = an if isinstance(an, EventAnalysisState) else EventAnalysisState(
-                points=self.copy_points_dict(an.get("points", {})),
-                boxes=self.copy_boxes_dict(an.get("boxes", {})),
-                persistent_regions=self.copy_persistent_regions(an.get("persistent_regions", [])),
-                paint_layers=self.copy_paint_layers(an.get("paint_layers", {})),
-                masks_committed=self.copy_masks_dict(an.get("masks_committed", {})),
-                masks_draft=self.copy_masks_dict(an.get("masks_draft", {})) if an.get("masks_draft") is not None else None,
-                use_draft=bool(an.get("use_draft", False)),
-                ground_truth_frames={int(f) for f in an.get("ground_truth_frames", set()) or set()},
+                points=self.copy_points_dict(self._field(an, "points", {})),
+                boxes=self.copy_boxes_dict(self._field(an, "boxes", {})),
+                persistent_regions=self.copy_persistent_regions(self._field(an, "persistent_regions", [])),
+                paint_layers=self.copy_paint_layers(self._field(an, "paint_layers", {})),
+                masks_committed=self.copy_masks_dict(self._field(an, "masks_committed", {})),
+                masks_draft=self.copy_masks_dict(self._field(an, "masks_draft", {}))
+                if self._field(an, "masks_draft") is not None else None,
+                use_draft=bool(self._field(an, "use_draft", False)),
+                ground_truth_frames={int(f) for f in self._field(an, "ground_truth_frames", set()) or set()},
             )
             return EventRecord(metadata=metadata, analysis=analysis)
         raw = dict(raw or {})

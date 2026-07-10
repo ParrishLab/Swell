@@ -204,7 +204,7 @@ def _run_dialog_thread_safe(func, parent, *args, **kwargs):
         return func(parent, *args, **kwargs)
 
     if parent is None:
-        return func(parent, *args, **kwargs)
+        raise RuntimeError("Cannot create a Tk dialog from a background thread without a live Tk parent.")
 
     q = queue.Queue()
 
@@ -215,7 +215,10 @@ def _run_dialog_thread_safe(func, parent, *args, **kwargs):
         except Exception as e:
             q.put((None, e))
 
-    parent.after(0, worker)
+    try:
+        parent.after(0, worker)
+    except Exception as exc:  # Tcl may already be shutting down.
+        raise RuntimeError("Cannot dispatch dialog creation because the Tk UI is unavailable.") from exc
     res, err = q.get()
     if err is not None:
         raise err

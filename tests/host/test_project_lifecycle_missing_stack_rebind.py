@@ -4,6 +4,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import pytest
+
 from swell.host.controllers.project_lifecycle_controller import HostProjectLifecycleController
 
 
@@ -239,3 +241,19 @@ def test_run_on_ui_thread_times_out_if_callback_never_runs() -> None:
                     assert "Timed out waiting for the UI thread" in str(exc)
                 else:
                     raise AssertionError("expected timeout")
+
+
+def test_run_on_ui_thread_fails_immediately_when_tk_is_closing() -> None:
+    class _Root:
+        def after(self, _delay: int, _callback) -> None:  # noqa: ANN001
+            raise RuntimeError("application has been destroyed")
+
+    app = _build_app()
+    app.root = _Root()
+    controller = HostProjectLifecycleController(app)
+    worker_thread = object()
+
+    with patch("swell.host.controllers.project_lifecycle_controller.threading.current_thread", return_value=worker_thread):
+        with patch("swell.host.controllers.project_lifecycle_controller.threading.main_thread", return_value=object()):
+            with pytest.raises(RuntimeError, match="UI closed"):
+                controller._run_on_ui_thread(lambda: "never")

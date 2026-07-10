@@ -37,7 +37,7 @@ graph TD
 ## Where to Start
 
 * **Getting Setup**: Go to the [Installation](installation.md) page to set up Swell and download the necessary segmentation model weights.
-* **Step-by-Step Workflow**: Read the [User Guide](user-guide.md) to walk through creating a project, marking events, segmenting wavefronts, and exporting results.
+* **Step-by-Step Workflow**: Read the [User Guide](user-guide/index.md) to walk through creating a project, marking events, segmenting wavefronts, and exporting results.
 * **UI Controls & Shortcuts**: Check the [GUI Reference](gui/host-window.md) to look up specific buttons, menu items, or keyboard hotkeys.
 * **Troubleshooting**: Visit [Troubleshooting](troubleshooting.md) for help with common installation, runtime, or model-loading issues.
 * **Citing the Project**: Refer to [Citation](citation.md) for BibTeX citations to include in academic work.

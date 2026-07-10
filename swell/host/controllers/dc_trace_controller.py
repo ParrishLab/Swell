@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from pathlib import Path
 import threading
 import tkinter as tk
@@ -186,7 +187,14 @@ class HostDCTraceController:
         fps = self._frames_per_sec()
         if fps is None or fps <= 0 or self.app.stack_info is None or self._attachment is None:
             return None
-        frame = int(round((float(t_s) - float(self._attachment.alignment.offset_s)) * float(fps)))
+        try:
+            trace_time = float(t_s)
+            offset = float(self._attachment.alignment.offset_s)
+        except (TypeError, ValueError):
+            return None
+        if not math.isfinite(trace_time) or not math.isfinite(offset):
+            return None
+        frame = int(round((trace_time - offset) * float(fps)))
         return max(0, min(int(self.app.stack_info.frame_count) - 1, frame))
 
     def get_trace_window(self, t0_s: float, t1_s: float) -> np.ndarray:

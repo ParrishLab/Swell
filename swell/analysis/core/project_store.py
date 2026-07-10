@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 import tempfile
 import zipfile
 from dataclasses import dataclass
@@ -171,63 +172,69 @@ class ProjectStore:
         if not src.exists():
             raise FileNotFoundError(f"Project not found: {src}")
 
-        with zipfile.ZipFile(src, "r") as zf:
-            project_state = read_json(zf, "project_state.json", default={})
-            images_manifest = read_json(zf, "images.json", default={"images": []})
-            roi_data = read_json(zf, "roi.json", default={})
-            embed_index = read_json(zf, "images_embedded.json", default={"embedded": {}})
+        created_extract_root = False
+        extract_root: Path | None = None
+        try:
+            with zipfile.ZipFile(src, "r") as zf:
+                project_state = read_json(zf, "project_state.json", default={})
+                images_manifest = read_json(zf, "images.json", default={"images": []})
+                roi_data = read_json(zf, "roi.json", default={})
+                embed_index = read_json(zf, "images_embedded.json", default={"embedded": {}})
 
-            event_payloads: Dict[str, Dict[str, Any]] = {}
-            for ev in project_state.get("events", []):
-                event_id = str(ev.get("id", DEFAULT_EVENT_ID))
-                masks_ref = str(ev.get("masks_ref", f"events/{event_id}/masks.npz"))
-                prompts_ref = str(ev.get("prompts_ref", f"events/{event_id}/prompts.json"))
-                masks_draft_ref = ev.get("masks_draft_ref")
-                if masks_draft_ref is None:
-                    masks_draft_ref = f"events/{event_id}/masks_draft.npz"
-                else:
-                    masks_draft_ref = str(masks_draft_ref)
-                masks_arr = np.zeros((0, 0, 0), dtype=np.uint8)
-                masks_draft_arr = None
-                prompts_data: Dict[str, Any] = {}
-                try:
-                    with zf.open(masks_ref, "r") as f:
-                        masks_arr = read_npz_bytes(f.read())
-                except KeyError:
-                    pass
-                try:
-                    with zf.open(masks_draft_ref, "r") as f:
-                        masks_draft_arr = read_npz_bytes(f.read())
-                except KeyError:
+                event_payloads: Dict[str, Dict[str, Any]] = {}
+                for ev in project_state.get("events", []):
+                    event_id = str(ev.get("id", DEFAULT_EVENT_ID))
+                    masks_ref = str(ev.get("masks_ref", f"events/{event_id}/masks.npz"))
+                    prompts_ref = str(ev.get("prompts_ref", f"events/{event_id}/prompts.json"))
+                    masks_draft_ref = ev.get("masks_draft_ref")
+                    if masks_draft_ref is None:
+                        masks_draft_ref = f"events/{event_id}/masks_draft.npz"
+                    else:
+                        masks_draft_ref = str(masks_draft_ref)
+                    masks_arr = np.zeros((0, 0, 0), dtype=np.uint8)
                     masks_draft_arr = None
-                prompts_data = read_json(zf, prompts_ref, default={})
-                event_payloads[event_id] = {
-                    "masks": masks_arr,
-                    "masks_draft": masks_draft_arr,
-                    "prompts": prompts_data,
-                }
-
-            extracted: Dict[str, str] = {}
-            embedded_map = embed_index.get("embedded", {})
-            if embedded_map:
-                if extract_embedded_to is None:
-                    extract_root = Path(tempfile.mkdtemp(prefix=EMBEDDED_EXTRACT_PREFIX))
-                else:
-                    extract_root = Path(extract_embedded_to)
-                    extract_root.mkdir(parents=True, exist_ok=True)
-                for image_id, arcname in embedded_map.items():
                     try:
-                        out_path = extract_root / Path(arcname).name
-                        with zf.open(arcname, "r") as src_f, out_path.open("wb") as out_f:
-                            out_f.write(src_f.read())
-                        extracted[str(image_id)] = str(out_path)
+                        with zf.open(masks_ref, "r") as f:
+                            masks_arr = read_npz_bytes(f.read())
                     except KeyError:
-                        continue
+                        pass
+                    try:
+                        with zf.open(masks_draft_ref, "r") as f:
+                            masks_draft_arr = read_npz_bytes(f.read())
+                    except KeyError:
+                        masks_draft_arr = None
+                    event_payloads[event_id] = {
+                        "masks": masks_arr,
+                        "masks_draft": masks_draft_arr,
+                        "prompts": read_json(zf, prompts_ref, default={}),
+                    }
 
-        return LoadedProject(
-            project_state=project_state,
-            images_manifest=images_manifest,
-            roi_data=roi_data,
-            event_payloads=event_payloads,
-            embedded_image_paths=extracted,
-        )
+                extracted: Dict[str, str] = {}
+                embedded_map = embed_index.get("embedded", {})
+                if embedded_map:
+                    if extract_embedded_to is None:
+                        extract_root = Path(tempfile.mkdtemp(prefix=EMBEDDED_EXTRACT_PREFIX))
+                        created_extract_root = True
+                    else:
+                        extract_root = Path(extract_embedded_to)
+                        extract_root.mkdir(parents=True, exist_ok=True)
+                    for image_id, arcname in embedded_map.items():
+                        try:
+                            out_path = extract_root / Path(arcname).name
+                            with zf.open(arcname, "r") as src_f, out_path.open("wb") as out_f:
+                                out_f.write(src_f.read())
+                            extracted[str(image_id)] = str(out_path)
+                        except KeyError:
+                            continue
+
+            return LoadedProject(
+                project_state=project_state,
+                images_manifest=images_manifest,
+                roi_data=roi_data,
+                event_payloads=event_payloads,
+                embedded_image_paths=extracted,
+            )
+        except Exception:
+            if created_extract_root and extract_root is not None:
+                shutil.rmtree(extract_root, ignore_errors=True)
+            raise

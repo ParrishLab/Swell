@@ -406,12 +406,12 @@ class SegmentationActions:
         if response is None:
             return None
         if response is True:
-            path = service.download_descriptor(descriptor)
-            return {
-                "path": str(path),
-                "checkpoint_id": descriptor.checkpoint_id,
-                "source": "managed_download",
-            }
+            open_model_manager = getattr(self, "open_model_manager", None)
+            if callable(open_model_manager):
+                # The manager downloads via BackgroundTaskRunner and activates it when ready.
+                self.root.after(0, open_model_manager)
+                return None
+            raise RuntimeError("Model manager is unavailable for asynchronous download.")
         center_window = getattr(self, "_center_window", None)
         if callable(center_window):
             center_window(self.root)

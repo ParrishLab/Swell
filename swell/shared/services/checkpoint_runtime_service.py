@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import shutil
 import ssl
+import sys
 import tempfile
 import time
 from typing import Any
@@ -50,7 +51,12 @@ def _app_data_root() -> Path:
         if appdata.strip():
             return Path(appdata).expanduser().resolve() / "swell"
         return Path.home().resolve() / "AppData" / "Roaming" / "swell"
-    return Path.home().resolve() / "Library" / "Application Support" / "Swell"
+    if sys.platform == "darwin":
+        return Path.home().resolve() / "Library" / "Application Support" / "Swell"
+    data_home = str(os.environ.get("XDG_DATA_HOME", "")).strip()
+    if data_home:
+        return Path(data_home).expanduser().resolve() / "swell"
+    return Path.home().resolve() / ".local" / "share" / "swell"
 
 
 def _legacy_app_data_roots() -> list[Path]:
@@ -63,10 +69,12 @@ def _legacy_app_data_roots() -> list[Path]:
             roots.append(Path(appdata).expanduser().resolve() / "sdapp")
         roots.append(Path.home().resolve() / "AppData" / "Roaming" / "sdapp")
         return roots
-    return [
-        Path.home().resolve() / "Library" / "Application Support" / "sdapp",
-        Path.home().resolve() / ".sdapp",
-    ]
+    if sys.platform == "darwin":
+        return [
+            Path.home().resolve() / "Library" / "Application Support" / "sdapp",
+            Path.home().resolve() / ".sdapp",
+        ]
+    return [Path.home().resolve() / ".sdapp"]
 
 
 def _try_migrate_model_dir(target: Path) -> Path | None:

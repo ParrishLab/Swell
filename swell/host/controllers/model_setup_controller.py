@@ -159,15 +159,24 @@ class HostModelSetupController:
                         parent=self.app.root,
                     )
                     continue
-                try:
-                    self.app.checkpoint_runtime.download_descriptor(descriptor)
-                except Exception as exc:
+                self._set_gate_state(ready=False, disabled=False, reason="Downloading model file...")
+
+                def _on_download_success(_path: str) -> None:
+                    self._activate_managed_descriptor(descriptor, source="startup_download")
+
+                def _on_download_error(exc: Exception) -> None:
                     self.app._log_error(f"Model download failed during startup setup: {exc}")
+                    self._set_gate_state(ready=False, disabled=False, reason=STATUS_MODEL_FILE_MISSING)
                     messagebox.showerror(TITLE_MODEL_DOWNLOAD_FAILED, str(exc), parent=self.app.root)
-                    continue
-                if self._activate_managed_descriptor(descriptor, source="startup_download"):
-                    return {"ok": True, "ready": True, "disabled": False, "source": "startup_download"}
-                continue
+
+                self._task_runner().start(
+                    lambda d=descriptor: self.app.checkpoint_runtime.download_descriptor(d),
+                    on_success=_on_download_success,
+                    on_error=_on_download_error,
+                    key="startup_model_download",
+                    drop_if_running=True,
+                )
+                return {"ok": False, "ready": False, "disabled": False, "source": "startup_download_pending"}
 
             selected = self._prompt_select_local_file(parent=self.app.root, title="Select SAM2 Model File")
             if not selected:

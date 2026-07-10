@@ -161,6 +161,13 @@ def test_download_descriptor_uses_fallback_url_when_primary_fails(tmp_path: Path
     assert any(url == real_fallback for url in attempted[1:])
 
 
+def test_app_data_root_uses_xdg_location_on_linux(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(checkpoint_module.sys, "platform", "linux")
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "xdg-data"))
+
+    assert checkpoint_module._app_data_root() == (tmp_path / "xdg-data" / "swell").resolve()
+
+
 def test_replace_file_with_retry_eventually_succeeds(monkeypatch, tmp_path: Path) -> None:
     service = CheckpointRuntimeService(catalog_path=_write_catalog(tmp_path / "catalog.json"))
     src = tmp_path / "src.bin"

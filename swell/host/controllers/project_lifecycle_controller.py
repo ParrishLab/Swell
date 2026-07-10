@@ -487,7 +487,12 @@ class HostProjectLifecycleController:
             finally:
                 finished.set()
 
-        root.after(0, _invoke)
+        try:
+            root.after(0, _invoke)
+        except Exception as exc:  # Tcl may already be shutting down.
+            result["error"] = RuntimeError("The UI closed while preparing the project.")
+            result["error"].__cause__ = exc
+            finished.set()
         if not finished.wait(timeout=30.0):
             raise RuntimeError("Timed out waiting for the UI thread while preparing the project.")
         if "error" in result:
