@@ -420,7 +420,7 @@ class SegmentationState:
                 active.append(normalized)
         return active
 
-    def rasterize_persistent_region(self, region, base_shape) -> np.ndarray | None:
+    def rasterize_persistent_region(self, region, base_shape, *, cache_result: bool = True) -> np.ndarray | None:
         shape = self._shape_hw(base_shape)
         if shape is None:
             return None
@@ -428,9 +428,10 @@ class SegmentationState:
         if normalized is None or not bool(normalized.get("enabled", True)):
             return None
         key = self._region_raster_cache_key(normalized, shape)
-        cached = self._region_raster_cache.get(key)
-        if cached is not None:
-            return cached
+        if cache_result:
+            cached = self._region_raster_cache.get(key)
+            if cached is not None:
+                return cached
 
         h, w = shape
         pts = []
@@ -446,7 +447,8 @@ class SegmentationState:
         if not np.any(out):
             return None
         out.setflags(write=False)
-        self._region_raster_cache[key] = out
+        if cache_result:
+            self._region_raster_cache[key] = out
         return out
 
     def compose_final_mask(self, frame_idx: int, base_shape, apply_persistent_regions: bool = True) -> np.ndarray | None:

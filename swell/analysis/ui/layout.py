@@ -205,7 +205,6 @@ class LayoutBuilder:
         region_frame.grid(row=0, column=0, sticky="ew")
         self.lbl_region_options_title = ttk.Label(region_frame, text="Include Region", style="AppStripMeta.TLabel")
         self.lbl_region_options_title.grid(row=0, column=0, sticky="w")
-        self.region_mode = tk.StringVar(value="include")
         ttk.Label(region_frame, text="Frames", style="AppStripMeta.TLabel").grid(row=0, column=1, sticky="e", padx=(SPACING.inner, SPACING.gap))
         self.region_start_var = tk.StringVar(value="1")
         self.entry_region_start = ttk.Entry(region_frame, textvariable=self.region_start_var, width=5, style="AppCompact.TEntry")
@@ -1040,6 +1039,8 @@ class LayoutBuilder:
             ).grid(row=0, column=4, sticky="e")
 
     def _select_region_from_dock(self, region_id):
+        if str(self.tool_mode.get()) != "select":
+            self.tool_mode.set("select")
         self._set_selected_region_id(region_id)
         self._sync_tool_options()
         self.update_display()
@@ -1160,17 +1161,33 @@ class LayoutBuilder:
         mode = str(mode)
         if self.tool_mode.get() == mode:
             return
-        if is_region_tool_mode(mode) and not getattr(self, "selected_region_id", None):
-            self._reset_region_options_to_default_range()
+        if is_region_tool_mode(mode):
+            setter = getattr(self, "_set_selected_region_id", None)
+            if callable(setter):
+                setter(None)
+            reset_range = getattr(self, "_reset_region_options_to_default_range", None)
+            if callable(reset_range):
+                reset_range()
         self.tool_mode.set(mode)
 
     def _on_tool_mode_changed(self):
         # StringVar traces fire on every write, including same-value writes from
         # hotkey handlers; skip the expensive sync/render work when nothing changed.
         current = str(self.tool_mode.get())
-        if getattr(self, "_last_handled_tool_mode", None) == current:
+        previous = getattr(self, "_last_handled_tool_mode", None)
+        if previous == current:
             return
         self._last_handled_tool_mode = current
+        controller = getattr(self, "interaction_controller", None)
+        if previous is not None and controller is not None and hasattr(controller, "on_tool_mode_changed"):
+            controller.on_tool_mode_changed(previous, current)
+        if is_region_tool_mode(current):
+            setter = getattr(self, "_set_selected_region_id", None)
+            if callable(setter):
+                setter(None)
+            reset_range = getattr(self, "_reset_region_options_to_default_range", None)
+            if callable(reset_range):
+                reset_range()
         self._sync_tool_mode_buttons()
         self._sync_tool_options()
         if hasattr(self, "_queue_display_update"):
@@ -1246,7 +1263,8 @@ class LayoutBuilder:
             if hasattr(controller, "is_region_draft_closed"):
                 draft_closed = bool(controller.is_region_draft_closed())
         has_draft = bool(draft_points)
-        can_add = len(draft_points) >= 3
+        can_close = len(draft_points) >= 3 and not draft_closed
+        can_add = len(draft_points) >= 3 and draft_closed
         if selected_region is not None and not has_draft:
             mode = str(selected_region.get("mode", "include"))
             title.configure(text=f"Selected {'Exclude' if mode == 'exclude' else 'Include'} Region")
@@ -1259,7 +1277,7 @@ class LayoutBuilder:
         title.configure(text="Exclude Region" if current == REGION_EXCLUDE_TOOL else "Include Region")
         self.btn_region_convert.configure(text="Convert Selected", state="disabled")
         self.btn_region_add.configure(state="normal" if can_add else "disabled")
-        self.btn_region_close_shape.configure(state="normal" if has_draft and not draft_closed and can_add else "disabled")
+        self.btn_region_close_shape.configure(state="normal" if has_draft and can_close else "disabled")
         self.btn_region_discard.configure(state="normal" if has_draft else "disabled")
 
     def _lock_tool_options_slot_size(self):

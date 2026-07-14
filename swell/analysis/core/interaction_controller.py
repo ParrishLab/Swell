@@ -1,5 +1,6 @@
 import copy
 import sys
+from dataclasses import dataclass, field
 
 import cv2
 import numpy as np
@@ -10,6 +11,14 @@ DEFAULT_FILL_TOLERANCE = 8.0
 SHIFT_MASK = 0x0001
 ALT_MASK = 0x0008
 MAC_OPTION_MASK = 0x0010
+REGION_EDGE_DRAG_THRESHOLD_PX = 3.0
+
+
+@dataclass
+class _RegionDraftSession:
+    mode: str
+    points: list[list[float]] = field(default_factory=list)
+    closed: bool = False
 
 
 def _has_tool_inversion_modifier(event) -> bool:
@@ -47,7 +56,6 @@ class InteractionController:
         tool_mode,
         brush_size,
         fill_tolerance,
-        region_mode,
         region_start_var,
         region_end_var,
         get_selected_region_id,
@@ -73,6 +81,7 @@ class InteractionController:
         prune_empty_point_frames,
         can_mutate_segmentation=None,
         on_mutation_blocked=None,
+        on_region_validation_error=None,
     ):
         self.seg_state = seg_state
         self.points = points
@@ -100,7 +109,6 @@ class InteractionController:
         self.tool_mode = tool_mode
         self.brush_size = brush_size
         self.fill_tolerance = fill_tolerance
-        self.region_mode = region_mode
         self.region_start_var = region_start_var
         self.region_end_var = region_end_var
         self.get_selected_region_id = get_selected_region_id
@@ -126,19 +134,47 @@ class InteractionController:
         self.prune_empty_point_frames = prune_empty_point_frames
         self.can_mutate_segmentation = can_mutate_segmentation
         self.on_mutation_blocked = on_mutation_blocked
+        self.on_region_validation_error = on_region_validation_error
         self._pending_dirty = False
         self._box_drag_start_img = None
         self._box_drag_start_canvas = None
         self._box_snapshot_before = None
         self._box_drag_original = None
         self._box_drag_handle = None
-        self._region_draft_points: list[list[float]] = []
-        self._region_draft_closed = False
+        self._region_draft: _RegionDraftSession | None = None
         self._region_drag_snapshot_before = None
         self._region_drag_record_before = None
         self._region_drag_original = None
         self._region_drag_start_img = None
         self._region_drag_handle = None
+        self._region_drag_ratio = 1.0
+
+    def reset_transient_state(self):
+        """Clear gesture and draft state that must never cross project/tool boundaries."""
+        self._pending_dirty = False
+        self._region_draft = None
+        self._region_drag_snapshot_before = None
+        self._region_drag_record_before = None
+        self._region_drag_original = None
+        self._region_drag_start_img = None
+        self._region_drag_handle = None
+        self._region_drag_ratio = 1.0
+
+    def on_tool_mode_changed(self, previous_mode, next_mode):
+        if str(previous_mode) == str(next_mode):
+            return False
+        had_draft = bool(self.get_region_draft_points())
+        self._region_draft = None
+        self._region_drag_snapshot_before = None
+        self._region_drag_record_before = None
+        self._region_drag_original = None
+        self._region_drag_start_img = None
+        self._region_drag_handle = None
+        self._region_drag_ratio = 1.0
+        if had_draft:
+            self.refresh_region_controls()
+            self.update_display()
+        return had_draft
 
     def _mutation_allowed(self, action: str = "edit") -> bool:
         checker = self.can_mutate_segmentation
@@ -216,6 +252,9 @@ class InteractionController:
         return "break"
 
     def on_mouse_down(self, event):
+        # Dirty state is scoped to one pointer gesture. Command/button actions
+        # report their changes directly and must not leak into a later mouse-up.
+        self._pending_dirty = False
         mode = self.tool_mode.get()
         idx = self.get_current_frame_idx()
         if mode in ["brush", "eraser"]:
@@ -240,7 +279,9 @@ class InteractionController:
                 return False
             self.set_selected_point(None)
             self.set_selected_region_id(None)
-            return bool(self._handle_tool(event, is_click=True))
+            changed = bool(self._handle_tool(event, is_click=True))
+            self._pending_dirty = changed
+            return changed
         elif mode == "box":
             if not self._mutation_allowed("box"):
                 return False
@@ -263,10 +304,14 @@ class InteractionController:
             if coords is None:
                 return
             img_x, img_y, _orig_w, _orig_h, _ratio, _offset_x, _offset_y = coords
+            draft_mode = region_mode_from_tool_mode(mode) or "include"
+            if self._region_draft is None:
+                self._region_draft = _RegionDraftSession(mode=draft_mode)
+            if self._region_draft.closed:
+                return False
             self.set_selected_point(None)
             self.set_selected_region_id(None)
-            self._region_draft_points.append([float(img_x), float(img_y)])
-            self._region_draft_closed = False
+            self._region_draft.points.append([float(img_x), float(img_y)])
             self.refresh_region_controls()
             self.update_display()
         elif mode == "select":
@@ -422,6 +467,7 @@ class InteractionController:
             self._region_drag_original = None
             self._region_drag_start_img = None
             self._region_drag_handle = None
+            self._region_drag_ratio = 1.0
 
         self.recompute_slider_jump_markers()
         self.update_display()
@@ -483,57 +529,75 @@ class InteractionController:
         return copy.deepcopy(getattr(self.seg_state, "persistent_regions", []))
 
     def get_region_draft_points(self):
-        return copy.deepcopy(self._region_draft_points)
+        draft = self._region_draft
+        return copy.deepcopy(draft.points if draft is not None else [])
+
+    def get_region_draft_mode(self):
+        draft = self._region_draft
+        return None if draft is None else str(draft.mode)
 
     def is_region_draft_closed(self) -> bool:
-        return bool(self._region_draft_closed)
+        return bool(self._region_draft is not None and self._region_draft.closed)
 
     def cancel_region_draft(self):
-        if not self._region_draft_points:
+        if not self.get_region_draft_points():
             return False
-        self._region_draft_points = []
-        self._region_draft_closed = False
+        self._region_draft = None
         self.refresh_region_controls()
         self.update_display()
         return True
 
     def close_region_draft(self):
-        if len(self._region_draft_points) < 3:
+        if self._region_draft is None or len(self._region_draft.points) < 3:
             return False
-        self._region_draft_closed = True
+        if self.seg_state._normalize_region_polygon(self._region_draft.points) is None:
+            self._report_region_validation_error("Region shape is too small or degenerate.")
+            return False
+        self._region_draft.closed = True
         self.refresh_region_controls()
         self.update_display()
         return True
 
+    def _report_region_validation_error(self, message: str) -> None:
+        callback = self.on_region_validation_error
+        if callable(callback):
+            callback(str(message))
+
     def _region_frame_range_from_vars(self):
         frame_count = max(0, int(self.get_frame_count()))
-        max_idx = max(0, frame_count - 1)
+        if frame_count <= 0:
+            self._report_region_validation_error("No frames are available for this region.")
+            return None
         try:
-            start = int(float(self.region_start_var.get())) - 1
-        except Exception:
-            start = 0
-        try:
-            end = int(float(self.region_end_var.get())) - 1
-        except Exception:
-            end = max_idx
-        start = max(0, min(max_idx, start))
-        end = max(0, min(max_idx, end))
-        if end < start:
-            start, end = end, start
-        return start, end
+            start_display = int(str(self.region_start_var.get()).strip())
+            end_display = int(str(self.region_end_var.get()).strip())
+        except (TypeError, ValueError):
+            self._report_region_validation_error("Region frame bounds must be whole numbers.")
+            return None
+        if not (1 <= start_display <= frame_count and 1 <= end_display <= frame_count):
+            self._report_region_validation_error(f"Region frame bounds must be between 1 and {frame_count}.")
+            return None
+        if end_display < start_display:
+            self._report_region_validation_error("Region end frame must not be before the start frame.")
+            return None
+        return start_display - 1, end_display - 1
 
     def commit_region_draft(self):
         if not self._mutation_allowed("region"):
             return False
-        if len(self._region_draft_points) < 3:
+        draft = self._region_draft
+        if draft is None or len(draft.points) < 3 or not draft.closed:
             return False
         idx = self.get_current_frame_idx()
         h, w = self.get_frame_shape_for_idx(idx)
-        polygon = self.seg_state._normalize_region_polygon(self._region_draft_points)
+        polygon = self.seg_state._normalize_region_polygon(draft.points)
         if polygon is None:
             return False
-        start, end = self._region_frame_range_from_vars()
-        mode = self.seg_state._normalize_region_mode(region_mode_from_tool_mode(self.tool_mode.get()) or "include")
+        frame_range = self._region_frame_range_from_vars()
+        if frame_range is None:
+            return False
+        start, end = frame_range
+        mode = self.seg_state._normalize_region_mode(draft.mode)
         candidate = {
             "mode": mode,
             "enabled": True,
@@ -542,19 +606,17 @@ class InteractionController:
             "frame_end": end,
             "polygon": polygon,
         }
-        if self.seg_state.rasterize_persistent_region(candidate, (h, w)) is None:
+        if self.seg_state.rasterize_persistent_region(candidate, (h, w), cache_result=False) is None:
             return False
         before = self._region_snapshot()
         region_id = self.seg_state.add_persistent_region(candidate)
         self.set_selected_region_id(region_id)
-        self._region_draft_points = []
-        self._region_draft_closed = False
+        self._region_draft = None
         after = self._region_snapshot()
         self.record_action("region", idx, before, after)
         self.recompute_slider_jump_markers()
         self.refresh_region_controls()
         self.update_display()
-        self._pending_dirty = True
         return True
 
     def apply_selected_region_options(self):
@@ -567,7 +629,10 @@ class InteractionController:
         if region is None:
             return False
         before = self._region_snapshot()
-        start, end = self._region_frame_range_from_vars()
+        frame_range = self._region_frame_range_from_vars()
+        if frame_range is None:
+            return False
+        start, end = frame_range
         patch = {
             "frame_start": start,
             "frame_end": end,
@@ -581,7 +646,6 @@ class InteractionController:
         self.recompute_slider_jump_markers()
         self.refresh_region_controls()
         self.update_display()
-        self._pending_dirty = True
         return True
 
     def set_selected_region_mode(self, mode):
@@ -604,7 +668,6 @@ class InteractionController:
         self.recompute_slider_jump_markers()
         self.refresh_region_controls()
         self.update_display()
-        self._pending_dirty = True
         return True
 
     def delete_selected_region(self):
@@ -623,7 +686,6 @@ class InteractionController:
         self.recompute_slider_jump_markers()
         self.refresh_region_controls()
         self.update_display()
-        self._pending_dirty = True
         return True
 
     def duplicate_selected_region(self):
@@ -643,7 +705,6 @@ class InteractionController:
         self.recompute_slider_jump_markers()
         self.refresh_region_controls()
         self.update_display()
-        self._pending_dirty = True
         return True
 
     def set_region_flag(self, region_id: str, key: str, value: bool):
@@ -661,7 +722,6 @@ class InteractionController:
         self.recompute_slider_jump_markers()
         self.refresh_region_controls()
         self.update_display()
-        self._pending_dirty = True
         return True
 
     @staticmethod
@@ -676,7 +736,17 @@ class InteractionController:
         cy = float(ay) + t * vy
         return float(((float(px) - cx) ** 2 + (float(py) - cy) ** 2) ** 0.5)
 
-    def _region_hit_test(self, idx, img_x, img_y, ratio, *, prefer_region_id=None):
+    def _region_hit_test(
+        self,
+        idx,
+        img_x,
+        img_y,
+        ratio,
+        *,
+        prefer_region_id=None,
+        only_region_id=None,
+        include_body: bool = True,
+    ):
         tolerance = max(4.0, 7.0 / max(float(ratio), 0.001))
         current = list(getattr(self.seg_state, "persistent_regions", []) or [])
         preferred = str(prefer_region_id) if prefer_region_id else None
@@ -686,6 +756,8 @@ class InteractionController:
         for region in ordered:
             normalized = self.seg_state._normalize_persistent_region(region)
             if normalized is None or not bool(normalized.get("visible", True)):
+                continue
+            if only_region_id is not None and str(normalized.get("id")) != str(only_region_id):
                 continue
             if not (int(normalized["frame_start"]) <= int(idx) <= int(normalized["frame_end"])):
                 continue
@@ -698,9 +770,10 @@ class InteractionController:
                 bx, by = polygon[(point_idx + 1) % len(polygon)]
                 if self._point_segment_distance(img_x, img_y, ax, ay, bx, by) <= tolerance:
                     return str(normalized["id"]), ("edge", point_idx + 1)
-            pts = np.asarray(polygon, dtype=np.float32)
-            if len(pts) >= 3 and cv2.pointPolygonTest(pts, (float(img_x), float(img_y)), False) >= 0:
-                return str(normalized["id"]), ("move", None)
+            if include_body:
+                pts = np.asarray(polygon, dtype=np.float32)
+                if len(pts) >= 3 and cv2.pointPolygonTest(pts, (float(img_x), float(img_y)), False) >= 0:
+                    return str(normalized["id"]), ("move", None)
         return None
 
     def _find_region_selection(self, idx, img_x, img_y, ratio):
@@ -735,7 +808,15 @@ class InteractionController:
 
         selected_region_id = self.get_selected_region_id()
         if selected_region_id:
-            hit = self._region_hit_test(idx, img_x, img_y, ratio, prefer_region_id=selected_region_id)
+            hit = self._region_hit_test(
+                idx,
+                img_x,
+                img_y,
+                ratio,
+                prefer_region_id=selected_region_id,
+                only_region_id=selected_region_id,
+                include_body=False,
+            )
             if hit is not None and str(hit[0]) == str(selected_region_id):
                 return "region", str(selected_region_id)
 
@@ -766,6 +847,7 @@ class InteractionController:
         self._region_drag_original = copy.deepcopy(self.seg_state.get_persistent_region(region_id))
         self._region_drag_start_img = (float(img_x), float(img_y))
         self._region_drag_handle = handle
+        self._region_drag_ratio = max(float(ratio), 0.001)
 
     def _move_selected_region(self, idx, img_x, img_y, orig_w, orig_h):
         region_id = self.get_selected_region_id()
@@ -778,6 +860,11 @@ class InteractionController:
         if len(polygon) < 3:
             return
         if handle[0] == "edge":
+            distance_canvas = (
+                ((float(img_x) - float(start[0])) ** 2 + (float(img_y) - float(start[1])) ** 2) ** 0.5
+            ) * self._region_drag_ratio
+            if distance_canvas < REGION_EDGE_DRAG_THRESHOLD_PX:
+                return
             insert_idx = int(handle[1])
             polygon.insert(insert_idx, [float(start[0]), float(start[1])])
             preview_update = getattr(self.seg_state, "preview_persistent_region_update", None)
@@ -947,7 +1034,6 @@ class InteractionController:
                 else:
                     self.update_display()
                 self.recompute_slider_jump_markers()
-                self._pending_dirty = True
                 return True
 
             if isinstance(pt_i, int) and idx in self.points and pt_i < len(self.points[idx]):
@@ -971,7 +1057,6 @@ class InteractionController:
                 else:
                     self.update_display()
                 self.recompute_slider_jump_markers()
-                self._pending_dirty = True
                 return True
         if self.get_selected_region_id():
             return self.delete_selected_region()
@@ -1332,7 +1417,6 @@ class InteractionController:
         changed = bool(had_points or had_box or had_mask or had_paint)
         if changed:
             self.record_action("clear_frame", idx, frame_before, frame_after)
-            self._pending_dirty = True
         return changed
 
     def _snapshot_frame_state(self, frame_idx):

@@ -61,7 +61,14 @@ class _Event:
 
 
 class InteractionControllerTests(unittest.TestCase):
-    def _make_controller(self, *, display_transform=(1.0, 0.0, 0.0), can_mutate_segmentation=None, on_mutation_blocked=None):
+    def _make_controller(
+        self,
+        *,
+        display_transform=(1.0, 0.0, 0.0),
+        can_mutate_segmentation=None,
+        on_mutation_blocked=None,
+        on_region_validation_error=None,
+    ):
         seg_state = SegmentationState()
         points = {}
         boxes = {}
@@ -103,7 +110,6 @@ class InteractionControllerTests(unittest.TestCase):
         # this var is retained only to keep the returned tuple shape stable.
         fill_mode = _Var("add")
         fill_tolerance = _Var(8.0)
-        region_mode = _Var("include")
         region_start_var = _Var("1")
         region_end_var = _Var("3")
         canvas_left = _CanvasStub()
@@ -136,7 +142,6 @@ class InteractionControllerTests(unittest.TestCase):
             tool_mode=tool_mode,
             brush_size=brush_size,
             fill_tolerance=fill_tolerance,
-            region_mode=region_mode,
             region_start_var=region_start_var,
             region_end_var=region_end_var,
             get_selected_region_id=lambda: holder.get("selected_region_id"),
@@ -162,6 +167,7 @@ class InteractionControllerTests(unittest.TestCase):
             prune_empty_point_frames=lambda: holder.__setitem__("prunes", holder["prunes"] + 1),
             can_mutate_segmentation=can_mutate_segmentation,
             on_mutation_blocked=on_mutation_blocked,
+            on_region_validation_error=on_region_validation_error,
         )
         return c, holder, tool_mode, lbl, fill_mode, fill_tolerance
 
@@ -484,6 +490,7 @@ class InteractionControllerTests(unittest.TestCase):
         controller.on_mouse_down(_Event(2, 2))
         controller.on_mouse_down(_Event(8, 2))
         controller.on_mouse_down(_Event(8, 8))
+        controller.close_region_draft()
         changed = controller.commit_region_draft()
 
         self.assertTrue(changed)
@@ -503,10 +510,132 @@ class InteractionControllerTests(unittest.TestCase):
         controller.on_mouse_down(_Event(2, 2))
         controller.on_mouse_down(_Event(8, 2))
         controller.on_mouse_down(_Event(8, 8))
+        controller.close_region_draft()
         changed = controller.commit_region_draft()
 
         self.assertTrue(changed)
         self.assertEqual(controller.seg_state.persistent_regions[0]["mode"], "exclude")
+
+    def test_region_commit_requires_closed_shape_and_closed_shape_ignores_more_clicks(self):
+        controller, _holder, mode, _lbl, _fill_mode, _fill_tolerance = self._make_controller()
+        mode.set(REGION_INCLUDE_TOOL)
+        for x, y in ((2, 2), (8, 2), (8, 8)):
+            controller.on_mouse_down(_Event(x, y))
+
+        self.assertFalse(controller.commit_region_draft())
+        self.assertTrue(controller.close_region_draft())
+        before = controller.get_region_draft_points()
+        controller.on_mouse_down(_Event(2, 8))
+
+        self.assertEqual(controller.get_region_draft_points(), before)
+        self.assertTrue(controller.commit_region_draft())
+
+    def test_region_draft_owns_mode_and_tool_transition_discards_it(self):
+        controller, _holder, mode, _lbl, _fill_mode, _fill_tolerance = self._make_controller()
+        mode.set(REGION_INCLUDE_TOOL)
+        for x, y in ((2, 2), (8, 2), (8, 8)):
+            controller.on_mouse_down(_Event(x, y))
+        controller.close_region_draft()
+
+        mode.set(REGION_EXCLUDE_TOOL)
+        self.assertTrue(controller.on_tool_mode_changed(REGION_INCLUDE_TOOL, REGION_EXCLUDE_TOOL))
+        self.assertEqual(controller.get_region_draft_points(), [])
+        self.assertFalse(controller.commit_region_draft())
+
+    def test_region_draft_mode_does_not_follow_uncoordinated_tool_var_change(self):
+        controller, _holder, mode, _lbl, _fill_mode, _fill_tolerance = self._make_controller()
+        mode.set(REGION_INCLUDE_TOOL)
+        for x, y in ((2, 2), (8, 2), (8, 8)):
+            controller.on_mouse_down(_Event(x, y))
+        controller.close_region_draft()
+
+        mode.set(REGION_EXCLUDE_TOOL)
+        self.assertTrue(controller.commit_region_draft())
+        self.assertEqual(controller.seg_state.persistent_regions[0]["mode"], "include")
+
+    def test_reset_transient_state_discards_region_draft(self):
+        controller, _holder, mode, _lbl, _fill_mode, _fill_tolerance = self._make_controller()
+        mode.set(REGION_INCLUDE_TOOL)
+        controller.on_mouse_down(_Event(2, 2))
+
+        controller.reset_transient_state()
+
+        self.assertEqual(controller.get_region_draft_points(), [])
+        self.assertFalse(controller.is_region_draft_closed())
+
+    def test_cancel_region_draft_is_transient_and_does_not_set_dirty_flag(self):
+        controller, _holder, mode, _lbl, _fill_mode, _fill_tolerance = self._make_controller()
+        mode.set(REGION_INCLUDE_TOOL)
+        controller.on_mouse_down(_Event(2, 2))
+
+        self.assertTrue(controller.cancel_region_draft())
+        self.assertFalse(controller._pending_dirty)
+
+    def test_region_validation_rejects_invalid_range_without_mutation(self):
+        errors = []
+        controller, holder, _mode, _lbl, _fill_mode, _fill_tolerance = self._make_controller(
+            on_region_validation_error=errors.append
+        )
+        region_id = controller.seg_state.add_persistent_region(
+            {
+                "id": "region_a",
+                "mode": "include",
+                "frame_start": 0,
+                "frame_end": 1,
+                "polygon": [[2, 2], [8, 2], [8, 8]],
+            }
+        )
+        holder["selected_region_id"] = region_id
+        before = dict(controller.seg_state.get_persistent_region(region_id))
+        controller.region_start_var.set("1.5")
+        controller.region_end_var.set("3")
+
+        self.assertFalse(controller.apply_selected_region_options())
+        self.assertEqual(controller.seg_state.get_persistent_region(region_id), before)
+        self.assertEqual(errors, ["Region frame bounds must be whole numbers."])
+
+    def test_region_validation_rejects_reversed_range(self):
+        errors = []
+        controller, holder, _mode, _lbl, _fill_mode, _fill_tolerance = self._make_controller(
+            on_region_validation_error=errors.append
+        )
+        region_id = controller.seg_state.add_persistent_region(
+            {
+                "id": "region_a",
+                "mode": "include",
+                "frame_start": 0,
+                "frame_end": 1,
+                "polygon": [[2, 2], [8, 2], [8, 8]],
+            }
+        )
+        holder["selected_region_id"] = region_id
+        controller.region_start_var.set("3")
+        controller.region_end_var.set("1")
+
+        self.assertFalse(controller.apply_selected_region_options())
+        self.assertEqual(errors, ["Region end frame must not be before the start frame."])
+
+    def test_region_commit_validation_does_not_leave_empty_id_raster_cache(self):
+        controller, _holder, mode, _lbl, _fill_mode, _fill_tolerance = self._make_controller()
+        mode.set(REGION_INCLUDE_TOOL)
+        for x, y in ((2, 2), (8, 2), (8, 8)):
+            controller.on_mouse_down(_Event(x, y))
+        controller.close_region_draft()
+
+        self.assertTrue(controller.commit_region_draft())
+        self.assertFalse(any(str(key[0]) == "" for key in controller.seg_state._region_raster_cache))
+        self.assertEqual(len(controller.seg_state._region_raster_cache), 0)
+
+    def test_direct_region_commit_does_not_leak_dirty_state_to_mouse_up(self):
+        controller, _holder, mode, _lbl, _fill_mode, _fill_tolerance = self._make_controller()
+        mode.set(REGION_INCLUDE_TOOL)
+        for x, y in ((2, 2), (8, 2), (8, 8)):
+            controller.on_mouse_down(_Event(x, y))
+            controller.on_mouse_up(_Event(x, y))
+        controller.close_region_draft()
+
+        self.assertTrue(controller.commit_region_draft())
+        self.assertFalse(controller.on_mouse_up(_Event(8, 8)))
 
     def test_region_tool_rejects_tiny_invalid_polygon(self):
         controller, holder, mode, _lbl, _fill_mode, _fill_tolerance = self._make_controller()
@@ -515,6 +644,7 @@ class InteractionControllerTests(unittest.TestCase):
         controller.on_mouse_down(_Event(2, 2))
         controller.on_mouse_down(_Event(2, 2))
         controller.on_mouse_down(_Event(2, 2))
+        controller.close_region_draft()
         changed = controller.commit_region_draft()
 
         self.assertFalse(changed)
@@ -627,6 +757,26 @@ class InteractionControllerTests(unittest.TestCase):
         self.assertEqual(holder["selected_point"], (0, "box"))
         self.assertIsNone(holder.get("selected_region_id"))
 
+    def test_box_inside_selected_region_body_keeps_box_priority(self):
+        controller, holder, mode, _lbl, _fill_mode, _fill_tolerance = self._make_controller()
+        controller.boxes[0] = [4.0, 4.0, 14.0, 14.0]
+        region_id = controller.seg_state.add_persistent_region(
+            {
+                "id": "region_a",
+                "mode": "include",
+                "frame_start": 0,
+                "frame_end": 2,
+                "polygon": [[0, 0], [19, 0], [19, 19], [0, 19]],
+            }
+        )
+        holder["selected_region_id"] = region_id
+        mode.set("select")
+
+        controller.on_mouse_down(_Event(9, 9))
+
+        self.assertEqual(holder["selected_point"], (0, "box"))
+        self.assertIsNone(holder["selected_region_id"])
+
     def test_selected_region_handle_keeps_priority_over_nearby_point(self):
         controller, holder, mode, _lbl, _fill_mode, _fill_tolerance = self._make_controller()
         controller.points[0] = [{"x": 2, "y": 2, "label": 1}]
@@ -646,6 +796,26 @@ class InteractionControllerTests(unittest.TestCase):
 
         self.assertEqual(holder["selected_region_id"], region_id)
         self.assertIsNone(holder["selected_point"])
+
+    def test_point_inside_selected_region_body_keeps_point_priority(self):
+        controller, holder, mode, _lbl, _fill_mode, _fill_tolerance = self._make_controller()
+        controller.points[0] = [{"x": 9, "y": 9, "label": 1}]
+        region_id = controller.seg_state.add_persistent_region(
+            {
+                "id": "region_a",
+                "mode": "include",
+                "frame_start": 0,
+                "frame_end": 2,
+                "polygon": [[0, 0], [19, 0], [19, 19], [0, 19]],
+            }
+        )
+        holder["selected_region_id"] = region_id
+        mode.set("select")
+
+        controller.on_mouse_down(_Event(9, 9))
+
+        self.assertEqual(holder["selected_point"], (0, 0))
+        self.assertIsNone(holder["selected_region_id"])
 
     def test_select_region_edge_inserts_vertex_and_records_single_undo_action(self):
         controller, holder, mode, _lbl, _fill_mode, _fill_tolerance = self._make_controller()
@@ -671,6 +841,27 @@ class InteractionControllerTests(unittest.TestCase):
         self.assertEqual(holder["records"][0][0], "region")
         self.assertEqual(len(holder["records"]), 1)
         self.assertEqual(holder["recompute"], 1)
+
+    def test_select_region_edge_zero_distance_motion_does_not_insert_vertex(self):
+        controller, holder, mode, _lbl, _fill_mode, _fill_tolerance = self._make_controller()
+        region_id = controller.seg_state.add_persistent_region(
+            {
+                "id": "region_a",
+                "mode": "include",
+                "frame_start": 0,
+                "frame_end": 2,
+                "polygon": [[1, 1], [18, 1], [18, 18], [1, 18]],
+            }
+        )
+        mode.set("select")
+
+        controller.on_mouse_down(_Event(10, 1))
+        controller.on_mouse_drag(_Event(10, 1))
+        changed = controller.on_mouse_up(_Event(10, 1))
+
+        self.assertFalse(changed)
+        self.assertEqual(len(controller.seg_state.get_persistent_region(region_id)["polygon"]), 4)
+        self.assertEqual(holder["records"], [])
 
     def test_delete_selected_region_removes_region(self):
         controller, holder, _mode, _lbl, _fill_mode, _fill_tolerance = self._make_controller()

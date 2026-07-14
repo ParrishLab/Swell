@@ -204,9 +204,13 @@ class RenderActions:
         canvas.create_image(0, 0, image=photo, anchor="nw")
 
     def _ghost_cache_entry(self, ghost_idx, ghost_mask, h, w):
-        """Return cached {contours, bbox} for a ghost frame, computing on miss.
+        """Return cached {ring, bbox} for a ghost frame, computing on miss.
 
-        ``bbox`` is the (y0, y1, x0, x1) extent of the contour strokes so the
+        The ghost outline is a band that sits entirely *outside* the mask: the
+        mask is dilated by ``GHOST_CONTOUR_THICKNESS`` and the mask itself is
+        subtracted, so the ring's inner edge is flush with the mask's outer
+        edge (no overlap with the mask, no inset). ``ring`` is the boolean band
+        cropped to ``bbox`` and ``bbox`` is its (y0, y1, x0, x1) extent, so the
         per-redraw blend runs cv2.addWeighted on just that ROI instead of the
         whole frame — keeping ghosts cheap to redraw while painting against them.
         """
@@ -214,25 +218,25 @@ class RenderActions:
         key = (int(ghost_idx), token, (int(h), int(w)))
         entry = self._ghost_contours_cache.get(key)
         if entry is None:
-            mask_uint8 = (np.asarray(ghost_mask, dtype=bool) * 255).astype(np.uint8)
-            contours, _ = cv2.findContours(mask_uint8, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-            approx_contours = []
-            for c in contours:
-                peri = cv2.arcLength(c, True)
-                approx_contours.append(cv2.approxPolyDP(c, 0.002 * peri, True))
+            mask_bool = np.asarray(ghost_mask, dtype=bool)
+            t = max(1, int(GHOST_CONTOUR_THICKNESS))
+            kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * t + 1, 2 * t + 1))
+            dilated = cv2.dilate(mask_bool.astype(np.uint8), kernel).astype(bool)
+            ring = dilated & ~mask_bool
             bbox = None
-            if approx_contours:
-                line = np.zeros((int(h), int(w)), dtype=np.uint8)
-                cv2.drawContours(line, approx_contours, -1, 1, GHOST_CONTOUR_THICKNESS)
-                ys, xs = np.where(line)
-                if ys.size:
-                    bbox = (int(ys.min()), int(ys.max()) + 1, int(xs.min()), int(xs.max()) + 1)
-            entry = {"contours": approx_contours, "bbox": bbox}
+            ring_sub = None
+            ys, xs = np.where(ring)
+            if ys.size:
+                y0, y1 = int(ys.min()), int(ys.max()) + 1
+                x0, x1 = int(xs.min()), int(xs.max()) + 1
+                bbox = (y0, y1, x0, x1)
+                ring_sub = ring[y0:y1, x0:x1]
+            entry = {"ring": ring_sub, "bbox": bbox}
             self._ghost_contours_cache[key] = entry
         return token, entry
 
     def _draw_ghost_contour(self, img_arr, ghost_idx, color, alpha):
-        """Alpha-blend one ghost frame's contour into img_arr in place.
+        """Alpha-blend one ghost frame's outside-edge outline into img_arr in place.
 
         Returns the (ghost_idx, content-token) pair used for display-cache
         invalidation; token is None when the ghost frame has no mask.
@@ -243,12 +247,12 @@ class RenderActions:
             return (int(ghost_idx), None)
         token, entry = self._ghost_cache_entry(ghost_idx, ghost_mask, h, w)
         bbox = entry["bbox"]
-        contours = entry["contours"]
-        if bbox is not None and contours:
+        ring = entry["ring"]
+        if bbox is not None and ring is not None:
             y0, y1, x0, x1 = bbox
             roi = img_arr[y0:y1, x0:x1]
             overlay = roi.copy()
-            cv2.drawContours(overlay, contours, -1, color, GHOST_CONTOUR_THICKNESS, offset=(-x0, -y0))
+            overlay[ring] = color
             cv2.addWeighted(roi, 1.0 - alpha, overlay, alpha, 0, dst=roi)
         return (int(ghost_idx), token)
 
@@ -491,31 +495,37 @@ class RenderActions:
             if len(points) < 6:
                 continue
             is_selected = str(normalized["id"]) == str(selected_region_id)
-            color = APP_COLORS["danger"] if str(normalized.get("mode")) == "exclude" else APP_COLORS["accent"]
-            outline = APP_COLORS["measurement"] if is_selected else color
+            if str(normalized.get("mode")) == "exclude":
+                color = APP_COLORS["danger"]
+            else:
+                color = APP_COLORS["roi_active"] if is_selected else APP_COLORS["roi_inactive"]
             width = 3 if is_selected else 2
-            self.canvas_left.create_line(*points, points[0], points[1], fill=outline, width=width, dash=() if is_selected else (5, 3))
+            self.canvas_left.create_line(*points, points[0], points[1], fill=color, width=width)
             if is_selected:
-                handle_radius = 4
+                handle_radius = 5
                 for hx, hy in zip(points[0::2], points[1::2]):
-                    self.canvas_left.create_rectangle(
+                    self.canvas_left.create_oval(
                         hx - handle_radius,
                         hy - handle_radius,
                         hx + handle_radius,
                         hy + handle_radius,
-                        fill=CANVAS_FILL_HEX,
+                        fill=color,
                         outline=APP_COLORS["measurement"],
-                        width=1,
+                        width=2,
                     )
 
         draft_points = []
         draft_closed = False
+        draft_mode = "include"
         controller = getattr(self, "interaction_controller", None)
         if controller is not None and hasattr(controller, "get_region_draft_points"):
             draft_points = controller.get_region_draft_points()
             if hasattr(controller, "is_region_draft_closed"):
                 draft_closed = bool(controller.is_region_draft_closed())
+            if hasattr(controller, "get_region_draft_mode"):
+                draft_mode = str(controller.get_region_draft_mode() or "include")
         if draft_points:
+            draft_color = APP_COLORS["danger"] if draft_mode == "exclude" else APP_COLORS["roi_active"]
             points = []
             for x, y in draft_points:
                 cx, cy = transform.image_to_canvas(x, y)
@@ -524,9 +534,22 @@ class RenderActions:
                 line_points = list(points)
                 if draft_closed and len(points) >= 6:
                     line_points.extend([points[0], points[1]])
-                self.canvas_left.create_line(*line_points, fill=APP_COLORS["measurement"], width=2, dash=(4, 3))
+                self.canvas_left.create_line(
+                    *line_points,
+                    fill=draft_color,
+                    width=2,
+                    dash=() if draft_closed else (3, 2),
+                )
             for hx, hy in zip(points[0::2], points[1::2]):
-                self.canvas_left.create_rectangle(hx - 3, hy - 3, hx + 3, hy + 3, fill=CANVAS_FILL_HEX, outline=APP_COLORS["measurement"])
+                self.canvas_left.create_oval(
+                    hx - 5,
+                    hy - 5,
+                    hx + 5,
+                    hy + 5,
+                    fill=draft_color,
+                    outline=APP_COLORS["measurement"],
+                    width=2,
+                )
 
     def _draw_analysis_overlay_on_right(self, idx):
         raw_frame = self._get_raw_frame(idx) if hasattr(self, "_get_raw_frame") else None

@@ -150,6 +150,17 @@ class HotkeysTests(unittest.TestCase):
         self.assertEqual(app.region_start_var.get(), "5")
         self.assertEqual(app.region_end_var.get(), "5")
 
+    def test_committed_region_returns_to_select_mode(self):
+        app = self._make_app("Canvas")
+        app.tool_mode.set(REGION_INCLUDE_TOOL)
+        app.interaction_controller = type("Controller", (), {"commit_region_draft": lambda _self: True})()
+        app._segmentation_edits_allowed = lambda: True
+        app._schedule_leverage_recompute = lambda: None
+        app._mark_project_dirty = lambda _reason: None
+
+        self.assertTrue(app.commit_region_draft())
+        self.assertEqual(app.tool_mode.get(), "select")
+
     def test_l_toggles_ground_truth_when_not_typing(self):
         app = self._make_app("Canvas")
         app.gt_calls = 0

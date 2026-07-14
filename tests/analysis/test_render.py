@@ -258,8 +258,47 @@ class RenderActionsTests(unittest.TestCase):
 
         harness._draw_overlay_elements(transform, (10, 10))
 
-        self.assertTrue(any(item[0] == "line" for item in harness.canvas_left.items))
-        self.assertTrue(any(item[0] == "rectangle" for item in harness.canvas_left.items))
+        lines = [item for item in harness.canvas_left.items if item[0] == "line"]
+        handles = [item for item in harness.canvas_left.items if item[0] == "oval"]
+        self.assertEqual(lines[0][2].get("fill"), APP_COLORS["roi_active"])
+        self.assertEqual(lines[0][2].get("width"), 3)
+        self.assertEqual({item[2].get("fill") for item in handles}, {APP_COLORS["roi_active"]})
+        self.assertEqual({item[2].get("outline") for item in handles}, {APP_COLORS["measurement"]})
+
+    def test_region_overlay_uses_roi_inactive_blue_and_preserves_exclude_red(self):
+        harness = _ViewportRenderHarness()
+        harness.current_frame_idx = 0
+        harness.points = {}
+        harness.boxes = {}
+        harness.selected_point = None
+        harness.selected_region_id = None
+        harness.seg_state = SegmentationState()
+        harness.seg_state.add_persistent_region(
+            {
+                "id": "include_region",
+                "mode": "include",
+                "frame_start": 0,
+                "frame_end": 1,
+                "polygon": [[1, 1], [5, 1], [5, 5]],
+            }
+        )
+        harness.seg_state.add_persistent_region(
+            {
+                "id": "exclude_region",
+                "mode": "exclude",
+                "frame_start": 0,
+                "frame_end": 1,
+                "polygon": [[2, 2], [6, 2], [6, 6]],
+            }
+        )
+        harness.interaction_controller = None
+        harness.canvas_left = _CanvasStub(width=100, height=100)
+        transform = harness._get_canvas_viewport_transform(harness.canvas_left, 10, 10)
+
+        harness._draw_overlay_elements(transform, (10, 10))
+
+        line_colors = [item[2].get("fill") for item in harness.canvas_left.items if item[0] == "line"]
+        self.assertEqual(line_colors, [APP_COLORS["roi_inactive"], APP_COLORS["danger"]])
 
     def test_single_point_region_draft_draws_handle_without_line(self):
         harness = _ViewportRenderHarness()
@@ -283,7 +322,35 @@ class RenderActionsTests(unittest.TestCase):
         harness._draw_overlay_elements(transform, (10, 10))
 
         self.assertFalse(any(item[0] == "line" for item in harness.canvas_left.items))
-        self.assertTrue(any(item[0] == "rectangle" for item in harness.canvas_left.items))
+        handles = [item for item in harness.canvas_left.items if item[0] == "oval"]
+        self.assertEqual(handles[0][2].get("fill"), APP_COLORS["roi_active"])
+
+    def test_exclude_region_draft_uses_danger_red(self):
+        harness = _ViewportRenderHarness()
+        harness.current_frame_idx = 0
+        harness.points = {}
+        harness.boxes = {}
+        harness.selected_point = None
+        harness.selected_region_id = None
+        harness.seg_state = SegmentationState()
+        harness.canvas_left = _CanvasStub(width=100, height=100)
+        harness.interaction_controller = type(
+            "DraftController",
+            (),
+            {
+                "get_region_draft_points": lambda _self: [[2.0, 3.0], [5.0, 3.0]],
+                "get_region_draft_mode": lambda _self: "exclude",
+                "is_region_draft_closed": lambda _self: False,
+            },
+        )()
+        transform = harness._get_canvas_viewport_transform(harness.canvas_left, 10, 10)
+
+        harness._draw_overlay_elements(transform, (10, 10))
+
+        lines = [item for item in harness.canvas_left.items if item[0] == "line"]
+        handles = [item for item in harness.canvas_left.items if item[0] == "oval"]
+        self.assertEqual(lines[0][2].get("fill"), APP_COLORS["danger"])
+        self.assertEqual({item[2].get("fill") for item in handles}, {APP_COLORS["danger"]})
 
     def test_selected_box_handles_use_tk_color_string(self):
         harness = _DisplayHarness()
@@ -575,8 +642,6 @@ class RenderActionsTests(unittest.TestCase):
     def test_ghost_contour_roi_blend_matches_full_image(self):
         import cv2
 
-        from swell.analysis.core.render import GHOST_CONTOUR_THICKNESS
-
         class _GhostBlendHarness(RenderActions):
             def __init__(self):
                 self.seg_state = SegmentationState()
@@ -595,10 +660,13 @@ class RenderActionsTests(unittest.TestCase):
 
         base = np.full((h, w, 3), 50, dtype=np.uint8)
 
-        # Reference: the original full-image copy + addWeighted.
+        # Reference: apply the same outside-edge ring over the full image.
         _, entry = harness._ghost_cache_entry(3, mask, h, w)
+        y0, y1, x0, x1 = entry["bbox"]
+        full_ring = np.zeros((h, w), dtype=bool)
+        full_ring[y0:y1, x0:x1] = entry["ring"]
         overlay = base.copy()
-        cv2.drawContours(overlay, entry["contours"], -1, color, GHOST_CONTOUR_THICKNESS)
+        overlay[full_ring] = color
         reference = cv2.addWeighted(base, 1.0 - alpha, overlay, alpha, 0)
 
         roi_result = base.copy()
@@ -606,6 +674,9 @@ class RenderActionsTests(unittest.TestCase):
 
         self.assertEqual(token, (3, harness._mask_content_token(3, mask, prefix="ghost")))
         self.assertTrue(np.array_equal(roi_result, reference))
+        # The ring never overlaps the mask: its inner edge is flush with the
+        # mask's outer edge and it lies entirely outside.
+        self.assertFalse(bool(np.any(full_ring & mask)))
 
     def test_mask_content_token_tracks_segmentation_generation(self):
         class _Harness(RenderActions):

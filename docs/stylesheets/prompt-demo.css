@@ -547,3 +547,135 @@
     padding: 0.65rem;
   }
 }
+
+.swell-propagation-demo {
+  margin: 1.25rem 0;
+}
+
+.swell-propagation-demo__shell {
+  background: #171b20;
+  border: 1px solid #39424f;
+  border-radius: 6px;
+  color: #d7dde3;
+  overflow: hidden;
+}
+
+.swell-propagation-demo__stage {
+  aspect-ratio: 792 / 612;
+  background: #0f1318;
+  position: relative;
+}
+
+.swell-propagation-demo__canvas {
+  display: block;
+  height: 100%;
+  outline: 0;
+  touch-action: none;
+  width: 100%;
+}
+
+.swell-propagation-demo__canvas:focus-visible {
+  box-shadow: inset 0 0 0 2px #1b75bc;
+}
+
+.swell-propagation-demo__tool-help {
+  border-bottom: 1px solid #39424f;
+  color: #c5cdd5;
+  font-size: 0.8rem;
+  line-height: 1.45;
+  margin: 0;
+  min-height: 2.75rem;
+  padding: 0.65rem 0.85rem;
+}
+
+.swell-propagation-demo__controls {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+  padding: 0.6rem 0.85rem;
+}
+
+.swell-propagation-demo__controls > label,
+.swell-propagation-demo__controls output {
+  font-size: 0.78rem;
+  white-space: nowrap;
+}
+
+.swell-propagation-demo__controls input[type="range"] {
+  accent-color: #1b75bc;
+  flex: 1 1 7rem;
+  margin: 0;
+  min-width: 6rem;
+}
+
+.swell-propagation-demo__timeline {
+  border: 1px solid #39424f;
+  border-radius: 3px;
+  cursor: pointer;
+  display: block;
+  flex: 1 1 100%;
+  height: 40px;
+  touch-action: none;
+  width: 100%;
+}
+
+.swell-propagation-demo__toggle {
+  align-items: center;
+  display: inline-flex;
+  font-size: 0.78rem;
+  gap: 0.35rem;
+  white-space: nowrap;
+}
+
+.swell-propagation-demo__controls button {
+  background: #2a3038;
+  border: 1px solid #53606e;
+  border-radius: 3px;
+  color: #edf1f3;
+  cursor: pointer;
+  flex: 0 0 auto;
+  font-size: 0.75rem;
+  min-height: 2rem;
+  padding: 0.3rem 0.6rem;
+  white-space: nowrap;
+}
+
+.swell-propagation-demo__controls button:hover:not(:disabled) {
+  border-color: #8d97a2;
+}
+
+.swell-propagation-demo__controls button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.swell-propagation-demo__button--run {
+  background: #1b75bc;
+  border-color: #2484d1;
+}
+
+.swell-propagation-demo__controls button:focus-visible,
+.swell-propagation-demo__timeline:focus-visible {
+  outline: 2px solid #edf1f3;
+  outline-offset: 1px;
+}
+
+.swell-propagation-demo__sr-status {
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  height: 1px;
+  overflow: hidden;
+  position: absolute;
+  white-space: nowrap;
+  width: 1px;
+}
+
+.swell-propagation-demo__fallback {
+  background: #171b20;
+  border: 1px solid #39424f;
+  border-radius: 6px;
+  color: #edf1f3;
+  margin: 0;
+  padding: 1rem;
+}

@@ -43,7 +43,7 @@ from swell.analysis.core.propagation_progress import PropagationProgressLogger
 from swell.shared.ui.theme import APP_COLORS
 from swell.analysis.core.app_context import AppContext
 from swell.analysis.core import project_workflow
-from swell.analysis.core.region_tools import REGION_EXCLUDE_TOOL, REGION_INCLUDE_TOOL, region_tool_mode_for_region_mode
+from swell.analysis.core.region_tools import REGION_EXCLUDE_TOOL, REGION_INCLUDE_TOOL
 from swell.analysis.core.viewport import (
     ViewportState,
     clamp_viewport_center,
@@ -347,7 +347,6 @@ class SwellAnalysisApp(LayoutBuilder, IOActions, SegmentationActions, RenderActi
             tool_mode=self.tool_mode,
             brush_size=self.brush_size,
             fill_tolerance=self.fill_tolerance,
-            region_mode=self.region_mode,
             region_start_var=self.region_start_var,
             region_end_var=self.region_end_var,
             get_selected_region_id=lambda: self.selected_region_id,
@@ -373,6 +372,7 @@ class SwellAnalysisApp(LayoutBuilder, IOActions, SegmentationActions, RenderActi
             prune_empty_point_frames=self._prune_empty_point_frames,
             can_mutate_segmentation=self._segmentation_edits_allowed,
             on_mutation_blocked=self._on_segmentation_edit_blocked,
+            on_region_validation_error=self._show_region_validation_error,
         )
         self.app_context = AppContext(
             app_root=Path(self.app_root),
@@ -1923,8 +1923,8 @@ class SwellAnalysisApp(LayoutBuilder, IOActions, SegmentationActions, RenderActi
     def _prop_log_start(self, total_steps, label="Propagation", **kwargs):
         return self.progress_logger.start(total_steps=total_steps, label=label, **kwargs)
 
-    def _prop_log_tick(self, increment=1, run_id=None):
-        self.progress_logger.tick(increment=increment, run_id=run_id)
+    def _prop_log_tick(self, increment=1, run_id=None, **kwargs):
+        self.progress_logger.tick(increment=increment, run_id=run_id, **kwargs)
 
     def _prop_log_finish(self, status, run_id=None):
         self.progress_logger.finish(status=status, run_id=run_id)
@@ -1975,6 +1975,9 @@ class SwellAnalysisApp(LayoutBuilder, IOActions, SegmentationActions, RenderActi
         self.inference_state = None
 
     def _reset_interaction_state(self):
+        controller = getattr(self, "interaction_controller", None)
+        if controller is not None and hasattr(controller, "reset_transient_state"):
+            controller.reset_transient_state()
         self.points.clear()
         self.selected_point = None
         self.seg_state.boxes.clear()
@@ -2478,6 +2481,9 @@ class SwellAnalysisApp(LayoutBuilder, IOActions, SegmentationActions, RenderActi
         if hasattr(self, "_sync_tool_options"):
             self._sync_tool_options()
 
+    def _show_region_validation_error(self, message):
+        messagebox.showwarning("Region", str(message), parent=self.root)
+
     def _set_selected_region_id(self, region_id):
         self.selected_region_id = None if region_id is None else str(region_id)
         self._sync_region_options_from_selection()
@@ -2519,15 +2525,13 @@ class SwellAnalysisApp(LayoutBuilder, IOActions, SegmentationActions, RenderActi
             return False
         changed = bool(self.interaction_controller.commit_region_draft())
         if changed:
+            self.tool_mode.set("select")
             self._schedule_leverage_recompute()
             self._mark_project_dirty("region_add")
         return changed
 
     def cancel_region_draft(self):
-        changed = bool(self.interaction_controller.cancel_region_draft())
-        if changed:
-            self._mark_project_dirty("region_draft_cancel")
-        return changed
+        return bool(self.interaction_controller.cancel_region_draft())
 
     def close_region_draft(self):
         return bool(self.interaction_controller.close_region_draft())
@@ -2560,7 +2564,6 @@ class SwellAnalysisApp(LayoutBuilder, IOActions, SegmentationActions, RenderActi
         next_mode = "include" if current == "exclude" else "exclude"
         changed = bool(self.interaction_controller.set_selected_region_mode(next_mode))
         if changed:
-            self.tool_mode.set(region_tool_mode_for_region_mode(next_mode))
             self._schedule_leverage_recompute()
             self._mark_project_dirty("region_convert")
         return changed
@@ -2757,17 +2760,13 @@ class SwellAnalysisApp(LayoutBuilder, IOActions, SegmentationActions, RenderActi
     def _set_tool_region_hotkey(self, event=None):
         if self._focus_is_text_input():
             return None
-        if not getattr(self, "selected_region_id", None):
-            self._reset_region_options_to_default_range()
-        self.tool_mode.set(REGION_INCLUDE_TOOL)
+        self._set_tool_mode(REGION_INCLUDE_TOOL)
         return "break"
 
     def _set_tool_region_exclude_hotkey(self, event=None):
         if self._focus_is_text_input():
             return None
-        if not getattr(self, "selected_region_id", None):
-            self._reset_region_options_to_default_range()
-        self.tool_mode.set(REGION_EXCLUDE_TOOL)
+        self._set_tool_mode(REGION_EXCLUDE_TOOL)
         return "break"
 
     def _toggle_ground_truth_hotkey(self, event=None):
@@ -2831,6 +2830,7 @@ class SwellAnalysisApp(LayoutBuilder, IOActions, SegmentationActions, RenderActi
             return "break"
         changed = bool(self.interaction_controller.on_mouse_up(event))
         if changed:
+            self._schedule_leverage_recompute()
             self._mark_project_dirty("mouse_up")
 
     def delete_selected_point(self, event=None):

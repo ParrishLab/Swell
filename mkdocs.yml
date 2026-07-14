@@ -48,6 +48,7 @@ extra_javascript:
   - javascripts/prompt-demo.js
   - javascripts/mask-edit-demo.js?v=20260710.1
   - javascripts/region-demo.js?v=20260710.9
+  - javascripts/propagation-demo.js?v=20260710.6
 
 markdown_extensions:
   - admonition

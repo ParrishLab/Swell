@@ -46,6 +46,20 @@ def test_toggle_ground_truth_rejects_empty_mask_frame():
     assert app._calls["leverage"] == 0
 
 
+def test_mouse_up_region_edit_recomputes_leverage_and_marks_dirty():
+    app = SwellAnalysisApp.__new__(SwellAnalysisApp)
+    calls = {"leverage": 0, "dirty": 0}
+    app._stop_canvas_pan = lambda _canvas, _event: None
+    app.canvas_left = object()
+    app.interaction_controller = type("Controller", (), {"on_mouse_up": lambda _self, _event: True})()
+    app._schedule_leverage_recompute = lambda: calls.__setitem__("leverage", calls["leverage"] + 1)
+    app._mark_project_dirty = lambda _reason: calls.__setitem__("dirty", calls["dirty"] + 1)
+
+    app.on_mouse_up(object())
+
+    assert calls == {"leverage": 1, "dirty": 1}
+
+
 def test_compute_trouble_ignores_object_appearance_and_disappearance_edges():
     masks = {
         0: np.zeros((8, 8), dtype=bool),

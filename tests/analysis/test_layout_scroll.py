@@ -63,6 +63,9 @@ class _Var:
     def get(self):
         return self.value
 
+    def set(self, value):
+        self.value = value
+
 
 class _FakeFrame:
     def __init__(self):
@@ -151,11 +154,54 @@ def test_region_options_refresh_when_active_panel_is_unchanged() -> None:
     app.interaction_controller.points = [(1, 1), (2, 1), (2, 2)]
     app._sync_tool_options()
 
-    assert app.btn_region_add.options["state"] == "normal"
+    assert app.btn_region_add.options["state"] == "disabled"
     assert app.btn_region_close_shape.options["state"] == "normal"
     assert app.btn_region_discard.options["state"] == "normal"
+
+    app.interaction_controller.closed = True
+    app._sync_tool_options()
+
+    assert app.btn_region_add.options["state"] == "normal"
+    assert app.btn_region_close_shape.options["state"] == "disabled"
     assert region_frame.grid_count == 0
     assert region_frame.remove_count == 0
+
+
+def test_entering_region_tool_discards_draft_clears_selection_and_resets_range() -> None:
+    app = LayoutBuilder()
+    app.tool_mode = _Var(REGION_INCLUDE_TOOL)
+    app._last_handled_tool_mode = "select"
+    app.selected_region_id = "region_a"
+    calls = []
+    app.interaction_controller = type(
+        "Controller",
+        (),
+        {"on_tool_mode_changed": lambda _self, previous, current: calls.append((previous, current))},
+    )()
+    app._set_selected_region_id = lambda value: setattr(app, "selected_region_id", value)
+    app._reset_region_options_to_default_range = lambda: calls.append("reset_range")
+    app._sync_tool_mode_buttons = lambda: None
+    app._sync_tool_options = lambda: None
+    app._queue_display_update = lambda _preview: None
+
+    app._on_tool_mode_changed()
+
+    assert calls == [("select", REGION_INCLUDE_TOOL), "reset_range"]
+    assert app.selected_region_id is None
+
+
+def test_select_region_from_dock_activates_select_tool_before_selecting() -> None:
+    app = LayoutBuilder()
+    app.tool_mode = _Var(REGION_INCLUDE_TOOL)
+    calls = []
+    app._set_selected_region_id = lambda value: calls.append(("select_region", value))
+    app._sync_tool_options = lambda: calls.append(("sync", None))
+    app.update_display = lambda: calls.append(("display", None))
+
+    app._select_region_from_dock("region_a")
+
+    assert app.tool_mode.get() == "select"
+    assert calls[0] == ("select_region", "region_a")
 
 
 def test_inspector_mousewheel_outside_does_not_scroll_and_unbinds() -> None:
