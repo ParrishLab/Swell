@@ -2,6 +2,50 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.3.0] - 2026-07-16
+
+### Renamed to Swell
+- The application, Python package, and desktop bundles are now named Swell. The import root is `swell` (previously `sdapp`), and the macOS bundle is `Swell.app` with identifier `com.swell.desktop`.
+- Settings from an existing SDApp installation are copied into the Swell configuration directory on first packaged launch.
+- SAM2 checkpoints downloaded by SDApp are migrated to the Swell model directory instead of being downloaded again.
+- Legacy `.sdproj` projects continue to open, and the `sdapp` command-line alias and `SDAPP_DEVICE` environment variable are retained for existing launch scripts.
+
+### Region drafting
+- Region draft vertices can now be dragged after placement, and the selected handle stays highlighted after the mouse is released.
+- Added an **Undo Point** button that steps back the last placed vertex without discarding the draft.
+- Double-clicking the first vertex closes an open region draft, matching ROI behavior. Enter closes an open draft; Enter again commits a closed one.
+
+### Export
+- Added optional ROI-cropped binary mask export (`binary_masks_roi_cropped/`), written alongside a `roi_crop_metadata.json` recording the full-frame shape and crop bounds.
+
+### Documentation
+- Published a documentation site with a ten-part user guide, a glossary, and interactive demos covering prompting, mask editing, regions, and propagation.
+
+### Project
+- Swell is now released under the BSD 3-Clause license, with `CITATION.cff` and `codemeta.json` for citation metadata.
+
+### Removed
+- Automatic update checking has been removed. Swell no longer bundles the Sparkle/WinSparkle updater and the **Check for Updates** menu item is gone. New versions are downloaded manually from the GitHub releases page.
+
+### Fixes
+- Frame slider jump markers now track the slider thumb across the full width instead of drifting away from it toward the ends.
+- Git metadata lookups no longer fork the running application process, which could emit allocator warnings once Torch, Tk, and SAM2 had started threads.
+
+### Model/checkpoint compatibility
+- No checkpoint format or model selection change in this release; existing managed and local SAM2 model selections remain compatible.
+- Checkpoints downloaded by SDApp 0.2.0 and earlier are migrated automatically and do not need to be re-downloaded.
+
+### Platform/backend limitations
+- Because the bundle was renamed from `SDApp.app` to `Swell.app` (identifier `com.sdapp.desktop` to `com.swell.desktop`), Swell 0.3.0 installs alongside an existing SDApp installation rather than replacing it. Remove the old bundle manually once settings and checkpoints have migrated.
+- SDApp 0.2.0 installs with automatic update checking enabled will not discover this release; 0.3.0 publishes no updater appcast. Upgrading from 0.2.0 is a manual download.
+
+### .swell/migration notes
+- No schema change in this release. `.swell` writers still emit schema 3, and schema 2 projects remain loadable.
+- Legacy `.sdproj` files continue to open via the retained `com.sdapp.project` type association.
+
+### Known segmentation caveats/regressions
+- No known segmentation regressions in this release.
+
 ## [0.2.0] - 2026-06-12
 
 ### Auto-detect and ROI improvements
