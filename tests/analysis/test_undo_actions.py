@@ -42,6 +42,43 @@ class UndoActionsTests(unittest.TestCase):
         s._update_mask_prediction = lambda idx: setattr(s, "inferred", s.inferred + 1)
         return s
 
+    def test_undo_steps_back_region_draft_point_before_project_undo(self):
+        s = self._make_subject()
+        s.record_action("point", 0, None, None)
+
+        class _DraftController:
+            def __init__(self):
+                self.calls = 0
+
+            def undo_region_draft_point(self):
+                self.calls += 1
+                return True
+
+        s.interaction_controller = _DraftController()
+
+        self.assertEqual(s.on_undo(), "break")
+
+        # The draft is transient and never reaches the stack, so undo must
+        # consume the keystroke without popping the committed action.
+        self.assertEqual(s.interaction_controller.calls, 1)
+        self.assertEqual(len(s.undo_stack), 1)
+        self.assertEqual(s.redo_stack, [])
+
+    def test_undo_falls_through_to_project_undo_when_no_draft(self):
+        s = self._make_subject()
+        s.record_action("point", 0, None, None)
+
+        class _DraftController:
+            def undo_region_draft_point(self):
+                return False
+
+        s.interaction_controller = _DraftController()
+
+        self.assertEqual(s.on_undo(), "break")
+
+        self.assertEqual(s.undo_stack, [])
+        self.assertEqual(len(s.redo_stack), 1)
+
     def test_record_action_caps_stack(self):
         s = self._make_subject()
         for i in range(60):

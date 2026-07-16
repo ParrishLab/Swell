@@ -19,6 +19,8 @@ class _RegionDraftSession:
     mode: str
     points: list[list[float]] = field(default_factory=list)
     closed: bool = False
+    # Survives the gesture: the handle stays highlighted after mouse-up.
+    selected_idx: int | None = None
 
 
 def _has_tool_inversion_modifier(event) -> bool:
@@ -148,6 +150,9 @@ class InteractionController:
         self._region_drag_start_img = None
         self._region_drag_handle = None
         self._region_drag_ratio = 1.0
+        self._region_draft_drag_handle = None
+        self._region_draft_drag_start_img = None
+        self._region_draft_drag_ratio = 1.0
 
     def reset_transient_state(self):
         """Clear gesture and draft state that must never cross project/tool boundaries."""
@@ -159,6 +164,9 @@ class InteractionController:
         self._region_drag_start_img = None
         self._region_drag_handle = None
         self._region_drag_ratio = 1.0
+        self._region_draft_drag_handle = None
+        self._region_draft_drag_start_img = None
+        self._region_draft_drag_ratio = 1.0
 
     def on_tool_mode_changed(self, previous_mode, next_mode):
         if str(previous_mode) == str(next_mode):
@@ -171,6 +179,9 @@ class InteractionController:
         self._region_drag_start_img = None
         self._region_drag_handle = None
         self._region_drag_ratio = 1.0
+        self._region_draft_drag_handle = None
+        self._region_draft_drag_start_img = None
+        self._region_draft_drag_ratio = 1.0
         if had_draft:
             self.refresh_region_controls()
             self.update_display()
@@ -303,15 +314,26 @@ class InteractionController:
             coords = self._canvas_event_to_image(event, clamp=True)
             if coords is None:
                 return
-            img_x, img_y, _orig_w, _orig_h, _ratio, _offset_x, _offset_y = coords
+            img_x, img_y, _orig_w, _orig_h, ratio, _offset_x, _offset_y = coords
             draft_mode = region_mode_from_tool_mode(mode) or "include"
             if self._region_draft is None:
                 self._region_draft = _RegionDraftSession(mode=draft_mode)
-            if self._region_draft.closed:
+            draft = self._region_draft
+            hit = self._region_draft_hit_test(img_x, img_y, ratio)
+            # Hit-test before touching selection: a click that a closed draft
+            # rejects must leave the rest of the selection state alone.
+            if hit is None and draft.closed:
                 return False
             self.set_selected_point(None)
             self.set_selected_region_id(None)
-            self._region_draft.points.append([float(img_x), float(img_y)])
+            if hit is None:
+                draft.points.append([float(img_x), float(img_y)])
+                hit = ("vertex", len(draft.points) - 1)
+            draft.selected_idx = hit[1] if hit[0] == "vertex" else None
+            self._region_draft_drag_handle = hit
+            self._region_draft_drag_start_img = (float(img_x), float(img_y))
+            self._region_draft_drag_ratio = max(float(ratio), 0.001)
+            self.set_is_dragging(True)
             self.refresh_region_controls()
             self.update_display()
         elif mode == "select":
@@ -357,6 +379,8 @@ class InteractionController:
         elif mode == "box" and self.get_is_dragging() and self._box_drag_start_canvas is not None:
             x0, y0 = self._box_drag_start_canvas
             self.draw_box_preview(x0, y0, event.x, event.y)
+        elif is_region_tool_mode(mode) and self.get_is_dragging():
+            self._drag_region_draft(event)
 
         self.set_last_mouse_x(event.x)
         self.set_last_mouse_y(event.y)
@@ -469,6 +493,14 @@ class InteractionController:
             self._region_drag_handle = None
             self._region_drag_ratio = 1.0
 
+        if is_region_tool_mode(mode):
+            # End the gesture but keep draft.selected_idx: the handle stays
+            # highlighted after release. No record_action, no _pending_dirty --
+            # the draft is uncommitted until "Add Region".
+            self._region_draft_drag_handle = None
+            self._region_draft_drag_start_img = None
+            self._region_draft_drag_ratio = 1.0
+
         self.recompute_slider_jump_markers()
         self.update_display()
         changed = bool(self._pending_dirty)
@@ -539,6 +571,10 @@ class InteractionController:
     def is_region_draft_closed(self) -> bool:
         return bool(self._region_draft is not None and self._region_draft.closed)
 
+    def get_region_draft_selected_idx(self):
+        draft = self._region_draft
+        return None if draft is None else draft.selected_idx
+
     def cancel_region_draft(self):
         if not self.get_region_draft_points():
             return False
@@ -547,6 +583,51 @@ class InteractionController:
         self.update_display()
         return True
 
+    def undo_region_draft_point(self) -> bool:
+        """Step back the last draft vertex. Returns True if one was removed.
+
+        Draft-local by design: the draft is never on the undo stack, so this
+        records no action and leaves the project clean.
+        """
+        draft = self._region_draft
+        if draft is None or not draft.points:
+            return False
+        draft.points.pop()
+        draft.selected_idx = None
+        if len(draft.points) < 3:
+            draft.closed = False
+        if not draft.points:
+            # Empty draft == no draft, matching cancel_region_draft, so the
+            # next click re-creates the session with the current tool mode.
+            self._region_draft = None
+        self._region_draft_drag_handle = None
+        self._region_draft_drag_start_img = None
+        self._region_draft_drag_ratio = 1.0
+        self.refresh_region_controls()
+        self.update_display()
+        return True
+
+    def on_region_draft_double_click(self, event):
+        """Close the draft when its first vertex is double-clicked (ROI parity)."""
+        if not is_region_tool_mode(self.tool_mode.get()):
+            return None
+        draft = self._region_draft
+        if draft is None or draft.closed or len(draft.points) < 3:
+            return None
+        coords = self._canvas_event_to_image(event, clamp=True)
+        if coords is None:
+            return None
+        img_x, img_y, _orig_w, _orig_h, ratio, _offset_x, _offset_y = coords
+        if self._region_draft_hit_test(img_x, img_y, ratio) != ("vertex", 0):
+            return None
+        # Tk already delivered <Button-1>, which armed a drag on vertex 0.
+        # Cancel it or the pending <B1-Motion> drags the just-closed shape.
+        self.set_is_dragging(False)
+        self._region_draft_drag_handle = None
+        self._region_draft_drag_start_img = None
+        self._region_draft_drag_ratio = 1.0
+        return "break" if self.close_region_draft() else None
+
     def close_region_draft(self):
         if self._region_draft is None or len(self._region_draft.points) < 3:
             return False
@@ -554,6 +635,7 @@ class InteractionController:
             self._report_region_validation_error("Region shape is too small or degenerate.")
             return False
         self._region_draft.closed = True
+        self._region_draft.selected_idx = None
         self.refresh_region_controls()
         self.update_display()
         return True
@@ -736,6 +818,38 @@ class InteractionController:
         cy = float(ay) + t * vy
         return float(((float(px) - cx) ** 2 + (float(py) - cy) ** 2) ** 0.5)
 
+    def _region_draft_hit_test(self, img_x, img_y, ratio):
+        """Hit-test the in-progress draft, returning ("vertex", i) | ("edge", i+1) | None.
+
+        Vertices are grabbable whether the draft is open or closed; edges only
+        accept an insert once it is closed, so an open polyline still appends.
+        Unlike _region_hit_test this picks the *nearest* vertex, which is what
+        makes "double-click the first vertex to close" resolve correctly.
+        """
+        draft = self._region_draft
+        if draft is None or not draft.points:
+            return None
+        tolerance = max(4.0, 7.0 / max(float(ratio), 0.001))
+        polygon = draft.points
+
+        best_idx = None
+        best_dist_sq = tolerance**2
+        for point_idx, (x, y) in enumerate(polygon):
+            dist_sq = (float(img_x) - float(x)) ** 2 + (float(img_y) - float(y)) ** 2
+            if dist_sq <= best_dist_sq:
+                best_dist_sq = dist_sq
+                best_idx = point_idx
+        if best_idx is not None:
+            return ("vertex", best_idx)
+
+        if draft.closed and len(polygon) >= 3:
+            for point_idx in range(len(polygon)):
+                ax, ay = polygon[point_idx]
+                bx, by = polygon[(point_idx + 1) % len(polygon)]
+                if self._point_segment_distance(img_x, img_y, ax, ay, bx, by) <= tolerance:
+                    return ("edge", point_idx + 1)
+        return None
+
     def _region_hit_test(
         self,
         idx,
@@ -848,6 +962,48 @@ class InteractionController:
         self._region_drag_start_img = (float(img_x), float(img_y))
         self._region_drag_handle = handle
         self._region_drag_ratio = max(float(ratio), 0.001)
+
+    def _drag_region_draft(self, event):
+        """Move the grabbed draft vertex, inserting one first for an edge grab.
+
+        Mirrors _move_selected_region but never sets _pending_dirty: a draft is
+        uncommitted, and on_mouse_up turns that flag into _mark_project_dirty.
+        """
+        draft = self._region_draft
+        handle = self._region_draft_drag_handle
+        start = self._region_draft_drag_start_img
+        if draft is None or handle is None or start is None:
+            return
+        coords = self._canvas_event_to_image(event, clamp=True)
+        if coords is None:
+            return
+        img_x, img_y, orig_w, orig_h, _ratio, _offset_x, _offset_y = coords
+
+        if handle[0] == "edge":
+            # Threshold is canvas px, so the grab feels the same at any zoom.
+            distance_canvas = (
+                ((float(img_x) - float(start[0])) ** 2 + (float(img_y) - float(start[1])) ** 2) ** 0.5
+            ) * self._region_draft_drag_ratio
+            if distance_canvas < REGION_EDGE_DRAG_THRESHOLD_PX:
+                return
+            insert_idx = int(handle[1])
+            draft.points.insert(insert_idx, [float(start[0]), float(start[1])])
+            handle = ("vertex", insert_idx)
+            self._region_draft_drag_handle = handle
+            draft.selected_idx = insert_idx
+            self.refresh_region_controls()
+
+        if handle[0] != "vertex":
+            return
+        vertex_idx = int(handle[1])
+        if not (0 <= vertex_idx < len(draft.points)):
+            return
+        draft.points[vertex_idx] = [
+            max(0.0, min(float(orig_w - 1), float(img_x))),
+            max(0.0, min(float(orig_h - 1), float(img_y))),
+        ]
+        draft.selected_idx = vertex_idx
+        self.update_display()
 
     def _move_selected_region(self, idx, img_x, img_y, orig_w, orig_h):
         region_id = self.get_selected_region_id()

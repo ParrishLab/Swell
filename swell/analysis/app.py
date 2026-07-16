@@ -43,7 +43,7 @@ from swell.analysis.core.propagation_progress import PropagationProgressLogger
 from swell.shared.ui.theme import APP_COLORS
 from swell.analysis.core.app_context import AppContext
 from swell.analysis.core import project_workflow
-from swell.analysis.core.region_tools import REGION_EXCLUDE_TOOL, REGION_INCLUDE_TOOL
+from swell.analysis.core.region_tools import REGION_EXCLUDE_TOOL, REGION_INCLUDE_TOOL, is_region_tool_mode
 from swell.analysis.core.viewport import (
     ViewportState,
     clamp_viewport_center,
@@ -54,6 +54,7 @@ from swell.analysis.core.viewport import (
 )
 from swell.shared.app_metadata import format_window_title
 from swell.shared.diagnostics import stage as perf_stage
+from swell.shared.git_runtime import run_git
 from swell.analysis.controllers import (
     AnalysisHostModeController,
     AnalysisModelController,
@@ -1147,12 +1148,9 @@ class SwellAnalysisApp(LayoutBuilder, IOActions, SegmentationActions, RenderActi
 
     def _detect_release_branch(self):
         try:
-            result = subprocess.run(
-                ["git", "rev-parse", "--abbrev-ref", "HEAD"],
-                cwd=self.app_root,
-                check=False,
-                capture_output=True,
-                text=True,
+            result = run_git(
+                self.app_root,
+                ["rev-parse", "--abbrev-ref", "HEAD"],
                 timeout=2,
             )
             if result.returncode != 0:
@@ -1723,6 +1721,21 @@ class SwellAnalysisApp(LayoutBuilder, IOActions, SegmentationActions, RenderActi
 
         if total <= 1:
             return width / 2.0
+
+        # ttk.Scale reserves half a thumb at each end of its trough, so a
+        # full-width linear mapping drifts away from the thumb except near the
+        # middle.  Ask the scale for the real thumb center and translate that
+        # widget coordinate into the overlay canvas coordinate system.
+        slider = getattr(self, "slider", None)
+        overlay = getattr(self, "slider_overlay", None)
+        if slider is not None and overlay is not None:
+            try:
+                slider_x, _slider_y = slider.coords(clamped_idx)
+                x = slider.winfo_rootx() + float(slider_x) - overlay.winfo_rootx()
+                if 0.0 <= x <= float(width):
+                    return x
+            except Exception:
+                pass
         return (clamped_idx / float(total - 1)) * max(0.0, float(width - 1))
 
     def _compose_final_mask_for_frame(self, frame_idx):
@@ -2533,6 +2546,9 @@ class SwellAnalysisApp(LayoutBuilder, IOActions, SegmentationActions, RenderActi
     def cancel_region_draft(self):
         return bool(self.interaction_controller.cancel_region_draft())
 
+    def undo_region_draft_point(self):
+        return bool(self.interaction_controller.undo_region_draft_point())
+
     def close_region_draft(self):
         return bool(self.interaction_controller.close_region_draft())
 
@@ -2832,6 +2848,22 @@ class SwellAnalysisApp(LayoutBuilder, IOActions, SegmentationActions, RenderActi
         if changed:
             self._schedule_leverage_recompute()
             self._mark_project_dirty("mouse_up")
+
+    def on_canvas_double_click(self, event):
+        return self.interaction_controller.on_region_draft_double_click(event)
+
+    def _region_draft_enter_hotkey(self, event=None):
+        # Root-level bind, so this also fires while typing in the region
+        # frame-range Entries; those have their own <Return> handler.
+        if self._focus_is_text_input():
+            return None
+        if not is_region_tool_mode(self.tool_mode.get()):
+            return None
+        if not self.interaction_controller.get_region_draft_points():
+            return None
+        if not self.interaction_controller.is_region_draft_closed():
+            return "break" if self.close_region_draft() else None
+        return "break" if self.commit_region_draft() else None
 
     def delete_selected_point(self, event=None):
         # Delete/BackSpace are bound on the root window, so this also fires

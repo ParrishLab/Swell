@@ -12,9 +12,9 @@ import numpy as np
 from swell.shared.persistence.schema import (
     DEFAULT_EVENT_ID,
     EMBEDDED_EXTRACT_PREFIX,
-    PROJECT_EXTENSION,
     PROJECT_TEMP_SUFFIX,
 )
+from swell.shared.project_naming import normalize_project_save_path
 from swell.shared.persistence.embedded_images import reserve_embedded_image_arcname
 from swell.shared.persistence.event_path import allocate_event_path_segment
 from swell.shared.persistence.zip_io import (
@@ -99,9 +99,7 @@ class ProjectStore:
         event_payloads: Dict[str, Dict[str, Any]],
         embed_images: bool = False,
     ) -> None:
-        target = Path(target_path)
-        if target.suffix.lower() != PROJECT_EXTENSION:
-            target = target.with_suffix(PROJECT_EXTENSION)
+        target = normalize_project_save_path(target_path)
         target.parent.mkdir(parents=True, exist_ok=True)
         event_segment_by_id = _build_event_segment_map(project_state, event_payloads)
         project_state_to_write = _project_state_with_persisted_event_refs(

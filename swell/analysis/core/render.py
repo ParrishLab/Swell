@@ -1,9 +1,11 @@
 from collections import OrderedDict
+import math
+import time
+import zlib
+
 import cv2
 import numpy as np
-import time
 from PIL import Image, ImageTk
-import zlib
 
 from swell.shared.image_overlay import apply_mask_overlay, frame_to_rgb_u8
 from swell.analysis.core.viewport import compute_fit_scale
@@ -257,7 +259,20 @@ class RenderActions:
         return (int(ghost_idx), token)
 
     def on_slider_move(self, val):
-        self.current_frame_idx = int(float(val))
+        raw_value = float(val)
+        # A ttk.Scale is continuous, but the timeline represents discrete
+        # frames.  Keep the thumb on the selected frame so it cannot drift
+        # away from the integer-frame playhead while the user drags it.
+        frame_idx = int(math.floor(raw_value + 0.5))
+        if hasattr(self, "_get_frame_count"):
+            frame_count = int(self._get_frame_count())
+            if frame_count > 0:
+                frame_idx = max(0, min(frame_idx, frame_count - 1))
+        self.current_frame_idx = frame_idx
+        if abs(raw_value - float(frame_idx)) > 1e-9 and hasattr(self, "slider"):
+            # Updating the value option moves the thumb without recursively
+            # invoking the scale command (which would render the frame twice).
+            self.slider.configure(value=frame_idx)
         self.update_display()
         if hasattr(self, "_schedule_analysis_prewarm"):
             self._schedule_analysis_prewarm(self.current_frame_idx)
@@ -517,6 +532,7 @@ class RenderActions:
         draft_points = []
         draft_closed = False
         draft_mode = "include"
+        draft_selected_idx = None
         controller = getattr(self, "interaction_controller", None)
         if controller is not None and hasattr(controller, "get_region_draft_points"):
             draft_points = controller.get_region_draft_points()
@@ -524,6 +540,8 @@ class RenderActions:
                 draft_closed = bool(controller.is_region_draft_closed())
             if hasattr(controller, "get_region_draft_mode"):
                 draft_mode = str(controller.get_region_draft_mode() or "include")
+            if hasattr(controller, "get_region_draft_selected_idx"):
+                draft_selected_idx = controller.get_region_draft_selected_idx()
         if draft_points:
             draft_color = APP_COLORS["danger"] if draft_mode == "exclude" else APP_COLORS["roi_active"]
             points = []
@@ -540,15 +558,19 @@ class RenderActions:
                     width=2,
                     dash=() if draft_closed else (3, 2),
                 )
-            for hx, hy in zip(points[0::2], points[1::2]):
+            for handle_idx, (hx, hy) in enumerate(zip(points[0::2], points[1::2])):
+                # Every draft handle already carries the measurement outline, so
+                # radius is the free channel for marking the selected one.
+                selected = draft_selected_idx is not None and int(draft_selected_idx) == handle_idx
+                radius = 7 if selected else 5
                 self.canvas_left.create_oval(
-                    hx - 5,
-                    hy - 5,
-                    hx + 5,
-                    hy + 5,
+                    hx - radius,
+                    hy - radius,
+                    hx + radius,
+                    hy + radius,
                     fill=draft_color,
                     outline=APP_COLORS["measurement"],
-                    width=2,
+                    width=3 if selected else 2,
                 )
 
     def _draw_analysis_overlay_on_right(self, idx):

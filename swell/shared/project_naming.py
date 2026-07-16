@@ -64,3 +64,17 @@ def derive_project_filename(
     source_paths: Iterable[str | Path] | None = None,
 ) -> str:
     return f"{derive_input_folder_name(input_dir=input_dir, source_paths=source_paths) or str(default_base)}{PROJECT_EXTENSION}"
+
+
+def normalize_project_save_path(path: str | Path) -> Path:
+    """Resolve the on-disk extension for a project save target.
+
+    A target that already carries a supported extension is preserved as-is, so
+    an explicitly chosen legacy ``.sdproj`` keeps saving as legacy while a
+    ``.swell`` stays ``.swell``. Anything else (a foreign or missing suffix)
+    defaults to the current ``.swell`` format.
+    """
+    target = Path(path)
+    if target.suffix.lower() not in SUPPORTED_PROJECT_EXTENSIONS:
+        target = target.with_suffix(PROJECT_EXTENSION)
+    return target

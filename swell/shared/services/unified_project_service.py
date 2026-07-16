@@ -15,8 +15,7 @@ from swell.shared.models import (
     chronological_event_sort_key,
 )
 from swell.shared.persistence import UnifiedProjectStore
-from swell.shared.persistence.schema import PROJECT_EXTENSION
-from swell.shared.project_naming import derive_project_filename
+from swell.shared.project_naming import derive_project_filename, normalize_project_save_path
 
 SESSION_SCHEMA_VERSION = 1
 ANALYSIS_BRIDGE_MODE = "single_stack_analysis_payload_v1"
@@ -171,7 +170,7 @@ class UnifiedProjectService:
                 )
             if not current_path.is_file():
                 raise ValueError(f"Project save target is not a file: {current_path}")
-        target_path = Path(
+        target_path = normalize_project_save_path(
             path
             or self._state.project_path
             or derive_project_filename(
@@ -179,8 +178,6 @@ class UnifiedProjectService:
                 input_dir=getattr(self._state.stack_ref, "input_dir", None),
             )
         )
-        if target_path.suffix.lower() != PROJECT_EXTENSION:
-            target_path = target_path.with_suffix(PROJECT_EXTENSION)
         target = str(target_path)
         self._normalize_loaded_state()
         self.store.save(target, self._state, embedded_images_input_dir=embedded_images_input_dir)

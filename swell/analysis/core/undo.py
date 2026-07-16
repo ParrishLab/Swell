@@ -18,6 +18,14 @@ class UndoActions:
             self.undo_stack.pop(0)
 
     def on_undo(self, event=None):
+        # An in-progress region draft is transient and never reaches the undo
+        # stack, so undo steps back its points first and only falls through to
+        # project undo once the draft is gone.
+        controller = getattr(self, "interaction_controller", None)
+        if controller is not None and hasattr(controller, "undo_region_draft_point"):
+            if controller.undo_region_draft_point():
+                return "break"
+
         if not self.undo_stack:
             self.log_info("Undo", "Nothing to undo.")
             return "break"

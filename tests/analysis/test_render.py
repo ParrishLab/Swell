@@ -210,6 +210,26 @@ class RenderActionsTests(unittest.TestCase):
         self.assertEqual(harness.current_frame_idx, 3)
         self.assertEqual(calls, [])
 
+    def test_slider_move_snaps_continuous_thumb_to_nearest_frame(self):
+        harness = _RenderHarness()
+        harness.current_frame_idx = 0
+        display_updates = []
+        harness.update_display = lambda: display_updates.append(harness.current_frame_idx)
+        harness._schedule_analysis_prewarm = lambda _idx: None
+        harness._initial_frame_nav_ts = None
+        snapped_values = []
+        harness.slider = type(
+            "Slider",
+            (),
+            {"configure": lambda _self, **kwargs: snapped_values.append(kwargs["value"])},
+        )()
+
+        harness.on_slider_move(3.7)
+
+        self.assertEqual(harness.current_frame_idx, 4)
+        self.assertEqual(snapped_values, [4])
+        self.assertEqual(display_updates, [4])
+
     def test_mask_peek_suppresses_overlay_and_participates_in_cache_token(self):
         harness = _DisplayHarness()
         base_mask = np.zeros((4, 4), dtype=bool)
@@ -324,6 +344,36 @@ class RenderActionsTests(unittest.TestCase):
         self.assertFalse(any(item[0] == "line" for item in harness.canvas_left.items))
         handles = [item for item in harness.canvas_left.items if item[0] == "oval"]
         self.assertEqual(handles[0][2].get("fill"), APP_COLORS["roi_active"])
+
+    def test_region_draft_selected_vertex_draws_larger_handle(self):
+        harness = _ViewportRenderHarness()
+        harness.current_frame_idx = 0
+        harness.points = {}
+        harness.boxes = {}
+        harness.selected_point = None
+        harness.selected_region_id = None
+        harness.seg_state = SegmentationState()
+        harness.canvas_left = _CanvasStub(width=100, height=100)
+        harness.interaction_controller = type(
+            "DraftController",
+            (),
+            {
+                "get_region_draft_points": lambda _self: [[2.0, 2.0], [5.0, 2.0], [5.0, 5.0]],
+                "is_region_draft_closed": lambda _self: True,
+                "get_region_draft_selected_idx": lambda _self: 1,
+            },
+        )()
+        transform = harness._get_canvas_viewport_transform(harness.canvas_left, 10, 10)
+
+        harness._draw_overlay_elements(transform, (10, 10))
+
+        handles = [item for item in harness.canvas_left.items if item[0] == "oval"]
+        self.assertEqual(len(handles), 3)
+        # Radius is the selection channel: every handle already carries the
+        # measurement outline, so only the middle one reads as selected.
+        radii = [(item[1][2] - item[1][0]) / 2 for item in handles]
+        self.assertEqual(radii, [5, 7, 5])
+        self.assertEqual([item[2].get("width") for item in handles], [2, 3, 2])
 
     def test_exclude_region_draft_uses_danger_red(self):
         harness = _ViewportRenderHarness()
@@ -545,6 +595,9 @@ class RenderActionsTests(unittest.TestCase):
             def cancel_region_draft(self):
                 pass
 
+            def undo_region_draft_point(self):
+                pass
+
             def commit_region_draft(self):
                 pass
 
@@ -575,6 +628,7 @@ class RenderActionsTests(unittest.TestCase):
 
             self.assertIn("Include Region", texts)
             self.assertIn("Frames", texts)
+            self.assertIn("Undo Point", texts)
             self.assertIn("Close Shape", texts)
             self.assertIn("Discard", texts)
             self.assertIn("Add Region", texts)

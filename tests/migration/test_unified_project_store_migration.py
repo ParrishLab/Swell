@@ -80,6 +80,31 @@ def test_canonical_store_roundtrip_preserves_analysis_payload(tmp_path) -> None:
     assert checkpoint_meta.get("checkpoint_id") == "sam2.1_hiera_base_plus"
 
 
+def test_explicit_legacy_extension_is_preserved_on_save(tmp_path) -> None:
+    store = UnifiedProjectStore()
+    out = tmp_path / "legacy_choice.sdproj"
+    store.save(out, _state())
+
+    # An explicitly chosen legacy target keeps the .sdproj extension and is not
+    # rewritten to .swell, and it still round-trips through load().
+    assert out.exists()
+    assert not (tmp_path / "legacy_choice.swell").exists()
+    loaded = store.load(out)
+    assert loaded.stack_ref is not None
+    assert loaded.stack_ref.frame_count == 5
+
+
+def test_unknown_extension_defaults_to_swell_on_save(tmp_path) -> None:
+    store = UnifiedProjectStore()
+    store.save(tmp_path / "no_ext", _state())
+    store.save(tmp_path / "foreign.txt", _state())
+
+    # A missing or foreign extension falls back to the canonical .swell format.
+    assert (tmp_path / "no_ext.swell").exists()
+    assert (tmp_path / "foreign.swell").exists()
+    assert not (tmp_path / "foreign.txt").exists()
+
+
 def _stack_dir_with_frames(tmp_path, names) -> str:
     stack_dir = tmp_path / "frames"
     stack_dir.mkdir()

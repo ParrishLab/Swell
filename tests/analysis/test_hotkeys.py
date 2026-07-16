@@ -161,6 +161,55 @@ class HotkeysTests(unittest.TestCase):
         self.assertTrue(app.commit_region_draft())
         self.assertEqual(app.tool_mode.get(), "select")
 
+    def _make_region_draft_app(self, focused_class, *, points, closed):
+        app = self._make_app(focused_class)
+        app.tool_mode.set(REGION_INCLUDE_TOOL)
+        app.calls = []
+        app.interaction_controller = type(
+            "Controller",
+            (),
+            {
+                "get_region_draft_points": lambda _self: list(points),
+                "is_region_draft_closed": lambda _self: closed,
+            },
+        )()
+        app.close_region_draft = lambda: app.calls.append("close") or True
+        app.commit_region_draft = lambda: app.calls.append("commit") or True
+        return app
+
+    def test_enter_closes_open_region_draft(self):
+        app = self._make_region_draft_app("Canvas", points=[(1, 1), (2, 1), (2, 2)], closed=False)
+
+        self.assertEqual(app._region_draft_enter_hotkey(), "break")
+        self.assertEqual(app.calls, ["close"])
+
+    def test_enter_commits_closed_region_draft(self):
+        app = self._make_region_draft_app("Canvas", points=[(1, 1), (2, 1), (2, 2)], closed=True)
+
+        self.assertEqual(app._region_draft_enter_hotkey(), "break")
+        self.assertEqual(app.calls, ["commit"])
+
+    def test_enter_ignored_while_typing_in_region_range_entry(self):
+        # Enter is bound on the root, so it also fires while typing in the
+        # region frame-range Entries, which have their own <Return> handler.
+        app = self._make_region_draft_app("Entry", points=[(1, 1), (2, 1), (2, 2)], closed=False)
+
+        self.assertIsNone(app._region_draft_enter_hotkey())
+        self.assertEqual(app.calls, [])
+
+    def test_enter_ignored_outside_region_tool(self):
+        app = self._make_region_draft_app("Canvas", points=[(1, 1), (2, 1), (2, 2)], closed=False)
+        app.tool_mode.set("select")
+
+        self.assertIsNone(app._region_draft_enter_hotkey())
+        self.assertEqual(app.calls, [])
+
+    def test_enter_ignored_without_a_draft(self):
+        app = self._make_region_draft_app("Canvas", points=[], closed=False)
+
+        self.assertIsNone(app._region_draft_enter_hotkey())
+        self.assertEqual(app.calls, [])
+
     def test_l_toggles_ground_truth_when_not_typing(self):
         app = self._make_app("Canvas")
         app.gt_calls = 0

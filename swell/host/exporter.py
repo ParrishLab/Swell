@@ -33,6 +33,7 @@ from swell.shared.persistence.event_path import allocate_event_path_segment, san
 from swell.shared.services import MetricsSettingsResolver
 from swell.shared.errors import DataCorruptionError, InferenceRuntimeError
 from swell.shared.app_metadata import detect_app_version
+from swell.shared.git_runtime import run_git
 from swell.shared.matplotlib_rendering import create_agg_figure, get_colormap, render_lock, save_agg_figure
 from .config import EventCandidate, ExportRecord, TraceResult
 from .signal_analysis import event_to_dict
@@ -2498,12 +2499,11 @@ def _repo_root() -> Path:
 
 def _run_git(args: list[str]) -> str | None:
     try:
-        result = subprocess.run(
-            ["git", "-C", str(_repo_root()), *args],
+        result = run_git(
+            _repo_root(),
+            args,
             check=True,
-            stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
-            text=True,
             timeout=5,
         )
     except Exception:

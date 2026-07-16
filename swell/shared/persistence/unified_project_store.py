@@ -26,6 +26,7 @@ from swell.shared.persistence.schema import (
     PERSISTENCE_OWNER_FIELD,
     PROJECT_EXTENSION,
     PROJECT_TEMP_SUFFIX,
+    SUPPORTED_PROJECT_EXTENSIONS,
     SCHEMA_VERSION_FIELD,
     STACK_FILENAME,
 )
@@ -111,7 +112,11 @@ class UnifiedProjectStore:
         embedded_images_input_dir: str | Path | None = None,
     ) -> None:
         target = Path(target_path).expanduser().resolve()
-        if target.suffix.lower() != PROJECT_EXTENSION:
+        # Preserve an explicitly chosen legacy extension (e.g. .sdproj); default
+        # anything else to the current .swell format. Mirrors
+        # normalize_project_save_path, kept inline here to avoid a circular
+        # import through the persistence package initializer.
+        if target.suffix.lower() not in SUPPORTED_PROJECT_EXTENSIONS:
             target = target.with_suffix(PROJECT_EXTENSION)
         target.parent.mkdir(parents=True, exist_ok=True)
         fd, tmp_name = tempfile.mkstemp(suffix=PROJECT_TEMP_SUFFIX, dir=str(target.parent))

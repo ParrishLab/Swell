@@ -145,11 +145,13 @@ def test_region_options_refresh_when_active_panel_is_unchanged() -> None:
     app.btn_region_add = _FakeButton()
     app.btn_region_close_shape = _FakeButton()
     app.btn_region_discard = _FakeButton()
+    app.btn_region_undo_point = _FakeButton()
 
     app._sync_tool_options()
     assert app.btn_region_add.options["state"] == "disabled"
     assert app.btn_region_close_shape.options["state"] == "disabled"
     assert app.btn_region_discard.options["state"] == "disabled"
+    assert app.btn_region_undo_point.options["state"] == "disabled"
 
     app.interaction_controller.points = [(1, 1), (2, 1), (2, 2)]
     app._sync_tool_options()
@@ -157,6 +159,7 @@ def test_region_options_refresh_when_active_panel_is_unchanged() -> None:
     assert app.btn_region_add.options["state"] == "disabled"
     assert app.btn_region_close_shape.options["state"] == "normal"
     assert app.btn_region_discard.options["state"] == "normal"
+    assert app.btn_region_undo_point.options["state"] == "normal"
 
     app.interaction_controller.closed = True
     app._sync_tool_options()

@@ -488,8 +488,8 @@ class InteractionControllerTests(unittest.TestCase):
         mode.set(REGION_INCLUDE_TOOL)
 
         controller.on_mouse_down(_Event(2, 2))
-        controller.on_mouse_down(_Event(8, 2))
-        controller.on_mouse_down(_Event(8, 8))
+        controller.on_mouse_down(_Event(17, 2))
+        controller.on_mouse_down(_Event(17, 17))
         controller.close_region_draft()
         changed = controller.commit_region_draft()
 
@@ -508,8 +508,8 @@ class InteractionControllerTests(unittest.TestCase):
         mode.set(REGION_EXCLUDE_TOOL)
 
         controller.on_mouse_down(_Event(2, 2))
-        controller.on_mouse_down(_Event(8, 2))
-        controller.on_mouse_down(_Event(8, 8))
+        controller.on_mouse_down(_Event(17, 2))
+        controller.on_mouse_down(_Event(17, 17))
         controller.close_region_draft()
         changed = controller.commit_region_draft()
 
@@ -519,13 +519,15 @@ class InteractionControllerTests(unittest.TestCase):
     def test_region_commit_requires_closed_shape_and_closed_shape_ignores_more_clicks(self):
         controller, _holder, mode, _lbl, _fill_mode, _fill_tolerance = self._make_controller()
         mode.set(REGION_INCLUDE_TOOL)
-        for x, y in ((2, 2), (8, 2), (8, 8)):
+        for x, y in ((2, 2), (17, 2), (17, 17)):
             controller.on_mouse_down(_Event(x, y))
 
         self.assertFalse(controller.commit_region_draft())
         self.assertTrue(controller.close_region_draft())
         before = controller.get_region_draft_points()
-        controller.on_mouse_down(_Event(2, 8))
+        # Probe must miss every vertex, every edge, and the body, or a draft
+        # hit-test would consume the click and stop testing append-rejection.
+        controller.on_mouse_down(_Event(2, 17))
 
         self.assertEqual(controller.get_region_draft_points(), before)
         self.assertTrue(controller.commit_region_draft())
@@ -533,7 +535,7 @@ class InteractionControllerTests(unittest.TestCase):
     def test_region_draft_owns_mode_and_tool_transition_discards_it(self):
         controller, _holder, mode, _lbl, _fill_mode, _fill_tolerance = self._make_controller()
         mode.set(REGION_INCLUDE_TOOL)
-        for x, y in ((2, 2), (8, 2), (8, 8)):
+        for x, y in ((2, 2), (17, 2), (17, 17)):
             controller.on_mouse_down(_Event(x, y))
         controller.close_region_draft()
 
@@ -545,7 +547,7 @@ class InteractionControllerTests(unittest.TestCase):
     def test_region_draft_mode_does_not_follow_uncoordinated_tool_var_change(self):
         controller, _holder, mode, _lbl, _fill_mode, _fill_tolerance = self._make_controller()
         mode.set(REGION_INCLUDE_TOOL)
-        for x, y in ((2, 2), (8, 2), (8, 8)):
+        for x, y in ((2, 2), (17, 2), (17, 17)):
             controller.on_mouse_down(_Event(x, y))
         controller.close_region_draft()
 
@@ -618,7 +620,7 @@ class InteractionControllerTests(unittest.TestCase):
     def test_region_commit_validation_does_not_leave_empty_id_raster_cache(self):
         controller, _holder, mode, _lbl, _fill_mode, _fill_tolerance = self._make_controller()
         mode.set(REGION_INCLUDE_TOOL)
-        for x, y in ((2, 2), (8, 2), (8, 8)):
+        for x, y in ((2, 2), (17, 2), (17, 17)):
             controller.on_mouse_down(_Event(x, y))
         controller.close_region_draft()
 
@@ -629,7 +631,7 @@ class InteractionControllerTests(unittest.TestCase):
     def test_direct_region_commit_does_not_leak_dirty_state_to_mouse_up(self):
         controller, _holder, mode, _lbl, _fill_mode, _fill_tolerance = self._make_controller()
         mode.set(REGION_INCLUDE_TOOL)
-        for x, y in ((2, 2), (8, 2), (8, 8)):
+        for x, y in ((2, 2), (17, 2), (17, 17)):
             controller.on_mouse_down(_Event(x, y))
             controller.on_mouse_up(_Event(x, y))
         controller.close_region_draft()
@@ -641,15 +643,172 @@ class InteractionControllerTests(unittest.TestCase):
         controller, holder, mode, _lbl, _fill_mode, _fill_tolerance = self._make_controller()
         mode.set(REGION_INCLUDE_TOOL)
 
+        # Collinear but spaced beyond the vertex hit tolerance, so all three
+        # clicks append and the polygon validator is the thing under test.
         controller.on_mouse_down(_Event(2, 2))
-        controller.on_mouse_down(_Event(2, 2))
-        controller.on_mouse_down(_Event(2, 2))
+        controller.on_mouse_down(_Event(10, 2))
+        controller.on_mouse_down(_Event(18, 2))
         controller.close_region_draft()
         changed = controller.commit_region_draft()
 
         self.assertFalse(changed)
         self.assertEqual(controller.seg_state.persistent_regions, [])
         self.assertEqual(holder["records"], [])
+
+    def test_region_draft_vertex_drag_moves_point_on_open_draft(self):
+        controller, _holder, mode, _lbl, _fill_mode, _fill_tolerance = self._make_controller()
+        mode.set(REGION_INCLUDE_TOOL)
+        for x, y in ((2, 2), (17, 2), (17, 17)):
+            controller.on_mouse_down(_Event(x, y))
+
+        controller.on_mouse_down(_Event(2, 2))
+        controller.on_mouse_drag(_Event(5, 6))
+        controller.on_mouse_up(_Event(5, 6))
+
+        points = controller.get_region_draft_points()
+        self.assertEqual(len(points), 3)
+        self.assertEqual(points[0], [5.0, 6.0])
+        self.assertEqual(controller.get_region_draft_selected_idx(), 0)
+
+    def test_region_draft_vertex_drag_works_after_close(self):
+        controller, _holder, mode, _lbl, _fill_mode, _fill_tolerance = self._make_controller()
+        mode.set(REGION_INCLUDE_TOOL)
+        for x, y in ((2, 2), (17, 2), (17, 17)):
+            controller.on_mouse_down(_Event(x, y))
+        self.assertTrue(controller.close_region_draft())
+
+        controller.on_mouse_down(_Event(17, 17))
+        controller.on_mouse_drag(_Event(14, 15))
+        controller.on_mouse_up(_Event(14, 15))
+
+        points = controller.get_region_draft_points()
+        self.assertTrue(controller.is_region_draft_closed())
+        self.assertEqual(len(points), 3)
+        self.assertEqual(points[2], [14.0, 15.0])
+
+    def test_region_draft_edge_click_inserts_vertex_once_drag_passes_threshold(self):
+        controller, _holder, mode, _lbl, _fill_mode, _fill_tolerance = self._make_controller()
+        mode.set(REGION_INCLUDE_TOOL)
+        for x, y in ((2, 2), (18, 2), (18, 18)):
+            controller.on_mouse_down(_Event(x, y))
+        self.assertTrue(controller.close_region_draft())
+
+        # (10, 2) sits on the first edge and clears the 7px vertex tolerance
+        # at both ends, so it is an edge grab rather than a vertex grab.
+        controller.on_mouse_down(_Event(10, 2))
+        self.assertEqual(len(controller.get_region_draft_points()), 3)
+
+        controller.on_mouse_drag(_Event(11, 2))
+        self.assertEqual(len(controller.get_region_draft_points()), 3)
+
+        controller.on_mouse_drag(_Event(10, 8))
+        controller.on_mouse_up(_Event(10, 8))
+
+        points = controller.get_region_draft_points()
+        self.assertEqual(len(points), 4)
+        self.assertEqual(points[1], [10.0, 8.0])
+        self.assertEqual(controller.get_region_draft_selected_idx(), 1)
+
+    def test_region_draft_edge_click_appends_while_open(self):
+        controller, _holder, mode, _lbl, _fill_mode, _fill_tolerance = self._make_controller()
+        mode.set(REGION_INCLUDE_TOOL)
+        for x, y in ((2, 2), (18, 2), (18, 18)):
+            controller.on_mouse_down(_Event(x, y))
+
+        controller.on_mouse_down(_Event(10, 2))
+
+        # Edge inserts are a closed-draft affordance; an open polyline still
+        # appends, so the click lands at the end rather than at index 1.
+        points = controller.get_region_draft_points()
+        self.assertEqual(len(points), 4)
+        self.assertEqual(points[3], [10.0, 2.0])
+
+    def test_region_draft_edits_do_not_dirty_project(self):
+        controller, holder, mode, _lbl, _fill_mode, _fill_tolerance = self._make_controller()
+        mode.set(REGION_INCLUDE_TOOL)
+        for x, y in ((2, 2), (17, 2), (17, 17)):
+            controller.on_mouse_down(_Event(x, y))
+        self.assertTrue(controller.close_region_draft())
+
+        controller.on_mouse_down(_Event(2, 2))
+        controller.on_mouse_drag(_Event(6, 6))
+        dirty = controller.on_mouse_up(_Event(6, 6))
+
+        # A draft is uncommitted until "Add Region", so editing it must not
+        # mark the project dirty or land on the undo stack.
+        self.assertFalse(dirty)
+        self.assertFalse(controller._pending_dirty)
+        self.assertEqual(holder["records"], [])
+
+    def test_undo_region_draft_point_pops_last_point(self):
+        controller, _holder, mode, _lbl, _fill_mode, _fill_tolerance = self._make_controller()
+        mode.set(REGION_INCLUDE_TOOL)
+        for x, y in ((2, 2), (17, 2), (17, 17)):
+            controller.on_mouse_down(_Event(x, y))
+
+        self.assertTrue(controller.undo_region_draft_point())
+
+        self.assertEqual(controller.get_region_draft_points(), [[2.0, 2.0], [17.0, 2.0]])
+
+    def test_undo_region_draft_point_reopens_closed_draft(self):
+        controller, _holder, mode, _lbl, _fill_mode, _fill_tolerance = self._make_controller()
+        mode.set(REGION_INCLUDE_TOOL)
+        for x, y in ((2, 2), (17, 2), (17, 17)):
+            controller.on_mouse_down(_Event(x, y))
+        self.assertTrue(controller.close_region_draft())
+
+        self.assertTrue(controller.undo_region_draft_point())
+
+        self.assertFalse(controller.is_region_draft_closed())
+
+    def test_undo_region_draft_point_clears_session_when_last_point_goes(self):
+        controller, _holder, mode, _lbl, _fill_mode, _fill_tolerance = self._make_controller()
+        mode.set(REGION_INCLUDE_TOOL)
+        controller.on_mouse_down(_Event(2, 2))
+
+        self.assertTrue(controller.undo_region_draft_point())
+
+        # Empty draft == no draft, so the next click re-seeds the session with
+        # whatever tool mode is current.
+        self.assertEqual(controller.get_region_draft_points(), [])
+        self.assertIsNone(controller.get_region_draft_mode())
+
+    def test_undo_region_draft_point_without_draft_is_a_noop(self):
+        controller, holder, mode, _lbl, _fill_mode, _fill_tolerance = self._make_controller()
+        mode.set(REGION_INCLUDE_TOOL)
+
+        self.assertFalse(controller.undo_region_draft_point())
+        self.assertEqual(holder["records"], [])
+
+    def test_region_draft_double_click_on_first_vertex_closes_and_ends_drag(self):
+        controller, holder, mode, _lbl, _fill_mode, _fill_tolerance = self._make_controller()
+        mode.set(REGION_INCLUDE_TOOL)
+        for x, y in ((2, 2), (17, 2), (17, 17)):
+            controller.on_mouse_down(_Event(x, y))
+
+        # Tk delivers <Button-1> first; with vertex hit-testing it grabs vertex
+        # 0 instead of appending a duplicate.
+        controller.on_mouse_down(_Event(2, 2))
+        result = controller.on_region_draft_double_click(_Event(2, 2))
+
+        self.assertEqual(result, "break")
+        self.assertTrue(controller.is_region_draft_closed())
+        self.assertEqual(len(controller.get_region_draft_points()), 3)
+        # The armed drag must be cancelled or the pending <B1-Motion> would
+        # drag vertex 0 around the just-closed shape.
+        self.assertFalse(holder["is_dragging"])
+
+    def test_region_draft_double_click_away_from_first_vertex_does_not_close(self):
+        controller, _holder, mode, _lbl, _fill_mode, _fill_tolerance = self._make_controller()
+        mode.set(REGION_INCLUDE_TOOL)
+        for x, y in ((2, 2), (17, 2), (17, 17)):
+            controller.on_mouse_down(_Event(x, y))
+
+        controller.on_mouse_down(_Event(17, 17))
+        result = controller.on_region_draft_double_click(_Event(17, 17))
+
+        self.assertIsNone(result)
+        self.assertFalse(controller.is_region_draft_closed())
 
     def test_selected_region_range_update_records_action_without_changing_mode(self):
         controller, holder, _mode, _lbl, _fill_mode, _fill_tolerance = self._make_controller()

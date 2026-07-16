@@ -216,31 +216,38 @@ class LayoutBuilder:
         for entry in (self.entry_region_start, self.entry_region_end):
             entry.bind("<Return>", self._apply_selected_region_options_event, add="+")
             entry.bind("<FocusOut>", self._apply_selected_region_options_event, add="+")
-        self.btn_region_close_shape = ttk.Button(region_frame, text="Close Shape", command=self.close_region_draft, **semantic_button_options("secondary"))
-        self.btn_region_close_shape.grid(
+        self.btn_region_undo_point = ttk.Button(region_frame, text="Undo Point", command=self.undo_region_draft_point, **semantic_button_options("secondary"))
+        self.btn_region_undo_point.grid(
             row=0,
             column=5,
             sticky="e",
             padx=(SPACING.inner, 0),
         )
+        self.btn_region_close_shape = ttk.Button(region_frame, text="Close Shape", command=self.close_region_draft, **semantic_button_options("secondary"))
+        self.btn_region_close_shape.grid(
+            row=0,
+            column=6,
+            sticky="e",
+            padx=(SPACING.gap, 0),
+        )
         self.btn_region_discard = ttk.Button(region_frame, text="Discard", command=self.cancel_region_draft, **semantic_button_options("secondary"))
         self.btn_region_discard.grid(
             row=0,
-            column=6,
+            column=7,
             sticky="e",
             padx=(SPACING.gap, 0),
         )
         self.btn_region_add = ttk.Button(region_frame, text="Add Region", command=self.commit_region_draft, **semantic_button_options("primary"))
         self.btn_region_add.grid(
             row=0,
-            column=7,
+            column=8,
             sticky="e",
             padx=(SPACING.gap, 0),
         )
         self.btn_region_convert = ttk.Button(region_frame, text="Convert to Exclude", command=self.convert_selected_region_mode, **semantic_button_options("secondary"))
         self.btn_region_convert.grid(
             row=0,
-            column=8,
+            column=9,
             sticky="e",
             padx=(SPACING.gap, 0),
         )
@@ -259,6 +266,7 @@ class LayoutBuilder:
         self.canvas_left.grid(row=0, column=0, sticky="nsew")
 
         self.canvas_left.bind("<Button-1>", self.on_mouse_down)
+        self.canvas_left.bind("<Double-Button-1>", self.on_canvas_double_click)
         self.canvas_left.bind("<B1-Motion>", self.on_mouse_drag)
         self.canvas_left.bind("<ButtonRelease-1>", self.on_mouse_up)
         self.canvas_left.bind("<Motion>", self.on_mouse_move)
@@ -1273,12 +1281,14 @@ class LayoutBuilder:
             self.btn_region_add.configure(state="disabled")
             self.btn_region_close_shape.configure(state="disabled")
             self.btn_region_discard.configure(state="disabled")
+            self.btn_region_undo_point.configure(state="disabled")
             return
         title.configure(text="Exclude Region" if current == REGION_EXCLUDE_TOOL else "Include Region")
         self.btn_region_convert.configure(text="Convert Selected", state="disabled")
         self.btn_region_add.configure(state="normal" if can_add else "disabled")
         self.btn_region_close_shape.configure(state="normal" if has_draft and can_close else "disabled")
         self.btn_region_discard.configure(state="normal" if has_draft else "disabled")
+        self.btn_region_undo_point.configure(state="normal" if has_draft else "disabled")
 
     def _lock_tool_options_slot_size(self):
         slot = getattr(self, "tool_options_slot", None)
@@ -1445,6 +1455,7 @@ class LayoutBuilder:
         self.root.bind("<Right>", self.on_nav_right)
         self.root.bind("<Delete>", self.delete_selected_point)
         self.root.bind("<BackSpace>", self.delete_selected_point)
+        self.root.bind("<Return>", self._region_draft_enter_hotkey)
         self.root.bind("<b>", self._set_tool_brush_hotkey)
         self.root.bind("<B>", self._set_tool_brush_hotkey)
         self.root.bind("<e>", self._set_tool_eraser_hotkey)

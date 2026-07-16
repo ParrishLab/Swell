@@ -41,9 +41,10 @@ class PropagationOverlayStateTests(unittest.TestCase):
                 self.state = str(kwargs["state"])
 
     class _Canvas:
-        def __init__(self, width=100, height=18):
+        def __init__(self, width=100, height=18, root_x=0):
             self.width = int(width)
             self.height = int(height)
+            self.root_x = int(root_x)
             self.items = []
             self.deleted_tags = []
             self.raised_tags = []
@@ -62,6 +63,9 @@ class PropagationOverlayStateTests(unittest.TestCase):
 
         def winfo_height(self):
             return self.height
+
+        def winfo_rootx(self):
+            return self.root_x
 
         def create_rectangle(self, *args, **kwargs):
             item_id = self._next_id
@@ -365,6 +369,23 @@ class PropagationOverlayStateTests(unittest.TestCase):
         self.assertEqual(coords[1], 0)  # spans full height
         self.assertEqual(coords[3], 18)
         self.assertEqual(playheads[0]["kwargs"].get("fill"), APP_COLORS["white"])
+
+    def test_overlay_mapping_uses_real_slider_thumb_center(self):
+        app = self._make_app(frame_count=10)
+        app.slider_overlay = self._Canvas(width=100, height=18, root_x=25)
+
+        class _Scale:
+            def coords(self, value):
+                return (15.0 + (float(value) * 7.0), 7.0)
+
+            def winfo_rootx(self):
+                return 25
+
+        app.slider = _Scale()
+
+        x = app._frame_to_overlay_x(4, width=100, total_frames=10)
+
+        self.assertAlmostEqual(x, 43.0)
 
     def test_playhead_moves_without_duplicating(self):
         app = self._make_app(frame_count=10)

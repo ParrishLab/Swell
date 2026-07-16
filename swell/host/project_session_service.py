@@ -5,11 +5,11 @@ from pathlib import Path
 from typing import Any
 
 from swell.shared.models import clone_analysis_payload
-from swell.shared.project_naming import derive_project_filename
+from swell.shared.project_naming import derive_project_filename, normalize_project_save_path
 from swell.shared.services import MetricsSettingsResolver, UnifiedProjectService
 from swell.shared.services import MODEL_CHECKPOINT_METADATA_KEY
 from swell.shared.trace import TraceAttachment
-from swell.shared.persistence.schema import METADATA_DC_TRACE_ATTACHMENT_KEY, PROJECT_EXTENSION, SUPPORTED_PROJECT_EXTENSIONS
+from swell.shared.persistence.schema import METADATA_DC_TRACE_ATTACHMENT_KEY, SUPPORTED_PROJECT_EXTENSIONS
 
 from .host_models import EventMeta, HostSessionState, StackRef
 
@@ -57,16 +57,16 @@ class ProjectSessionService:
                 )
             if not current.is_file():
                 raise ValueError(f"Project save target is not a file: {current}")
-        target = Path(
-            path
-            or state.project_path
-            or derive_project_filename(
-                default_base="session",
-                input_dir=getattr(state.stack_ref, "input_dir", None),
-            )
-        ).expanduser().resolve()
-        if target.suffix.lower() != PROJECT_EXTENSION:
-            target = target.with_suffix(PROJECT_EXTENSION)
+        target = normalize_project_save_path(
+            Path(
+                path
+                or state.project_path
+                or derive_project_filename(
+                    default_base="session",
+                    input_dir=getattr(state.stack_ref, "input_dir", None),
+                )
+            ).expanduser().resolve()
+        )
         self._service.save_project(str(target), embedded_images_input_dir=embedded_images_input_dir)
         return self.state()
 
