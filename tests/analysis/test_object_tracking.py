@@ -3,8 +3,47 @@ from __future__ import annotations
 import json
 
 import numpy as np
+import pytest
 
-from swell.analysis.core.object_tracking import TrackingConfig, build_object_lineage
+from swell.analysis.core.object_tracking import PhysicalTrackingConfig, TrackingConfig, build_object_lineage
+
+
+@pytest.mark.parametrize(
+    ("scale_px_per_mm", "expected_area_px", "expected_centroid_px", "expected_boundary_px"),
+    [
+        (130.0, 5, 13.0, 6.5),
+        (396.0, 40, 39.6, 19.8),
+    ],
+)
+def test_physical_tracking_config_converts_to_pixel_thresholds(
+    scale_px_per_mm: float,
+    expected_area_px: int,
+    expected_centroid_px: float,
+    expected_boundary_px: float,
+) -> None:
+    config = PhysicalTrackingConfig().to_pixel_config(scale_px_per_mm)
+
+    assert config.min_component_area_px == expected_area_px
+    assert config.min_persistence_frames == 2
+    assert config.max_centroid_distance_px == pytest.approx(expected_centroid_px)
+    assert config.max_boundary_distance_px == pytest.approx(expected_boundary_px)
+
+
+@pytest.mark.parametrize("scale_px_per_mm", [130.0, 396.0])
+def test_physical_component_area_filter_is_resolution_invariant(scale_px_per_mm: float) -> None:
+    config = PhysicalTrackingConfig().to_pixel_config(scale_px_per_mm)
+    threshold = config.min_component_area_px
+    below_height, below_width = ((2, 2) if threshold == 5 else (3, 13))
+    kept_height, kept_width = ((1, 5) if threshold == 5 else (4, 10))
+    mask = np.zeros((24, 32), dtype=bool)
+    mask[1 : 1 + below_height, 1 : 1 + below_width] = True
+    mask[12 : 12 + kept_height, 12 : 12 + kept_width] = True
+
+    result = build_object_lineage([0], [mask], config=config)
+
+    assert result["summary"]["raw_track_count"] == 2
+    assert result["summary"]["kept_track_count"] == 1
+    assert result["summary"]["noise_filtered_track_count"] == 1
 
 
 def test_object_tracker_filters_small_one_frame_noise() -> None:

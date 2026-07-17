@@ -17,15 +17,17 @@ import numpy as np
 from PIL import Image, ImageDraw
 import tifffile
 from swell.analysis.core.metrics import (
+    DEFAULT_MIN_PROPAGATION_DISTANCE_MM,
     compute_frame_metrics,
     extract_primary_boundary,
+    propagation_min_distance_px,
     roi_mask_from_polygons,
     roi_mask_from_points,
     smooth_boundary_fft,
 )
 from swell.analysis.core.seg_state import SegmentationState
 from swell.host.analysis_payload_mapper import EventBounds, normalize_sidecar_index, scope_metadata
-from swell.analysis.core.object_tracking import TrackingConfig, build_object_lineage
+from swell.analysis.core.object_tracking import PhysicalTrackingConfig, build_object_lineage
 from swell.shared.frame_source import EventScopedFrameSource, PreparedFrameSource, StackReaderFrameSource
 from swell.shared.image_overlay import apply_mask_overlay
 from swell.shared.models import clone_analysis_payload
@@ -997,6 +999,7 @@ def _track_speed_rows(
     event_start_idx: int,
     scale_px_per_mm: float | None,
     sec_per_frame: float,
+    min_dist_px: float,
     mask_by_track_frame: dict[tuple[int, int], np.ndarray] | None = None,
 ) -> list[dict[str, object]]:
     rows: list[dict[str, object]] = []
@@ -1016,7 +1019,7 @@ def _track_speed_rows(
             if boundary is not None:
                 boundary = smooth_boundary_fft(boundary, n_keep=25)
             boundaries.append(boundary)
-        metrics = compute_frame_metrics(boundaries, min_dist_px=2.0)
+        metrics = compute_frame_metrics(boundaries, min_dist_px=float(min_dist_px))
         avg_dist_px = np.asarray(metrics.get("avg_dist_px", []), dtype=np.float64)
         if scale_px_per_mm is not None and scale_px_per_mm > 0:
             speed_values = (avg_dist_px * (1000.0 / float(scale_px_per_mm))) / float(sec_per_frame)
@@ -1166,6 +1169,8 @@ def _write_metrics_combined_workbook(
         ("Event start time (sec)", summary.get("event_start_time_sec")),
         ("Event end time (sec)", summary.get("event_end_time_sec")),
         ("Scale available", summary.get("has_scale")),
+        ("Propagation minimum displacement (mm)", summary.get("propagation_min_distance_mm")),
+        ("Propagation minimum displacement (px)", summary.get("propagation_min_distance_px")),
         ("ROI available", summary.get("has_roi")),
         ("ROI pixels", summary.get("roi_pixels")),
         ("Selected metrics", summary.get("selected_metrics")),
@@ -1179,6 +1184,8 @@ def _write_metrics_combined_workbook(
     ]
     lineage_summary = summary.get("object_lineage_summary")
     if isinstance(lineage_summary, dict) and lineage_summary:
+        physical_config = lineage_summary.get("physical_config")
+        pixel_config = lineage_summary.get("config")
         summary_rows.extend(
             [
                 ("Tracked objects kept", lineage_summary.get("kept_track_count")),
@@ -1189,6 +1196,17 @@ def _write_metrics_combined_workbook(
                 ("Tracks with speed", lineage_summary.get("tracks_with_speed_count")),
             ]
         )
+        if isinstance(physical_config, dict) and isinstance(pixel_config, dict):
+            summary_rows.extend(
+                [
+                    ("Lineage minimum component area (mm^2)", physical_config.get("min_component_area_mm2")),
+                    ("Lineage minimum component area (px)", pixel_config.get("min_component_area_px")),
+                    ("Lineage maximum centroid distance (mm)", physical_config.get("max_centroid_distance_mm")),
+                    ("Lineage maximum centroid distance (px)", pixel_config.get("max_centroid_distance_px")),
+                    ("Lineage maximum boundary distance (mm)", physical_config.get("max_boundary_distance_mm")),
+                    ("Lineage maximum boundary distance (px)", pixel_config.get("max_boundary_distance_px")),
+                ]
+            )
     warning = summary.get("propagation_gap_warning")
     for index, entry in enumerate(_propagation_warning_entries(warning), start=1):
         prefix = "Propagation warning" if index == 1 else f"Propagation warning {index}"
@@ -1252,6 +1270,11 @@ def _export_event_metrics(
         else _safe_float(metrics_settings.get("scale_px_per_mm"), default=None)
     )
     has_scale = scale_px_per_mm is not None and scale_px_per_mm > 0 and _scale_unit_is_px_per_mm(metrics_settings.get("scale_unit"))
+    propagation_threshold_px = (
+        propagation_min_distance_px(float(scale_px_per_mm))
+        if has_scale and scale_px_per_mm is not None
+        else 2.0
+    )
     sec_per_frame = 1.0 / float(fps)
     local_index_by_frame = {int(frame_index): int(local_idx) for local_idx, frame_index in enumerate(frame_indices)}
 
@@ -1283,7 +1306,7 @@ def _export_event_metrics(
         if boundary is not None:
             boundary = smooth_boundary_fft(boundary, n_keep=25)
         boundaries_full.append(boundary)
-    frame_metrics_full = compute_frame_metrics(boundaries_full, min_dist_px=2.0)
+    frame_metrics_full = compute_frame_metrics(boundaries_full, min_dist_px=float(propagation_threshold_px))
 
     boundaries_roi = []
     frame_metrics_roi = None
@@ -1293,7 +1316,7 @@ def _export_event_metrics(
             if boundary is not None:
                 boundary = smooth_boundary_fft(boundary, n_keep=25)
             boundaries_roi.append(boundary)
-        frame_metrics_roi = compute_frame_metrics(boundaries_roi, min_dist_px=2.0)
+        frame_metrics_roi = compute_frame_metrics(boundaries_roi, min_dist_px=float(propagation_threshold_px))
 
     speed_metrics = frame_metrics_roi if (has_roi and frame_metrics_roi is not None) else frame_metrics_full
     avg_dist_px = np.asarray(speed_metrics["avg_dist_px"], dtype=np.float64)
@@ -1538,12 +1561,16 @@ def _export_event_metrics(
 
     lineage_summary: dict[str, object] | None = None
     if include_metric_lineage_object_metrics and has_roi:
+        physical_tracking_config = PhysicalTrackingConfig()
+        pixel_tracking_config = physical_tracking_config.to_pixel_config(float(scale_px_per_mm))
         tracker_result = build_object_lineage(
             frame_indices,
             full_masks,
-            config=TrackingConfig(),
+            config=pixel_tracking_config,
         )
         lineage_summary = dict(tracker_result.get("summary", {}) or {})
+        lineage_summary["physical_config"] = asdict(physical_tracking_config)
+        lineage_summary["scale_px_per_mm"] = float(scale_px_per_mm)
         object_track_rows = list(tracker_result.get("object_track_rows", []) or [])
         lineage_rows = list(tracker_result.get("lineage_rows", []) or [])
         track_area_rows: list[dict[str, object]] = []
@@ -1610,6 +1637,7 @@ def _export_event_metrics(
             event_start_idx=int(event.start_idx),
             scale_px_per_mm=scale_px_per_mm,
             sec_per_frame=float(sec_per_frame),
+            min_dist_px=float(propagation_threshold_px),
             mask_by_track_frame=export_mask_by_track_frame,
         )
         weighted_track_speed_rows = _weighted_track_speed_rows(
@@ -1788,6 +1816,8 @@ def _export_event_metrics(
         "scale_px_per_mm": None if scale_px_per_mm is None else float(scale_px_per_mm),
         "scale_unit": str(metrics_settings.get("scale_unit", "") or ""),
         "scale_source": str(metrics_settings.get("scale_source", "") or ""),
+        "propagation_min_distance_mm": float(DEFAULT_MIN_PROPAGATION_DISTANCE_MM),
+        "propagation_min_distance_px": float(propagation_threshold_px) if has_scale else None,
         "has_roi": bool(has_roi),
         "roi_pixels": int(roi_pixels),
         "selected_metrics": {
@@ -2665,7 +2695,7 @@ def _format_summary_value(value: object) -> str:
     if isinstance(value, float):
         if not np.isfinite(value):
             return "n/a"
-        return f"{value:.4f}".rstrip("0").rstrip(".")
+        return f"{value:.10g}"
     if isinstance(value, (int, np.integer)):
         return str(int(value))
     if isinstance(value, (list, tuple)):
@@ -2780,6 +2810,8 @@ def _write_metrics_summary_markdown(path: Path, summary: dict[str, object], *, e
         _markdown_bullet("Event start time (sec)", summary.get("event_start_time_sec")),
         _markdown_bullet("Event end time (sec)", summary.get("event_end_time_sec")),
         _markdown_bullet("Scale available", summary.get("has_scale")),
+        _markdown_bullet("Propagation minimum displacement (mm)", summary.get("propagation_min_distance_mm")),
+        _markdown_bullet("Propagation minimum displacement (px)", summary.get("propagation_min_distance_px")),
         _markdown_bullet("ROI available", summary.get("has_roi")),
         _markdown_bullet("ROI pixels", summary.get("roi_pixels")),
         _markdown_bullet("Selected metrics", enabled_metrics),
@@ -2793,6 +2825,8 @@ def _write_metrics_summary_markdown(path: Path, summary: dict[str, object], *, e
     ]
     lineage_summary = summary.get("object_lineage_summary")
     if isinstance(lineage_summary, dict) and lineage_summary:
+        physical_config = lineage_summary.get("physical_config")
+        pixel_config = lineage_summary.get("config")
         lines.extend(
             [
                 _markdown_bullet("Tracked objects kept", lineage_summary.get("kept_track_count")),
@@ -2803,6 +2837,17 @@ def _write_metrics_summary_markdown(path: Path, summary: dict[str, object], *, e
                 _markdown_bullet("Tracks with speed", lineage_summary.get("tracks_with_speed_count")),
             ]
         )
+        if isinstance(physical_config, dict) and isinstance(pixel_config, dict):
+            lines.extend(
+                [
+                    _markdown_bullet("Lineage minimum component area (mm^2)", physical_config.get("min_component_area_mm2")),
+                    _markdown_bullet("Lineage minimum component area (px)", pixel_config.get("min_component_area_px")),
+                    _markdown_bullet("Lineage maximum centroid distance (mm)", physical_config.get("max_centroid_distance_mm")),
+                    _markdown_bullet("Lineage maximum centroid distance (px)", pixel_config.get("max_centroid_distance_px")),
+                    _markdown_bullet("Lineage maximum boundary distance (mm)", physical_config.get("max_boundary_distance_mm")),
+                    _markdown_bullet("Lineage maximum boundary distance (px)", pixel_config.get("max_boundary_distance_px")),
+                ]
+            )
     warning_entries = _propagation_warning_entries(summary.get("propagation_gap_warning"))
     if warning_entries:
         lines.extend(

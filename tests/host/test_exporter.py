@@ -768,10 +768,12 @@ def test_export_propagation_speed_uses_roi_clipped_masks_when_roi_present(monkey
     full_avg = np.asarray([np.nan, 10.0, 10.0, 10.0], dtype=np.float64)
     roi_avg = np.asarray([np.nan, 1.0, 1.0, 1.0], dtype=np.float64)
     calls: list[str] = []
+    thresholds: list[float] = []
 
     def _fake_compute_frame_metrics(_boundaries, min_dist_px=2.0):  # noqa: ARG001
         kind = "full" if not calls else "roi"
         calls.append(kind)
+        thresholds.append(float(min_dist_px))
         return {
             "areas_px": np.ones(4, dtype=np.float64),
             "avg_dist_px": full_avg if kind == "full" else roi_avg,
@@ -802,6 +804,7 @@ def test_export_propagation_speed_uses_roi_clipped_masks_when_roi_present(monkey
     )
 
     assert calls == ["full", "roi"]
+    assert thresholds == pytest.approx([15.0, 15.0])
     rows = list(csv.DictReader((tmp_path / "event_0001" / "metrics" / "propagation_speed_event_0001.csv").open("r", newline="", encoding="utf-8")))
     speeds = [float(r["speed_um_per_sec"]) for r in rows if r["speed_um_per_sec"] not in ("", "nan")]
     assert speeds == pytest.approx([1.0, 1.0, 1.0])
@@ -850,6 +853,97 @@ def test_export_propagation_speed_uses_full_masks_when_no_roi(monkeypatch, tmp_p
     assert len(calls) == 1
     summary = json.loads((tmp_path / "event_0001" / "metrics" / "metrics_summary.json").read_text(encoding="utf-8"))
     assert float(summary["overall_avg_speed_um_per_sec"]) == pytest.approx(5.0)
+
+
+def test_export_uses_one_physical_displacement_threshold_for_overall_and_lineage(monkeypatch, tmp_path: Path) -> None:
+    frames = [np.zeros((130, 130), dtype=np.uint8) for _ in range(3)]
+    reader = FakeReader(frames)
+    masks = np.zeros((3, 130, 130), dtype=np.uint8)
+    masks[0, 50:55, 20:25] = 1
+    masks[1, 50:55, 23:28] = 1
+    masks[2, 50:55, 26:31] = 1
+    observed_thresholds: list[float] = []
+    real_compute_frame_metrics = exporter.compute_frame_metrics
+
+    def _recording_compute_frame_metrics(boundaries, min_dist_px=2.0):
+        observed_thresholds.append(float(min_dist_px))
+        return real_compute_frame_metrics(boundaries, min_dist_px=min_dist_px)
+
+    monkeypatch.setattr(exporter, "compute_frame_metrics", _recording_compute_frame_metrics)
+
+    export_analysis(
+        reader=reader,
+        events=[_event("event_0001", 0, 2)],
+        output_dir=tmp_path,
+        baseline_pre_frames=0,
+        include_event_images=False,
+        include_baseline_images=False,
+        include_metric_propagation_speed=True,
+        include_metric_lineage_object_metrics=True,
+        analysis_sidecar={
+            "event_0001": {
+                "masks_committed": masks,
+                "metrics_settings": {
+                    "frames_per_sec": 1.0,
+                    "scale_px_per_mm": 130.0,
+                    "scale_unit": "px_per_mm",
+                    "roi_mask": np.ones((130, 130), dtype=bool),
+                },
+            }
+        },
+    )
+
+    assert len(observed_thresholds) == 3
+    assert observed_thresholds == pytest.approx([1.95, 1.95, 1.95])
+
+
+def test_physical_tracking_and_weighted_speed_are_resolution_invariant() -> None:
+    positions_mm = [0.20, 0.22, 0.27, 0.29, 0.34]
+    averages: list[float] = []
+
+    for scale_px_per_mm in (130.0, 396.0):
+        image_size = int(scale_px_per_mm)
+        masks: list[np.ndarray] = []
+        for x_mm in positions_mm:
+            mask = np.zeros((image_size, image_size), dtype=np.uint8)
+            cv2.circle(
+                mask,
+                (int(round(x_mm * scale_px_per_mm)), int(round(0.5 * scale_px_per_mm))),
+                max(1, int(round(0.01 * scale_px_per_mm))),
+                1,
+                -1,
+            )
+            masks.append(mask.astype(bool))
+        frame_indices = list(range(len(masks)))
+        result = exporter.build_object_lineage(
+            frame_indices,
+            masks,
+            config=exporter.PhysicalTrackingConfig().to_pixel_config(scale_px_per_mm),
+        )
+
+        assert result["summary"]["raw_track_count"] == 1
+        assert result["summary"]["kept_track_count"] == 1
+        speed_rows = exporter._track_speed_rows(
+            tracks=result["tracks"],
+            event_start_idx=0,
+            scale_px_per_mm=scale_px_per_mm,
+            sec_per_frame=1.0,
+            min_dist_px=exporter.propagation_min_distance_px(scale_px_per_mm),
+        )
+        weighted_rows = exporter._weighted_track_speed_rows(
+            frame_indices=frame_indices,
+            time_sec=[float(index) for index in frame_indices],
+            track_speed_rows=speed_rows,
+        )
+        valid_speeds = [
+            float(row["area_weighted_speed_um_per_sec"])
+            for row in weighted_rows
+            if row["area_weighted_speed_um_per_sec"] != ""
+        ]
+        assert len(valid_speeds) == len(frame_indices) - 1
+        averages.append(float(np.mean(valid_speeds)))
+
+    assert averages[1] == pytest.approx(averages[0], rel=0.03)
 
 
 def test_export_metrics_combined_workbook_includes_summary_and_selected_metric_sheets(tmp_path: Path) -> None:
@@ -1499,6 +1593,26 @@ def test_export_lineage_metrics_write_object_tracking_artifacts(tmp_path: Path) 
     assert int(lineage_summary["merge_event_count"]) == 1
     assert lineage_summary["area_weighted_avg_speed_um_per_sec"] is not None
     assert lineage_summary["area_weighted_max_speed_um_per_sec"] is not None
+    assert lineage_summary["scale_px_per_mm"] == pytest.approx(4.0)
+    assert lineage_summary["physical_config"] == {
+        "min_component_area_mm2": 0.00025,
+        "min_persistence_frames": 2,
+        "max_centroid_distance_mm": 0.1,
+        "max_boundary_distance_mm": 0.05,
+    }
+    assert lineage_summary["config"] == {
+        "min_component_area_px": 1,
+        "min_persistence_frames": 2,
+        "max_centroid_distance_px": 0.4,
+        "max_boundary_distance_px": 0.2,
+    }
+
+    metrics_summary = json.loads((metrics_dir / "metrics_summary.json").read_text(encoding="utf-8"))
+    assert metrics_summary["propagation_min_distance_mm"] == pytest.approx(0.015)
+    assert metrics_summary["propagation_min_distance_px"] == pytest.approx(0.06)
+    markdown_summary = (metrics_dir / "metrics_summary.md").read_text(encoding="utf-8")
+    assert "Propagation minimum displacement (mm): 0.015" in markdown_summary
+    assert "Lineage maximum centroid distance (px): 0.4" in markdown_summary
 
     lineage_rows = list(csv.DictReader((metrics_dir / "object_lineage_event_0001.csv").open("r", newline="", encoding="utf-8")))
     assert len(lineage_rows) == 3
@@ -1534,6 +1648,12 @@ def test_export_lineage_metrics_write_object_tracking_artifacts(tmp_path: Path) 
     }
     assert summary_rows["Lineage weighted average speed (um/sec)"] is not None
     assert summary_rows["Lineage weighted max speed (um/sec)"] is not None
+    assert float(summary_rows["Propagation minimum displacement (mm)"]) == pytest.approx(0.015)
+    assert float(summary_rows["Propagation minimum displacement (px)"]) == pytest.approx(0.06)
+    assert float(summary_rows["Lineage minimum component area (mm^2)"]) == pytest.approx(0.00025)
+    assert int(summary_rows["Lineage minimum component area (px)"]) == 1
+    assert float(summary_rows["Lineage maximum centroid distance (mm)"]) == pytest.approx(0.1)
+    assert float(summary_rows["Lineage maximum centroid distance (px)"]) == pytest.approx(0.4)
 
 
 def test_export_lineage_metrics_do_not_change_legacy_relative_area_outputs(tmp_path: Path) -> None:

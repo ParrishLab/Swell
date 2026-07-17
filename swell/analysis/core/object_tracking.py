@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections import defaultdict
 from dataclasses import dataclass, field
 import json
+import math
 from typing import Any
 
 import cv2
@@ -15,6 +16,25 @@ class TrackingConfig:
     min_persistence_frames: int = 2
     max_centroid_distance_px: float = 12.0
     max_boundary_distance_px: float = 6.0
+
+
+@dataclass(frozen=True)
+class PhysicalTrackingConfig:
+    min_component_area_mm2: float = 0.00025
+    min_persistence_frames: int = 2
+    max_centroid_distance_mm: float = 0.10
+    max_boundary_distance_mm: float = 0.05
+
+    def to_pixel_config(self, scale_px_per_mm: float) -> TrackingConfig:
+        scale = float(scale_px_per_mm)
+        if not math.isfinite(scale) or scale <= 0:
+            raise ValueError("scale_px_per_mm must be finite and greater than zero")
+        return TrackingConfig(
+            min_component_area_px=int(math.ceil(float(self.min_component_area_mm2) * scale * scale)),
+            min_persistence_frames=int(self.min_persistence_frames),
+            max_centroid_distance_px=float(self.max_centroid_distance_mm) * scale,
+            max_boundary_distance_px=float(self.max_boundary_distance_mm) * scale,
+        )
 
 
 @dataclass

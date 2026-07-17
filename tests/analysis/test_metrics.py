@@ -12,6 +12,7 @@ from swell.analysis.core.metrics import (
     compute_roi_metrics,
     compute_scale,
     generate_metrics_plots,
+    propagation_min_distance_px,
     smooth_boundary_fft,
     write_metrics_outputs,
 )
@@ -32,6 +33,10 @@ class MetricsTests(unittest.TestCase):
         result = compute_scale(((0, 0), (3, 4)), mm_length=2.0)
         self.assertAlmostEqual(result["scale_bar_pixels"], 5.0)
         self.assertAlmostEqual(result["px_per_mm"], 2.5)
+
+    def test_propagation_min_distance_uses_physical_default(self):
+        self.assertAlmostEqual(propagation_min_distance_px(130.0), 1.95)
+        self.assertAlmostEqual(propagation_min_distance_px(396.0), 5.94)
 
     def test_smooth_boundary_fft_returns_input_for_short_boundary(self):
         b = np.array([[0.0, 0.0], [1.0, 1.0]])

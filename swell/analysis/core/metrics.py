@@ -10,6 +10,23 @@ if TYPE_CHECKING:
     import pandas as pd
 
 
+DEFAULT_MIN_PROPAGATION_DISTANCE_MM = 0.015
+
+
+def propagation_min_distance_px(
+    scale_px_per_mm: float,
+    *,
+    min_distance_mm: float = DEFAULT_MIN_PROPAGATION_DISTANCE_MM,
+) -> float:
+    scale = float(scale_px_per_mm)
+    distance = float(min_distance_mm)
+    if not np.isfinite(scale) or scale <= 0:
+        raise ValueError("scale_px_per_mm must be finite and greater than zero")
+    if not np.isfinite(distance) or distance < 0:
+        raise ValueError("min_distance_mm must be finite and non-negative")
+    return distance * scale
+
+
 def extract_primary_boundary(mask: np.ndarray) -> Optional[np.ndarray]:
     if mask is None:
         return None
