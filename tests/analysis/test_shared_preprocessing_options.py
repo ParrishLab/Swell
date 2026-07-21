@@ -10,6 +10,7 @@ from swell.shared.frame_source.preprocessing import (
     compute_visualization_stats,
     render_visualization_frame,
 )
+from swell.shared.frame_source import PreparedFrameSource
 
 
 class _Source:
@@ -51,6 +52,97 @@ def test_sample_percentile_pixels_allows_dtype_conversion_copy() -> None:
 
     assert sampled.dtype == np.float32
     assert sampled.shape == (8,)
+
+
+def test_nonfinite_pixels_are_excluded_and_sanitized() -> None:
+    frame = np.array([[0.0, 1.0], [np.nan, np.inf]], dtype=np.float32)
+
+    sampled = _sample_percentile_pixels(frame, max_pixels=10)
+    raw, sub, viz = build_visualization_stack(
+        _Source([frame]),
+        baseline_frames=1,
+        apply_smoothing=False,
+        apply_baseline_subtraction=False,
+        apply_global_normalization=False,
+    )
+
+    np.testing.assert_array_equal(sampled, np.array([0.0, 1.0], dtype=np.float32))
+    assert np.all(np.isfinite(raw))
+    assert np.all(np.isfinite(sub))
+    assert viz.dtype == np.uint8
+    assert int(viz.max()) == 255
+
+
+def test_all_nonfinite_stack_remains_finite_through_every_stage() -> None:
+    frames = [
+        np.full((8, 8), np.nan, dtype=np.float32),
+        np.full((8, 8), np.inf, dtype=np.float32),
+    ]
+
+    raw, sub, viz = build_visualization_stack(
+        _Source(frames),
+        baseline_frames=2,
+        apply_smoothing=True,
+        apply_baseline_subtraction=True,
+        apply_global_normalization=True,
+    )
+
+    assert np.all(np.isfinite(raw))
+    assert np.all(np.isfinite(sub))
+    assert np.all(raw == 0)
+    assert np.all(sub == 0)
+    assert np.all(viz == 0)
+
+
+def test_nonfinite_eager_and_lazy_preprocessing_are_equivalent() -> None:
+    frames = [
+        np.array([[0.0, 1.0], [np.nan, 3.0]], dtype=np.float32),
+        np.array([[1.0, np.inf], [4.0, 8.0]], dtype=np.float32),
+    ]
+    source = _Source(frames)
+    eager = build_visualization_stack(source, baseline_frames=1)
+    lazy = PreparedFrameSource(source, baseline_frames=1)
+
+    lazy_arrays = tuple(
+        np.stack([getter(idx) for idx in range(len(frames))], axis=0)
+        for getter in (lazy.get_raw_frame, lazy.get_subtracted_frame, lazy.get_visual_frame)
+    )
+
+    for eager_array, lazy_array in zip(eager, lazy_arrays):
+        np.testing.assert_allclose(eager_array, lazy_array)
+
+
+def test_eager_stack_memory_characterization_tracks_pixel_count() -> None:
+    """Document the current eager allocation cost while lazy loading remains future work."""
+    frame_count, height, width = 12, 48, 64
+    source = _Source(
+        [np.full((height, width), idx, dtype=np.float32) for idx in range(frame_count)]
+    )
+
+    raw, subtracted, visual = build_visualization_stack(source, baseline_frames=2)
+
+    pixel_count = frame_count * height * width
+    assert raw.nbytes == pixel_count * np.dtype(np.float32).itemsize
+    assert subtracted.nbytes == pixel_count * np.dtype(np.float32).itemsize
+    assert visual.nbytes == pixel_count * np.dtype(np.uint8).itemsize
+    assert raw.nbytes + subtracted.nbytes + visual.nbytes == pixel_count * 9
+
+
+def test_stabilization_with_nonfinite_pixels_produces_finite_offsets() -> None:
+    base = np.zeros((24, 24), dtype=np.float32)
+    base[8:14, 9:15] = 10.0
+    shifted = _shift(base, 2.0, -1.0)
+    base[0, 0] = np.nan
+    shifted[-1, -1] = np.inf
+
+    stats = compute_visualization_stats(
+        _Source([base, shifted]),
+        baseline_frames=1,
+        apply_stabilization=True,
+    )
+
+    assert stats.stabilization_offsets_px is not None
+    assert np.all(np.isfinite(stats.stabilization_offsets_px))
 
 
 def test_preprocessing_options_disable_all_stages() -> None:

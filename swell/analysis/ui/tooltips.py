@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from math import ceil
 import time
 import tkinter as tk
 
@@ -37,6 +38,7 @@ class TooltipManager:
         self._pending_widget = None
         self._pending_text = ""
         self._pending_origin = None
+        self._pending_delay_ms = self.hover_delay_ms
         self._active_widget = None
         self._cooldown_until = 0.0
         self._create_count = 0
@@ -72,12 +74,13 @@ class TooltipManager:
         if not text:
             self.hide()
             return
-        if self._clock() < self._cooldown_until:
-            return
         self._pending_widget = widget
         self._pending_text = text
         self._pending_origin = self._event_root_xy(event, widget)
         delay = self.hover_delay_ms if delay_ms is None else int(delay_ms)
+        cooldown_remaining_ms = ceil(max(0.0, self._cooldown_until - self._clock()) * 1000.0)
+        delay = max(delay, cooldown_remaining_ms)
+        self._pending_delay_ms = delay
         self._pending_job = self.root.after(max(0, delay), self._show_pending)
 
     def show_at_event(self, event, text: str) -> None:
@@ -91,12 +94,14 @@ class TooltipManager:
         self._show(widget, text, x, y)
 
     def hide(self, _event=None) -> None:
+        was_visible = self._active_widget is not None
         self._cancel_pending()
         self._pending_widget = None
         self._pending_text = ""
         self._pending_origin = None
         self._active_widget = None
-        self._cooldown_until = self._clock() + (self.cooldown_ms / 1000.0)
+        if was_visible:
+            self._cooldown_until = self._clock() + (self.cooldown_ms / 1000.0)
         window = self._window
         if window is None:
             return
@@ -120,6 +125,9 @@ class TooltipManager:
         widget = self._pending_widget
         text = self._pending_text
         x, y = self._pending_origin or self._widget_root_xy(widget)
+        self._pending_widget = None
+        self._pending_text = ""
+        self._pending_origin = None
         self._show(widget, text, x, y)
 
     def _show(self, widget, text: str, x_root: int, y_root: int) -> None:
@@ -162,13 +170,15 @@ class TooltipManager:
 
     def _on_motion(self, event) -> None:
         origin = self._pending_origin
-        if origin is None and self._active_widget is None:
+        if origin is None:
             return
         x, y = self._event_root_xy(event, getattr(event, "widget", self.root))
-        if origin is None:
-            origin = self._widget_root_xy(self._active_widget)
         if abs(int(x) - int(origin[0])) > self.movement_threshold_px or abs(int(y) - int(origin[1])) > self.movement_threshold_px:
-            self.hide()
+            widget = self._pending_widget
+            text = self._pending_text
+            delay = self._pending_delay_ms
+            if widget is not None and text:
+                self.schedule(widget, text, event, delay_ms=delay)
 
     def _event_root_xy(self, event, widget) -> tuple[int, int]:
         if event is not None and hasattr(event, "x_root") and hasattr(event, "y_root"):

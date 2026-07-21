@@ -164,6 +164,34 @@ class RenderActionsTests(unittest.TestCase):
         preview_center = preview_img.getpixel((30, 30))
         self.assertEqual(left_center[:2], preview_center[:2])
 
+    def test_extreme_portrait_and_landscape_frames_render_at_multiple_canvas_sizes(self):
+        cases = [((257, 3), (800, 120)), ((3, 257), (120, 800))]
+        for (height, width), (canvas_width, canvas_height) in cases:
+            with self.subTest(image=(width, height), canvas=(canvas_width, canvas_height)):
+                harness = _ViewportRenderHarness()
+                harness.viewport_state = ViewportState(
+                    center_x=width / 2.0,
+                    center_y=height / 2.0,
+                    zoom_factor=1.0,
+                )
+                image = np.zeros((height, width), dtype=np.uint8)
+                y0 = max(0, height // 2 - 2)
+                y1 = min(height, height // 2 + 3)
+                x0 = max(0, width // 2 - 2)
+                x1 = min(width, width // 2 + 3)
+                image[y0:y1, x0:x1] = 255
+                rendered, transform = harness._render_array_to_canvas_image(
+                    _CanvasStub(width=canvas_width, height=canvas_height),
+                    image,
+                    resample=Image.Resampling.NEAREST,
+                    fill_value=0,
+                )
+                self.assertEqual(rendered.size, (canvas_width, canvas_height))
+                center = transform.image_to_canvas(width / 2.0, height / 2.0)
+                self.assertAlmostEqual(center[0], canvas_width / 2.0)
+                self.assertAlmostEqual(center[1], canvas_height / 2.0)
+                self.assertEqual(max(rendered.getdata()), 255)
+
     def test_mask_preview_render_uses_nearest_neighbor_values(self):
         harness = _ViewportRenderHarness()
         mask = np.zeros((10, 10), dtype=np.uint8)

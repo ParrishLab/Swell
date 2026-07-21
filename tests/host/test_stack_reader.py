@@ -42,33 +42,61 @@ def test_to_grayscale_rejects_unsupported_shape() -> None:
         _to_grayscale(arr)
 
 
-def test_open_stack_png_filters_mismatched_shapes_and_reads_frames(tmp_path: Path) -> None:
+def test_open_stack_png_rejects_mismatched_shapes(tmp_path: Path) -> None:
     a = np.full((6, 7), 10, dtype=np.uint8)
     b = np.full((6, 7), 20, dtype=np.uint8)
-    c = np.full((5, 7), 30, dtype=np.uint8)  # mismatched height -> ignored
+    c = np.full((5, 7), 30, dtype=np.uint8)
 
     _save_png(tmp_path / "a.png", a)
     _save_png(tmp_path / "b.png", b)
     _save_png(tmp_path / "c.png", c)
 
-    calls: list[tuple[int, int]] = []
     reader = StackReader(max_cache=1)
-    info = reader.open_stack(tmp_path, progress_callback=lambda cur, total: calls.append((cur, total)))
+    with pytest.raises(ValueError, match=r"mixed frame dimensions.*c\.png \(7x5\)"):
+        reader.open_stack(tmp_path)
+
+    assert reader.get_frame_count() == 0
+
+
+def test_failed_mixed_dimension_open_preserves_previous_stack(tmp_path: Path) -> None:
+    valid_dir = tmp_path / "valid"
+    invalid_dir = tmp_path / "invalid"
+    valid_dir.mkdir()
+    invalid_dir.mkdir()
+    original = np.full((6, 7), 42, dtype=np.uint8)
+    _save_png(valid_dir / "frame.png", original)
+    _save_png(invalid_dir / "a.png", np.zeros((6, 7), dtype=np.uint8))
+    _save_png(invalid_dir / "b.png", np.zeros((5, 7), dtype=np.uint8))
+    reader = StackReader()
+    reader.open_stack(valid_dir)
+
+    with pytest.raises(ValueError, match="mixed frame dimensions"):
+        reader.open_stack(invalid_dir)
+
+    assert reader.get_frame_count() == 1
+    np.testing.assert_array_equal(reader.read_frame(0), original)
+
+
+def test_open_stack_rejects_dimension_mismatch_within_multipage_tiff(tmp_path: Path) -> None:
+    path = tmp_path / "mixed_pages.tif"
+    tifffile.imwrite(path, np.zeros((4, 5), dtype=np.uint8))
+    tifffile.imwrite(path, np.zeros((6, 5), dtype=np.uint8), append=True)
+
+    with pytest.raises(ValueError, match=r"page 2 \(5x6\)"):
+        StackReader().open_stack(tmp_path)
+
+
+def test_orientation_normalized_dimensions_are_compared(tmp_path: Path) -> None:
+    pixels = np.zeros((2, 3, 3), dtype=np.uint8)
+    exif = Image.Exif()
+    exif[274] = 6
+    Image.fromarray(pixels).save(tmp_path / "a_oriented.png", exif=exif)
+    Image.fromarray(np.zeros((3, 2, 3), dtype=np.uint8)).save(tmp_path / "b_regular.png")
+
+    info = StackReader().open_stack(tmp_path)
 
     assert info.frame_count == 2
-    assert info.frame_height == 6
-    assert info.frame_width == 7
-    assert reader.get_frame_count() == 2
-    assert reader.get_frame_name(0) == "a.png"
-    assert reader.get_frame_name(1) == "b.png"
-    assert calls
-    assert calls[0][0] == 1
-    assert calls[-1][1] >= 1
-
-    f0 = reader.read_frame(0)
-    f1 = reader.read_frame(1)
-    assert np.array_equal(f0, a)
-    assert np.array_equal(f1, b)
+    assert (info.frame_height, info.frame_width) == (3, 2)
 
 
 def test_missing_source_paths_reports_moved_stack_folder(tmp_path: Path) -> None:
@@ -140,6 +168,29 @@ def test_open_stack_tiff_multipage_creates_page_names(tmp_path: Path) -> None:
     assert np.array_equal(reader.read_frame(1), page1)
 
 
+def test_tiff_decode_failure_releases_per_handle_lock(tmp_path: Path, monkeypatch) -> None:
+    path = tmp_path / "frame.tif"
+    tifffile.imwrite(path, np.arange(20, dtype=np.uint16).reshape(4, 5))
+    reader = StackReader()
+    reader.open_stack(tmp_path)
+    page_type = tifffile.TiffPage
+    original = page_type.asarray
+
+    def fail_decode(self, *args, **kwargs):  # noqa: ANN001
+        raise RuntimeError("synthetic decoder failure")
+
+    monkeypatch.setattr(page_type, "asarray", fail_decode)
+    with pytest.raises(RuntimeError, match="synthetic decoder failure"):
+        reader._read_tiff_page(path, 0)
+
+    handle_lock = reader._tiff_handle_locks[str(path)]
+    assert handle_lock.acquire(blocking=False), "failed TIFF decodes must not strand the handle lock"
+    handle_lock.release()
+
+    monkeypatch.setattr(page_type, "asarray", original)
+    np.testing.assert_array_equal(reader._read_tiff_page(path, 0), np.arange(20, dtype=np.uint16).reshape(4, 5))
+
+
 def test_read_tiff_pages_concurrently_preserves_outputs_and_handle_locks(tmp_path: Path) -> None:
     pages = [np.full((4, 5), idx + 1, dtype=np.uint16) for idx in range(4)]
     for idx, page in enumerate(pages):
@@ -186,6 +237,50 @@ def test_open_stack_rgb_tiff_uses_grayscale_frame_dimensions(tmp_path: Path) -> 
     assert info.frame_width == 3072
     assert reader.read_frame(0).shape == (2048, 3072)
     assert reader.read_frame(1).shape == (2048, 3072)
+
+
+def test_open_stack_planar_rgb_tiff_uses_axis_metadata(tmp_path: Path) -> None:
+    tiff_path = tmp_path / "planar_rgb.tif"
+    page = np.zeros((3, 7, 11), dtype=np.uint8)
+    page[0] = 255
+    tifffile.imwrite(tiff_path, page, photometric="rgb", planarconfig="separate")
+
+    reader = StackReader()
+    info = reader.open_stack(tmp_path)
+    frame = reader.read_frame(0)
+
+    assert (info.frame_height, info.frame_width) == (7, 11)
+    assert frame.shape == (7, 11)
+    assert np.all(frame == 76)
+
+
+def test_open_stack_applies_exif_orientation(tmp_path: Path) -> None:
+    path = tmp_path / "portrait.jpg"
+    pixels = np.zeros((2, 3, 3), dtype=np.uint8)
+    pixels[:, 0, 0] = 255
+    exif = Image.Exif()
+    exif[274] = 6
+    Image.fromarray(pixels).save(path, exif=exif, quality=100, subsampling=0)
+
+    reader = StackReader()
+    info = reader.open_stack(tmp_path)
+    frame = reader.read_frame(0)
+
+    assert (info.frame_height, info.frame_width) == (3, 2)
+    assert frame.shape == (3, 2)
+
+
+def test_open_stack_applies_tiff_orientation(tmp_path: Path) -> None:
+    path = tmp_path / "oriented.tif"
+    pixels = np.arange(6, dtype=np.uint8).reshape(2, 3)
+    tifffile.imwrite(path, pixels, extratags=[(274, "H", 1, 6, False)])
+
+    reader = StackReader()
+    info = reader.open_stack(tmp_path)
+    frame = reader.read_frame(0)
+
+    assert (info.frame_height, info.frame_width) == (3, 2)
+    np.testing.assert_array_equal(frame, np.rot90(pixels, -1))
 
 
 def test_open_stack_rgb_uses_channel_mode_resolver_once(tmp_path: Path) -> None:
@@ -252,6 +347,48 @@ def test_read_tiff_falls_back_to_pillow_when_tifffile_decode_fails(tmp_path: Pat
 
     assert np.array_equal(out0, page0)
     assert np.array_equal(out1, page1)
+
+
+@pytest.mark.parametrize(
+    ("writer_kwargs", "filename"),
+    [
+        ({"bigtiff": True}, "big.tif"),
+        ({"compression": "deflate"}, "compressed.tif"),
+        ({"imagej": True, "metadata": {"axes": "TYX"}}, "imagej.tif"),
+        ({"ome": True, "metadata": {"axes": "TYX"}}, "ome.tif"),
+    ],
+)
+def test_tiff_container_variants_load(tmp_path: Path, writer_kwargs: dict, filename: str) -> None:
+    path = tmp_path / filename
+    stack = np.stack(
+        [np.full((5, 7), 11, dtype=np.uint16), np.full((5, 7), 22, dtype=np.uint16)],
+        axis=0,
+    )
+    tifffile.imwrite(path, stack, photometric="minisblack", **writer_kwargs)
+
+    reader = StackReader()
+    info = reader.open_stack(tmp_path)
+
+    assert info.frame_count == 2
+    np.testing.assert_array_equal(reader.read_frame(0), stack[0])
+    np.testing.assert_array_equal(reader.read_frame(1), stack[1])
+
+
+def test_corrupt_tiff_open_fails_without_replacing_previous_stack(tmp_path: Path) -> None:
+    valid_dir = tmp_path / "valid"
+    corrupt_dir = tmp_path / "corrupt"
+    valid_dir.mkdir()
+    corrupt_dir.mkdir()
+    original = np.full((3, 4), 9, dtype=np.uint8)
+    tifffile.imwrite(valid_dir / "valid.tif", original)
+    (corrupt_dir / "broken.tif").write_bytes(b"II*\x00truncated")
+    reader = StackReader()
+    reader.open_stack(valid_dir)
+
+    with pytest.raises(Exception):
+        reader.open_stack(corrupt_dir)
+
+    np.testing.assert_array_equal(reader.read_frame(0), original)
 
 
 def test_open_stack_errors_for_missing_or_empty_folder(tmp_path: Path) -> None:

@@ -103,7 +103,7 @@ def build_detector_grid(
     n_cols: int,
     *,
     downsample_threshold_px: int = 800,
-    downsample_scale: float = 0.25,
+    downsample_scale: float | None = None,
 ) -> GridExtraction:
     """Apply detector-equivalent downsample/crop, then build grid cells."""
     import cv2
@@ -120,11 +120,17 @@ def build_detector_grid(
     resized_shape = (height, width)
     analysis_roi = roi
     if height > int(downsample_threshold_px) or width > int(downsample_threshold_px):
-        analysis_scale = float(downsample_scale)
-        down_w = max(1, int(width * analysis_scale))
-        down_h = max(1, int(height * analysis_scale))
+        max_dimension = max(height, width)
+        target_scale = float(downsample_threshold_px) / float(max_dimension)
+        analysis_scale = target_scale if downsample_scale is None else min(float(downsample_scale), target_scale)
+        analysis_scale = max(np.finfo(np.float32).eps, min(1.0, analysis_scale))
+        down_w = max(1, int(round(width * analysis_scale)))
+        down_h = max(1, int(round(height * analysis_scale)))
         resized = cv2.resize(roi.astype(np.float32), (down_w, down_h), interpolation=cv2.INTER_AREA)
-        analysis_roi = resized > 0.5
+        # Any source-pixel coverage keeps the ROI represented. Thresholding at
+        # 0.5 erased one-pixel-wide regions as soon as an image crossed the
+        # downsample boundary.
+        analysis_roi = resized > 0.0
         resized_shape = (int(down_h), int(down_w))
 
     ys, xs = np.where(analysis_roi)

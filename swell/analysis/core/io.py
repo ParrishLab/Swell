@@ -1,14 +1,20 @@
 import os
 from pathlib import Path
 
-import cv2
 import numpy as np
 import tifffile
+from PIL import Image
 from tkinter import filedialog
 from swell.shared.ui import dialogs as messagebox
 
 from swell.analysis.core.frame_source import EagerFrameSource
 from swell.shared.frame_source import build_visualization_stack, natural_stack_sort_key
+from swell.shared.frame_source.image_decoding import (
+    array_to_gray_frames,
+    pil_image_to_gray,
+    tiff_page_is_rgb,
+    tiff_page_orientation,
+)
 from swell.shared.ui.theme import APP_COLORS
 from swell.shared.utils.paths import resolve_existing_directory
 
@@ -161,47 +167,34 @@ class IOActions:
             image_files.extend(list(Path(input_folder).glob(f"*{ext.upper()}")))
         return sorted(set(image_files), key=natural_stack_sort_key)
 
-    def _as_gray_frames(self, img):
-        arr = np.asarray(img)
-        if arr.ndim < 2:
-            return []
-        if arr.ndim == 2:
-            return [arr]
-        if arr.ndim == 3 and arr.shape[-1] in (3, 4) and arr.shape[0] > 4 and arr.shape[1] > 4:
-            return [cv2.cvtColor(arr[:, :, :3], cv2.COLOR_RGB2GRAY)]
-
-        frames = []
-        for sub_arr in arr:
-            frames.extend(self._as_gray_frames(sub_arr))
+    def _load_tiff_frames(self, path: Path) -> list[np.ndarray]:
+        frames: list[np.ndarray] = []
+        with tifffile.TiffFile(str(path)) as tif:
+            for page in tif.pages:
+                frames.extend(
+                    array_to_gray_frames(
+                        page.asarray(),
+                        axes=str(getattr(page, "axes", "") or ""),
+                        rgb=tiff_page_is_rgb(page),
+                        channel_mode="average",
+                        orientation=tiff_page_orientation(page),
+                    )
+                )
         return frames
 
     def _load_frames_and_names(self, image_files):
         frames = []
         frame_names = []
         base_shape = None
+        dimension_mismatches: list[tuple[str, tuple[int, int]]] = []
 
         for fpath in image_files:
             try:
                 if fpath.suffix.lower() in [".tif", ".tiff"]:
-                    img = tifffile.imread(str(fpath))
-                    loaded_frames = self._as_gray_frames(img)
+                    loaded_frames = self._load_tiff_frames(fpath)
                 else:
-                    img = cv2.imread(str(fpath), cv2.IMREAD_UNCHANGED)
-                    if img is not None and img.ndim == 3:
-                        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-                    if img is None:
-                        self.log_warn("Import", f"Unable to read: {fpath.name}")
-                        continue
-                    if img.ndim == 2:
-                        loaded_frames = [img]
-                    elif img.ndim == 3 and img.shape[2] in (3, 4):
-                        loaded_frames = [cv2.cvtColor(img[:, :, :3], cv2.COLOR_RGB2GRAY)]
-                    else:
-                        loaded_frames = self._as_gray_frames(img)
-
-                if img is None:
-                    self.log_warn("Import", f"Unable to read: {fpath.name}")
-                    continue
+                    with Image.open(fpath) as image:
+                        loaded_frames = [pil_image_to_gray(image, channel_mode="average")]
 
                 if not loaded_frames:
                     self.log_warn("Import", f"No usable frames in: {fpath.name}")
@@ -215,7 +208,7 @@ class IOActions:
                     if base_shape is None:
                         base_shape = f_img.shape
                     elif f_img.shape != base_shape:
-                        self.log_warn("Import", f"Dimension mismatch at {fpath.name}. Skipping frame.")
+                        dimension_mismatches.append((fpath.name, tuple(int(v) for v in f_img.shape[:2])))
                         continue
 
                     frames.append(f_img)
@@ -227,6 +220,15 @@ class IOActions:
             except Exception as exc:
                 self.log_warn("Import", f"Skipping {fpath.name}: {exc}")
                 continue
+
+        if dimension_mismatches:
+            expected_text = "unknown" if base_shape is None else f"{base_shape[1]}x{base_shape[0]}"
+            examples = ", ".join(f"{name} ({shape[1]}x{shape[0]})" for name, shape in dimension_mismatches[:5])
+            suffix = ", ..." if len(dimension_mismatches) > 5 else ""
+            raise ValueError(
+                f"Stack contains mixed frame dimensions; expected {expected_text}, but found {examples}{suffix}. "
+                "Resize, crop, or pad the source images to one common size before importing."
+            )
 
         return frames, frame_names
 

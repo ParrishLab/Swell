@@ -57,3 +57,19 @@ def test_engine_matches_legacy_stats_within_tolerance() -> None:
     assert np.allclose(result.baseline_frame, legacy_baseline, atol=1e-5)
     assert abs(result.p1 - legacy_p1) <= 1e-5
     assert abs(result.p99 - legacy_p99) <= 1e-5
+
+
+def test_engine_sanitizes_nonfinite_frames_before_smoothing_and_stats() -> None:
+    frames = [np.full((8, 8), idx, dtype=np.float32) for idx in range(12)]
+    frames[2][0, 0] = np.nan
+    frames[5][1, 1] = np.inf
+    engine = PopupProcessingEngine(smoothed_cache_max=32)
+    engine.set_reader(Reader(frames))  # type: ignore[arg-type]
+
+    result = engine.run_popup_sync(PopupProcessRequest(1, 0, 11, 4, 3, 6))
+
+    assert result is not None
+    assert np.all(np.isfinite(result.baseline_frame))
+    assert np.isfinite(result.p1)
+    assert np.isfinite(result.p99)
+    assert all(np.all(np.isfinite(frame)) for frame in result.warmed_frames.values())

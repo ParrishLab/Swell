@@ -42,7 +42,7 @@ jobs:
           python -m pip install --no-cache-dir -c requirements/release-py312-constraints.txt -e ".[model]"
 
       - name: Run test suite
-        run: xvfb-run -a python -m pytest -q tests
+        run: xvfb-run -a python -m pytest -q tests --cov=swell --cov-report=term-missing --cov-report=xml --cov-fail-under=58
 
       - name: Run startup smoke test
         run: |
@@ -58,3 +58,36 @@ jobs:
         run: |
           OUT="$(python scripts/release/run_segmentation_workflow_smoke.py | tail -n 1)"
           test "$OUT" = "SEGMENTATION_WORKFLOW_SMOKE:PASS"
+
+  platform-tests:
+    name: platform-tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-14, windows-latest]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -c requirements/release-py312-constraints.txt -e ".[dev]"
+
+      - name: Run cross-platform image and persistence tests
+        run: >-
+          python -m pytest -q
+          tests/unit/test_image_decoding.py
+          tests/host/test_stack_reader.py
+          tests/analysis/test_io_import.py
+          tests/analysis/test_project_store_roundtrip.py
+          tests/analysis/test_shared_preprocessing_options.py
+          tests/integration/test_real_image_pipeline_roundtrip.py

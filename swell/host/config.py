@@ -19,6 +19,10 @@ class FrameRef:
     page_index: Optional[int]
     source_ext: str
     frame_name: str
+    subframe_index: Optional[int] = None
+    axes: Optional[str] = None
+    is_rgb: bool = False
+    orientation: int = 1
 
 
 @dataclass(frozen=True)

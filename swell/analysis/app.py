@@ -330,8 +330,9 @@ class SwellAnalysisApp(LayoutBuilder, IOActions, SegmentationActions, RenderActi
             paint_layers=self.paint_layers,
             masks_cache=self.masks_cache,
             get_current_frame_idx=lambda: self.current_frame_idx,
-            set_selected_point=lambda v: setattr(self, "selected_point", v),
+            set_selected_point=self._set_selected_point,
             get_selected_point=lambda: self.selected_point,
+            get_point_strength=lambda: self._clamp_point_strength(self.point_strength.get()),
             get_is_dragging=lambda: self.is_dragging,
             set_is_dragging=lambda v: setattr(self, "is_dragging", v),
             get_last_mouse_x=lambda: self.last_mouse_x,
@@ -1998,6 +1999,7 @@ class SwellAnalysisApp(LayoutBuilder, IOActions, SegmentationActions, RenderActi
         self.selected_region_id = None
         self.paint_layers.clear()
         self.masks_cache.clear()
+        self.seg_state.mask_thresholds.clear()
         self.seg_state.ground_truth_frames.clear()
         self.seg_state.clear_persistent_regions()
         self.seg_state.set_leverage_map({}, None)
@@ -2297,11 +2299,18 @@ class SwellAnalysisApp(LayoutBuilder, IOActions, SegmentationActions, RenderActi
 
         if status == "complete":
             self._propagation_committed_snapshot = None
+            if self._ui_alive():
+                # The run just stamped its frames with the current threshold,
+                # so any staleness it resolved has to be cleared from the UI.
+                self.root.after(0, self._refresh_mask_staleness)
             if hasattr(self, "compute_metrics_preview") and self._ui_alive():
                 self.root.after(0, self.compute_metrics_preview)
             return
         if status in ("stopped", "failed") and transition.restored_masks is not None:
             self.seg_state.masks_cache.clear()
+            # Restored masks predate this run and carry no recorded threshold;
+            # an unknown threshold reads as "not stale" rather than guessing.
+            self.seg_state.mask_thresholds.clear()
             self.seg_state.set_leverage_map({}, None)
             for frame_idx, mask in transition.restored_masks.items():
                 self.seg_state.masks_cache[int(frame_idx)] = np.asarray(mask, dtype=bool).copy()

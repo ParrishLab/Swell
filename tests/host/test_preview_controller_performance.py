@@ -185,6 +185,21 @@ def test_preview_percentiles_use_sampled_pixels(monkeypatch) -> None:
     assert result.dtype == np.uint8
 
 
+def test_preview_normalization_handles_partially_and_fully_nonfinite_frames() -> None:
+    frames = [
+        np.array([[0.0, np.nan], [1.0, np.inf]], dtype=np.float32),
+        np.full((2, 2), np.nan, dtype=np.float32),
+    ]
+    controller = HostPreviewController(_build_app(frames))
+
+    partial = controller.normalize_frame_percentile(frames[0])
+    empty = controller.normalize_frame_percentile(frames[1])
+
+    assert partial.dtype == np.uint8
+    assert int(partial.max()) == 255
+    assert np.all(empty == 0)
+
+
 def test_popup_mini_reuses_main_preview_normalization_cache() -> None:
     frames = [np.arange(64, dtype=np.float32).reshape(8, 8) for _ in range(3)]
     app = _build_app(frames)

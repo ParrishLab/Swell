@@ -55,6 +55,7 @@ model = [
 ]
 dev = [
   "pytest",
+  "pytest-cov",
 ]
 docs = [
   "mkdocs>=1.6",
@@ -83,3 +84,18 @@ include = ["swell*"]
 
 [tool.setuptools.package-data]
 swell = ["resources/**/*"]
+
+[tool.coverage.run]
+branch = true
+source = ["swell"]
+
+[tool.coverage.report]
+exclude_also = [
+  "if TYPE_CHECKING:",
+  "if __name__ == .__main__.:",
+]
+show_missing = true
+skip_covered = true
+
+[tool.coverage.xml]
+output = "coverage.xml"

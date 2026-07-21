@@ -79,11 +79,17 @@ class SAM2RuntimeService:
         if self.status.state == ModelState.DISABLED:
             return self.status
 
-        normalized_path = str(Path(model_path).expanduser().resolve())
+        requested_path = str(model_path or "").strip()
+        if not requested_path:
+            self.shutdown()
+            self.status = RuntimeStatus(ModelState.ERROR, "Model file path is empty.")
+            return self.status
+
+        normalized_path = str(Path(requested_path).expanduser().resolve())
         if self.status.state == ModelState.READY and self.model_path == normalized_path:
             return self.status
 
-        if not normalized_path or not Path(normalized_path).exists():
+        if not normalized_path or not Path(normalized_path).is_file():
             self.shutdown()
             self.status = RuntimeStatus(ModelState.ERROR, f"Model file not found: {normalized_path}")
             return self.status
@@ -111,5 +117,14 @@ class SAM2RuntimeService:
             self.status = RuntimeStatus(ModelState.READY, "SAM2 model initialized.")
             return self.status
         except Exception as exc:  # noqa: BLE001
+            self.predictor = None
+            self.inference_state = None
+            self.model_path = None
+            if self.temp_dir:
+                try:
+                    shutil.rmtree(self.temp_dir, ignore_errors=True)
+                except Exception:
+                    pass
+            self.temp_dir = None
             self.status = RuntimeStatus(ModelState.ERROR, str(exc))
             return self.status

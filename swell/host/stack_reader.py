@@ -9,7 +9,16 @@ import numpy as np
 from PIL import Image
 import tifffile
 
+from swell.shared.frame_source.image_decoding import (
+    array_frame_layout,
+    array_to_gray_frames,
+    oriented_pil_shape,
+    pil_image_to_gray,
+    tiff_page_is_rgb,
+    tiff_page_orientation,
+)
 from swell.shared.frame_source.stack_files import list_stack_files
+from swell.shared.frame_source.preprocessing import sanitize_nonfinite_pixels
 
 from .config import FrameRef, MAX_PREVIEW_CACHE, StackInfo
 
@@ -46,6 +55,7 @@ class StackReader:
         dtype_str: Optional[str] = None
         counter = 0
         prompted_rgb = False
+        dimension_mismatches: list[tuple[str, tuple[int, int]]] = []
 
         for file_idx, file_path in enumerate(files):
             ext = file_path.suffix.lower()
@@ -55,33 +65,51 @@ class StackReader:
                     if page_count <= 0:
                         continue
                     for page_idx, page in enumerate(tif.pages):
-                        if len(page.shape) < 2:
+                        axes = str(getattr(page, "axes", "") or "")
+                        is_rgb = tiff_page_is_rgb(page)
+                        orientation = tiff_page_orientation(page)
+                        layout = array_frame_layout(
+                            page.shape,
+                            axes=axes,
+                            rgb=is_rgb,
+                            orientation=orientation,
+                        )
+                        if layout is None:
                             continue
-                        shape = _normalized_frame_shape_from_shape(page.shape)
-                        if shape is None:
-                            continue
+                        shape, embedded_frame_count = layout
                         if expected_shape is None:
                             expected_shape = shape
                             dtype_str = str(page.dtype)
-                            if len(page.shape) >= 3 and page.shape[-1] >= 3 and not prompted_rgb:
+                            if is_rgb and not prompted_rgb:
                                 self._channel_mode = self._resolve_channel_mode()
                                 prompted_rgb = True
                         if shape != expected_shape:
+                            dimension_mismatches.append((f"{file_path.name} page {page_idx + 1}", shape))
                             continue
-                        name = file_path.name if page_count == 1 else f"{file_path.name}_p{page_idx:04d}"
-                        frame_refs.append(
-                            FrameRef(
-                                frame_idx=counter,
-                                source_path=file_path,
-                                page_index=page_idx,
-                                source_ext=ext,
-                                frame_name=name,
+                        for subframe_idx in range(int(embedded_frame_count)):
+                            if page_count == 1 and embedded_frame_count == 1:
+                                name = file_path.name
+                            elif embedded_frame_count == 1:
+                                name = f"{file_path.name}_p{page_idx:04d}"
+                            else:
+                                name = f"{file_path.name}_p{page_idx:04d}_f{subframe_idx:04d}"
+                            frame_refs.append(
+                                FrameRef(
+                                    frame_idx=counter,
+                                    source_path=file_path,
+                                    page_index=page_idx,
+                                    source_ext=ext,
+                                    frame_name=name,
+                                    subframe_index=subframe_idx,
+                                    axes=axes,
+                                    is_rgb=is_rgb,
+                                    orientation=orientation,
+                                )
                             )
-                        )
-                        counter += 1
+                            counter += 1
             else:
                 with Image.open(file_path) as img:
-                    shape = _normalized_pil_frame_shape(img)
+                    shape = oriented_pil_shape(img)
                     dtype_guess = _pil_dtype_str(img)
                     is_rgb = img.mode in ("RGB", "RGBA")
                 if shape is None:
@@ -93,6 +121,7 @@ class StackReader:
                         self._channel_mode = self._resolve_channel_mode()
                         prompted_rgb = True
                 if shape != expected_shape:
+                    dimension_mismatches.append((file_path.name, shape))
                     continue
                 frame_refs.append(
                     FrameRef(
@@ -107,6 +136,15 @@ class StackReader:
 
             if progress_callback is not None and (file_idx % 50 == 0 or file_idx == len(files) - 1):
                 progress_callback(file_idx + 1, len(files))
+
+        if dimension_mismatches:
+            expected_text = "unknown" if expected_shape is None else f"{expected_shape[1]}x{expected_shape[0]}"
+            examples = ", ".join(f"{name} ({shape[1]}x{shape[0]})" for name, shape in dimension_mismatches[:5])
+            suffix = ", ..." if len(dimension_mismatches) > 5 else ""
+            raise ValueError(
+                f"Stack contains mixed frame dimensions; expected {expected_text}, but found {examples}{suffix}. "
+                "Resize, crop, or pad the source images to one common size before importing."
+            )
 
         if not frame_refs:
             raise ValueError("No valid frames found after shape filtering.")
@@ -181,15 +219,27 @@ class StackReader:
             key = 0 if ref.page_index is None else ref.page_index
             try:
                 arr = self._read_tiff_page(ref.source_path, key)
+                decoded = array_to_gray_frames(
+                    arr,
+                    axes=ref.axes,
+                    rgb=bool(ref.is_rgb),
+                    channel_mode=self._channel_mode,
+                    orientation=int(ref.orientation),
+                )
+                subframe_idx = int(ref.subframe_index or 0)
+                if subframe_idx < 0 or subframe_idx >= len(decoded):
+                    raise ValueError(f"TIFF frame index {subframe_idx} is unavailable in {ref.source_path.name}.")
+                frame = decoded[subframe_idx]
             except Exception:
                 # Fallback path for frozen/runtime environments where optional TIFF
                 # codecs (for example imagecodecs variants) are unavailable.
-                arr = self._read_tiff_page_with_pillow(ref.source_path, key)
+                frame = self._read_tiff_page_with_pillow(ref.source_path, key)
         else:
             with Image.open(ref.source_path) as img:
-                arr = _pil_image_to_array(img)
+                frame = pil_image_to_gray(img, channel_mode=self._channel_mode)
 
-        frame = _to_grayscale(arr, channel_mode=self._channel_mode)
+        if np.issubdtype(np.asarray(frame).dtype, np.floating):
+            frame = sanitize_nonfinite_pixels(frame)
 
         if use_cache:
             with self._cache_lock:
@@ -248,8 +298,7 @@ class StackReader:
             page_idx = max(0, min(int(key), max(0, page_count - 1)))
             if page_idx:
                 img.seek(page_idx)
-            arr = _pil_image_to_array(img)
-        return arr
+            return pil_image_to_gray(img, channel_mode=self._channel_mode)
 
     def _close_tiff_handles(self) -> None:
         with self._tiff_lock:
@@ -336,41 +385,6 @@ def _to_grayscale(arr: np.ndarray, channel_mode: str = "average") -> np.ndarray:
         if squeezed.ndim == 3:
             return _to_grayscale(squeezed, channel_mode=channel_mode)
     raise ValueError(f"Unsupported frame shape: {arr.shape}")
-
-
-def _pil_image_to_array(img: Image.Image) -> np.ndarray:
-    # Force a normal copy so older Pillow/NumPy combinations never request
-    # copy=False during preview decode.
-    return np.array(img, copy=True)
-
-
-def _normalized_frame_shape_from_shape(raw_shape) -> tuple[int, int] | None:
-    try:
-        shape = tuple(int(v) for v in tuple(raw_shape))
-    except Exception:
-        return None
-    if len(shape) == 2:
-        return shape
-    if len(shape) == 3:
-        if int(shape[2]) in (3, 4):
-            return int(shape[0]), int(shape[1])
-        return int(shape[0]), int(shape[1])
-    squeezed = tuple(int(v) for v in shape if int(v) != 1)
-    if len(squeezed) == 2:
-        return squeezed
-    if len(squeezed) == 3 and int(squeezed[2]) in (3, 4):
-        return int(squeezed[0]), int(squeezed[1])
-    return None
-
-
-def _normalized_pil_frame_shape(image: Image.Image) -> tuple[int, int] | None:
-    try:
-        width, height = image.size
-    except Exception:
-        return None
-    if int(width) <= 0 or int(height) <= 0:
-        return None
-    return int(height), int(width)
 
 
 def _pil_dtype_str(image: Image.Image) -> str:

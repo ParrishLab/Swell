@@ -10,6 +10,7 @@ from swell.analysis.ui.tooltips import TooltipManager
 from swell.analysis.ui.widgets import build_preview_overlay
 from swell.shared.utils.paths import get_resources_root
 from swell.analysis.core.region_tools import REGION_EXCLUDE_TOOL, REGION_INCLUDE_TOOL, is_region_tool_mode
+from swell.analysis.core.seg_state import POINT_STRENGTH_DEFAULT
 from swell.shared.ui.bootstrap import semantic_button_options, ttk
 
 
@@ -136,24 +137,43 @@ class LayoutBuilder:
         ttk.Label(select_frame, text="Select", style="AppStripMeta.TLabel").grid(row=0, column=0, sticky="w")
         self.tool_option_frames["select"] = select_frame
 
+        # Strength is a stepper rather than a slider: the effect saturates
+        # within a handful of steps and each change costs a full forward pass,
+        # so a draggable control would recompute continuously for no gain.
         prompt_frame = ttk.Frame(self.tool_options_slot, style="AppStrip.TFrame")
         prompt_frame.grid(row=0, column=0, sticky="ew")
-        prompt_frame.columnconfigure(1, weight=1)
-        ttk.Label(prompt_frame, text="Sensitivity", style="AppStripMeta.TLabel").grid(row=0, column=0, sticky="w")
-        self.sensitivity = tk.DoubleVar(value=0.0)
-        ttk.Scale(
+        prompt_frame.columnconfigure(4, weight=1)
+        ttk.Label(prompt_frame, text="Strength", style="AppStripMeta.TLabel").grid(row=0, column=0, sticky="w")
+        self.point_strength = tk.IntVar(value=POINT_STRENGTH_DEFAULT)
+        self.btn_point_strength_down = ttk.Button(
             prompt_frame,
-            from_=-3.0,
-            to=3.0,
-            variable=self.sensitivity,
-            orient="horizontal",
-            command=self.on_sensitivity_change,
-            style="AppFlat.Horizontal.TScale",
-        ).grid(row=0, column=1, sticky="ew", padx=(SPACING.gap, SPACING.gap))
-        self.lbl_sens = ttk.Label(prompt_frame, text="0.0", style="AppStripMeta.TLabel", width=5)
-        self.lbl_sens.grid(row=0, column=2, sticky="w")
-        for mode in ("point_pos", "point_neg", "box"):
+            text="–",
+            width=2,
+            command=lambda: self.adjust_point_strength(-1),
+            **semantic_button_options("secondary"),
+        )
+        self.btn_point_strength_down.grid(row=0, column=1, sticky="w", padx=(SPACING.gap, 0))
+        self.lbl_point_strength = ttk.Label(
+            prompt_frame, text=str(POINT_STRENGTH_DEFAULT), style="AppStripMeta.TLabel", width=3, anchor="center"
+        )
+        self.lbl_point_strength.grid(row=0, column=2, sticky="w")
+        self.btn_point_strength_up = ttk.Button(
+            prompt_frame,
+            text="+",
+            width=2,
+            command=lambda: self.adjust_point_strength(1),
+            **semantic_button_options("secondary"),
+        )
+        self.btn_point_strength_up.grid(row=0, column=3, sticky="w")
+        self.lbl_point_strength_hint = ttk.Label(prompt_frame, text="for new points", style="AppStripMeta.TLabel")
+        self.lbl_point_strength_hint.grid(row=0, column=4, sticky="w", padx=(SPACING.gap, 0))
+        for mode in ("point_pos", "point_neg"):
             self.tool_option_frames[mode] = prompt_frame
+
+        # Strength is a per-point property, so the box tool has no options.
+        box_frame = ttk.Frame(self.tool_options_slot, style="AppStrip.TFrame")
+        box_frame.grid(row=0, column=0, sticky="ew")
+        self.tool_option_frames["box"] = box_frame
 
         brush_frame = ttk.Frame(self.tool_options_slot, style="AppStrip.TFrame")
         brush_frame.grid(row=0, column=0, sticky="ew")
@@ -844,9 +864,42 @@ class LayoutBuilder:
         self.spin_prop_end.bind("<KeyRelease>", lambda _event: self._redraw_propagation_range_bar(), add="+")
         self.spin_prop_end.bind("<FocusOut>", lambda _event: self._redraw_propagation_range_bar(), add="+")
 
+        # The mask threshold lives here rather than in the tool-options strip:
+        # it is a global property of every mask, not of the point tool, and
+        # presenting it as a tool option is why it was previously misread.
+        threshold_row = ttk.Frame(frame, style="AppSubpanel.TFrame")
+        threshold_row.grid(row=2, column=0, columnspan=4, sticky="ew", pady=(SPACING.inner, 0))
+        threshold_row.columnconfigure(1, weight=1)
+        ttk.Label(threshold_row, text="Mask Threshold", style="AppSubpanelMeta.TLabel").grid(row=0, column=0, sticky="w")
+        self.sensitivity = tk.DoubleVar(value=0.0)
+        self.scale_sensitivity = ttk.Scale(
+            threshold_row,
+            from_=-3.0,
+            to=3.0,
+            variable=self.sensitivity,
+            orient="horizontal",
+            command=self.on_sensitivity_change,
+            style="AppFlat.Horizontal.TScale",
+        )
+        self.scale_sensitivity.grid(row=0, column=1, sticky="ew", padx=(SPACING.gap, SPACING.gap))
+        # Dragging re-thresholds only the visible frame; releasing applies the
+        # value to every prompted frame so seeds never sit at mixed thresholds.
+        self.scale_sensitivity.bind("<ButtonRelease-1>", lambda _event: self.on_sensitivity_commit(), add="+")
+        self.lbl_sens = ttk.Label(threshold_row, text="0.0", style="AppSubpanelMeta.TLabel", width=5)
+        self.lbl_sens.grid(row=0, column=2, sticky="w")
+
+        # Staleness is a standing condition, not a transient activity, so it
+        # gets a persistent label beside the control that causes it rather
+        # than borrowing the status line that the next action would overwrite.
+        self.lbl_threshold_stale = ttk.Label(
+            threshold_row, text="", style="AppSubpanelMeta.TLabel", wraplength=240, justify="left"
+        )
+        self.lbl_threshold_stale.grid(row=1, column=0, columnspan=3, sticky="ew", pady=(SPACING.inner, 0))
+        self.lbl_threshold_stale.grid_remove()
+
         self.btn_run_propagation = ttk.Button(frame, text="Run Propagation", command=self._trigger_background_propagation, **semantic_button_options("success"))
         self.btn_run_propagation.grid(
-            row=2,
+            row=3,
             column=0,
             columnspan=4,
             sticky="ew",
@@ -854,7 +907,7 @@ class LayoutBuilder:
         )
 
         prop_control_row = ttk.Frame(frame, style="AppSubpanel.TFrame")
-        prop_control_row.grid(row=3, column=0, columnspan=4, sticky="ew", pady=(SPACING.gap, 0))
+        prop_control_row.grid(row=4, column=0, columnspan=4, sticky="ew", pady=(SPACING.gap, 0))
         for control_col in range(3):
             prop_control_row.columnconfigure(control_col, weight=1)
         self.btn_pause_propagation = ttk.Button(

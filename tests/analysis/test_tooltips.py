@@ -220,20 +220,64 @@ def test_focus_tooltip_uses_shorter_focus_delay() -> None:
     assert list(root.jobs.values())[0][0] == 300
 
 
-def test_cooldown_prevents_immediate_reschedule_after_hide() -> None:
+def test_cooldown_defers_instead_of_dropping_reschedule_after_hide() -> None:
     now = [0.0]
     root = _FakeRoot()
     widget = _FakeWidget(root)
     manager = _manager(root, clock=lambda: now[0])
 
+    with _patch_widgets()[0], _patch_widgets()[1]:
+        manager.show_at_event(_FakeEvent(widget=widget), "Visible")
     manager.hide()
     now[0] = 0.1
-    manager.schedule(widget, "Hidden")
-    assert root.jobs == {}
+    manager.schedule(widget, "Deferred", delay_ms=0)
 
-    now[0] = 0.3
-    manager.schedule(widget, "Visible later")
     assert root.jobs
+    assert list(root.jobs.values())[0][0] == 150
+
+
+def test_cancelling_pending_tooltip_does_not_start_cooldown() -> None:
+    now = [0.0]
+    root = _FakeRoot()
+    widget = _FakeWidget(root)
+    manager = _manager(root, clock=lambda: now[0])
+
+    manager.schedule(widget, "Pending")
+    manager.hide()
+    manager.schedule(widget, "Replacement", delay_ms=0)
+
+    assert list(root.jobs.values())[0][0] == 0
+
+
+def test_motion_restarts_pending_delay_instead_of_losing_tooltip() -> None:
+    root = _FakeRoot()
+    widget = _FakeWidget(root)
+    manager = _manager(root)
+    manager.attach(widget, "Select (V)")
+
+    widget.fire("<Enter>", _FakeEvent(x_root=10, y_root=10, widget=widget))
+    first_job = next(iter(root.jobs))
+    widget.fire("<Motion>", _FakeEvent(x_root=20, y_root=10, widget=widget))
+
+    assert first_job in root.cancelled
+    assert list(root.jobs.values())[0][0] == 600
+    with _patch_widgets()[0], _patch_widgets()[1]:
+        root.run_jobs()
+    assert manager._window.visible
+
+
+def test_motion_does_not_hide_visible_tooltip() -> None:
+    root = _FakeRoot()
+    widget = _FakeWidget(root)
+    manager = _manager(root)
+    manager.attach(widget, "Select (V)")
+
+    widget.fire("<Enter>", _FakeEvent(x_root=10, y_root=10, widget=widget))
+    with _patch_widgets()[0], _patch_widgets()[1]:
+        root.run_jobs()
+        widget.fire("<Motion>", _FakeEvent(x_root=40, y_root=40, widget=widget))
+
+    assert manager._window.visible
 
 
 def test_tooltip_geometry_clamps_to_screen_bounds() -> None:

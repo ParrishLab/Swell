@@ -77,6 +77,19 @@ def test_compute_trace_uses_cache_aware_reads_and_preserves_values() -> None:
     assert trace.std[-1] == pytest.approx(float(np.std(frames[-1])))
 
 
+def test_compute_trace_sanitizes_nonfinite_pixels() -> None:
+    frames = [
+        np.array([[0.0, 2.0], [np.nan, 4.0]], dtype=np.float32),
+        np.full((2, 2), np.inf, dtype=np.float32),
+    ]
+
+    trace = compute_trace(DummyReader(frames))
+
+    assert np.all(np.isfinite(trace.mean))
+    assert np.all(np.isfinite(trace.median))
+    assert np.all(np.isfinite(trace.std))
+
+
 def test_compute_trace_propagates_batch_read_failures() -> None:
     frames = [np.zeros((2, 2), dtype=np.uint8) for _ in range(3)]
 

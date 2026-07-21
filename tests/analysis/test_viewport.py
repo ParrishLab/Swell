@@ -35,6 +35,31 @@ class ViewportTests(unittest.TestCase):
         self.assertEqual(state.center_x, 160.0)
         self.assertEqual(state.center_y, 80.0)
 
+    def test_extreme_image_aspect_ratios_fit_and_roundtrip_coordinates(self):
+        cases = [
+            (1, 4096, 320, 240),
+            (4096, 1, 320, 240),
+            (17, 31, 1920, 1080),
+            (8192, 64, 800, 1200),
+        ]
+        for image_width, image_height, canvas_width, canvas_height in cases:
+            with self.subTest(image=(image_width, image_height), canvas=(canvas_width, canvas_height)):
+                state = fit_viewport(image_width, image_height)
+                transform = compute_transform(
+                    state,
+                    canvas_width=canvas_width,
+                    canvas_height=canvas_height,
+                    image_width=image_width,
+                    image_height=image_height,
+                )
+                canvas_center = transform.image_to_canvas(image_width / 2.0, image_height / 2.0)
+                self.assertAlmostEqual(canvas_center[0], canvas_width / 2.0)
+                self.assertAlmostEqual(canvas_center[1], canvas_height / 2.0)
+                for point in ((0.0, 0.0), (float(image_width), float(image_height))):
+                    roundtrip = transform.canvas_to_image(*transform.image_to_canvas(*point))
+                    self.assertAlmostEqual(roundtrip[0], point[0], places=6)
+                    self.assertAlmostEqual(roundtrip[1], point[1], places=6)
+
     def test_zoom_at_anchor_keeps_image_point_stationary(self):
         state = fit_viewport(200, 100)
         next_state = zoom_viewport_at(

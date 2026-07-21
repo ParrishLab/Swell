@@ -17,7 +17,7 @@ import numpy as np
 from swell.shared.errors import InferenceRuntimeError
 from swell.shared.ui.theme import APP_COLORS
 
-from swell.analysis.core.seg_state import SegmentationState
+from swell.analysis.core.seg_state import SegmentationState, expand_point_prompts, point_weight
 
 torch = None
 
@@ -518,8 +518,12 @@ class InferenceManager:
         raw_box = boxes.get(frame_idx) if isinstance(boxes, dict) else None
         box = self.state._normalize_box(raw_box) if raw_box is not None else None
         try:
+            # Weight is part of the prompt: two points at the same place with
+            # different strengths expand to different token sets and must not
+            # share a cache entry.
             points_sig = tuple(
-                (float(p["x"]), float(p["y"]), int(p["label"])) for p in list(pt_list or [])
+                (float(p["x"]), float(p["y"]), int(p["label"]), point_weight(p))
+                for p in list(pt_list or [])
             )
         except Exception:
             return None
@@ -572,12 +576,42 @@ class InferenceManager:
         if cached_signature != signature:
             return False
         thresh = float(self.get_sensitivity())
-        self.state.set_mask(frame_idx, (logits_np > thresh).squeeze())
+        self.state.set_mask(frame_idx, (logits_np > thresh).squeeze(), threshold=thresh)
         with self._infer_state_lock:
             defer_markers = int(frame_idx) in self._pending_marker_batch_frames
         self._notify_mask_updated(recompute_markers=not defer_markers)
         self._log_debug("Model", f"Re-thresholded frame {frame_idx + 1} from cached logits (sensitivity).")
         return True
+
+    def apply_threshold_to_prompted_frames(self) -> int:
+        """Re-threshold every prompted frame to the current threshold.
+
+        Re-thresholding is free wherever the frame's logits are still cached;
+        frames that have aged out of the cache need a real forward pass, which
+        is why this runs on slider release rather than during the drag.
+
+        Returns the number of frames that needed recomputing.
+        """
+        if not self.model_ready or self.is_propagation_running():
+            return 0
+        self.state.prune_invalid_points()
+        frames = sorted(self._prompted_frames())
+        if not frames:
+            return 0
+
+        recomputed = 0
+        for frame_idx in frames:
+            if self._try_rethreshold_from_cache(frame_idx):
+                continue
+            self.enqueue_frame_inference(frame_idx, reason="threshold_commit")
+            recomputed += 1
+        if recomputed:
+            self._log_info(
+                "Model",
+                f"Re-running {recomputed} prompted frame(s) at the new mask threshold "
+                f"({len(frames) - recomputed} re-thresholded from cache).",
+            )
+        return recomputed
 
     def _inference_worker_loop(self):
         while not self._infer_worker_stop.is_set():
@@ -640,12 +674,12 @@ class InferenceManager:
                 points = None
                 labels = None
                 if pt_list:
-                    points = np.array([[p["x"], p["y"]] for p in pt_list], dtype=np.float32)
-                    labels = np.array([p["label"] for p in pt_list], dtype=np.int32)
-                    valid_arrays, reason = self._validate_point_prompt_arrays(points, labels)
-                    if not valid_arrays:
-                        self._log_warn("Model", f"Skipping inference prompt on frame {frame_idx + 1}: {reason}.")
-                        return
+                    points, labels = expand_point_prompts(pt_list, frame_shape=self._frame_shape_hw())
+                    if points is not None:
+                        valid_arrays, reason = self._validate_point_prompt_arrays(points, labels)
+                        if not valid_arrays:
+                            self._log_warn("Model", f"Skipping inference prompt on frame {frame_idx + 1}: {reason}.")
+                            return
                 box_arr = self._normalize_box_prompt(frame_idx)
                 if points is None and box_arr is None:
                     return
@@ -670,7 +704,7 @@ class InferenceManager:
             thresh = float(self.get_sensitivity())
             raw_logit = out_mask_logits[0]
             logits_np = (raw_logit.detach() if hasattr(raw_logit, "detach") else raw_logit).cpu().numpy()
-            self.state.set_mask(frame_idx, (logits_np > thresh).squeeze())
+            self.state.set_mask(frame_idx, (logits_np > thresh).squeeze(), threshold=thresh)
             self._store_frame_logits(frame_idx, self._prompt_signature(frame_idx), logits_np)
             with self._infer_state_lock:
                 defer_markers = int(frame_idx) in self._pending_marker_batch_frames
@@ -892,14 +926,17 @@ class InferenceManager:
                                     points = None
                                     labels = None
                                     if pt_list:
-                                        points = np.array([[p["x"], p["y"]] for p in pt_list], dtype=np.float32)
-                                        labels = np.array([p["label"] for p in pt_list], dtype=np.int32)
-                                        valid_arrays, reason = self._validate_point_prompt_arrays(points, labels)
-                                        if not valid_arrays:
-                                            self._log_warn(
-                                                "Propagation", f"Skipping frame {f_idx + 1}: invalid point prompt ({reason})."
-                                            )
-                                            continue
+                                        # Must expand identically to the
+                                        # interactive path, or a click would
+                                        # preview differently than it runs.
+                                        points, labels = expand_point_prompts(pt_list, frame_shape=frame_shape)
+                                        if points is not None:
+                                            valid_arrays, reason = self._validate_point_prompt_arrays(points, labels)
+                                            if not valid_arrays:
+                                                self._log_warn(
+                                                    "Propagation", f"Skipping frame {f_idx + 1}: invalid point prompt ({reason})."
+                                                )
+                                                continue
                                     box_arr = self._normalize_box_prompt(f_idx)
                                     if points is None and box_arr is None:
                                         self._log_warn("Propagation", f"Skipping frame {f_idx + 1}: no valid point or box prompts.")
@@ -946,7 +983,7 @@ class InferenceManager:
                                         if out_frame_idx in frames_with_input:
                                             continue
                                         res_mask = (out_mask_logits[0] > thresh).cpu().numpy().squeeze()
-                                        self.state.set_mask(out_frame_idx, res_mask)
+                                        self.state.set_mask(out_frame_idx, res_mask, threshold=thresh)
                                         propagated_result_frames.add(out_frame_idx)
                                         if out_frame_idx == self.get_current_frame_idx() and self.is_ui_alive():
                                             self.root.after(0, self.update_display)
@@ -986,7 +1023,7 @@ class InferenceManager:
                                         if out_frame_idx in frames_with_input:
                                             continue
                                         res_mask = (out_mask_logits[0] > thresh).cpu().numpy().squeeze()
-                                        self.state.set_mask(out_frame_idx, res_mask)
+                                        self.state.set_mask(out_frame_idx, res_mask, threshold=thresh)
                                         propagated_result_frames.add(out_frame_idx)
                                         if out_frame_idx == self.get_current_frame_idx() and self.is_ui_alive():
                                             self.root.after(0, self.update_display)

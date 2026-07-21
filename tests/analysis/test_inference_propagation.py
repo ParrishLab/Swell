@@ -50,7 +50,7 @@ def test_inference_propagation_logic_and_cache_coherency(mock_showerror):
     # set_mask writes into a real dict so we can assert what propagation wrote.
     masks_cache = {}
     manager.state.masks_cache = masks_cache
-    manager.state.set_mask.side_effect = lambda idx, m: masks_cache.__setitem__(int(idx), np.asarray(m))
+    manager.state.set_mask.side_effect = lambda idx, m, threshold=None: masks_cache.__setitem__(int(idx), np.asarray(m))
 
     # Frame 1 logit is above threshold (True mask), frame 2 is below (empty).
     frames = [

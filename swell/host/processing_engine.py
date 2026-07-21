@@ -10,7 +10,7 @@ from typing import Callable
 
 import numpy as np
 
-from swell.shared.frame_source.preprocessing import _processed_frame
+from swell.shared.frame_source.preprocessing import _processed_frame, finite_percentile_bounds
 from .stack_reader import StackReader
 
 
@@ -342,15 +342,13 @@ class PopupProcessingEngine:
                 idxs = rng.choice(flat.size, size=take, replace=False)
                 sampled_values.append(flat[idxs])
             pool = np.concatenate(sampled_values, axis=0)
-            p1 = float(np.percentile(pool, 1))
-            p99 = float(np.percentile(pool, 99))
+            p1, p99 = finite_percentile_bounds(pool, max_pixels=max(1, int(pool.size)))
         else:
             sampled_stack = np.stack(sampled_diffs, axis=0)
-            p1 = float(np.percentile(sampled_stack, 1))
-            p99 = float(np.percentile(sampled_stack, 99))
-
-        if p99 <= p1:
-            p99 = p1 + 1e-8
+            p1, p99 = finite_percentile_bounds(
+                sampled_stack,
+                max_pixels=max(1, int(sampled_stack.size)),
+            )
 
         with self._lock:
             self._cache_put(self._norm_cache, nkey, (p1, p99), self._norm_cache_max)

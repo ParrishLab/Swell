@@ -11,7 +11,7 @@ from tkinter import ttk
 from swell.host.controllers import HostWindowController
 from swell.host.ui_geometry import linear_value_to_x, linear_x_to_value, normalize_overlay_bounds
 from swell.shared.frame_source import normalize_visual_frame
-from swell.shared.frame_source.preprocessing import _sample_percentile_pixels
+from swell.shared.frame_source.preprocessing import _sample_percentile_pixels, finite_percentile_bounds
 from swell.shared.ui.theme import APP_COLORS
 
 
@@ -85,10 +85,7 @@ class HostPreviewController:
             if cached is not None:
                 return self._promote_cached(cache, cache_key)
         sample = _sample_percentile_pixels(frame)
-        p1 = float(np.percentile(sample, 1))
-        p99 = float(np.percentile(sample, 99))
-        if p99 <= p1:
-            p99 = p1 + 1.0
+        p1, p99 = finite_percentile_bounds(sample, max_pixels=max(1, int(sample.size)))
         frame_u8 = normalize_visual_frame(frame, p1=p1, p99=p99)
         if cache_key is not None:
             self._cache_normalized_frame(cache_key, frame_u8)

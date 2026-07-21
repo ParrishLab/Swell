@@ -6,6 +6,8 @@ from typing import Callable, Optional
 
 import numpy as np
 
+from swell.shared.frame_source.preprocessing import sanitize_nonfinite_pixels
+
 from .config import EventCandidate, TraceResult
 from .stack_reader import StackReader
 
@@ -17,7 +19,7 @@ def _read_trace_frame(reader: StackReader, frame_idx: int) -> np.ndarray:
         frame = reader.read_frame(int(frame_idx), use_cache=True)
     except TypeError:
         frame = reader.read_frame(int(frame_idx))
-    return np.asarray(frame, dtype=np.float32)
+    return sanitize_nonfinite_pixels(frame)
 
 
 def _compute_trace_stats_batch(reader: StackReader, start_idx: int, end_idx: int) -> tuple[np.ndarray, np.ndarray, np.ndarray]:

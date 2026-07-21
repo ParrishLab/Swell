@@ -8,6 +8,7 @@ import pytest
 import swell.host.auto_detect_helpers as auto_detect_helpers
 from swell.host.auto_detect_window import AutoDetectWindow, _to_uint8
 from swell.host.event_detection import detector
+from swell.host.event_detection.grid import build_detector_grid
 from swell.host.event_detection.traces import extract_lower_median_traces
 from swell.shared.app_metadata import format_window_title
 
@@ -74,6 +75,17 @@ def test_auto_detect_to_uint8_uses_sampled_percentiles(monkeypatch) -> None:
     assert calls == [(100, 100)]
     assert result.shape == frame.shape
     assert result.dtype == np.uint8
+
+
+def test_detector_grid_preserves_thin_roi_across_size_boundary() -> None:
+    for width in (800, 801, 1600, 4000):
+        roi = np.zeros((20, width), dtype=bool)
+        roi[10, width // 2] = True
+
+        extraction = build_detector_grid(roi, roi.shape, 1, 1)
+
+        assert np.any(extraction.roi_analysis)
+        assert max(extraction.geometry.resized_shape) <= 800
 
 
 def test_auto_detect_timeline_coordinate_helpers_are_clamped() -> None:

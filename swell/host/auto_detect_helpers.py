@@ -5,7 +5,7 @@ from typing import Any
 import numpy as np
 
 from swell.shared.frame_source import normalize_visual_frame
-from swell.shared.frame_source.preprocessing import _sample_percentile_pixels
+from swell.shared.frame_source.preprocessing import _sample_percentile_pixels, finite_percentile_bounds
 
 from .event_detection import detector as _detector
 
@@ -13,8 +13,7 @@ from .event_detection import detector as _detector
 def normalize_to_uint8(frame: np.ndarray) -> np.ndarray:
     arr = np.asarray(frame, dtype=np.float32)
     sample = _sample_percentile_pixels(arr)
-    p1 = float(np.percentile(sample, 1))
-    p99 = float(np.percentile(sample, 99))
+    p1, p99 = finite_percentile_bounds(sample, max_pixels=max(1, int(sample.size)))
     return normalize_visual_frame(arr, p1=p1, p99=p99)
 
 

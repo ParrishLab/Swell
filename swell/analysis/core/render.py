@@ -7,8 +7,9 @@ import cv2
 import numpy as np
 from PIL import Image, ImageTk
 
-from swell.shared.image_overlay import apply_mask_overlay, frame_to_rgb_u8
+from swell.shared.image_overlay import MASK_OVERLAY_STALE_COLOR_RGB, apply_mask_overlay, frame_to_rgb_u8
 from swell.analysis.core.viewport import compute_fit_scale
+from swell.analysis.core.seg_state import point_marker_radius
 from swell.shared.ui.theme import APP_COLORS
 
 
@@ -334,8 +335,17 @@ class RenderActions:
             else ("mask-empty", int(idx), tuple(final_mask.shape), self._segmentation_content_generation())
         )
         mask_peek = bool(getattr(self, "_mask_peek", False))
+        mask_is_stale = False
         if final_mask_any and not mask_peek:
-            img_arr = apply_mask_overlay(img_arr, final_mask)
+            seg_state = getattr(self, "seg_state", None)
+            if seg_state is not None and hasattr(self, "_current_mask_threshold"):
+                mask_is_stale = seg_state.is_mask_stale(idx, self._current_mask_threshold())
+            img_arr = apply_mask_overlay(
+                img_arr,
+                final_mask,
+                color=MASK_OVERLAY_STALE_COLOR_RGB if mask_is_stale else None,
+                hatch=mask_is_stale,
+            )
 
         # Ghost outlines implementation
         ghost_enabled = False
@@ -372,7 +382,10 @@ class RenderActions:
             # is_dragging/tool_mode only affect the resample method, which is
             # already part of the photo cache key; keeping them here would force
             # a cache miss on every tool switch.
-            token=("left", int(idx), visual_token, final_mask_token, mask_peek, ghost_enabled, tuple(ghost_tokens)),
+            # mask_is_stale changes how the mask is drawn, so it has to be part
+            # of the key or a threshold change would leave the old overlay up.
+            # Appended rather than inserted to keep existing token positions.
+            token=("left", int(idx), visual_token, final_mask_token, mask_peek, ghost_enabled, tuple(ghost_tokens), mask_is_stale),
         )
         self.canvas_left.delete("all")
         self.canvas_left.create_image(0, 0, image=self.tk_img_left, anchor="nw")
@@ -437,6 +450,7 @@ class RenderActions:
             for pt_i, pt in enumerate(self.points[idx]):
                 cx, cy = transform.image_to_canvas(pt["x"], pt["y"])
                 color = APP_COLORS["success"] if pt["label"] == 1 else APP_COLORS["danger"]
+                radius = point_marker_radius(pt)
 
                 is_selected = False
                 if self.selected_point:
@@ -445,9 +459,16 @@ class RenderActions:
                         is_selected = True
 
                 if is_selected:
-                    self.canvas_left.create_oval(cx - 5, cy - 5, cx + 5, cy + 5, fill=color, outline=APP_COLORS["measurement"], width=2)
+                    radius += 2
+                    self.canvas_left.create_oval(
+                        cx - radius, cy - radius, cx + radius, cy + radius,
+                        fill=color, outline=APP_COLORS["measurement"], width=2,
+                    )
                 else:
-                    self.canvas_left.create_oval(cx - 3, cy - 3, cx + 3, cy + 3, fill=color, outline=APP_COLORS["white"])
+                    self.canvas_left.create_oval(
+                        cx - radius, cy - radius, cx + radius, cy + radius,
+                        fill=color, outline=APP_COLORS["white"],
+                    )
 
         boxes = getattr(self, "boxes", {}) or {}
         box = boxes.get(idx)

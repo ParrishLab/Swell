@@ -35,13 +35,19 @@ def _frame_to_uint8(frame: np.ndarray) -> np.ndarray:
     arr = np.asarray(frame, dtype=np.float32)
     if arr.size == 0:
         return np.zeros((0, 0), dtype=np.uint8)
-    lo = float(np.min(arr))
-    hi = float(np.max(arr))
+    finite = arr[np.isfinite(arr)]
+    if finite.size == 0:
+        return np.zeros(arr.shape, dtype=np.uint8)
+    lo = float(np.min(finite))
+    hi = float(np.max(finite))
     denom = hi - lo
     if denom <= 0:
         return np.zeros(arr.shape, dtype=np.uint8)
-    norm = (arr - lo) / denom
-    return np.clip(norm * 255.0, 0.0, 255.0).astype(np.uint8)
+    safe = np.where(np.isfinite(arr), arr, lo)
+    norm = (safe - lo) / denom
+    result = np.clip(norm * 255.0, 0.0, 255.0).astype(np.uint8)
+    result[~np.isfinite(arr)] = 0
+    return result
 
 
 def normalize_visual_frame(frame: np.ndarray, *, p1: float | None = None, p99: float | None = None) -> np.ndarray:
@@ -52,15 +58,21 @@ def normalize_visual_frame(frame: np.ndarray, *, p1: float | None = None, p99: f
         return _frame_to_uint8(arr)
     lo = float(p1)
     hi = float(p99)
+    if not np.isfinite(lo) or not np.isfinite(hi):
+        return _frame_to_uint8(arr)
     denom = hi - lo
     if denom <= 0:
         denom = 1e-8
-    clipped = np.clip(arr, lo, hi)
-    return (((clipped - lo) / denom) * 255.0).astype(np.uint8)
+    finite_mask = np.isfinite(arr)
+    clipped = np.clip(np.where(finite_mask, arr, lo), lo, hi)
+    result = (((clipped - lo) / denom) * 255.0).astype(np.uint8)
+    result[~finite_mask] = 0
+    return result
 
 
 def _sample_percentile_pixels(frame: np.ndarray, max_pixels: int = MAX_PERCENTILE_SAMPLE_PIXELS_PER_FRAME) -> np.ndarray:
     flat = np.asarray(frame, dtype=np.float32).reshape(-1)
+    flat = flat[np.isfinite(flat)]
     limit = max(1, int(max_pixels))
     if flat.size <= limit:
         return flat
@@ -68,11 +80,40 @@ def _sample_percentile_pixels(frame: np.ndarray, max_pixels: int = MAX_PERCENTIL
     return flat[indices]
 
 
+def finite_percentile_bounds(
+    values: np.ndarray,
+    *,
+    lower: float = 1.0,
+    upper: float = 99.0,
+    max_pixels: int = MAX_PERCENTILE_SAMPLE_PIXELS_PER_FRAME,
+) -> tuple[float, float]:
+    sample = _sample_percentile_pixels(values, max_pixels=max_pixels)
+    if sample.size == 0:
+        return 0.0, 1.0
+    lo = float(np.percentile(sample, float(lower)))
+    hi = float(np.percentile(sample, float(upper)))
+    if not np.isfinite(lo) or not np.isfinite(hi):
+        return 0.0, 1.0
+    if hi <= lo:
+        hi = lo + 1e-8
+    return lo, hi
+
+
+def sanitize_nonfinite_pixels(frame: np.ndarray) -> np.ndarray:
+    arr = np.asarray(frame, dtype=np.float32)
+    finite_mask = np.isfinite(arr)
+    if np.all(finite_mask):
+        return arr.astype(np.float32, copy=False)
+    finite = arr[finite_mask]
+    fill = float(np.median(finite)) if finite.size > 0 else 0.0
+    return np.where(finite_mask, arr, fill).astype(np.float32, copy=False)
+
+
 def _read_frame_float32(frame_source, idx: int) -> np.ndarray:
     raw = np.asarray(frame_source.get_raw_frame(int(idx)))
     if raw.ndim == 3 and raw.shape[2] in (3, 4):
         raw = raw[:, :, :3].mean(axis=2)
-    return raw.astype(np.float32, copy=False)
+    return sanitize_nonfinite_pixels(raw)
 
 
 def remove_horizontal_bar_artifacts(frame: np.ndarray) -> np.ndarray:
@@ -103,7 +144,7 @@ def _gaussian_blur_2d(frame: np.ndarray, sigma: float = 0.5) -> np.ndarray:
 
 
 def _processed_frame(raw: np.ndarray, *, apply_horizontal_bar_denoise: bool, apply_smoothing: bool) -> np.ndarray:
-    source = np.asarray(raw, dtype=np.float32)
+    source = sanitize_nonfinite_pixels(raw)
     if bool(apply_horizontal_bar_denoise):
         source = remove_horizontal_bar_artifacts(source)
     if not bool(apply_smoothing):
@@ -357,8 +398,7 @@ def compute_visualization_stats(
             sampled_parts.append(_sample_percentile_pixels(source))
         _raise_if_cancelled(should_cancel)
         sampled = np.concatenate(sampled_parts, axis=0) if sampled_parts else np.zeros((0,), dtype=np.float32)
-        p1 = float(np.percentile(sampled, 1)) if sampled.size > 0 else 0.0
-        p99 = float(np.percentile(sampled, 99)) if sampled.size > 0 else 1.0
+        p1, p99 = finite_percentile_bounds(sampled)
 
     return VisualizationStats(
         frame_count=frame_count,
@@ -594,8 +634,7 @@ def build_visualization_stack(
             p1 = float(resolved_stats.p1 if resolved_stats.p1 is not None else 0.0)
             p99 = float(resolved_stats.p99 if resolved_stats.p99 is not None else 1.0)
         else:
-            p1 = float(np.percentile(subsample, 1)) if subsample.size > 0 else 0.0
-            p99 = float(np.percentile(subsample, 99)) if subsample.size > 0 else 1.0
+            p1, p99 = finite_percentile_bounds(subsample)
         denom = p99 - p1
         if denom <= 0:
             denom = 1e-8

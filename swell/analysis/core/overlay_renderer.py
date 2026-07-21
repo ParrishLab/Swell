@@ -15,6 +15,7 @@ _TIMELINE_BG = APP_COLORS["raised_bg"]
 _TIMELINE_TRACK = APP_COLORS["timeline_track"]
 _TIMELINE_PROGRESS = APP_COLORS["accent"]
 _TIMELINE_PROGRESS_TRAIL = APP_COLORS["progress_trail"]
+_TIMELINE_STALE = APP_COLORS["warning"]
 
 
 def _leverage_hex(norm: float) -> str:
@@ -569,6 +570,22 @@ def redraw_slider_overlay(app) -> None:
             right = min(w, left + 5)
         canvas.create_rectangle(left, 4, right, h - 4, fill=_TIMELINE_PROGRESS, outline="")
         app._slider_overlay_regions.append((left, right, f"Coverage: frames {start_idx + 1}–{end_idx + 1}"))
+
+    # Staleness is a property of a range, so the timeline carries it: the
+    # canvas can only ever show whether the one visible frame is stale.
+    collect_stale = getattr(app, "_collect_stale_mask_frames", None)
+    stale_frames = collect_stale() if callable(collect_stale) else set()
+    for start_idx, end_idx in app._build_frame_spans(stale_frames):
+        x0 = app._frame_to_overlay_x(start_idx, width=w, total_frames=total)
+        x1 = app._frame_to_overlay_x(end_idx, width=w, total_frames=total)
+        left = max(0, min(x0, x1) - 2.0)
+        right = min(w, max(x0, x1) + 2.0)
+        if right - left < 5:
+            right = min(w, left + 5)
+        canvas.create_rectangle(left, h - 7, right, h - 4, fill=_TIMELINE_STALE, outline="")
+        app._slider_overlay_regions.append(
+            (left, right, f"Stale — threshold changed since generation: frames {start_idx + 1}–{end_idx + 1}")
+        )
 
     _draw_timeline_progress_layer(app, canvas, w, h, total)
 
