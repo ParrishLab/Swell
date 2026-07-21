@@ -46,7 +46,7 @@ class CheckpointResolution:
 
 
 def _app_data_root() -> Path:
-    if os.name == "nt":
+    if sys.platform.startswith("win"):
         appdata = os.environ.get("APPDATA", "")
         if appdata.strip():
             return Path(appdata).expanduser().resolve() / "swell"
@@ -62,7 +62,7 @@ def _app_data_root() -> Path:
 def _legacy_app_data_roots() -> list[Path]:
     # SDApp-era model cache roots are retained so existing checkpoint downloads
     # are migrated instead of downloaded again after the rebrand.
-    if os.name == "nt":
+    if sys.platform.startswith("win"):
         roots = []
         appdata = os.environ.get("APPDATA", "")
         if appdata.strip():

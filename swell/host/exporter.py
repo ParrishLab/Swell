@@ -94,6 +94,7 @@ def export_analysis(
     include_metric_intensity: bool = False,
     include_metric_lineage_object_metrics: bool = False,
     include_metric_lineage_track_tables: bool = False,
+    include_metric_lineage_visualizations: bool = True,
     include_metric_combined_spreadsheet: bool = False,
     project_metadata: Optional[dict[str, object]] = None,
     propagation_gap_decision: Optional[Callable[[dict[str, object]], list[str]]] = None,
@@ -467,6 +468,7 @@ def export_analysis(
                     include_metric_intensity=bool(include_metric_intensity),
                     include_metric_lineage_object_metrics=bool(include_metric_lineage_object_metrics),
                     include_metric_lineage_track_tables=bool(include_metric_lineage_track_tables),
+                    include_metric_lineage_visualizations=bool(include_metric_lineage_visualizations),
                     include_metric_combined_spreadsheet=bool(include_metric_combined_spreadsheet),
                     propagation_gap_decision=propagation_gap_decision,
                     analysis_sidecar_payload=event_sidecar,
@@ -1244,6 +1246,7 @@ def _export_event_metrics(
     include_metric_intensity: bool,
     include_metric_lineage_object_metrics: bool,
     include_metric_lineage_track_tables: bool,
+    include_metric_lineage_visualizations: bool,
     include_metric_combined_spreadsheet: bool,
     baseline_pre_frames: int,
     propagation_gap_decision: Optional[Callable[[dict[str, object]], list[str]]] = None,
@@ -1666,29 +1669,30 @@ def _export_event_metrics(
         lineage_summary["tracks_with_speed_count"] = int(
             len({int(row["track_id"]) for row in track_speed_rows if str(row.get("speed_um_per_sec", "")) != ""})
         )
-        lineage_visual_dir = metrics_dir / "object_lineage_frames"
-        lineage_visual_dir.mkdir(parents=True, exist_ok=True)
-        for frame_index in frame_indices:
-            rows_for_frame = list(mask_rows_by_frame.get(int(frame_index), []))
-            if not rows_for_frame:
-                continue
-            mask_by_track_id = {
-                int(row["track_id"]): np.asarray(mask_by_frame_track[(int(frame_index), int(row["track_id"]))], dtype=bool)
-                for row in rows_for_frame
-                if (int(frame_index), int(row["track_id"])) in mask_by_frame_track
-            }
-            rendered = _draw_lineage_overlay(
-                reader.read_frame(int(frame_index), use_cache=True),
-                rows_for_frame,
-                mask_by_track_id=mask_by_track_id,
+        if include_metric_lineage_visualizations:
+            lineage_visual_dir = metrics_dir / "object_lineage_frames"
+            lineage_visual_dir.mkdir(parents=True, exist_ok=True)
+            for frame_index in frame_indices:
+                rows_for_frame = list(mask_rows_by_frame.get(int(frame_index), []))
+                if not rows_for_frame:
+                    continue
+                mask_by_track_id = {
+                    int(row["track_id"]): np.asarray(mask_by_frame_track[(int(frame_index), int(row["track_id"]))], dtype=bool)
+                    for row in rows_for_frame
+                    if (int(frame_index), int(row["track_id"])) in mask_by_frame_track
+                }
+                rendered = _draw_lineage_overlay(
+                    reader.read_frame(int(frame_index), use_cache=True),
+                    rows_for_frame,
+                    mask_by_track_id=mask_by_track_id,
+                )
+                output_name = f"{int(frame_index):06d}_object_lineage.png"
+                _write_frame(lineage_visual_dir / output_name, rendered, ".png")
+                lineage_visual_frames.append((int(frame_index), np.asarray(rendered, dtype=np.uint8)))
+            _write_lineage_overview_montage(
+                metrics_dir / "object_lineage_overview.png",
+                rendered_frames=lineage_visual_frames,
             )
-            output_name = f"{int(frame_index):06d}_object_lineage.png"
-            _write_frame(lineage_visual_dir / output_name, rendered, ".png")
-            lineage_visual_frames.append((int(frame_index), np.asarray(rendered, dtype=np.uint8)))
-        _write_lineage_overview_montage(
-            metrics_dir / "object_lineage_overview.png",
-            rendered_frames=lineage_visual_frames,
-        )
         _write_rows_csv(
             metrics_dir / f"track_area_recruited{suffix}.csv",
             columns=["track_id", "root_track_id", "frame_index", "frame_display", "time_sec", "area_mm2"],
@@ -1741,7 +1745,9 @@ def _export_event_metrics(
                 rows=track_relative_rows,
             )
         )
-        lineage_visual_written = 1 + int(len(lineage_visual_frames))
+        lineage_visual_written = (
+            1 + int(len(lineage_visual_frames)) if include_metric_lineage_visualizations else 0
+        )
         files_written += 5 + int(lineage_visual_written)
         written.extend(
             [
@@ -1750,10 +1756,10 @@ def _export_event_metrics(
                 f"track_relative_area_recruited{suffix}.csv",
                 f"lineage_weighted_propagation_speed{suffix}.csv",
                 "object_lineage_summary.json",
-                "object_lineage_overview.png",
-                "object_lineage_frames/",
             ]
         )
+        if include_metric_lineage_visualizations:
+            written.extend(["object_lineage_overview.png", "object_lineage_frames/"])
         if include_metric_lineage_track_tables:
             _write_rows_csv(
                 metrics_dir / f"object_tracks{suffix}.csv",

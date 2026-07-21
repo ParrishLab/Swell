@@ -2,6 +2,27 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.3.1] - 2026-07-17
+
+### Metrics and export
+- Propagation displacement and object-lineage tracking thresholds now use physical units and are converted from each dataset's pixels-per-millimeter calibration, keeping filtering behavior consistent across image resolutions. Export summaries record both the physical thresholds and their pixel equivalents; propagation retains the existing 2 px fallback when calibration is unavailable.
+- Programmatic object-lineage exports can omit source-frame overlays and the overview montage while retaining lineage summaries, tables, and numerical metrics.
+
+### Fixes
+- Checkpoint data-root and legacy-model migration routing now use one consistent platform signal, so Linux XDG paths are selected correctly in cross-platform validation.
+
+### Model/checkpoint compatibility
+- No checkpoint format, catalog, or model-selection change in this release; existing managed and local SAM2 selections remain compatible.
+
+### Platform/backend limitations
+- Physically scaled propagation and lineage thresholds require a valid pixels-per-millimeter calibration. Propagation falls back to the legacy 2 px threshold when calibration is unavailable, and lineage metrics continue to require their existing ROI and scale inputs.
+
+### .swell/migration notes
+- No schema change in this release. `.swell` writers still emit schema 3, and schema 2 projects remain loadable.
+
+### Known segmentation caveats/regressions
+- No known segmentation regressions in this release. The threshold changes affect exported propagation and lineage measurements, not SAM2 inference or stored masks.
+
 ## [0.3.0] - 2026-07-16
 
 ### Renamed to Swell

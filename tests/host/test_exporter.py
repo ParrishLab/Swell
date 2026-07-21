@@ -1656,6 +1656,44 @@ def test_export_lineage_metrics_write_object_tracking_artifacts(tmp_path: Path) 
     assert float(summary_rows["Lineage maximum centroid distance (px)"]) == pytest.approx(0.4)
 
 
+def test_export_lineage_metrics_can_skip_source_frame_visualizations(tmp_path: Path) -> None:
+    reader = FakeReader([np.zeros((12, 12), dtype=np.uint8) for _ in range(4)])
+    event = _event("event_0001", 1, 3)
+    masks = np.zeros((4, 12, 12), dtype=np.uint8)
+    masks[1, 2:5, 2:5] = 1
+    masks[2, 2:6, 2:6] = 1
+    masks[3, 2:7, 2:7] = 1
+
+    export_analysis(
+        reader=reader,
+        events=[event],
+        output_dir=tmp_path,
+        baseline_pre_frames=0,
+        include_event_images=False,
+        include_baseline_images=False,
+        include_metric_lineage_object_metrics=True,
+        include_metric_lineage_track_tables=True,
+        include_metric_lineage_visualizations=False,
+        analysis_sidecar={
+            "event_0001": {
+                "masks_committed": masks,
+                "metrics_settings": {
+                    "frames_per_sec": 1.0,
+                    "scale_px_per_mm": 4.0,
+                    "scale_unit": "px_per_mm",
+                    "roi_mask": np.ones((12, 12), dtype=bool),
+                },
+            }
+        },
+    )
+
+    metrics_dir = tmp_path / "event_0001" / "metrics"
+    assert (metrics_dir / "object_lineage_summary.json").exists()
+    assert (metrics_dir / "object_tracks_event_0001.csv").exists()
+    assert not (metrics_dir / "object_lineage_overview.png").exists()
+    assert not (metrics_dir / "object_lineage_frames").exists()
+
+
 def test_export_lineage_metrics_do_not_change_legacy_relative_area_outputs(tmp_path: Path) -> None:
     frames = [np.full((12, 12), i, dtype=np.uint8) for i in range(8)]
     reader = FakeReader(frames)

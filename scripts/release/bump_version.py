@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 from datetime import date
+import json
 from pathlib import Path
 import re
 import subprocess
@@ -42,6 +43,21 @@ def _parse_args() -> argparse.Namespace:
         "--windows-installer",
         default="packaging/windows/swell_installer.nsi",
         help="Path to Windows NSIS installer script (default: packaging/windows/swell_installer.nsi).",
+    )
+    parser.add_argument(
+        "--citation",
+        default="CITATION.cff",
+        help="Path to CITATION.cff (default: CITATION.cff).",
+    )
+    parser.add_argument(
+        "--codemeta",
+        default="codemeta.json",
+        help="Path to codemeta.json (default: codemeta.json).",
+    )
+    parser.add_argument(
+        "--uv-lock",
+        default="uv.lock",
+        help="Path to uv.lock (default: uv.lock).",
     )
     parser.add_argument(
         "--date",
@@ -103,6 +119,52 @@ def _write_windows_installer_version(installer_path: Path, new_version: str) -> 
     if count != 1:
         raise RuntimeError(f"Unable to update APP_VERSION in {installer_path}")
     installer_path.write_text(updated, encoding="utf-8")
+    return True
+
+
+def _write_citation_metadata(citation_path: Path, new_version: str, release_date: str) -> bool:
+    if not citation_path.exists():
+        return False
+    text = citation_path.read_text(encoding="utf-8")
+    updated, version_count = re.subn(
+        r'(?m)^version:\s*"[^"]+"\s*$',
+        f'version: "{new_version}"',
+        text,
+        count=1,
+    )
+    updated, date_count = re.subn(
+        r'(?m)^date-released:\s*"[^"]+"\s*$',
+        f'date-released: "{release_date}"',
+        updated,
+        count=1,
+    )
+    if version_count != 1 or date_count != 1:
+        raise RuntimeError(f"Unable to update version/date-released in {citation_path}")
+    citation_path.write_text(updated, encoding="utf-8")
+    return True
+
+
+def _write_codemeta_metadata(codemeta_path: Path, new_version: str, release_date: str) -> bool:
+    if not codemeta_path.exists():
+        return False
+    payload = json.loads(codemeta_path.read_text(encoding="utf-8"))
+    payload["version"] = new_version
+    payload["datePublished"] = release_date
+    codemeta_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    return True
+
+
+def _write_uv_lock_version(uv_lock_path: Path, new_version: str) -> bool:
+    if not uv_lock_path.exists():
+        return False
+    text = uv_lock_path.read_text(encoding="utf-8")
+    pattern = re.compile(
+        r'(?m)(^\[\[package\]\]\nname = "swell"\nversion = ")[^"]+("$)',
+    )
+    updated, count = pattern.subn(rf"\g<1>{new_version}\g<2>", text, count=1)
+    if count != 1:
+        raise RuntimeError(f"Unable to update Swell package version in {uv_lock_path}")
+    uv_lock_path.write_text(updated, encoding="utf-8")
     return True
 
 
@@ -177,6 +239,9 @@ def main() -> int:
     pyproject_path = (repo_root / args.pyproject).resolve()
     changelog_path = (repo_root / args.changelog).resolve()
     windows_installer_path = (repo_root / args.windows_installer).resolve()
+    citation_path = (repo_root / args.citation).resolve()
+    codemeta_path = (repo_root / args.codemeta).resolve()
+    uv_lock_path = (repo_root / args.uv_lock).resolve()
 
     if not pyproject_path.exists():
         raise FileNotFoundError(f"Missing pyproject.toml: {pyproject_path}")
@@ -192,6 +257,9 @@ def main() -> int:
 
     _write_pyproject_version(pyproject_path, new_version)
     windows_installer_updated = _write_windows_installer_version(windows_installer_path, new_version)
+    citation_updated = _write_citation_metadata(citation_path, new_version, args.release_date)
+    codemeta_updated = _write_codemeta_metadata(codemeta_path, new_version, args.release_date)
+    uv_lock_updated = _write_uv_lock_version(uv_lock_path, new_version)
     inserted = _insert_changelog_section(changelog_path, new_version, args.release_date)
 
     tag_name = f"v{new_version}"
@@ -201,6 +269,9 @@ def main() -> int:
     print(
         f"BUMP_VERSION:OK:old={current_version};new={new_version};"
         f"windows_installer_updated={'true' if windows_installer_updated else 'false'};"
+        f"citation_updated={'true' if citation_updated else 'false'};"
+        f"codemeta_updated={'true' if codemeta_updated else 'false'};"
+        f"uv_lock_updated={'true' if uv_lock_updated else 'false'};"
         f"changelog_inserted={'true' if inserted else 'false'};"
         f"tag_created={'true' if args.tag else 'false'}"
     )

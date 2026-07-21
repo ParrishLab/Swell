@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 import subprocess
 import sys
@@ -73,9 +74,21 @@ def _write_fixture_repo(tmp_path: Path, version: str = "1.2.3") -> None:
         + "\n",
         encoding="utf-8",
     )
+    (tmp_path / "CITATION.cff").write_text(
+        f'version: "{version}"\ndate-released: "2026-03-16"\n',
+        encoding="utf-8",
+    )
+    (tmp_path / "codemeta.json").write_text(
+        json.dumps({"version": version, "datePublished": "2026-03-16"}, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "uv.lock").write_text(
+        f'[[package]]\nname = "swell"\nversion = "{version}"\nsource = {{ editable = "." }}\n',
+        encoding="utf-8",
+    )
 
 
-def test_bump_version_patch_updates_pyproject_and_changelog(tmp_path: Path) -> None:
+def test_bump_version_patch_updates_all_release_metadata(tmp_path: Path) -> None:
     _write_fixture_repo(tmp_path, version="1.2.3")
     script = ROOT / "scripts" / "release" / "bump_version.py"
     proc = subprocess.run(
@@ -87,6 +100,9 @@ def test_bump_version_patch_updates_pyproject_and_changelog(tmp_path: Path) -> N
     )
     assert "BUMP_VERSION:OK:old=1.2.3;new=1.2.4;" in proc.stdout
     assert "windows_installer_updated=true" in proc.stdout
+    assert "citation_updated=true" in proc.stdout
+    assert "codemeta_updated=true" in proc.stdout
+    assert "uv_lock_updated=true" in proc.stdout
     pyproject = (tmp_path / "pyproject.toml").read_text(encoding="utf-8")
     assert 'version = "1.2.4"' in pyproject
     installer = (tmp_path / "packaging" / "windows" / "swell_installer.nsi").read_text(encoding="utf-8")
@@ -97,6 +113,14 @@ def test_bump_version_patch_updates_pyproject_and_changelog(tmp_path: Path) -> N
     assert "### Platform/backend limitations" in changelog
     assert "### .swell/migration notes" in changelog
     assert "### Known segmentation caveats/regressions" in changelog
+    citation = (tmp_path / "CITATION.cff").read_text(encoding="utf-8")
+    assert 'version: "1.2.4"' in citation
+    assert 'date-released: "2026-03-17"' in citation
+    codemeta = json.loads((tmp_path / "codemeta.json").read_text(encoding="utf-8"))
+    assert codemeta["version"] == "1.2.4"
+    assert codemeta["datePublished"] == "2026-03-17"
+    uv_lock = (tmp_path / "uv.lock").read_text(encoding="utf-8")
+    assert 'name = "swell"\nversion = "1.2.4"' in uv_lock
 
 
 def test_bump_version_explicit_dry_run_makes_no_changes(tmp_path: Path) -> None:
@@ -104,6 +128,9 @@ def test_bump_version_explicit_dry_run_makes_no_changes(tmp_path: Path) -> None:
     before_pyproject = (tmp_path / "pyproject.toml").read_text(encoding="utf-8")
     before_changelog = (tmp_path / "CHANGELOG.md").read_text(encoding="utf-8")
     before_installer = (tmp_path / "packaging" / "windows" / "swell_installer.nsi").read_text(encoding="utf-8")
+    before_citation = (tmp_path / "CITATION.cff").read_text(encoding="utf-8")
+    before_codemeta = (tmp_path / "codemeta.json").read_text(encoding="utf-8")
+    before_uv_lock = (tmp_path / "uv.lock").read_text(encoding="utf-8")
     script = ROOT / "scripts" / "release" / "bump_version.py"
     proc = subprocess.run(
         [sys.executable, str(script), "2.0.0", "--dry-run"],
@@ -116,3 +143,6 @@ def test_bump_version_explicit_dry_run_makes_no_changes(tmp_path: Path) -> None:
     assert (tmp_path / "pyproject.toml").read_text(encoding="utf-8") == before_pyproject
     assert (tmp_path / "CHANGELOG.md").read_text(encoding="utf-8") == before_changelog
     assert (tmp_path / "packaging" / "windows" / "swell_installer.nsi").read_text(encoding="utf-8") == before_installer
+    assert (tmp_path / "CITATION.cff").read_text(encoding="utf-8") == before_citation
+    assert (tmp_path / "codemeta.json").read_text(encoding="utf-8") == before_codemeta
+    assert (tmp_path / "uv.lock").read_text(encoding="utf-8") == before_uv_lock

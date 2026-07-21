@@ -127,6 +127,15 @@ my_export_output/
 │   │   ├── area_recruited.png
 │   │   ├── intensity.csv         # Mean ROI pixel intensity over time
 │   │   ├── intensity_delta_i_over_baseline_i.png # Relative intensity changes plot
+│   │   ├── track_propagation_speed.csv # Per-object propagation speed
+│   │   ├── track_area_recruited.csv     # Per-object recruited area
+│   │   ├── track_relative_area_recruited.csv
+│   │   ├── lineage_weighted_propagation_speed.csv
+│   │   ├── object_lineage_summary.json  # Tracking configuration and aggregate counts
+│   │   ├── object_tracks.csv            # Optional per-frame object table
+│   │   ├── object_lineage.csv           # Optional split/merge lineage table
+│   │   ├── object_lineage_overview.png  # Optional overview montage
+│   │   ├── object_lineage_frames/       # Optional per-frame overlays
 │   │   ├── frame_metrics.csv
 │   │   ├── summary_metrics.csv
 │   │   ├── summary_metrics.json
@@ -153,7 +162,12 @@ my_export_output/
   $$area\_mm2 = area\_px \times \left(\frac{1.0}{scale\_px\_per\_mm}\right)^2$$
 * `speed_um_per_sec` (float): Wavefront propagation speed in micrometers per second. Calculated as the average distance shift ($avg\_dist\_px$) of the primary mask boundary contour between consecutive frames:
   $$speed\_um\_per\_sec = \frac{avg\_dist\_px \times \left(\frac{1000.0}{scale\_px\_per\_mm}\right)}{sec\_per\_frame}$$
+  Boundary displacements smaller than `0.015 mm` are filtered after converting that physical threshold to pixels with the dataset calibration. When no valid pixels-per-millimeter calibration is available, Swell retains the legacy `2 px` threshold.
 * `relative_area_pct` (float): Composed mask area divided by total ROI area (or total frame area if no ROI is specified).
+
+### Object-Lineage Thresholds
+
+Object-lineage metrics use physical defaults that are converted to pixels for each calibrated dataset: minimum component area `0.00025 mm²`, maximum centroid distance `0.10 mm`, and maximum boundary distance `0.05 mm`. Tracks must persist for at least two frames. `object_lineage_summary.json`, `event_summary.json`, `event_summary.md`, and the combined workbook record the physical settings and their pixel equivalents so an export can be audited independently of image resolution.
 
 ### Column Dictionary & Formulas (`intensity.csv`)
 * `frame_index` (int): 0-indexed absolute frame position in the source stack.

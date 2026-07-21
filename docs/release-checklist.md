@@ -18,7 +18,7 @@ Work through these sections top-to-bottom before publishing a release. Steps mar
 
 ## 2. Version and changelog
 
-- [ ] `pyproject.toml` `[project].version` is set to the target release version.
+- [ ] `pyproject.toml`, `packaging/windows/swell_installer.nsi`, `uv.lock`, `CITATION.cff`, and `codemeta.json` all use the target release version and date where applicable.
 - [ ] `CHANGELOG.md` has a new section `## [X.Y.Z] - YYYY-MM-DD` with all four required headings:
   - `Model/checkpoint compatibility`
   - `Platform/backend limitations`
@@ -26,7 +26,7 @@ Work through these sections top-to-bottom before publishing a release. Steps mar
   - `Known segmentation caveats/regressions`
 - [ ] The changelog section accurately describes what changed for end users (not just internal refactors).
 
-Use the bump script to do both version and changelog scaffold in one step:
+Use the bump script to synchronize release metadata and scaffold the changelog in one step:
 ```bash
 python scripts/release/bump_version.py patch   # or minor / major / explicit version
 ```

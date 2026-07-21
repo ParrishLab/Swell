@@ -17,6 +17,8 @@ In the Host Window:
         * `propagation_speed.csv`: Wavefront speed ($\mu m/sec$).
         * `area_recruited.csv`: Mask area recruitment ($mm^2$).
         * `intensity.csv`: Mean ROI pixel intensity and relative intensity change ($\Delta I / I_0$) over time.
+        * Object-lineage CSV/JSON outputs: Per-object area, propagation speed, relative area, split/merge relationships, and the physical tracking thresholds used for the dataset.
+        * Optional object-lineage overlays: Per-frame labeled overlays and an overview montage.
         * `metrics_combined.xlsx`: A consolidated Excel workbook with summary, frame metrics, and intensity sheets when combined spreadsheet export is selected.
     * `plots`: Diagnostic charts showing propagation speed, area over time, and relative intensity changes (`intensity_delta_i_over_baseline_i.png`).
     * `event_summary.json` and `event_summary.md`: Machine-readable and human-readable event summaries.
