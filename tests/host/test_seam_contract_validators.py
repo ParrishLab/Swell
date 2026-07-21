@@ -96,6 +96,7 @@ def _sync_payload_for_context(c: BrowserController) -> dict:
     payload["session_id"] = c.session.get_session_id()
     payload["stack_id"] = c.session.get_stack_id()
     payload["event_id"] = c.events.get_active_event_id()
+    payload["analysis_mapping_signature"] = c.host_context_for_event(payload["event_id"])["analysis_mapping_signature"]
     payload["analysis_state_ref"]["ref_id"] = f"{payload['session_id']}:{payload['event_id']}"
     return payload
 
@@ -115,14 +116,53 @@ def test_validate_handoff_invalid_fixture_returns_payload_invalid() -> None:
     assert result["code"] == ValidatorErrorCode.PAYLOAD_INVALID
 
 
+def test_validate_handoff_rejects_event_outside_stack() -> None:
+    payload = load_contract_fixture("valid_handoff")
+    payload = deepcopy(payload)
+    payload["event"]["end_idx"] = int(payload["stack"]["frame_count"])
+
+    result = validate_handoff_payload(payload)
+
+    assert result["ok"] is False
+    assert result["code"] == ValidatorErrorCode.PAYLOAD_INVALID
+
+
+def test_validate_handoff_rejects_partial_frame_metadata_and_zero_shape() -> None:
+    partial = deepcopy(load_contract_fixture("valid_handoff"))
+    partial["stack"]["frame_names"] = partial["stack"]["frame_names"][:1]
+    partial["stack"]["source_paths"] = partial["stack"]["source_paths"][:1]
+    zero_shape = deepcopy(load_contract_fixture("valid_handoff"))
+    zero_shape["stack"]["frame_shape"] = [0, 0]
+
+    partial_result = validate_handoff_payload(partial)
+    zero_result = validate_handoff_payload(zero_shape)
+
+    assert partial_result["ok"] is False
+    assert partial_result["code"] == ValidatorErrorCode.PAYLOAD_INVALID
+    assert zero_result["ok"] is False
+    assert zero_result["code"] == ValidatorErrorCode.PAYLOAD_INVALID
+
+
 def test_validate_sync_payload_accepts_valid_contextual_payload() -> None:
     c = _controller_with_event()
     payload = _sync_payload_for_context(c)
     result = c.validate_sync_payload(payload)
     assert result["ok"] is True
     applied = c.apply_analysis_sync(payload)
-    assert applied["ok"] is True
-    assert c.session.load_analysis_sidecar(payload["event_id"]) is not None
+    assert applied["ok"] is False
+    assert applied["code"] == "ANALYSIS_DATA_UNAVAILABLE"
+    assert c.session.load_analysis_sidecar(payload["event_id"]) is None
+
+
+def test_validate_sync_payload_rejects_stale_analysis_mapping() -> None:
+    c = _controller_with_event()
+    payload = _sync_payload_for_context(c)
+    payload["analysis_mapping_signature"] = "obsolete"
+
+    result = c.validate_sync_payload(payload)
+
+    assert result["ok"] is False
+    assert result["code"] == ValidatorErrorCode.STALE_ANALYSIS_MAPPING
 
 
 def test_validate_sync_payload_invalid_fixture_returns_payload_invalid() -> None:
@@ -132,6 +172,7 @@ def test_validate_sync_payload_invalid_fixture_returns_payload_invalid() -> None
     payload["session_id"] = c.session.get_session_id()
     payload["stack_id"] = c.session.get_stack_id()
     payload["event_id"] = c.events.get_active_event_id()
+    payload["analysis_mapping_signature"] = c.host_context_for_event(payload["event_id"])["analysis_mapping_signature"]
     result = c.validate_sync_payload(payload)
     assert result["ok"] is False
     assert result["code"] == ValidatorErrorCode.PAYLOAD_INVALID
@@ -144,6 +185,7 @@ def test_validate_sync_payload_rejects_version_mismatch() -> None:
     payload["session_id"] = c.session.get_session_id()
     payload["stack_id"] = c.session.get_stack_id()
     payload["event_id"] = c.events.get_active_event_id()
+    payload["analysis_mapping_signature"] = c.host_context_for_event(payload["event_id"])["analysis_mapping_signature"]
     result = c.validate_sync_payload(payload)
     assert result["ok"] is False
     assert result["code"] == ValidatorErrorCode.VERSION_MISMATCH
@@ -155,6 +197,7 @@ def test_validate_sync_payload_rejects_session_mismatch() -> None:
     payload = deepcopy(payload)
     payload["stack_id"] = c.session.get_stack_id()
     payload["event_id"] = c.events.get_active_event_id()
+    payload["analysis_mapping_signature"] = c.host_context_for_event(payload["event_id"])["analysis_mapping_signature"]
     result = c.validate_sync_payload(payload)
     assert result["ok"] is False
     assert result["code"] == ValidatorErrorCode.SESSION_MISMATCH
@@ -189,6 +232,7 @@ def test_validate_sync_payload_rejects_mask_shape_mismatch() -> None:
     payload["session_id"] = c.session.get_session_id()
     payload["stack_id"] = c.session.get_stack_id()
     payload["event_id"] = c.events.get_active_event_id()
+    payload["analysis_mapping_signature"] = c.host_context_for_event(payload["event_id"])["analysis_mapping_signature"]
     result = c.validate_sync_payload(payload)
     assert result["ok"] is False
     assert result["code"] == ValidatorErrorCode.MASK_SHAPE_MISMATCH
@@ -213,6 +257,7 @@ def test_shared_invalid_sync_fixtures_match_expected_codes() -> None:
             payload["stack_id"] = c.session.get_stack_id()
         if fixture_name not in ("invalid_sync_event_not_found", "invalid_sync_active_set_event_not_found"):
             payload["event_id"] = c.events.get_active_event_id()
+            payload["analysis_mapping_signature"] = c.host_context_for_event(payload["event_id"])["analysis_mapping_signature"]
         result = c.validate_sync_payload(payload)
         assert result["ok"] is False
         assert result["code"] == code

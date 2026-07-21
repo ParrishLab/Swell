@@ -11,6 +11,7 @@ from swell.analysis.core.host_handoff import intake_host_handoff_payload
 from swell.analysis.core.project_session import ProjectSessionService, SessionSnapshot
 from swell.analysis.core.seg_state import SegmentationState
 from swell.analysis.core.session_state import SessionState
+from swell.shared.frame_source import EventScopedFrameSource
 from swell.shared.frame_source.protocols import FrameSource
 
 
@@ -132,10 +133,16 @@ class AnalysisWorkspaceController:
                     return local
             return None
 
+        def _first_valid(*values: int | None) -> int | None:
+            for value in values:
+                if value is not None:
+                    return value
+            return None
+
         if normalized_origin == "analysis_scope_local":
-            return _from_scope_local(raw) or _from_global(raw)
+            return _first_valid(_from_scope_local(raw), _from_global(raw))
         if normalized_origin == "event_local":
-            return _from_event_local(raw) or _from_global(raw) or _from_scope_local(raw)
+            return _first_valid(_from_event_local(raw), _from_global(raw), _from_scope_local(raw))
         if normalized_origin == "global":
             return _from_global(raw)
 
@@ -162,13 +169,20 @@ class AnalysisWorkspaceController:
         local_event_start: int | None = None,
         local_event_end: int | None = None,
         origin_hint: object = None,
-    ) -> tuple[dict[int, list[dict[str, Any]]], dict[int, list[float]], list[dict], dict[int, dict[str, np.ndarray]]]:
+    ) -> tuple[
+        dict[int, list[dict[str, Any]]],
+        dict[int, list[float]],
+        list[dict],
+        dict[int, dict[str, np.ndarray]],
+        set[int],
+    ]:
         tmp = SegmentationState()
         tmp.load_prompts_json(prompts_payload, base_shape=frame_shape)
         points: dict[int, list[dict[str, Any]]] = {}
         boxes: dict[int, list[float]] = {}
         persistent_regions: list[dict] = []
         paint_layers: dict[int, dict[str, np.ndarray]] = {}
+        ground_truth_frames: set[int] = set()
         for frame_idx, point_list in tmp.points.items():
             local = self._normalize_frame_idx_to_local(
                 int(frame_idx),
@@ -246,7 +260,19 @@ class AnalysisWorkspaceController:
             else:
                 existing["plus"] = np.logical_or(existing["plus"], plus)
                 existing["minus"] = np.logical_or(existing["minus"], minus)
-        return points, boxes, persistent_regions, paint_layers
+        for frame_idx in tmp.ground_truth_frames:
+            local = self._normalize_frame_idx_to_local(
+                int(frame_idx),
+                frame_count=frame_count,
+                scope_start=scope_start,
+                scope_end=scope_end,
+                local_event_start=local_event_start,
+                local_event_end=local_event_end,
+                origin_hint=origin_hint,
+            )
+            if local is not None:
+                ground_truth_frames.add(local)
+        return points, boxes, persistent_regions, paint_layers, ground_truth_frames
 
     def _normalize_masks_to_local(
         self,
@@ -260,29 +286,31 @@ class AnalysisWorkspaceController:
         local_event_end: int | None = None,
         origin_hint: object = None,
     ) -> dict[int, np.ndarray]:
-        def _coerce_2d_mask(mask_payload: Any) -> np.ndarray | None:
+        def _coerce_2d_mask(mask_payload: Any, *, field: str) -> np.ndarray:
             try:
                 arr = np.asarray(mask_payload, dtype=bool)
-            except Exception:
-                return None
+            except Exception as exc:
+                raise ValueError(f"{field} is not an array-compatible mask") from exc
             squeezed = np.squeeze(arr)
             if squeezed.ndim != 2:
-                return None
+                raise ValueError(f"{field} must be two-dimensional after squeezing; got shape {tuple(arr.shape)}")
             if frame_shape is not None:
                 expected = (int(frame_shape[0]), int(frame_shape[1]))
                 if tuple(squeezed.shape) != expected:
-                    return None
+                    raise ValueError(f"{field} has shape {tuple(squeezed.shape)}; expected {expected}")
             return np.asarray(squeezed, dtype=bool).copy()
 
         def _array_to_masks_dict(mask_array: np.ndarray) -> dict[int, np.ndarray]:
             out: dict[int, np.ndarray] = {}
             if mask_array.ndim != 3:
-                return out
-            if mask_array.shape[0] <= 0:
-                return out
-            for idx in range(min(int(frame_count), int(mask_array.shape[0]))):
-                mask_2d = _coerce_2d_mask(mask_array[idx])
-                if mask_2d is not None and np.any(mask_2d):
+                raise ValueError(f"mask array must be three-dimensional; got shape {tuple(mask_array.shape)}")
+            if int(mask_array.shape[0]) != int(frame_count):
+                raise ValueError(
+                    f"scope-local mask array has {int(mask_array.shape[0])} frames; expected {int(frame_count)}"
+                )
+            for idx in range(int(frame_count)):
+                mask_2d = _coerce_2d_mask(mask_array[idx], field=f"mask frame {idx}")
+                if np.any(mask_2d):
                     out[int(idx)] = mask_2d
             return out
 
@@ -308,8 +336,8 @@ class AnalysisWorkspaceController:
             for frame_idx, mask in masks_payload.items():
                 try:
                     frame_idx_int = int(frame_idx)
-                except (TypeError, ValueError):
-                    continue
+                except (TypeError, ValueError) as exc:
+                    raise ValueError(f"mask dictionary frame key is not an integer: {frame_idx!r}") from exc
                 local = self._normalize_frame_idx_to_local(
                     frame_idx_int,
                     frame_count=frame_count,
@@ -320,47 +348,56 @@ class AnalysisWorkspaceController:
                     origin_hint=origin_hint,
                 )
                 if local is None:
-                    continue
-                mask_2d = _coerce_2d_mask(mask)
-                if mask_2d is not None and np.any(mask_2d):
+                    raise ValueError(f"mask frame {frame_idx_int} falls outside the active analysis scope")
+                mask_2d = _coerce_2d_mask(mask, field=f"mask frame {frame_idx_int}")
+                if np.any(mask_2d):
                     out[local] = mask_2d
             return out
 
-        arr = np.asarray(masks_payload)
+        try:
+            arr = np.asarray(masks_payload)
+        except Exception as exc:
+            raise ValueError("mask payload is not array-compatible") from exc
         if arr.ndim == 4 and arr.shape[-1] == 1:
             arr = np.squeeze(arr, axis=-1)
         elif arr.ndim == 4 and arr.shape[1] == 1:
             arr = np.squeeze(arr, axis=1)
         if arr.ndim != 3:
-            return {}
+            raise ValueError(f"mask array must be three-dimensional; got shape {tuple(arr.shape)}")
         if frame_shape is not None:
             expected = (int(frame_shape[0]), int(frame_shape[1]))
             if tuple(arr.shape[1:]) != expected:
-                return {}
+                raise ValueError(f"mask frames have shape {tuple(arr.shape[1:])}; expected {expected}")
         normalized_origin = str(origin_hint or "").strip().lower()
-        if normalized_origin == "analysis_scope_local" and arr.shape[0] == frame_count:
+        if normalized_origin == "analysis_scope_local":
+            if int(arr.shape[0]) != int(frame_count):
+                raise ValueError(
+                    f"scope-local mask array has {int(arr.shape[0])} frames; expected {int(frame_count)}"
+                )
             return _array_to_masks_dict(arr)
         if normalized_origin == "global":
             if scope_start is not None and scope_end is not None and arr.shape[0] > int(scope_end):
                 scoped = arr[int(scope_start) : int(scope_end) + 1]
                 if scoped.shape[0] == frame_count:
                     return _array_to_masks_dict(scoped)
-            return {}
-        if (
-            normalized_origin == "event_local"
-            and event_span_len is not None
-            and local_event_start is not None
-            and arr.shape[0] == int(event_span_len)
-            and 0 <= int(local_event_start) < frame_count
-        ):
+            raise ValueError("global mask array does not cover the active analysis scope")
+        if normalized_origin == "event_local":
+            if event_span_len is None or local_event_start is None:
+                raise ValueError("event-local masks require valid event bounds")
+            if int(arr.shape[0]) != int(event_span_len):
+                raise ValueError(
+                    f"event-local mask array has {int(arr.shape[0])} frames; expected {int(event_span_len)}"
+                )
+            if not (0 <= int(local_event_start) < frame_count):
+                raise ValueError("event-local mask start falls outside the active analysis scope")
             out: dict[int, np.ndarray] = {}
             base = int(local_event_start)
             for idx in range(arr.shape[0]):
                 local_idx = base + int(idx)
                 if local_idx >= frame_count:
-                    break
-                mask_2d = _coerce_2d_mask(arr[idx])
-                if mask_2d is not None and np.any(mask_2d):
+                    raise ValueError("event-local mask array extends beyond the active analysis scope")
+                mask_2d = _coerce_2d_mask(arr[idx], field=f"mask frame {idx}")
+                if np.any(mask_2d):
                     out[local_idx] = mask_2d
             return out
         if arr.shape[0] == frame_count:
@@ -380,12 +417,15 @@ class AnalysisWorkspaceController:
             for idx in range(arr.shape[0]):
                 local_idx = base + int(idx)
                 if local_idx >= frame_count:
-                    break
-                mask_2d = _coerce_2d_mask(arr[idx])
-                if mask_2d is not None and np.any(mask_2d):
+                    raise ValueError("event-local mask array extends beyond the active analysis scope")
+                mask_2d = _coerce_2d_mask(arr[idx], field=f"mask frame {idx}")
+                if np.any(mask_2d):
                     out[local_idx] = mask_2d
             return out
-        return _array_to_masks_dict(arr)
+        raise ValueError(
+            f"mask array frame count {int(arr.shape[0])} does not match scope ({int(frame_count)}) "
+            f"or event ({event_span_len})"
+        )
 
     def bind_frame_source(self, frame_source: FrameSource | None) -> None:
         self.frame_source = frame_source
@@ -405,6 +445,15 @@ class AnalysisWorkspaceController:
 
         normalized = intake["normalized"]
         if frame_source is not None:
+            event_payload = dict(normalized["event"])
+            flags = dict(event_payload.get("flags", {}) or {})
+            scope_start = int(flags.get("analysis_scope_start_idx", event_payload["start_idx"]))
+            scope_end = int(flags.get("analysis_scope_end_idx", event_payload["end_idx"]))
+            expected_scope_count = max(0, scope_end - scope_start + 1)
+            source_count = int(getattr(frame_source, "frame_count", 0) or 0)
+            full_count = int(normalized["stack"]["frame_count"])
+            if source_count == full_count and expected_scope_count != full_count:
+                frame_source = EventScopedFrameSource(frame_source, scope_start, scope_end)
             self.bind_frame_source(frame_source)
         if self.frame_source is None:
             return {
@@ -412,25 +461,25 @@ class AnalysisWorkspaceController:
                 "code": "PAYLOAD_INVALID",
                 "message": "Host-driven open requires a bound frame source.",
             }
-        self._sync_emitter = sync_emitter
-        self._host_context = normalized
-
-        event = dict(normalized["event"])
-        event_id = str(event["event_id"])
-        flags = dict(event.get("flags", {}))
-        local_start = int(flags.get("analysis_local_event_start_idx", event["start_idx"]))
-        local_end = int(flags.get("analysis_local_event_end_idx", event["end_idx"]))
-        frame_count = int(self.frame_source.frame_count)
-        records = self.session_state.event_records
-        self.session_service.ensure_event_record(event_id, frame_count, records)
-        self.session_service.update_event_metadata(
-            event_id=event_id,
-            event_records=records,
-            label=str(event["label"]),
-            start_idx=local_start,
-            end_idx=local_end,
+        # Handoff and direct host opens must restore the same authoritative
+        # state. The former used to resolve only metadata and silently open an
+        # empty workspace even though analysis_state_ref named saved data.
+        direct_context = {
+            "session_id": str(normalized["session"]["session_id"]),
+            "stack_id": str(normalized["stack"]["stack_id"]),
+            "project_path": normalized["session"].get("project_path"),
+            "project_metadata": dict(normalized["session"].get("metadata", {}) or {}),
+            "event": dict(normalized["event"]),
+            "analysis_state": normalized.get("analysis_state"),
+            "analysis_mapping_signature": str(normalized["analysis_mapping_signature"]),
+        }
+        result = self.open_from_host_event_context(
+            direct_context,
+            frame_source=self.frame_source,
+            sync_emitter=sync_emitter,
         )
-        self.open_event(event_id)
+        if not bool(result.get("ok")):
+            return result
         return {"ok": True, "normalized": normalized}
 
     def open_from_host_event_context(
@@ -459,6 +508,7 @@ class AnalysisWorkspaceController:
             "stack": {"stack_id": str(context.get("stack_id", ""))},
             "event": event,
             "analysis_state_ref": {"storage": "host_session", "ref_id": f"{context.get('session_id', '')}:{event_id}"},
+            "analysis_mapping_signature": str(context.get("analysis_mapping_signature", "") or ""),
         }
         self._sync_emitter = sync_emitter
 
@@ -485,20 +535,28 @@ class AnalysisWorkspaceController:
             if record is not None:
                 prompts = initial_state.get("prompts")
                 if isinstance(prompts, dict):
-                    points, boxes, persistent_regions, paint_layers = self._normalize_prompts_to_local(
-                        prompts,
-                        frame_count=frame_count,
-                        frame_shape=frame_shape,
-                        scope_start=scope_start,
-                        scope_end=scope_end,
-                        local_event_start=local_start,
-                        local_event_end=local_end,
-                        origin_hint=initial_state.get("prompts_frame_origin"),
-                    )
+                    try:
+                        points, boxes, persistent_regions, paint_layers, ground_truth_frames = self._normalize_prompts_to_local(
+                            prompts,
+                            frame_count=frame_count,
+                            frame_shape=frame_shape,
+                            scope_start=scope_start,
+                            scope_end=scope_end,
+                            local_event_start=local_start,
+                            local_event_end=local_end,
+                            origin_hint=initial_state.get("prompts_frame_origin"),
+                        )
+                    except Exception as exc:
+                        return {
+                            "ok": False,
+                            "code": "PROMPT_PAYLOAD_INVALID",
+                            "message": f"Unable to restore prompts for {event_id}: {exc}",
+                        }
                     record.analysis.points = self.session_service.copy_points_dict(points)
                     record.analysis.boxes = self.session_service.copy_boxes_dict(boxes)
                     record.analysis.persistent_regions = self.session_service.copy_persistent_regions(persistent_regions)
                     record.analysis.paint_layers = self.session_service.copy_paint_layers(paint_layers)
+                    record.analysis.ground_truth_frames = set(ground_truth_frames)
                 masks_committed = initial_state.get("masks_committed")
                 if masks_committed is not None:
                     try:
@@ -512,8 +570,36 @@ class AnalysisWorkspaceController:
                             local_event_end=local_end,
                             origin_hint=initial_state.get("masks_committed_frame_origin"),
                         )
-                    except Exception:
-                        pass
+                    except Exception as exc:
+                        return {
+                            "ok": False,
+                            "code": "MASK_PAYLOAD_INVALID",
+                            "message": f"Unable to restore committed masks for {event_id}: {exc}",
+                        }
+                masks_draft = initial_state.get("masks_draft")
+                propagation_completed = bool(initial_state.get("propagation_completed", True))
+                record.metadata.propagation_completed = propagation_completed
+                if masks_draft is not None:
+                    try:
+                        record.analysis.masks_draft = self._normalize_masks_to_local(
+                            masks_draft,
+                            frame_count=frame_count,
+                            scope_start=scope_start,
+                            scope_end=scope_end,
+                            frame_shape=frame_shape,
+                            local_event_start=local_start,
+                            local_event_end=local_end,
+                            origin_hint=initial_state.get("masks_draft_frame_origin"),
+                        )
+                    except Exception as exc:
+                        return {
+                            "ok": False,
+                            "code": "MASK_DRAFT_PAYLOAD_INVALID",
+                            "message": f"Unable to restore draft masks for {event_id}: {exc}",
+                        }
+                else:
+                    record.analysis.masks_draft = None
+                record.analysis.use_draft = bool(record.analysis.masks_draft and not propagation_completed)
         self.open_event(event_id)
         return {"ok": True, "normalized": dict(context)}
 
@@ -552,13 +638,23 @@ class AnalysisWorkspaceController:
         record = self.session_state.event_records.get(event_id)
         if record is None:
             return None
+        mapping_signature = str(self._host_context.get("analysis_mapping_signature", "") or "")
+        if not mapping_signature:
+            return None
         frame_count, resolved_shape = self._resolved_frame_count_and_shape()
         masks_shape = [int(v) for v in resolved_shape]
+        actual_payload = self.export_active_event_analysis_payload()
+        if actual_payload is None:
+            return None
+        actual_payload = dict(actual_payload)
+        actual_payload.pop("event_id", None)
+        actual_payload.pop("analysis_mapping_signature", None)
         return {
             "contract_version": int(self._host_context["contract_version"]),
             "session_id": str(self._host_context["session"]["session_id"]),
             "stack_id": str(self._host_context["stack"]["stack_id"]),
             "event_id": event_id,
+            "analysis_mapping_signature": mapping_signature,
             "analysis_state_ref": dict(self._host_context["analysis_state_ref"]),
             "analysis": {
                 "masks_committed": {
@@ -584,6 +680,7 @@ class AnalysisWorkspaceController:
                 "propagation_completed": bool(record.metadata.propagation_completed),
                 "analysis_output_dir": record.metadata.analysis_output_dir,
             },
+            "analysis_payload": actual_payload,
             "ui_hints": dict(ui_hints or {}),
         }
 
@@ -614,12 +711,15 @@ class AnalysisWorkspaceController:
         prompts_state.ground_truth_frames = set(record.analysis.ground_truth_frames)
         return {
             "event_id": event_id,
+            "analysis_mapping_signature": str((self._host_context or {}).get("analysis_mapping_signature", "") or ""),
             "prompts": prompts_state.to_prompts_json(event_id),
+            "prompts_frame_origin": self._FRAME_ORIGIN_SCOPE_LOCAL,
             "masks_committed": self.session_service.masks_dict_to_array(
                 self.session_service.copy_masks_dict(record.analysis.masks_committed),
                 frame_count,
                 frame_shape,
             ),
+            "masks_committed_frame_origin": self._FRAME_ORIGIN_SCOPE_LOCAL,
             "masks_draft": (
                 self.session_service.masks_dict_to_array(
                     self.session_service.copy_masks_dict(record.analysis.masks_draft or {}),
@@ -628,6 +728,9 @@ class AnalysisWorkspaceController:
                 )
                 if record.analysis.masks_draft is not None
                 else None
+            ),
+            "masks_draft_frame_origin": (
+                self._FRAME_ORIGIN_SCOPE_LOCAL if record.analysis.masks_draft is not None else None
             ),
             "propagation_completed": bool(record.metadata.propagation_completed),
             "analysis_output_dir": record.metadata.analysis_output_dir,

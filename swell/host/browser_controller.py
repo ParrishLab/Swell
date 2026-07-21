@@ -2,13 +2,18 @@ from __future__ import annotations
 
 from typing import Iterable
 
+import numpy as np
+
 from swell.host.analysis_handoff import AnalysisHandoffAdapter, resolve_host_frame_shape
 from swell.host.analysis_payload_mapper import (
+    analysis_mapping_signature,
     EventBounds,
     RemapContext,
+    apply_analysis_scope_flags,
     annotate_payload_origins,
     recompute_scope_flags,
     remap_analysis_payload_for_bounds_change,
+    scope_metadata,
 )
 from swell.host.config import EventCandidate
 from swell.host.event_catalog_service import EventCatalogService
@@ -36,7 +41,7 @@ class BrowserController:
 
     def on_stack_loaded(self, reader, stack_info) -> None:
         frame_source = StackReaderFrameSource(reader=reader)
-        stack_ref = stack_ref_from_stack_info(stack_info)
+        stack_ref = stack_ref_from_stack_info(stack_info, frame_source)
         self.session.new_project(stack_ref)
         self._frame_source = frame_source
         self.events.reset()
@@ -154,21 +159,29 @@ class BrowserController:
             raise KeyError(f"Event not found: {event_id}")
         old_start = int(existing.start_idx)
         old_end = int(existing.end_idx)
+        old_bounds = EventBounds(
+            start_idx=old_start,
+            end_idx=old_end,
+            flags=dict(existing.flags),
+        )
         next_start = int(old_start if start_idx is None else start_idx)
         next_end = int(old_end if end_idx is None else end_idx)
         next_start, next_end = self.events.normalize_bounds(next_start, next_end, frame_count)
         next_flags = dict(existing.flags if flags is None else flags)
-        if int(next_start) != old_start or int(next_end) != old_end:
+        bounds_changed = int(next_start) != old_start or int(next_end) != old_end
+        if bounds_changed:
             next_flags = recompute_scope_flags(
                 next_flags,
-                old_bounds=EventBounds(
-                    start_idx=old_start,
-                    end_idx=old_end,
-                    flags=dict(existing.flags),
-                ),
+                old_bounds=old_bounds,
                 new_start=int(next_start),
                 new_end=int(next_end),
             )
+        new_bounds = EventBounds(
+            start_idx=int(next_start),
+            end_idx=int(next_end),
+            flags=dict(next_flags),
+        )
+        frame_mapping_changed = bounds_changed or scope_metadata(old_bounds) != scope_metadata(new_bounds)
         event = self.events.update_event(
             event_id,
             start_idx=next_start,
@@ -177,8 +190,8 @@ class BrowserController:
             frame_count=frame_count,
             flags=next_flags,
         )
-        if int(next_start) != old_start or int(next_end) != old_end:
-            self._remap_analysis_sidecar_for_event_bounds_change(
+        if frame_mapping_changed:
+            self._remap_analysis_sidecar_for_event_mapping_change(
                 str(event_id),
                 old_start=old_start,
                 old_end=old_end,
@@ -222,7 +235,48 @@ class BrowserController:
     def open_session(self, path: str):
         state = self.session.open_project(path)
         self.events.reset(events=state.events, active_event_id=state.active_event_id)
-        return state
+        frame_count = int(getattr(state.stack_ref, "frame_count", 0) or 0)
+        if frame_count > 0:
+            for loaded_event in list(self.events.list_events()):
+                safe_start, safe_end = self.events.normalize_bounds(
+                    int(loaded_event.start_idx),
+                    int(loaded_event.end_idx),
+                    frame_count,
+                )
+                flags = dict(getattr(loaded_event, "flags", {}) or {})
+                has_scope_metadata = any(
+                    key in flags
+                    for key in (
+                        "analysis_scope_start_idx",
+                        "analysis_scope_end_idx",
+                        "analysis_local_event_start_idx",
+                        "analysis_local_event_end_idx",
+                    )
+                )
+                if has_scope_metadata:
+                    baseline_pre = max(0, int(flags.get("baseline_pre_frames", 0) or 0))
+                    safe_flags = apply_analysis_scope_flags(
+                        flags,
+                        event_start=safe_start,
+                        event_end=safe_end,
+                        baseline_pre_frames=baseline_pre,
+                    )
+                else:
+                    safe_flags = flags
+                if (
+                    safe_start != int(loaded_event.start_idx)
+                    or safe_end != int(loaded_event.end_idx)
+                    or safe_flags != flags
+                ):
+                    self.update_event(
+                        str(loaded_event.event_id),
+                        start_idx=safe_start,
+                        end_idx=safe_end,
+                        label=str(loaded_event.label),
+                        frame_count=frame_count,
+                        flags=safe_flags,
+                    )
+        return self.session.state()
 
     def bind_frame_source(self, reader) -> None:
         self._frame_source = StackReaderFrameSource(reader=reader)
@@ -249,6 +303,23 @@ class BrowserController:
             "stack_id": self.session.get_stack_id(),
             "frame_shape": resolve_host_frame_shape(self._frame_source),
             "event_ids": [ev.event_id for ev in self.events.list_events()],
+            "event_frame_counts": {
+                str(ev.event_id): max(
+                    0,
+                    int(scope_metadata(EventBounds(int(ev.start_idx), int(ev.end_idx), dict(ev.flags))).scope_end)
+                    - int(scope_metadata(EventBounds(int(ev.start_idx), int(ev.end_idx), dict(ev.flags))).scope_start)
+                    + 1,
+                )
+                for ev in self.events.list_events()
+                if "analysis_scope_start_idx" in dict(ev.flags)
+                and "analysis_scope_end_idx" in dict(ev.flags)
+            },
+            "event_mapping_signatures": {
+                str(ev.event_id): analysis_mapping_signature(
+                    EventBounds(int(ev.start_idx), int(ev.end_idx), dict(ev.flags))
+                )
+                for ev in self.events.list_events()
+            },
         }
         return _validate_sync_payload(payload, context)
 
@@ -258,18 +329,39 @@ class BrowserController:
             return result
         normalized = result["normalized"]
         event_id = normalized["event_id"]
-        self.session.upsert_analysis_sidecar(event_id, normalized["analysis"])
-        self.session.set_metadata(last_sync_event_id=event_id)
+        actual_payload = normalized.get("analysis_payload")
+        if not isinstance(actual_payload, dict):
+            return {
+                "ok": False,
+                "code": "ANALYSIS_DATA_UNAVAILABLE",
+                "message": "Sync contained metadata descriptors but no resolvable analysis data.",
+                "event_id": str(event_id),
+            }
+        applied = self.apply_direct_analysis_update(
+            {
+                "event_id": str(event_id),
+                "analysis_mapping_signature": normalized.get("analysis_mapping_signature"),
+                "analysis": actual_payload,
+            }
+        )
+        if not bool(applied.get("ok")):
+            return applied
         return {"ok": True, "normalized": result["normalized"]}
 
     def apply_direct_analysis_update(self, payload_or_event_id, analysis_payload: dict | None = None) -> dict:
+        incoming_mapping_signature = None
         if isinstance(payload_or_event_id, dict):
             event_id = str(payload_or_event_id.get("event_id", "")).strip()
             payload = dict(payload_or_event_id)
+            incoming_mapping_signature = payload.get("analysis_mapping_signature")
             if analysis_payload is None:
                 analysis_payload = payload.get("analysis")
                 if analysis_payload is None:
-                    analysis_payload = {k: v for k, v in payload.items() if k != "event_id"}
+                    analysis_payload = {
+                        k: v
+                        for k, v in payload.items()
+                        if k not in {"event_id", "analysis_mapping_signature"}
+                    }
         else:
             event_id = str(payload_or_event_id)
         if not event_id:
@@ -285,6 +377,77 @@ class BrowserController:
                 "code": "EVENT_NOT_FOUND",
                 "message": f"event_id not found in host event catalog: {event_id}",
             }
+        current_mapping_signature = analysis_mapping_signature(
+            EventBounds(
+                start_idx=int(event.start_idx),
+                end_idx=int(event.end_idx),
+                flags=dict(getattr(event, "flags", {}) or {}),
+            )
+        )
+        if not incoming_mapping_signature:
+            return {
+                "ok": False,
+                "code": "MAPPING_SIGNATURE_REQUIRED",
+                "message": "Analysis updates must identify the event mapping they were created against.",
+                "event_id": str(event_id),
+            }
+        if str(incoming_mapping_signature) != current_mapping_signature:
+            return {
+                "ok": False,
+                "code": "STALE_ANALYSIS_MAPPING",
+                "message": "The event range, baseline, or preprocessing changed after this Analysis window opened.",
+                "event_id": str(event_id),
+            }
+        scope = scope_metadata(
+            EventBounds(
+                start_idx=int(event.start_idx),
+                end_idx=int(event.end_idx),
+                flags=dict(getattr(event, "flags", {}) or {}),
+            )
+        )
+        expected_frame_count = max(0, int(scope.scope_end) - int(scope.scope_start) + 1)
+        expected_shape = tuple(int(v) for v in resolve_host_frame_shape(self._frame_source))
+        for mask_field in ("masks_committed", "masks_draft"):
+            mask_payload = dict(analysis_payload or {}).get(mask_field)
+            if mask_payload is None:
+                continue
+            if isinstance(mask_payload, dict):
+                for frame_key, frame_mask in mask_payload.items():
+                    try:
+                        int(frame_key)
+                    except (TypeError, ValueError):
+                        return {
+                            "ok": False,
+                            "code": "MASK_PAYLOAD_INVALID",
+                            "message": f"{mask_field} contains a non-integer frame key.",
+                            "event_id": str(event_id),
+                        }
+                    frame_array = np.squeeze(np.asarray(frame_mask))
+                    if frame_array.ndim != 2 or tuple(frame_array.shape) != expected_shape:
+                        return {
+                            "ok": False,
+                            "code": "MASK_SHAPE_MISMATCH",
+                            "message": f"{mask_field} contains a frame with the wrong spatial shape.",
+                            "event_id": str(event_id),
+                        }
+                continue
+            mask_array = np.asarray(mask_payload)
+            if mask_array.ndim == 4 and 1 in (mask_array.shape[1], mask_array.shape[-1]):
+                mask_array = np.squeeze(mask_array)
+            if mask_array.ndim != 3 or int(mask_array.shape[0]) != expected_frame_count:
+                return {
+                    "ok": False,
+                    "code": "MASK_FRAME_COUNT_MISMATCH",
+                    "message": f"{mask_field} does not match the active analysis scope.",
+                    "event_id": str(event_id),
+                }
+            if tuple(mask_array.shape[1:]) != expected_shape:
+                return {
+                    "ok": False,
+                    "code": "MASK_SHAPE_MISMATCH",
+                    "message": f"{mask_field} does not match the active stack dimensions.",
+                    "event_id": str(event_id),
+                }
         normalized_payload = annotate_payload_origins(
             dict(analysis_payload or {}),
             bounds=EventBounds(
@@ -296,6 +459,36 @@ class BrowserController:
         self.session.upsert_analysis_sidecar(str(event_id), normalized_payload)
         self.session.set_metadata(last_sync_event_id=str(event_id))
         return {"ok": True, "event_id": str(event_id)}
+
+    def validate_event_mapping_signature(self, event_id: str, incoming_signature: object) -> dict:
+        event_key = str(event_id or "").strip()
+        if not event_key:
+            return {"ok": False, "code": "PAYLOAD_INVALID", "message": "Missing event_id."}
+        event = self.events.get_event(event_key)
+        if event is None:
+            return {
+                "ok": False,
+                "code": "EVENT_NOT_FOUND",
+                "message": f"event_id not found in host event catalog: {event_key}",
+            }
+        if not incoming_signature:
+            return {
+                "ok": False,
+                "code": "MAPPING_SIGNATURE_REQUIRED",
+                "message": "Update did not identify its source event mapping.",
+                "event_id": event_key,
+            }
+        expected = analysis_mapping_signature(
+            EventBounds(int(event.start_idx), int(event.end_idx), dict(getattr(event, "flags", {}) or {}))
+        )
+        if str(incoming_signature) != expected:
+            return {
+                "ok": False,
+                "code": "STALE_ANALYSIS_MAPPING",
+                "message": "The event range, baseline, or preprocessing changed after this Analysis window opened.",
+                "event_id": event_key,
+            }
+        return {"ok": True, "event_id": event_key, "analysis_mapping_signature": expected}
 
     def set_global_metrics_defaults(self, payload: dict) -> dict:
         return self.session.set_global_metrics_defaults(dict(payload or {}))
@@ -357,6 +550,11 @@ class BrowserController:
                     flags=dict(getattr(event, "flags", {}) or {}),
                 ),
             )
+        bounds = EventBounds(
+            start_idx=int(event.start_idx),
+            end_idx=int(event.end_idx),
+            flags=dict(getattr(event, "flags", {}) or {}),
+        )
         return {
             "session_id": self.session.get_session_id(),
             "stack_id": self.session.get_stack_id(),
@@ -370,6 +568,7 @@ class BrowserController:
                 "flags": dict(event.flags),
             },
             "analysis_state": analysis_state,
+            "analysis_mapping_signature": analysis_mapping_signature(bounds),
             "local_metrics_settings": self.load_event_metrics_settings(str(event.event_id)),
             "metrics_settings": self.resolve_event_metrics_settings(str(event.event_id)),
         }
@@ -378,7 +577,7 @@ class BrowserController:
         events = self.events.list_events()
         self.session.set_events(events, self.get_active_event_id(), mark_dirty=mark_dirty)
 
-    def _remap_analysis_sidecar_for_event_bounds_change(
+    def _remap_analysis_sidecar_for_event_mapping_change(
         self,
         event_id: str,
         *,

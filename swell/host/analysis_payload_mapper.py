@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import copy
+from hashlib import sha256
 from typing import Any
 
 import numpy as np
@@ -49,6 +50,24 @@ def scope_metadata(bounds: EventBounds) -> AnalysisScope:
         local_event_start=local_start,
         local_event_end=local_end,
     )
+
+
+def analysis_mapping_signature(bounds: EventBounds) -> str:
+    """Identify settings that change analysis frame or pixel coordinates."""
+    scope = scope_metadata(bounds)
+    flags = dict(bounds.flags or {})
+    processing = dict(flags.get("analysis_processing", {})) if isinstance(flags.get("analysis_processing"), dict) else {}
+    payload = (
+        int(bounds.start_idx),
+        int(bounds.end_idx),
+        int(scope.scope_start),
+        int(scope.scope_end),
+        int(scope.local_event_start),
+        int(scope.local_event_end),
+        int(flags.get("baseline_pre_frames", max(0, int(bounds.start_idx) - int(scope.scope_start)))),
+        tuple(sorted((str(key), bool(value)) for key, value in processing.items())),
+    )
+    return sha256(repr(payload).encode("utf-8")).hexdigest()[:24]
 
 
 def recompute_scope_flags(
@@ -209,14 +228,6 @@ def infer_payload_origin(
 def annotate_payload_origins(payload: dict[str, Any], *, bounds: EventBounds) -> dict[str, Any]:
     annotated = dict(payload or {})
     scope = scope_metadata(bounds)
-    prompts = annotated.get("prompts")
-    if isinstance(prompts, dict) and "prompts_frame_origin" not in annotated:
-        annotated["prompts_frame_origin"] = infer_payload_origin(
-            dict(prompts.get("frames", {})) if isinstance(prompts.get("frames"), dict) else {},
-            scope=scope,
-            event_start=int(bounds.start_idx),
-            event_end=int(bounds.end_idx),
-        ) or FRAME_ORIGIN_SCOPE_LOCAL
     for field_name in ("masks_committed", "masks_draft"):
         origin_key = f"{field_name}_frame_origin"
         if annotated.get(field_name) is None or origin_key in annotated:
@@ -229,6 +240,20 @@ def annotate_payload_origins(payload: dict[str, Any], *, bounds: EventBounds) ->
         )
         if inferred is not None:
             annotated[origin_key] = inferred
+    prompts = annotated.get("prompts")
+    if isinstance(prompts, dict) and "prompts_frame_origin" not in annotated:
+        # Masks and prompts are emitted from the same workspace coordinate
+        # system. Array length is much stronger legacy evidence than sparse
+        # prompt keys, which are inherently ambiguous near frame zero.
+        companion_origin = normalize_frame_origin(annotated.get("masks_committed_frame_origin"))
+        if companion_origin is None:
+            companion_origin = normalize_frame_origin(annotated.get("masks_draft_frame_origin"))
+        # Sparse prompt keys cannot distinguish event-local from scope-local
+        # coordinates near zero. Host Analysis has always displayed/promoted
+        # prompts on the analysis scope, so scope-local is the only
+        # non-shifting migration default when no companion mask can prove the
+        # legacy origin.
+        annotated["prompts_frame_origin"] = companion_origin or FRAME_ORIGIN_SCOPE_LOCAL
     return annotated
 
 
@@ -333,6 +358,53 @@ def _remap_prompts_payload(
     updated = dict(prompts)
     updated["event_id"] = str(event_id)
     updated["frames"] = remapped_frames
+    remapped_ground_truth: list[int] = []
+    for frame_idx in list(prompts.get("ground_truth_frames", []) or []):
+        global_idx = normalize_sidecar_index(
+            frame_idx,
+            scope=old_scope,
+            event_start=old_event_start,
+            event_end=old_event_end,
+            origin_hint=origin_hint,
+        )
+        if global_idx is None:
+            continue
+        new_local = int(global_idx) - int(new_scope.scope_start)
+        if 0 <= new_local < new_scope_len:
+            remapped_ground_truth.append(new_local)
+    updated["ground_truth_frames"] = sorted(set(remapped_ground_truth))
+
+    remapped_regions: list[dict[str, Any]] = []
+    for region in list(prompts.get("persistent_regions", []) or []):
+        if not isinstance(region, dict):
+            continue
+        global_start = normalize_sidecar_index(
+            region.get("frame_start"),
+            scope=old_scope,
+            event_start=old_event_start,
+            event_end=old_event_end,
+            origin_hint=origin_hint,
+        )
+        global_end = normalize_sidecar_index(
+            region.get("frame_end"),
+            scope=old_scope,
+            event_start=old_event_start,
+            event_end=old_event_end,
+            origin_hint=origin_hint,
+        )
+        if global_start is None or global_end is None:
+            continue
+        interval_start = min(int(global_start), int(global_end))
+        interval_end = max(int(global_start), int(global_end))
+        clipped_start = max(interval_start, int(new_scope.scope_start))
+        clipped_end = min(interval_end, int(new_scope.scope_end))
+        if clipped_start > clipped_end:
+            continue
+        remapped = copy.deepcopy(region)
+        remapped["frame_start"] = clipped_start - int(new_scope.scope_start)
+        remapped["frame_end"] = clipped_end - int(new_scope.scope_start)
+        remapped_regions.append(remapped)
+    updated["persistent_regions"] = remapped_regions
     return updated
 
 

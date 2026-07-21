@@ -14,6 +14,8 @@ class StackRef:
     frame_height: int
     frame_width: int
     dtype: str
+    frame_names_digest: str | None = None
+    source_fingerprint: str | None = None
 
 
 @dataclass(init=False)

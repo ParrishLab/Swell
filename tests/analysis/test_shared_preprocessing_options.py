@@ -8,6 +8,7 @@ from swell.shared.frame_source.preprocessing import (
     _sample_percentile_pixels,
     build_visualization_stack,
     compute_visualization_stats,
+    compute_visualization_stats_for_preview,
     render_visualization_frame,
 )
 from swell.shared.frame_source import PreparedFrameSource
@@ -258,6 +259,31 @@ def test_compute_visualization_stats_honors_cancellation() -> None:
     raise AssertionError("Expected VisualizationCancelled")
 
 
+def test_zero_available_baseline_does_not_subtract_event_frames() -> None:
+    frames = [np.full((4, 4), 100.0, dtype=np.float32) for _ in range(3)]
+    source = _Source(frames)
+
+    stats = compute_visualization_stats(
+        source,
+        baseline_frames=0,
+        apply_smoothing=False,
+        apply_baseline_subtraction=True,
+        apply_global_normalization=False,
+    )
+    _raw, subtracted, _visual = build_visualization_stack(
+        source,
+        baseline_frames=0,
+        apply_smoothing=False,
+        apply_baseline_subtraction=True,
+        apply_global_normalization=False,
+        stats=stats,
+    )
+
+    assert stats.baseline_frames == 0
+    assert stats.baseline is None
+    np.testing.assert_array_equal(subtracted, np.stack(frames, axis=0))
+
+
 def test_compute_visualization_stats_reuses_processed_frames_across_baseline_and_sampling() -> None:
     class _CountingSource(_Source):
         def __init__(self, frames: list[np.ndarray]) -> None:
@@ -359,3 +385,25 @@ def test_stabilization_falls_back_on_blank_frames() -> None:
 
     assert stats.stabilization_offsets_px is not None
     np.testing.assert_allclose(stats.stabilization_offsets_px[2], stats.stabilization_offsets_px[1], atol=1e-4)
+
+
+def test_preview_stabilization_offsets_are_returned_in_full_resolution_pixels() -> None:
+    yy, xx = np.mgrid[:64, :64]
+    base = np.exp(-(((xx - 30.0) ** 2) + ((yy - 28.0) ** 2)) / 30.0).astype(np.float32)
+    source = _Source([base, _shift(base, 8, -4)])
+
+    preview_stats = compute_visualization_stats_for_preview(
+        source,
+        preview_scale=0.25,
+        baseline_frames=1,
+        apply_smoothing=False,
+        apply_baseline_subtraction=False,
+        apply_global_normalization=False,
+        apply_stabilization=True,
+    )
+
+    np.testing.assert_allclose(
+        preview_stats.stabilization_offsets_px[1],
+        np.array([8.0, -4.0], dtype=np.float32),
+        atol=1.5,
+    )

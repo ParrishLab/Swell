@@ -35,7 +35,7 @@ class PopupProcessingController:
         except ValueError as exc:
             raise ValueError("Baseline Count must be a frame number.") from exc
         try:
-            baseline_end = int(float(end_raw))
+            baseline_end = int(float(end_raw)) - 1
         except ValueError as exc:
             raise ValueError("Baseline End must be a frame number.") from exc
         if baseline_count < 1:
@@ -52,8 +52,8 @@ class PopupProcessingController:
         if not start_raw:
             return False
         try:
-            start_idx = int(float(start_raw))
-            baseline_end = int(float(self.app._popup.mark_baseline_end_var.get().strip()))
+            start_idx = int(float(start_raw)) - 1
+            baseline_end = int(float(self.app._popup.mark_baseline_end_var.get().strip())) - 1
         except ValueError:
             return False
 
@@ -67,7 +67,7 @@ class PopupProcessingController:
             force_match_start=force_match_start,
         )
         if changed:
-            self.app._popup.mark_baseline_end_var.set(str(next_end))
+            self.app._popup.mark_baseline_end_var.set(str(next_end + 1))
             return True
         return False
 

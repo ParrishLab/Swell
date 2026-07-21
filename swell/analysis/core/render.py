@@ -9,7 +9,6 @@ from PIL import Image, ImageTk
 
 from swell.shared.image_overlay import MASK_OVERLAY_STALE_COLOR_RGB, apply_mask_overlay, frame_to_rgb_u8
 from swell.analysis.core.viewport import compute_fit_scale
-from swell.analysis.core.seg_state import point_marker_radius
 from swell.shared.ui.theme import APP_COLORS
 
 
@@ -450,7 +449,6 @@ class RenderActions:
             for pt_i, pt in enumerate(self.points[idx]):
                 cx, cy = transform.image_to_canvas(pt["x"], pt["y"])
                 color = APP_COLORS["success"] if pt["label"] == 1 else APP_COLORS["danger"]
-                radius = point_marker_radius(pt)
 
                 is_selected = False
                 if self.selected_point:
@@ -459,16 +457,9 @@ class RenderActions:
                         is_selected = True
 
                 if is_selected:
-                    radius += 2
-                    self.canvas_left.create_oval(
-                        cx - radius, cy - radius, cx + radius, cy + radius,
-                        fill=color, outline=APP_COLORS["measurement"], width=2,
-                    )
+                    self.canvas_left.create_oval(cx - 5, cy - 5, cx + 5, cy + 5, fill=color, outline=APP_COLORS["measurement"], width=2)
                 else:
-                    self.canvas_left.create_oval(
-                        cx - radius, cy - radius, cx + radius, cy + radius,
-                        fill=color, outline=APP_COLORS["white"],
-                    )
+                    self.canvas_left.create_oval(cx - 3, cy - 3, cx + 3, cy + 3, fill=color, outline=APP_COLORS["white"])
 
         boxes = getattr(self, "boxes", {}) or {}
         box = boxes.get(idx)

@@ -239,9 +239,10 @@ class MarkPopupController:
         self.app._popup.mark_baseline_count_var = tk.StringVar(value=str(baseline_count_default))
         baseline_count_entry = ttk.Entry(baseline_row, textvariable=self.app._popup.mark_baseline_count_var, width=8, style="AppCompact.TEntry")
         baseline_count_entry.pack(side="left", padx=(6, 14))
-        ttk.Label(baseline_row, text="Baseline End", style="AppSurfaceMeta.TLabel").pack(side="left")
-        self.app._popup.mark_baseline_end_var = tk.StringVar(value=str(baseline_end_default))
+        ttk.Label(baseline_row, text="Baseline End (derived)", style="AppSurfaceMeta.TLabel").pack(side="left")
+        self.app._popup.mark_baseline_end_var = tk.StringVar(value=str(baseline_end_default + 1))
         baseline_end_entry = ttk.Entry(baseline_row, textvariable=self.app._popup.mark_baseline_end_var, width=8, style="AppCompact.TEntry")
+        baseline_end_entry.configure(state="readonly")
         baseline_end_entry.pack(side="left", padx=(6, 18))
         ttk.Label(baseline_row, textvariable=self.app._popup.mark_contrast_label_var, style="AppSurfaceMeta.TLabel").pack(side="left")
         ttk.Scale(
@@ -258,11 +259,11 @@ class MarkPopupController:
         bounds_frame = ttk.Frame(content, style="AppShell.TFrame")
         bounds_frame.pack(fill="x")
         ttk.Label(bounds_frame, text="Start", style="AppMeta.TLabel").pack(side="left")
-        self.app._popup.mark_start_var = tk.StringVar(value=str(start_default))
+        self.app._popup.mark_start_var = tk.StringVar(value=str(start_default + 1))
         start_entry = ttk.Entry(bounds_frame, textvariable=self.app._popup.mark_start_var, width=10, style="AppCompact.TEntry")
         start_entry.pack(side="left", padx=(4, 14))
         ttk.Label(bounds_frame, text="End", style="AppMeta.TLabel").pack(side="left")
-        self.app._popup.mark_end_var = tk.StringVar(value=str(end_default))
+        self.app._popup.mark_end_var = tk.StringVar(value=str(end_default + 1))
         end_entry = ttk.Entry(bounds_frame, textvariable=self.app._popup.mark_end_var, width=10, style="AppCompact.TEntry")
         end_entry.pack(side="left", padx=(4, 14))
         start_entry.bind(
@@ -367,8 +368,8 @@ class MarkPopupController:
         try:
             start_raw = self.app._popup.mark_start_var.get() if self.app._popup.mark_start_var is not None else ""
             end_raw = self.app._popup.mark_end_var.get() if self.app._popup.mark_end_var is not None else ""
-            start = self.app._parse_frame_index(start_raw, self.app._popup.mark_popup_current_idx, "Start")
-            end = self.app._parse_frame_index(end_raw, self.app._popup.mark_popup_current_idx, "End")
+            start = self.app._parse_frame_index(start_raw, self.app._popup.mark_popup_current_idx + 1, "Start") - 1
+            end = self.app._parse_frame_index(end_raw, self.app._popup.mark_popup_current_idx + 1, "End") - 1
             start, end, changed_by_clamp, swapped = self.app._normalize_bounds(start, end)
         except ValueError as exc:
             self.app._log_warn(f"Mark popup validation failed: {exc}")

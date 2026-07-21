@@ -20,7 +20,7 @@ from swell.shared.menu.factory import build_shared_menu
 from swell.shared.ui import BackgroundTaskRunner
 from swell.shared.ui.bootstrap import center_window_on_screen as center_window, semantic_button_options, ttk
 from swell.shared.diagnostics import OpenPerfTrace, get_active as get_active_trace, set_active as set_active_trace, stage as perf_stage
-from swell.shared.frame_source.preprocessing import compute_visualization_stats_for_preview
+from swell.shared.frame_source.preprocessing import compute_visualization_stats
 
 
 class AnalysisLaunchController:
@@ -91,6 +91,90 @@ class AnalysisLaunchController:
         scope_end = max(scope_start, int(event_end))
         local_frame_idx = max(0, int(event_start) - scope_start)
         return int(scope_start), int(scope_end), int(local_frame_idx)
+
+    @staticmethod
+    def _analysis_payload_has_geometry(payload: object) -> bool:
+        if not isinstance(payload, dict):
+            return False
+        nested_state = payload.get("analysis_state")
+        if isinstance(nested_state, dict) and AnalysisLaunchController._analysis_payload_has_geometry(nested_state):
+            return True
+        prompts = payload.get("prompts")
+        if isinstance(prompts, dict):
+            if dict(prompts.get("frames", {}) or {}):
+                return True
+            if list(prompts.get("persistent_regions", []) or []):
+                return True
+            if list(prompts.get("ground_truth_frames", []) or []):
+                return True
+        for field_name in ("masks_committed", "masks_draft"):
+            masks = payload.get(field_name)
+            if masks is None:
+                continue
+            if isinstance(masks, dict):
+                if any(bool(np.any(np.asarray(mask))) for mask in masks.values()):
+                    return True
+                continue
+            try:
+                if bool(np.any(np.asarray(masks))):
+                    return True
+            except Exception:
+                return True
+        for metrics_key in ("metrics_settings", "local_metrics_settings"):
+            metrics = payload.get(metrics_key)
+            if not isinstance(metrics, dict):
+                continue
+            if metrics.get("roi_mask") is not None:
+                try:
+                    if bool(np.any(np.asarray(metrics.get("roi_mask")))):
+                        return True
+                except Exception:
+                    return True
+            if list(metrics.get("roi_points", []) or []) or list(metrics.get("roi_polygons", []) or []):
+                return True
+        return False
+
+    def _clear_incompatible_analysis_geometry(self, event_id: str, payload: dict) -> None:
+        preserved = dict(payload or {})
+        for key in (
+            "prompts",
+            "prompts_frame_origin",
+            "masks_committed",
+            "masks_committed_frame_origin",
+            "masks_draft",
+            "masks_draft_frame_origin",
+            "propagation_completed",
+        ):
+            preserved.pop(key, None)
+        metrics = dict(preserved.get("metrics_settings", {}) or {})
+        for key in ("roi_points", "roi_polygons", "roi_mask"):
+            metrics.pop(key, None)
+        if metrics:
+            preserved["metrics_settings"] = metrics
+        else:
+            preserved.pop("metrics_settings", None)
+        self.app.browser_controller.session.replace_analysis_sidecar(str(event_id), preserved or None)
+        global_metrics = dict(self.app.browser_controller.get_global_metrics_defaults() or {})
+        global_changed = False
+        for key in ("roi_points", "roi_polygons", "roi_mask"):
+            if key in global_metrics:
+                global_metrics.pop(key, None)
+                global_changed = True
+        if global_changed:
+            self.app.browser_controller.set_global_metrics_defaults(global_metrics)
+
+    def _persist_analysis_settings_and_refresh_context(self, event_id: str, flags: dict, model_setup) -> dict:
+        self.app.browser_controller.update_event(
+            str(event_id),
+            start_idx=None,
+            end_idx=None,
+            label=None,
+            frame_count=int(self.app.stack_info.frame_count),
+            flags=dict(flags),
+        )
+        context = self.app.browser_controller.host_context_for_event(str(event_id))
+        context["model_context"] = model_setup.build_host_model_context()
+        return context
 
     def _default_baseline_pre_frames_for_event(self, event_id: str) -> int:
         fallback = max(1, int(getattr(self.app, "baseline_pre_frames", 30) or 30))
@@ -164,12 +248,13 @@ class AnalysisLaunchController:
         apply_baseline_subtraction: bool,
         apply_global_normalization: bool,
         apply_stabilization: bool,
-    ) -> tuple[str, int, int, int, bool, bool, bool, bool, bool]:
-        scope_start, scope_end, _local_frame_idx = self._event_scope(event_start, event_end, baseline_pre_frames)
+    ) -> tuple:
+        scope_start, scope_end, local_frame_idx = self._event_scope(event_start, event_end, baseline_pre_frames)
         return build_launch_preparation_cache_key(
             event_id=str(event_id or ""),
             scope_start=scope_start,
             scope_end=scope_end,
+            local_event_start_idx=local_frame_idx,
             baseline_pre_frames=baseline_pre_frames,
             apply_horizontal_bar_denoise=apply_horizontal_bar_denoise,
             apply_smoothing=apply_smoothing,
@@ -197,6 +282,7 @@ class AnalysisLaunchController:
         if frame_source is None:
             raise RuntimeError("No host frame source is available for analysis.")
         scope_start, scope_end, local_frame_idx = self._event_scope(event_start, event_end, baseline_pre_frames)
+        effective_baseline_frames = min(max(0, int(baseline_pre_frames)), int(local_frame_idx))
         scoped_source = EventScopedFrameSource(frame_source, scope_start, scope_end)
         processing = self._launch_processing_options(
             apply_horizontal_bar_denoise=apply_horizontal_bar_denoise,
@@ -217,10 +303,12 @@ class AnalysisLaunchController:
             apply_stabilization=apply_stabilization,
         )
         with perf_stage("prepare_launch_preview.prepared_source.prepare"):
-            stats = compute_visualization_stats_for_preview(
+            # Preview and Analysis must consume the exact same canonical
+            # preparation. Reduced-resolution statistics change normalization
+            # and express stabilization offsets in the wrong pixel space.
+            stats = compute_visualization_stats(
                 scoped_source,
-                preview_scale=0.25,
-                baseline_frames=max(1, int(baseline_pre_frames)),
+                baseline_frames=effective_baseline_frames,
                 apply_horizontal_bar_denoise=bool(apply_horizontal_bar_denoise),
                 apply_smoothing=bool(apply_smoothing),
                 apply_baseline_subtraction=bool(apply_baseline_subtraction),
@@ -230,7 +318,7 @@ class AnalysisLaunchController:
             )
         prepared_source = PreparedFrameSource(
             scoped_source,
-            baseline_frames=max(1, int(baseline_pre_frames)),
+            baseline_frames=effective_baseline_frames,
             apply_horizontal_bar_denoise=bool(apply_horizontal_bar_denoise),
             apply_smoothing=bool(apply_smoothing),
             apply_baseline_subtraction=bool(apply_baseline_subtraction),
@@ -259,6 +347,7 @@ class AnalysisLaunchController:
                 "scope_end": int(scope_end),
                 "local_frame_idx": int(local_frame_idx),
                 "baseline_pre_frames": max(1, int(baseline_pre_frames)),
+                "effective_baseline_frames": int(effective_baseline_frames),
                 "processing": dict(processing),
                 "prepared_source": prepared_source,
                 "preview_frame_u8": np.asarray(frame_u8, dtype=np.uint8),
@@ -455,8 +544,11 @@ class AnalysisLaunchController:
             state["debounce_after_id"] = dialog.after(80, _refresh_preview)
 
         def _mark_preview_stale(*_args) -> None:
-            if state.get("launch_preparation") is not None:
-                status_var.set("Settings changed — click 'Show Preview' to update.")
+            # Invalidate both completed and in-flight work. The worker's cancel
+            # predicate observes this generation change before it can publish.
+            state["generation"] = int(state.get("generation", 0)) + 1
+            state["launch_preparation"] = None
+            status_var.set("Settings changed — click 'Show Preview' to update.")
 
         for var in (bar_denoise_var, smoothing_var, subtract_var, normalize_var, stabilize_var):
             var.trace_add("write", _mark_preview_stale)
@@ -597,10 +689,14 @@ class AnalysisLaunchController:
 
         window_scope = "__project__"
         active_event_name = self._event_display_name(str(active_event_id))
-        if self.app.analysis_window_manager.focus_event_window(window_scope, active_event_id):
-            self.app._set_status(f"Focused analysis workspace for {active_event_name}.")
-            _dump_trace("refocused_existing_window")
-            return
+        # Compatibility for lightweight/window-manager adapters that cannot
+        # expose the mapped app instance. The real manager follows the
+        # signature-aware path after context creation below.
+        if not callable(getattr(self.app.analysis_window_manager, "get", None)):
+            if self.app.analysis_window_manager.focus_event_window(window_scope, active_event_id):
+                self.app._set_status(f"Focused analysis workspace for {active_event_name}.")
+                _dump_trace("refocused_existing_window")
+                return
 
         frame_source = self.app.browser_controller.get_frame_source()
         if frame_source is None:
@@ -614,6 +710,29 @@ class AnalysisLaunchController:
             self.app._show_warning("Open Analysis", f"Unable to prepare host context:\n{exc}")
             _dump_trace("host_context_error")
             return
+
+        get_existing = getattr(self.app.analysis_window_manager, "get", None)
+        existing_ref = get_existing(window_scope, active_event_id) if callable(get_existing) else None
+        if existing_ref is not None:
+            current_signature = str(context.get("analysis_mapping_signature", "") or "")
+            window_signature = str(getattr(existing_ref.app, "_host_mapping_signature", "") or "")
+            if current_signature and current_signature == window_signature:
+                if self.app.analysis_window_manager.focus_event_window(window_scope, active_event_id):
+                    self.app._set_status(f"Focused analysis workspace for {active_event_name}.")
+                    _dump_trace("refocused_existing_window")
+                    return
+            close_result = self.app.analysis_window_manager.close_event_window(
+                window_scope,
+                active_event_id,
+                force=False,
+            )
+            if not bool(close_result.closed):
+                self.app._show_warning(
+                    "Open Analysis",
+                    "The existing Analysis window uses an obsolete event mapping and could not be closed safely.",
+                )
+                _dump_trace("stale_window_close_failed")
+                return
 
         mismatch_result = model_setup.resolve_project_model_mismatch(context.get("project_metadata"))
         if not bool(mismatch_result.get("ok")):
@@ -648,26 +767,54 @@ class AnalysisLaunchController:
             return
         baseline_pre = int(max(1, int(options.get("baseline_pre_frames", self.app.baseline_pre_frames))))
         self.app.baseline_pre_frames = baseline_pre
+        previous_processing = dict(flags.get("analysis_processing", {})) if isinstance(flags.get("analysis_processing"), dict) else {}
+        next_processing = dict(options.get("processing", {}))
+        stabilization_changed = bool(previous_processing.get("stabilization", False)) != bool(
+            next_processing.get("stabilization", False)
+        )
+        clear_geometry_after_update = False
+        if stabilization_changed and self._analysis_payload_has_geometry(context):
+            clear_geometry = messagebox.askyesno(
+                "Stabilization Changes Mask Coordinates",
+                "Changing stabilization changes image coordinates. Existing masks, prompts, and ROI geometry cannot be reused safely.\n\n"
+                "Continue and clear masks/prompts for this event and ROI geometry inherited from the project?",
+                parent=self.app.root,
+            )
+            if not clear_geometry:
+                _dump_trace("stabilization_change_canceled")
+                return
+            clear_geometry_after_update = True
         flags = apply_analysis_scope_flags(
             flags,
             event_start=event_start,
             event_end=event_end,
             baseline_pre_frames=baseline_pre,
         )
-        flags["analysis_processing"] = dict(options.get("processing", {}))
+        flags["analysis_processing"] = next_processing
         event_payload["flags"] = flags
         context["event"] = event_payload
         try:
-            self.app.browser_controller.update_event(
+            # update_event may remap masks/prompts when baseline scope changes;
+            # never pass the pre-dialog snapshot into the new workspace.
+            context = self._persist_analysis_settings_and_refresh_context(
                 str(active_event_id),
-                start_idx=None,
-                end_idx=None,
-                label=None,
-                frame_count=int(self.app.stack_info.frame_count),
-                flags=flags,
+                flags,
+                model_setup,
             )
+            if clear_geometry_after_update:
+                self._clear_incompatible_analysis_geometry(
+                    str(active_event_id),
+                    dict(context.get("analysis_state") or {}),
+                )
+                context = self.app.browser_controller.host_context_for_event(str(active_event_id))
+                context["model_context"] = model_setup.build_host_model_context()
         except Exception as exc:
-            self.app._log_warn(f"Unable to persist analysis preprocessing settings for {active_event_name}: {exc}")
+            self.app._show_warning(
+                "Open Analysis",
+                f"Unable to persist analysis settings for {active_event_name}:\n{exc}",
+            )
+            _dump_trace("analysis_settings_persist_failed")
+            return
         launch_preparation = options.get("launch_preparation")
         try:
             app_cls = self.load_analysis_app_class()

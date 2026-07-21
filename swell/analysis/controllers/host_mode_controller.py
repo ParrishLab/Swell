@@ -127,14 +127,15 @@ class AnalysisHostModeController:
         apply_baseline_subtraction: bool,
         apply_global_normalization: bool,
         apply_stabilization: bool,
-    ) -> tuple[str, int, int, int, bool, bool, bool, bool, bool] | None:
-        event_id, scope_start, scope_end, _local_frame_idx = self._scope_metadata_from_host_context(host_ctx)
+    ) -> tuple | None:
+        event_id, scope_start, scope_end, local_frame_idx = self._scope_metadata_from_host_context(host_ctx)
         if scope_start is None or scope_end is None:
             return None
         return build_launch_preparation_cache_key(
             event_id=event_id,
             scope_start=scope_start,
             scope_end=scope_end,
+            local_event_start_idx=local_frame_idx,
             baseline_pre_frames=baseline_count,
             apply_horizontal_bar_denoise=apply_horizontal_bar_denoise,
             apply_smoothing=apply_smoothing,
@@ -188,11 +189,13 @@ class AnalysisHostModeController:
             return None
         if callable(getattr(self.app, "_host_analysis_updater", None)):
             payload = self.app.analysis_workspace.export_active_event_analysis_payload()
+            host_result: dict[str, object] | None = None
             if payload is not None:
                 payload["metrics_settings"] = self.app._collect_current_metrics_settings()
                 try:
                     result = self.app._host_analysis_updater(payload)
                     if isinstance(result, dict):
+                        host_result = dict(result)
                         if bool(result.get("ok")):
                             self.app.log_debug("HostSync", f"Applied direct host update on {reason}.")
                         else:
@@ -210,10 +213,16 @@ class AnalysisHostModeController:
                             except Exception:
                                 pass
                     else:
+                        host_result = {"ok": True}
                         self.app.log_debug("HostSync", f"Applied direct host update on {reason}.")
                 except Exception as exc:
                     self.app.log_warn("HostSync", f"Direct host update failed: {exc}")
-            return payload
+                    host_result = {"ok": False, "code": "PAYLOAD_INVALID", "message": str(exc)}
+            return host_result or {
+                "ok": False,
+                "code": "PAYLOAD_INVALID",
+                "message": "No active analysis payload was available for host sync.",
+            }
         payload = self.app.analysis_workspace.emit_host_sync(ui_hints=self.app._host_ui_hints())
         if payload is not None:
             self.app.log_debug("HostSync", f"Emitted host sync on {reason}.")
@@ -317,6 +326,7 @@ class AnalysisHostModeController:
                 "apply_stabilization": bool(processing.get("stabilization", False)),
             }
         self.app._host_launch_preparation = launch_preparation if isinstance(launch_preparation, dict) else None
+        self.app._host_mapping_signature = str(context.get("analysis_mapping_signature", "") or "")
         scoped_source = frame_source
         if frame_source is not None:
             event = dict(context.get("event", {})) if isinstance(context, dict) else {}
@@ -391,6 +401,7 @@ class AnalysisHostModeController:
         self.app._set_active_checkpoint_metadata(None, notify_host=False, reason="host_handoff_reset")
         self.app._host_processing_options = None
         self.app._host_launch_preparation = None
+        self.app._host_mapping_signature = str(dict(payload or {}).get("analysis_mapping_signature", "") or "")
         self.app._host_post_open_ui_initialized = False
         self.app._host_pending_model_init_reason = None
         self.app._saved_project_masks_by_event = {}
@@ -550,6 +561,21 @@ class AnalysisHostModeController:
         _event_id, _scope_start, _scope_end, local_frame_idx = self._scope_metadata_from_host_context(
             host_ctx if isinstance(host_ctx, dict) else None
         )
+        effective_baseline_count = min(
+            max(0, int(baseline_count)),
+            max(0, int(local_frame_idx)) if local_frame_idx is not None else max(0, int(baseline_count)),
+        )
+        self.app._requested_baseline_frame_count = int(baseline_count)
+        if hasattr(self.app, "set_baseline_frame_count"):
+            try:
+                self.app.set_baseline_frame_count(effective_baseline_count)
+            except Exception:
+                pass
+        if effective_baseline_count != int(baseline_count):
+            self.app.log_info(
+                "HostMode",
+                f"Requested {int(baseline_count)} baseline frames; using {effective_baseline_count} available pre-event frames.",
+            )
         prepared_stats = None
         cache_key = (
             tuple(launch_cache_key)
@@ -558,7 +584,7 @@ class AnalysisHostModeController:
                 id(frame_source),
                 int(frame_count),
                 tuple(int(v) for v in getattr(frame_source, "frame_shape", (0, 0))),
-                int(max(1, baseline_count)),
+                int(effective_baseline_count),
                 bool(apply_horizontal_bar_denoise),
                 bool(apply_smoothing),
                 bool(apply_baseline_subtraction),
@@ -572,6 +598,7 @@ class AnalysisHostModeController:
         reusable_prepared_source = None
         candidate = launch_preparation.get("prepared_source")
         candidate_cache_key = launch_preparation.get("cache_key")
+        candidate_stats = launch_preparation.get("stats")
         if (
             isinstance(candidate, PreparedFrameSource)
             and launch_cache_key is not None
@@ -580,9 +607,10 @@ class AnalysisHostModeController:
             and int(getattr(candidate, "frame_count", 0) or 0) == int(frame_count)
             and tuple(int(v) for v in getattr(candidate, "frame_shape", (0, 0)))
             == tuple(int(v) for v in getattr(frame_source, "frame_shape", (0, 0)))
+            and int(getattr(candidate_stats, "baseline_frames", -1)) == int(effective_baseline_count)
         ):
             reusable_prepared_source = candidate
-            prepared_stats = launch_preparation.get("stats")
+            prepared_stats = candidate_stats
 
         def _build_prepared_source() -> PreparedFrameSource:
             with perf_stage("host_mode.build_prepared_source"):
@@ -595,7 +623,7 @@ class AnalysisHostModeController:
                     return reusable_prepared_source
                 prepared_source = PreparedFrameSource(
                     frame_source,
-                    baseline_frames=max(1, int(baseline_count)),
+                    baseline_frames=effective_baseline_count,
                     apply_horizontal_bar_denoise=apply_horizontal_bar_denoise,
                     apply_smoothing=apply_smoothing,
                     apply_baseline_subtraction=apply_baseline_subtraction,
@@ -623,6 +651,8 @@ class AnalysisHostModeController:
             self.app.frames_raw = FrameSequenceView(prepared_source, "get_raw_frame")
             self.app.frames_sub = FrameSequenceView(prepared_source, "get_subtracted_frame")
             self.app.frames_sub_viz = FrameSequenceView(prepared_source, "get_visual_frame")
+            if local_frame_idx is not None:
+                self.app.current_frame_idx = max(0, min(int(local_frame_idx), max(0, frame_count - 1)))
             self.app._host_buffer_cache_key = cache_key
             self.app._host_launch_preparation = None
             if callable(getattr(self.app, "_schedule_analysis_prewarm", None)):
@@ -674,8 +704,8 @@ class AnalysisHostModeController:
 
                 if callable(getattr(self.app, "_ui_alive", None)) and self.app._ui_alive():
                     self.app.root.after(0, _apply_when_ready)
-                else:
-                    _apply_when_ready()
+                # A dead UI must discard worker results. Calling the callback
+                # here would mutate Tk state from the worker after destruction.
 
             self.app._run_thread(_prepare_in_background, loading_text="Preparing host workspace...")
             return False

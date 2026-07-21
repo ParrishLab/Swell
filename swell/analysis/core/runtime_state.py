@@ -16,7 +16,7 @@ class AnalysisModelState:
 
 @dataclass
 class HostModeState:
-    host_mode: bool = True
+    host_mode: bool = False
     analysis_updater: Callable[[dict[str, Any]], dict[str, Any] | None] | None = None
     project_saved_notifier: Callable[[str], None] | None = None
     sync_result_notifier: Callable[[dict[str, Any]], None] | None = None

@@ -121,7 +121,7 @@ class SwellAnalysisApp(LayoutBuilder, IOActions, SegmentationActions, RenderActi
         self._propagation_committed_snapshot = None
         self.runtime_state = AnalysisRuntimeState()
         self.model_state = AnalysisModelState()
-        self.host_mode_state = HostModeState()
+        self.host_mode_state = HostModeState(host_mode=bool(host_mode))
         self._host_launch_preparation = None
         self._host_post_open_ui_initialized = False
 
@@ -330,9 +330,8 @@ class SwellAnalysisApp(LayoutBuilder, IOActions, SegmentationActions, RenderActi
             paint_layers=self.paint_layers,
             masks_cache=self.masks_cache,
             get_current_frame_idx=lambda: self.current_frame_idx,
-            set_selected_point=self._set_selected_point,
+            set_selected_point=lambda v: setattr(self, "selected_point", v),
             get_selected_point=lambda: self.selected_point,
-            get_point_strength=lambda: self._clamp_point_strength(self.point_strength.get()),
             get_is_dragging=lambda: self.is_dragging,
             set_is_dragging=lambda v: setattr(self, "is_dragging", v),
             get_last_mouse_x=lambda: self.last_mouse_x,

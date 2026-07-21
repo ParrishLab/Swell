@@ -73,8 +73,8 @@ def test_set_start_current_aligns_end_and_schedules_recompute() -> None:
 
     controller.set_start_current()
 
-    assert app._popup.mark_start_var.get() == "12"
-    assert app._popup.mark_end_var.get() == "12"
+    assert app._popup.mark_start_var.get() == "13"
+    assert app._popup.mark_end_var.get() == "13"
     assert overlays == [True]
     assert recompute_calls == [{"align_baseline_to_start": True}]
 

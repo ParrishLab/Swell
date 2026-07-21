@@ -356,7 +356,7 @@ def compute_visualization_stats(
 
     first_frame = _read_frame_float32(frame_source, 0)
     frame_shape = tuple(int(v) for v in first_frame.shape[:2])
-    baseline_count = max(1, min(int(baseline_frames), frame_count))
+    baseline_count = max(0, min(int(baseline_frames), frame_count))
     stabilization_offsets = None
     stabilization_fallback_frame_indices: list[int] = []
     if bool(apply_stabilization):
@@ -382,7 +382,7 @@ def compute_visualization_stats(
         progress_callback=progress_callback,
     )
     baseline = None
-    if bool(apply_baseline_subtraction):
+    if bool(apply_baseline_subtraction) and baseline_count > 0:
         baseline_parts = [np.asarray(processed_cache[int(idx)], dtype=np.float32) for idx in range(baseline_count)]
         baseline = np.median(np.stack(baseline_parts, axis=0), axis=0).astype(np.float32, copy=False)
 
@@ -433,9 +433,9 @@ def compute_visualization_stats_for_preview(
 ) -> VisualizationStats:
     """Like compute_visualization_stats but operates at reduced resolution for speed.
 
-    Stats are computed on a downsampled copy of the source; the baseline array is
-    then upsampled back to the original frame shape so the result is a drop-in
-    replacement for full-res stats in PreparedFrameSource.
+    Stats are computed on a downsampled copy of the source for display previews.
+    They remain approximate and must not be reused as canonical model input.
+    Returned arrays and offsets are converted to the original pixel space.
     """
     from swell.shared.frame_source.downsampled import DownsampledFrameSource
 
@@ -477,6 +477,12 @@ def compute_visualization_stats_for_preview(
             (ow, oh),
             interpolation=cv2.INTER_LINEAR,
         ).astype(np.float32)
+    if stats.stabilization_offsets_px is not None:
+        # Registration was measured in downsampled pixels. Convert offsets to
+        # the original frame's coordinate system before returning the stats.
+        stats.stabilization_offsets_px = (
+            np.asarray(stats.stabilization_offsets_px, dtype=np.float32) / float(scale)
+        )
     stats.frame_shape = original_shape
     return stats
 
@@ -612,8 +618,8 @@ def build_visualization_stack(
     if callable(progress_callback):
         progress_callback({"stage": "preprocess", "current": int(frame_count * 2), "total": int(total_progress_steps)})
 
-    if bool(apply_baseline_subtraction):
-        baseline_count = max(1, min(int(baseline_frames), source_for_sub.shape[0]))
+    if bool(apply_baseline_subtraction) and int(baseline_frames) > 0:
+        baseline_count = min(int(baseline_frames), source_for_sub.shape[0])
         if (
             resolved_stats is not None
             and bool(resolved_stats.apply_baseline_subtraction)

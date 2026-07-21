@@ -56,6 +56,27 @@ class ProjectWorkflowActionsTests(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             project_workflow.save_project_to_path(_App(), "/tmp/no_host_saver.sdproj", is_autosave=False)
 
+    def test_save_project_to_path_does_not_save_host_after_stale_sync_rejection(self):
+        saver_calls = []
+
+        class _App:
+            _host_mode = True
+            current_project_path = None
+            project_dirty = True
+            _host_project_saver = staticmethod(lambda path: saver_calls.append(path))
+            _emit_host_sync = staticmethod(
+                lambda reason: {
+                    "ok": False,
+                    "code": "STALE_ANALYSIS_MAPPING",
+                    "message": "event mapping changed",
+                }
+            )
+
+        with self.assertRaisesRegex(RuntimeError, "STALE_ANALYSIS_MAPPING"):
+            project_workflow.save_project_to_path(_App(), "/tmp/stale.sdproj", is_autosave=False)
+
+        self.assertEqual(saver_calls, [])
+
     def test_save_project_to_path_raises_runtime_error_for_invalid_target_path(self):
         class _App:
             _host_mode = True

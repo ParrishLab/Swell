@@ -4,6 +4,7 @@ from pathlib import Path
 
 import numpy as np
 
+from swell.host.analysis_payload_mapper import apply_analysis_scope_flags
 from swell.host.browser_controller import BrowserController
 from swell.host.config import FrameRef
 
@@ -60,10 +61,12 @@ def test_apply_direct_analysis_update_routes_by_payload_event_id() -> None:
     host.on_stack_loaded(_FakeReader(), _FakeStackInfo())
     e1 = host.create_event(start_idx=0, end_idx=1, frame_count=6)
     e2 = host.create_event(start_idx=2, end_idx=4, frame_count=6)
+    signature = host.host_context_for_event(e2.event_id)["analysis_mapping_signature"]
 
     result = host.apply_direct_analysis_update(
         {
             "event_id": e2.event_id,
+            "analysis_mapping_signature": signature,
             "analysis": {"prompts": {"points": [{"frame": 3, "x": 1, "y": 2}]}},
         }
     )
@@ -132,7 +135,10 @@ def test_update_event_remaps_saved_analysis_sidecar_to_new_bounds() -> None:
     host.session.upsert_analysis_sidecar(
         event.event_id,
         {
-            "prompts": {"event_id": event.event_id, "frames": {"1": {"points": [{"x": 2, "y": 3, "label": 1}]}}},
+            "prompts": {
+                "event_id": event.event_id,
+                "frames": {"1": {"points": [{"x": 2, "y": 3, "label": 1}]}},
+            },
             "masks_committed": masks,
         },
     )
@@ -201,6 +207,162 @@ def test_update_event_remaps_legacy_event_local_sidecar_to_new_scope() -> None:
     assert "1" in dict(sidecar["prompts"]["frames"])
 
 
+def test_update_event_remaps_saved_analysis_when_only_baseline_scope_changes() -> None:
+    host = BrowserController()
+    host.on_stack_loaded(_FakeReader(), _FakeStackInfo())
+    event = host.create_event(
+        start_idx=3,
+        end_idx=5,
+        frame_count=6,
+        flags=apply_analysis_scope_flags(
+            {},
+            event_start=3,
+            event_end=5,
+            baseline_pre_frames=1,
+        ),
+    )
+    masks = np.zeros((4, 8, 9), dtype=np.uint8)
+    masks[1] = 1
+    host.session.upsert_analysis_sidecar(
+        event.event_id,
+        {
+            "prompts": {"event_id": event.event_id, "frames": {"1": {"points": [{"x": 2, "y": 3, "label": 1}]}}},
+            "masks_committed": masks,
+        },
+    )
+    expanded_scope_flags = apply_analysis_scope_flags(
+        dict(event.flags),
+        event_start=3,
+        event_end=5,
+        baseline_pre_frames=3,
+    )
+
+    updated = host.update_event(
+        event.event_id,
+        start_idx=None,
+        end_idx=None,
+        label=None,
+        frame_count=6,
+        flags=expanded_scope_flags,
+    )
+
+    context = host.host_context_for_event(updated.event_id)
+    sidecar = dict(context["analysis_state"] or {})
+    remapped_masks = np.asarray(sidecar["masks_committed"])
+    assert int(updated.start_idx) == 3
+    assert int(updated.end_idx) == 5
+    assert int(updated.flags["baseline_pre_frames"]) == 3
+    assert int(updated.flags["analysis_scope_start_idx"]) == 0
+    assert remapped_masks.shape == (6, 8, 9)
+    assert bool(np.any(remapped_masks[3]))
+    assert not bool(np.any(remapped_masks[1]))
+    assert "3" in dict(sidecar["prompts"]["frames"])
+    assert "1" not in dict(sidecar["prompts"]["frames"])
+    assert sidecar["prompts_frame_origin"] == "analysis_scope_local"
+    assert sidecar["masks_committed_frame_origin"] == "analysis_scope_local"
+
+
+def test_update_event_remaps_ground_truth_and_persistent_region_ranges() -> None:
+    host = BrowserController()
+    host.on_stack_loaded(_FakeReader(), _FakeStackInfo())
+    event = host.create_event(
+        start_idx=3,
+        end_idx=5,
+        frame_count=6,
+        flags=apply_analysis_scope_flags({}, event_start=3, event_end=5, baseline_pre_frames=1),
+    )
+    host.session.upsert_analysis_sidecar(
+        event.event_id,
+        {
+            "prompts": {
+                "event_id": event.event_id,
+                "frames": {"1": {"points": [{"x": 2, "y": 3, "label": 1}]}},
+                "ground_truth_frames": [1],
+                "persistent_regions": [
+                    {
+                        "id": "r0",
+                        "frame_start": 0,
+                        "frame_end": 2,
+                        "polygon": [[1, 1], [4, 1], [4, 4], [1, 4]],
+                    }
+                ],
+            },
+            "prompts_frame_origin": "analysis_scope_local",
+            "masks_committed": np.zeros((4, 8, 9), dtype=np.uint8),
+            "masks_committed_frame_origin": "analysis_scope_local",
+        },
+    )
+
+    host.update_event(
+        event.event_id,
+        start_idx=None,
+        end_idx=None,
+        label=None,
+        frame_count=6,
+        flags=apply_analysis_scope_flags(dict(event.flags), event_start=3, event_end=5, baseline_pre_frames=3),
+    )
+
+    prompts = host.host_context_for_event(event.event_id)["analysis_state"]["prompts"]
+    assert prompts["ground_truth_frames"] == [3]
+    assert prompts["persistent_regions"][0]["frame_start"] == 2
+    assert prompts["persistent_regions"][0]["frame_end"] == 4
+
+
+def test_direct_analysis_update_rejects_stale_mapping_signature() -> None:
+    host = BrowserController()
+    host.on_stack_loaded(_FakeReader(), _FakeStackInfo())
+    event = host.create_event(
+        start_idx=3,
+        end_idx=5,
+        frame_count=6,
+        flags=apply_analysis_scope_flags({}, event_start=3, event_end=5, baseline_pre_frames=1),
+    )
+    stale_signature = host.host_context_for_event(event.event_id)["analysis_mapping_signature"]
+    host.update_event(
+        event.event_id,
+        start_idx=None,
+        end_idx=None,
+        label=None,
+        frame_count=6,
+        flags=apply_analysis_scope_flags(dict(event.flags), event_start=3, event_end=5, baseline_pre_frames=3),
+    )
+
+    result = host.apply_direct_analysis_update(
+        {
+            "event_id": event.event_id,
+            "analysis_mapping_signature": stale_signature,
+            "masks_committed": np.ones((4, 8, 9), dtype=np.uint8),
+        }
+    )
+
+    assert result["ok"] is False
+    assert result["code"] == "STALE_ANALYSIS_MAPPING"
+    assert host.session.load_analysis_sidecar(event.event_id) is None
+
+
+def test_direct_analysis_update_rejects_mask_count_outside_current_scope() -> None:
+    host = BrowserController()
+    host.on_stack_loaded(_FakeReader(), _FakeStackInfo())
+    event = host.create_event(
+        start_idx=3,
+        end_idx=5,
+        frame_count=6,
+        flags=apply_analysis_scope_flags({}, event_start=3, event_end=5, baseline_pre_frames=1),
+    )
+    context = host.host_context_for_event(event.event_id)
+
+    result = host.apply_direct_analysis_update(
+        {
+            "event_id": event.event_id,
+            "analysis_mapping_signature": context["analysis_mapping_signature"],
+            "masks_committed": np.ones((3, 8, 9), dtype=np.uint8),
+        }
+    )
+
+    assert result["ok"] is False
+    assert result["code"] == "MASK_FRAME_COUNT_MISMATCH"
+
+
 def test_create_event_resolves_global_metrics_defaults_without_persisting_local_metrics() -> None:
     host = BrowserController()
     host.on_stack_loaded(_FakeReader(), _FakeStackInfo())
@@ -252,6 +414,79 @@ def test_export_candidates_after_reopen_uses_field_mapping(tmp_path: Path) -> No
     assert candidates[0].event_id == created.event_id
     assert candidates[0].start_idx == 2
     assert candidates[0].end_idx == 4
+
+
+def test_open_session_repairs_invalid_event_and_scope_bounds(tmp_path: Path) -> None:
+    host = BrowserController()
+    host.on_stack_loaded(_FakeReader(), _FakeStackInfo())
+    event = host.create_event(start_idx=2, end_idx=4, frame_count=6)
+    state = host.session._service.state()
+    state.events[0].start_idx = -4
+    state.events[0].end_idx = 40
+    state.events[0].flags = {
+        "baseline_pre_frames": 30,
+        "analysis_scope_start_idx": -30,
+        "analysis_scope_end_idx": 40,
+        "analysis_local_event_start_idx": 26,
+        "analysis_local_event_end_idx": 70,
+    }
+    host.session._service.replace_state(state, mark_dirty=True)
+    project_path = tmp_path / "invalid_scope.swell"
+    host.session._service.save_project(str(project_path))
+
+    reopened = BrowserController()
+    reopened.open_session(str(project_path))
+
+    repaired = reopened.get_event(event.event_id)
+    assert repaired is not None
+    assert repaired.start_idx == 0
+    assert repaired.end_idx == 5
+    assert repaired.flags["analysis_scope_start_idx"] == 0
+    assert repaired.flags["analysis_scope_end_idx"] == 5
+    assert repaired.flags["analysis_local_event_start_idx"] == 0
+    assert repaired.flags["analysis_local_event_end_idx"] == 5
+
+
+def test_draft_ground_truth_and_origins_survive_host_save_reopen(tmp_path: Path) -> None:
+    host = BrowserController()
+    host.on_stack_loaded(_FakeReader(), _FakeStackInfo())
+    event = host.create_event(
+        start_idx=2,
+        end_idx=4,
+        frame_count=6,
+        flags=apply_analysis_scope_flags({}, event_start=2, event_end=4, baseline_pre_frames=2),
+    )
+    draft = np.zeros((5, 8, 9), dtype=np.uint8)
+    draft[2] = 1
+    host.session.replace_analysis_sidecar(
+        event.event_id,
+        {
+            "prompts": {
+                "event_id": event.event_id,
+                "frames": {"2": {"points": [{"x": 2, "y": 3, "label": 1}]}},
+                "ground_truth_frames": [2],
+                "persistent_regions": [],
+            },
+            "prompts_frame_origin": "analysis_scope_local",
+            "masks_committed": np.zeros((5, 8, 9), dtype=np.uint8),
+            "masks_committed_frame_origin": "analysis_scope_local",
+            "masks_draft": draft,
+            "masks_draft_frame_origin": "analysis_scope_local",
+            "propagation_completed": False,
+        },
+    )
+    project_path = tmp_path / "draft_roundtrip.swell"
+    host.save_session(project_path)
+
+    reopened = BrowserController()
+    reopened.open_session(str(project_path))
+    analysis_state = reopened.host_context_for_event(event.event_id)["analysis_state"]
+
+    assert analysis_state["prompts"]["ground_truth_frames"] == [2]
+    assert analysis_state["prompts_frame_origin"] == "analysis_scope_local"
+    assert analysis_state["masks_draft_frame_origin"] == "analysis_scope_local"
+    assert analysis_state["propagation_completed"] is False
+    assert bool(np.any(np.asarray(analysis_state["masks_draft"])[2]))
 
 
 def test_ensure_full_stack_analysis_event_creates_and_reuses_flagged_event() -> None:

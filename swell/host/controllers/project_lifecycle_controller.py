@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 import threading
 import tkinter as tk
@@ -9,6 +10,7 @@ from swell.shared.ui import dialogs as messagebox
 from swell.shared.ui.theme import SPACING, apply_theme
 from swell.host.host_models import stack_ref_from_stack_info
 from swell.host.stack_reader import StackReader
+from swell.shared.frame_source.source_identity import canonical_dtype_name, source_identity
 from swell.shared.persistence.schema import (
     METADATA_EMBED_IMAGES_KEY,
     PROJECT_EXTENSION,
@@ -157,10 +159,19 @@ class HostProjectLifecycleController:
             return False
         reader = self._create_stack_reader()
         stack_info = reader.open_stack(replacement)
+        session = getattr(self.app.browser_controller, "session", None)
+        state_getter = getattr(session, "state", None)
+        expected_ref = getattr(state_getter(), "stack_ref", None) if callable(state_getter) else None
+        if expected_ref is not None and not self._stack_info_matches_ref(stack_info, expected_ref, reader=reader):
+            self.app._show_warning(
+                title,
+                "The selected replacement stack does not match the saved frame count, dimensions, or dtype.",
+            )
+            return False
         self.app.reader = reader
         self.app.stack_info = stack_info
         self.app.browser_controller.bind_frame_source(reader)
-        self.app.browser_controller.session.set_stack_ref(stack_ref_from_stack_info(stack_info))
+        self.app.browser_controller.session.set_stack_ref(stack_ref_from_stack_info(stack_info, reader))
         self._set_popup_reader(reader)
         if hasattr(self.app, "input_var"):
             try:
@@ -380,6 +391,31 @@ class HostProjectLifecycleController:
                     # On-disk source preferred: no extraction even if images are embedded.
                     reader = self._create_stack_reader()
                     stack_info = reader.open_stack(input_dir)
+                    if not self._stack_info_matches_ref(stack_info, stack_ref, reader=reader):
+                        reader = None
+                        stack_info = None
+                        extracted_dir = self._extract_embedded_stack(path)
+                        if extracted_dir:
+                            embedded_reader = self._create_stack_reader()
+                            embedded_info = embedded_reader.open_stack(extracted_dir)
+                            if self._stack_info_matches_ref(embedded_info, stack_ref, reader=embedded_reader):
+                                reader = embedded_reader
+                                stack_info = embedded_info
+                                used_embedded = True
+                            else:
+                                self._cleanup_extract_dir_path(extracted_dir)
+                                extracted_dir = None
+                        replacement = self._run_on_ui_thread(
+                            lambda: self._prompt_rebind_missing_stack_folder(input_dir)
+                        ) if reader is None else None
+                        if replacement and reader is None:
+                            reader = self._create_stack_reader()
+                            stack_info = reader.open_stack(replacement)
+                            if not self._stack_info_matches_ref(stack_info, stack_ref, reader=reader):
+                                reader = None
+                                stack_info = None
+                        if reader is None or stack_info is None:
+                            warning = "The recorded or replacement stack did not match the saved frame count, dimensions, or dtype."
                 else:
                     # Source folder moved/deleted: fall back to embedded images if present,
                     # otherwise prompt the user to rebind a replacement folder.
@@ -387,7 +423,7 @@ class HostProjectLifecycleController:
                     if extracted_dir:
                         reader = self._create_stack_reader()
                         stack_info = reader.open_stack(extracted_dir)
-                        if self._stack_info_matches_ref(stack_info, stack_ref):
+                        if self._stack_info_matches_ref(stack_info, stack_ref, reader=reader):
                             used_embedded = True
                         else:
                             self._cleanup_extract_dir_path(extracted_dir)
@@ -402,6 +438,12 @@ class HostProjectLifecycleController:
                         if replacement:
                             reader = self._create_stack_reader()
                             stack_info = reader.open_stack(replacement)
+                            if not self._stack_info_matches_ref(stack_info, stack_ref, reader=reader):
+                                reader = None
+                                stack_info = None
+                                warning = (
+                                    "The selected replacement stack did not match the saved frame count, dimensions, or dtype."
+                                )
                         else:
                             warning = f"Stack folder is missing and was not rebound:\n\n{input_dir}"
             return {
@@ -431,8 +473,10 @@ class HostProjectLifecycleController:
                 self.app.reader = reader
                 self.app.stack_info = stack_info
                 self.app.browser_controller.bind_frame_source(reader)
-                if not used_embedded:
-                    self.app.browser_controller.session.set_stack_ref(stack_ref_from_stack_info(stack_info))
+                bound_ref = stack_ref_from_stack_info(stack_info, reader)
+                if used_embedded and state.stack_ref is not None:
+                    bound_ref = replace(bound_ref, input_dir=str(state.stack_ref.input_dir))
+                self.app.browser_controller.session.set_stack_ref(bound_ref)
                 self._set_popup_reader(reader)
                 for cache_name in ("_main_render_cache", "_normalized_frame_u8_cache", "_analysis_preview_cache"):
                     cache = getattr(self.app, cache_name, None)
@@ -559,13 +603,27 @@ class HostProjectLifecycleController:
             shutil.rmtree(path, ignore_errors=True)
 
     @staticmethod
-    def _stack_info_matches_ref(stack_info, stack_ref) -> bool:
+    def _stack_info_matches_ref(stack_info, stack_ref, *, reader=None) -> bool:
         for attr in ("frame_count", "frame_height", "frame_width"):
             ref_value = getattr(stack_ref, attr, None)
             info_value = getattr(stack_info, attr, None)
             if ref_value is None or info_value is None:
                 continue
             if int(ref_value) != int(info_value):
+                return False
+        ref_dtype = canonical_dtype_name(getattr(stack_ref, "dtype", ""))
+        info_dtype = canonical_dtype_name(getattr(stack_info, "dtype", ""))
+        if ref_dtype and info_dtype and ref_dtype != info_dtype:
+            return False
+        expected_names = str(getattr(stack_ref, "frame_names_digest", "") or "")
+        expected_source = str(getattr(stack_ref, "source_fingerprint", "") or "")
+        if (expected_names or expected_source) and reader is None:
+            return False
+        if reader is not None and (expected_names or expected_source):
+            actual = source_identity(reader)
+            if expected_names and actual.get("frame_names_digest") != expected_names:
+                return False
+            if expected_source and actual.get("source_fingerprint") != expected_source:
                 return False
         return True
 
@@ -658,6 +716,12 @@ class HostProjectLifecycleController:
                 "code": "PAYLOAD_INVALID",
                 "message": "Missing event_id in metrics update payload.",
             }
+        mapping_result = self.app.browser_controller.validate_event_mapping_signature(
+            event_id,
+            dict(payload or {}).get("analysis_mapping_signature"),
+        )
+        if not bool(mapping_result.get("ok")):
+            return mapping_result
         event = self.app.browser_controller.get_event(event_id)
         if event is None:
             return {
@@ -695,6 +759,13 @@ class HostProjectLifecycleController:
         return {"ok": True, "event_id": event_id, "changed": bool(changed)}
 
     def on_analysis_global_metrics_update(self, payload: dict) -> dict:
+        event_id = str(dict(payload or {}).get("event_id", "")).strip()
+        mapping_result = self.app.browser_controller.validate_event_mapping_signature(
+            event_id,
+            dict(payload or {}).get("analysis_mapping_signature"),
+        )
+        if not bool(mapping_result.get("ok")):
+            return mapping_result
         metrics_settings = dict(dict(payload or {}).get("metrics_settings") or {})
         if not metrics_settings:
             return {

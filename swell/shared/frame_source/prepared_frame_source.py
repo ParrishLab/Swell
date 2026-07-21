@@ -30,7 +30,7 @@ class PreparedFrameSource:
         frame_cache_max: int = 24,
     ) -> None:
         self._base_source = base_source
-        self._baseline_frames = max(1, int(baseline_frames))
+        self._baseline_frames = max(0, int(baseline_frames))
         self._apply_horizontal_bar_denoise = bool(apply_horizontal_bar_denoise)
         self._apply_smoothing = bool(apply_smoothing)
         self._apply_baseline_subtraction = bool(apply_baseline_subtraction)

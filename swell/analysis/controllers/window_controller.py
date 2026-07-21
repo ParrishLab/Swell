@@ -317,6 +317,7 @@ class AnalysisWindowController:
             return None
         payload = {
             "event_id": event_id,
+            "analysis_mapping_signature": str(getattr(self.app, "_host_mapping_signature", "") or ""),
             "metrics_settings": self.collect_current_metrics_settings(),
             "reason": str(reason or ""),
         }
@@ -340,6 +341,8 @@ class AnalysisWindowController:
         if not callable(updater):
             return {"ok": False, "code": "PAYLOAD_INVALID", "message": "Host global metrics updater is unavailable."}
         payload = {
+            "event_id": str(getattr(self.app, "active_event_id", "") or ""),
+            "analysis_mapping_signature": str(getattr(self.app, "_host_mapping_signature", "") or ""),
             "metrics_settings": dict(MetricsSettingsResolver.normalize(metrics_settings)),
             "reason": str(reason or ""),
         }
@@ -367,6 +370,7 @@ class AnalysisWindowController:
             return {"ok": False, "code": "PAYLOAD_INVALID", "message": "No active event is selected."}
         payload = {
             "event_id": event_id,
+            "analysis_mapping_signature": str(getattr(self.app, "_host_mapping_signature", "") or ""),
             "metrics_settings": {},
             "clear_local_metric_keys": [str(key) for key in list(keys or []) if str(key).strip()],
             "reason": str(reason or ""),
@@ -548,10 +552,20 @@ class AnalysisWindowController:
                 return
         if bool(getattr(self.app, "_host_mode", False)):
             try:
-                self.app._emit_host_sync("save_current_masks")
+                sync_result = self.app._emit_host_sync("save_current_masks")
             except Exception as exc:
                 self.app.log_error("Project", f"Save current masks failed during host sync: {exc}")
                 messagebox.showerror("Save Current Masks", str(exc), parent=self._dialog_parent())
+                return
+            if isinstance(sync_result, dict) and sync_result.get("ok") is False:
+                code = str(sync_result.get("code", "HOST_SYNC_REJECTED"))
+                message = str(sync_result.get("message", "The host rejected the analysis update."))
+                self.app.log_error("Project", f"Save current masks rejected [{code}]: {message}")
+                messagebox.showerror(
+                    "Save Current Masks",
+                    f"The host rejected this save ({code}).\n\n{message}",
+                    parent=self._dialog_parent(),
+                )
                 return
         self.emit_host_metrics_update(reason="save_current_masks")
         self.sync_project_path_from_host()

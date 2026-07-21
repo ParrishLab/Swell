@@ -84,7 +84,7 @@ def _build_app(host_context: dict, launch_preparation: dict | None) -> tuple[Sim
 
 def test_prepare_host_mode_buffers_reuses_compatible_launch_preparation() -> None:
     scoped_source = _build_scoped_source()
-    prepared_source = PreparedFrameSource(scoped_source, baseline_frames=2)
+    prepared_source = PreparedFrameSource(scoped_source, baseline_frames=1)
     prepared_source.prepare()
     prewarm_calls: list[list[int]] = []
     prepared_source.prewarm = lambda indices, generation=None: prewarm_calls.append(list(indices))  # type: ignore[method-assign]
@@ -93,6 +93,7 @@ def test_prepare_host_mode_buffers_reuses_compatible_launch_preparation() -> Non
             event_id="event_0042",
             scope_start=2,
             scope_end=6,
+            local_event_start_idx=1,
             baseline_pre_frames=2,
             apply_horizontal_bar_denoise=False,
             apply_smoothing=True,
@@ -113,6 +114,7 @@ def test_prepare_host_mode_buffers_reuses_compatible_launch_preparation() -> Non
     assert app.frame_source is prepared_source
     assert scheduled == [1]
     assert prewarm_calls == [[0, 1, 2, 3]]
+    assert app.current_frame_idx == 1
 
 
 def test_prepare_host_mode_buffers_rebuilds_when_processing_flags_change() -> None:
@@ -126,6 +128,7 @@ def test_prepare_host_mode_buffers_rebuilds_when_processing_flags_change() -> No
             event_id="event_0042",
             scope_start=2,
             scope_end=6,
+            local_event_start_idx=1,
             baseline_pre_frames=2,
             apply_horizontal_bar_denoise=False,
             apply_smoothing=False,
@@ -159,6 +162,7 @@ def test_prepare_host_mode_buffers_rebuilds_when_baseline_count_changes() -> Non
             event_id="event_0042",
             scope_start=2,
             scope_end=6,
+            local_event_start_idx=1,
             baseline_pre_frames=2,
             apply_horizontal_bar_denoise=False,
             apply_smoothing=True,
@@ -192,6 +196,7 @@ def test_prepare_host_mode_buffers_rebuilds_when_stabilization_flag_changes() ->
             event_id="event_0042",
             scope_start=2,
             scope_end=6,
+            local_event_start_idx=1,
             baseline_pre_frames=2,
             apply_horizontal_bar_denoise=False,
             apply_smoothing=True,

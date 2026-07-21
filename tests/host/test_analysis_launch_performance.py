@@ -64,6 +64,7 @@ def test_prepare_analysis_launch_preview_builds_reusable_prepared_source() -> No
         event_id="event_0042",
         scope_start=1,
         scope_end=5,
+        local_event_start_idx=2,
         baseline_pre_frames=2,
         apply_horizontal_bar_denoise=False,
         apply_smoothing=True,
@@ -76,6 +77,151 @@ def test_prepare_analysis_launch_preview_builds_reusable_prepared_source() -> No
         launch_preparation["prepared_source"].get_visual_frame(launch_preparation["local_frame_idx"]),
         payload["frame_u8"],
     )
+
+
+def test_launch_preview_uses_only_available_pre_event_baseline_frames() -> None:
+    frames = [
+        np.zeros((8, 8), dtype=np.float32),
+        np.zeros((8, 8), dtype=np.float32),
+        np.full((8, 8), 100.0, dtype=np.float32),
+        np.full((8, 8), 100.0, dtype=np.float32),
+    ]
+    source = EagerFrameSource(
+        raw_frames=frames,
+        subtracted_frames=frames,
+        visual_frames=[np.asarray(frame, dtype=np.uint8) for frame in frames],
+        frame_names=[f"f{idx}.tif" for idx in range(4)],
+        source_paths=["/tmp/stack"] * 4,
+    )
+    controller = AnalysisLaunchController(_build_app(source))
+
+    payload = controller._prepare_analysis_launch_preview(
+        event_id="event_early",
+        event_start=2,
+        event_end=3,
+        baseline_pre_frames=30,
+        apply_horizontal_bar_denoise=False,
+        apply_smoothing=False,
+        apply_baseline_subtraction=True,
+        apply_global_normalization=False,
+        apply_stabilization=False,
+    )
+
+    preparation = payload["launch_preparation"]
+    assert preparation["effective_baseline_frames"] == 2
+    assert preparation["stats"].baseline_frames == 2
+    assert float(np.max(np.abs(preparation["stats"].baseline))) == 0.0
+
+
+def test_launch_cache_key_distinguishes_event_start_with_same_clamped_scope() -> None:
+    controller = AnalysisLaunchController(_build_app(_build_frame_source()))
+
+    key_a = controller._launch_preparation_cache_key(
+        event_id="event_0042",
+        event_start=1,
+        event_end=5,
+        baseline_pre_frames=30,
+        apply_horizontal_bar_denoise=False,
+        apply_smoothing=True,
+        apply_baseline_subtraction=True,
+        apply_global_normalization=True,
+        apply_stabilization=False,
+    )
+    key_b = controller._launch_preparation_cache_key(
+        event_id="event_0042",
+        event_start=2,
+        event_end=5,
+        baseline_pre_frames=30,
+        apply_horizontal_bar_denoise=False,
+        apply_smoothing=True,
+        apply_baseline_subtraction=True,
+        apply_global_normalization=True,
+        apply_stabilization=False,
+    )
+
+    assert key_a != key_b
+
+
+def test_persist_analysis_settings_returns_post_remap_context() -> None:
+    state = {
+        "context": {
+            "event": {"event_id": "event_0042", "flags": {"analysis_scope_start_idx": 2}},
+            "analysis_state": {"masks_committed": np.zeros((4, 8, 8), dtype=np.uint8)},
+        }
+    }
+
+    def _update_event(*_args, **_kwargs):
+        state["context"] = {
+            "event": {"event_id": "event_0042", "flags": {"analysis_scope_start_idx": 0}},
+            "analysis_state": {"masks_committed": np.zeros((6, 8, 8), dtype=np.uint8)},
+        }
+
+    browser = SimpleNamespace(
+        update_event=_update_event,
+        host_context_for_event=lambda _event_id: dict(state["context"]),
+    )
+    app = SimpleNamespace(browser_controller=browser, stack_info=SimpleNamespace(frame_count=6))
+    controller = AnalysisLaunchController(app)
+    model_setup = SimpleNamespace(build_host_model_context=lambda: {"checkpoint": "model"})
+
+    context = controller._persist_analysis_settings_and_refresh_context(
+        "event_0042",
+        {"analysis_scope_start_idx": 0},
+        model_setup,
+    )
+
+    assert np.asarray(context["analysis_state"]["masks_committed"]).shape[0] == 6
+    assert context["event"]["flags"]["analysis_scope_start_idx"] == 0
+    assert context["model_context"] == {"checkpoint": "model"}
+
+
+def test_stabilization_geometry_detection_includes_prompts_and_draft_masks() -> None:
+    assert AnalysisLaunchController._analysis_payload_has_geometry(
+        {"prompts": {"frames": {"0": {"points": [{"x": 1, "y": 2, "label": 1}]}}}}
+    )
+    assert AnalysisLaunchController._analysis_payload_has_geometry(
+        {"masks_draft": np.ones((1, 4, 4), dtype=np.uint8)}
+    )
+    assert not AnalysisLaunchController._analysis_payload_has_geometry(
+        {"masks_committed": np.zeros((1, 4, 4), dtype=np.uint8)}
+    )
+    assert AnalysisLaunchController._analysis_payload_has_geometry(
+        {"metrics_settings": {"roi_points": [[1, 1], [2, 1], [2, 2]]}}
+    )
+    assert AnalysisLaunchController._analysis_payload_has_geometry(
+        {"analysis_state": {}, "metrics_settings": {"roi_mask": np.ones((4, 4), dtype=bool)}}
+    )
+
+
+def test_stabilization_cleanup_removes_local_and_global_roi_geometry() -> None:
+    replaced: list[tuple[str, dict | None]] = []
+    global_updates: list[dict] = []
+    browser = SimpleNamespace(
+        session=SimpleNamespace(
+            replace_analysis_sidecar=lambda event_id, payload: replaced.append((str(event_id), payload))
+        ),
+        get_global_metrics_defaults=lambda: {
+            "frames_per_sec": 2.0,
+            "roi_points": [[1, 1], [2, 1], [2, 2]],
+            "roi_mask": np.ones((4, 4), dtype=bool),
+        },
+        set_global_metrics_defaults=lambda payload: global_updates.append(dict(payload)),
+    )
+    controller = AnalysisLaunchController(SimpleNamespace(browser_controller=browser))
+
+    controller._clear_incompatible_analysis_geometry(
+        "event_1",
+        {
+            "masks_committed": np.ones((1, 4, 4), dtype=bool),
+            "metrics_settings": {
+                "frames_per_sec": 3.0,
+                "roi_polygons": [[[1, 1], [2, 1], [2, 2]]],
+            },
+        },
+    )
+
+    assert replaced == [("event_1", {"metrics_settings": {"frames_per_sec": 3.0}})]
+    assert global_updates == [{"frames_per_sec": 2.0}]
 
 
 def test_analysis_launch_preview_cache_stores_full_launch_preparation_and_evicts_lru() -> None:

@@ -106,8 +106,8 @@ def test_confirm_new_event_persists_baseline_scope_flags() -> None:
         _popup=SimpleNamespace(
             mark_popup_mode="new",
             mark_popup_event_id=None,
-            mark_start_var=SimpleNamespace(get=lambda: "12"),
-            mark_end_var=SimpleNamespace(get=lambda: "18"),
+                mark_start_var=SimpleNamespace(get=lambda: "13"),
+                mark_end_var=SimpleNamespace(get=lambda: "19"),
             mark_popup_current_idx=12,
         ),
         _parse_frame_index=lambda value, _default, _name: int(value),
@@ -155,8 +155,8 @@ def test_confirm_edit_event_updates_baseline_scope_flags_and_preserves_existing_
         _popup=SimpleNamespace(
             mark_popup_mode="edit",
             mark_popup_event_id="event_0002",
-            mark_start_var=SimpleNamespace(get=lambda: "22"),
-            mark_end_var=SimpleNamespace(get=lambda: "27"),
+                mark_start_var=SimpleNamespace(get=lambda: "23"),
+                mark_end_var=SimpleNamespace(get=lambda: "28"),
             mark_popup_current_idx=22,
         ),
         _parse_frame_index=lambda value, _default, _name: int(value),

@@ -97,7 +97,7 @@ class AppExportRangeStateTests(unittest.TestCase):
         self.assertEqual(int(app.spin_prop_start.get()), 1)
         self.assertEqual(int(app.spin_prop_end.get()), 12)
 
-    def test_finalize_load_preserves_workspace_state_in_host_mode(self):
+    def test_finalize_load_preserves_workspace_state_and_redraws_scoped_timeline_in_host_mode(self):
         app = SwellAnalysisApp.__new__(SwellAnalysisApp)
         seg_state = _SegStateStub()
         points = {3: {"points": [{"x": 1.0, "y": 2.0, "label": 1}]}}
@@ -113,6 +113,8 @@ class AppExportRangeStateTests(unittest.TestCase):
         app.slider = _SliderStub()
         app.update_display = lambda: None
         app._recompute_slider_jump_markers = lambda: (_ for _ in ()).throw(AssertionError("marker recompute should be deferred"))
+        redraw_extents = []
+        app._redraw_slider_overlay = lambda: redraw_extents.append(app.slider.config.get("to"))
         app._set_data_controls_enabled = lambda _enabled: None
         app._set_busy = lambda *_args: None
         app.log_success = lambda *_args: None
@@ -126,6 +128,7 @@ class AppExportRangeStateTests(unittest.TestCase):
         self.assertEqual(app.selected_point, "selected")
         self.assertEqual(seg_state.user_invalidated, 0)
         self.assertEqual(seg_state.final_invalidated, 0)
+        self.assertEqual(redraw_extents, [11])
 
 
 if __name__ == "__main__":

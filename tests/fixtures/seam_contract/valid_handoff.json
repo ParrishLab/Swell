@@ -13,8 +13,8 @@
     "stack_id": "stack_abc",
     "frame_count": 12,
     "frame_shape": [64, 64],
-    "frame_names": ["f1.tif", "f2.tif"],
-    "source_paths": ["/tmp/f1.tif", "/tmp/f2.tif"],
+    "frame_names": ["f1.tif", "f2.tif", "f3.tif", "f4.tif", "f5.tif", "f6.tif", "f7.tif", "f8.tif", "f9.tif", "f10.tif", "f11.tif", "f12.tif"],
+    "source_paths": ["/tmp/f1.tif", "/tmp/f2.tif", "/tmp/f3.tif", "/tmp/f4.tif", "/tmp/f5.tif", "/tmp/f6.tif", "/tmp/f7.tif", "/tmp/f8.tif", "/tmp/f9.tif", "/tmp/f10.tif", "/tmp/f11.tif", "/tmp/f12.tif"],
     "capabilities": {
       "raw": true,
       "subtracted": false,
@@ -28,6 +28,8 @@
     "end_idx": 5,
     "flags": {}
   },
+  "analysis_mapping_signature": "fixture-mapping-signature",
+  "analysis_state": null,
   "analysis_state_ref": {
     "storage": "host_session",
     "ref_id": "session_abc:event_0001"

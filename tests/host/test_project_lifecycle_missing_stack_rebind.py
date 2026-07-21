@@ -5,8 +5,10 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
+import numpy as np
 
 from swell.host.controllers.project_lifecycle_controller import HostProjectLifecycleController
+from swell.shared.frame_source.source_identity import source_identity
 
 
 class _ImmediateRoot:
@@ -206,6 +208,75 @@ def test_active_stack_missing_without_rebind_warns_and_keeps_existing_state(tmp_
     assert app.session_calls["set_stack_ref"] == []
     assert app.warnings
     assert "missing and was not rebound" in app.warnings[-1][1]
+
+
+def test_active_stack_rebind_rejects_mismatched_dimensions(tmp_path: Path) -> None:
+    app = _build_app()
+    controller = HostProjectLifecycleController(app)
+    missing_dir = tmp_path / "old_stack"
+    replacement_dir = tmp_path / "replacement"
+    replacement_dir.mkdir()
+    expected_ref = SimpleNamespace(frame_count=5, frame_height=8, frame_width=9, dtype="uint8")
+    app.browser_controller.session.state = lambda: SimpleNamespace(stack_ref=expected_ref)
+    stale_reader = SimpleNamespace(missing_source_paths=lambda limit=1: [missing_dir])
+    app.reader = stale_reader
+    app.stack_info = SimpleNamespace(input_dir=str(missing_dir), frame_count=5)
+
+    class _Reader:
+        def open_stack(self, _folder: str):
+            return SimpleNamespace(
+                input_dir=str(replacement_dir),
+                frame_count=6,
+                frame_height=8,
+                frame_width=9,
+                dtype="uint8",
+            )
+
+    with patch("swell.host.controllers.project_lifecycle_controller.messagebox.askyesno", return_value=True):
+        with patch(
+            "swell.host.controllers.project_lifecycle_controller.filedialog.askdirectory",
+            return_value=str(replacement_dir),
+        ):
+            with patch("swell.host.controllers.project_lifecycle_controller.StackReader", return_value=_Reader()):
+                ok = controller.ensure_active_stack_available()
+
+    assert ok is False
+    assert app.reader is stale_reader
+    assert app.session_calls["set_stack_ref"] == []
+    assert "does not match" in app.warnings[-1][1]
+
+
+def test_stack_identity_rejects_different_recording_with_same_dimensions_and_dtype() -> None:
+    class _IdentityReader:
+        def __init__(self, value: int) -> None:
+            self.value = value
+
+        def get_frame_count(self):
+            return 4
+
+        def get_frame_name(self, idx):
+            return f"frame_{idx}.tif"
+
+        def read_frame(self, idx, use_cache=True):  # noqa: ARG002
+            return np.full((8, 9), self.value + idx, dtype=np.uint8)
+
+    expected_reader = _IdentityReader(10)
+    identity = source_identity(expected_reader)
+    stack_ref = SimpleNamespace(
+        frame_count=4,
+        frame_height=8,
+        frame_width=9,
+        dtype="uint8",
+        **identity,
+    )
+    stack_info = SimpleNamespace(frame_count=4, frame_height=8, frame_width=9, dtype=np.dtype("u1"))
+
+    assert HostProjectLifecycleController._stack_info_matches_ref(
+        stack_info, stack_ref, reader=expected_reader
+    )
+    assert not HostProjectLifecycleController._stack_info_matches_ref(
+        stack_info, stack_ref, reader=_IdentityReader(100)
+    )
 
 
 def test_run_on_ui_thread_posts_callback_when_called_off_main_thread() -> None:

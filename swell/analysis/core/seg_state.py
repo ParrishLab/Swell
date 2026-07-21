@@ -1,116 +1,16 @@
 from __future__ import annotations
 
-import math
 import uuid
 from typing import Optional
 
 import cv2
 import numpy as np
 
-# Prompt-point strength. SAM2 has no native per-point weight -- its prompt
-# encoder maps each label to a fixed learned embedding with no magnitude term --
-# so strength is expressed by expanding one logical point into several prompt
-# tokens (see expand_point_prompts). The effect saturates quickly because
-# attention is a softmax, which is why the range stops at 5.
-POINT_STRENGTH_MIN = 1
-POINT_STRENGTH_MAX = 5
-POINT_STRENGTH_DEFAULT = 1
-
-# Radius, in image pixels, of the ring the extra tokens are placed on.
-POINT_STRENGTH_JITTER_PX = 1.5
-
-# Marker geometry, in screen pixels. Strength is read off marker size, so
-# hit-testing derives its tolerance from the same function to keep the grab
-# area matched to what is actually drawn.
 # How far the threshold must move before existing masks are called stale.
 # Sized so a nudge or two does not flip the whole stack, but kept small
 # because the costs are asymmetric: a false "stale" costs a re-run, while a
 # false "fresh" silently exports masks made at two different thresholds.
 MASK_THRESHOLD_DEADBAND = 0.2
-
-POINT_MARKER_BASE_RADIUS = 3.0
-POINT_MARKER_RADIUS_STEP = 1.5
-POINT_HIT_TOLERANCE_PX = 10.0
-
-
-def point_weight(point) -> int:
-    """Clamped strength for a prompt point. Points without one read as 1."""
-    if not isinstance(point, dict):
-        return POINT_STRENGTH_DEFAULT
-    try:
-        weight = int(point.get("weight", POINT_STRENGTH_DEFAULT))
-    except (TypeError, ValueError):
-        return POINT_STRENGTH_DEFAULT
-    return max(POINT_STRENGTH_MIN, min(POINT_STRENGTH_MAX, weight))
-
-
-def point_marker_radius(point) -> float:
-    """Screen radius for a prompt point's marker, scaled by its strength."""
-    return POINT_MARKER_BASE_RADIUS + POINT_MARKER_RADIUS_STEP * (point_weight(point) - 1)
-
-
-def point_hit_tolerance(point) -> float:
-    """Click tolerance for a prompt point, never smaller than its marker."""
-    return max(POINT_HIT_TOLERANCE_PX, point_marker_radius(point) + 2.0)
-
-
-def expand_point_prompts(pt_list, *, frame_shape=None):
-    """Expand weighted points into the (points, labels) arrays SAM2 takes.
-
-    A point of weight N contributes N tokens: the click itself plus N-1 copies
-    spaced evenly on a small ring around it. Duplicating a point raises the
-    share of attention its content receives, which is the only per-point
-    strength lever available -- the prompt encoder has no magnitude term.
-
-    The copies are offset rather than coincident because SAM2 never saw
-    identical points in training, and they are placed deterministically (fixed
-    ring, no RNG) because the logits cache assumes one prompt always yields
-    one mask.
-
-    Returns (None, None) when there is nothing to prompt with.
-    """
-    height = width = 0
-    if frame_shape is not None:
-        try:
-            height, width = int(frame_shape[0]), int(frame_shape[1])
-        except (TypeError, ValueError, IndexError):
-            height = width = 0
-
-    def _clamped(value: float, limit: int) -> float:
-        # Only the generated copies are constrained. The user's own click is
-        # passed through untouched: if the reported frame shape were ever
-        # wrong, clamping it would silently collapse real prompts into a
-        # corner instead of failing where it could be seen.
-        if limit <= 0:
-            return value
-        return min(max(value, 0.0), float(limit - 1))
-
-    coords: list[list[float]] = []
-    labels: list[int] = []
-    for point in list(pt_list or []):
-        try:
-            x = float(point["x"])
-            y = float(point["y"])
-            label = int(point["label"])
-        except (KeyError, TypeError, ValueError):
-            continue
-        coords.append([x, y])
-        labels.append(label)
-        extras = point_weight(point) - 1
-        for k in range(extras):
-            angle = 2.0 * math.pi * k / extras
-            coords.append(
-                [
-                    _clamped(x + POINT_STRENGTH_JITTER_PX * math.cos(angle), width),
-                    _clamped(y + POINT_STRENGTH_JITTER_PX * math.sin(angle), height),
-                ]
-            )
-            labels.append(label)
-
-    if not coords:
-        return None, None
-
-    return np.asarray(coords, dtype=np.float32).reshape(-1, 2), np.asarray(labels, dtype=np.int32)
 
 
 class SegmentationState:

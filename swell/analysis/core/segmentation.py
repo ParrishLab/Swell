@@ -15,12 +15,6 @@ from tkinter import filedialog
 from swell.shared.ui import dialogs as messagebox
 from swell.shared.torch_device import resolve_torch_device
 from swell.shared.ui.theme import APP_COLORS
-from swell.analysis.core.seg_state import (
-    POINT_STRENGTH_DEFAULT,
-    POINT_STRENGTH_MAX,
-    POINT_STRENGTH_MIN,
-    point_weight,
-)
 
 from swell.shared.model_copy import (
     STATUS_MODEL_DISABLED,
@@ -803,6 +797,7 @@ class SegmentationActions:
                     apply_global_normalization=apply_global_normalization,
                     apply_stabilization=apply_stabilization,
                     stats=stats,
+                    frames_viz=frames_viz,
                 )
                 frame_cache = getattr(self, "sam2_frame_cache", None)
                 cache_dir = None
@@ -999,84 +994,6 @@ class SegmentationActions:
             label.grid_remove()
         self._recompute_slider_jump_markers()
         self.update_display()
-
-    @staticmethod
-    def _clamp_point_strength(value) -> int:
-        try:
-            value = int(value)
-        except (TypeError, ValueError):
-            return POINT_STRENGTH_DEFAULT
-        return max(POINT_STRENGTH_MIN, min(POINT_STRENGTH_MAX, value))
-
-    def _selected_prompt_point(self):
-        """The selected point as (frame_idx, position), or None.
-
-        Box and region selections share `selected_point` but carry a string in
-        the second slot; only point selections carry an index.
-        """
-        selected = getattr(self, "selected_point", None)
-        if not selected or len(selected) != 2:
-            return None
-        idx, pt_i = selected
-        if not isinstance(pt_i, int) or isinstance(pt_i, bool):
-            return None
-        pt_list = self.points.get(idx)
-        if not pt_list or not (0 <= pt_i < len(pt_list)):
-            return None
-        return idx, pt_i
-
-    def _set_selected_point(self, value):
-        self.selected_point = value
-        self._sync_point_strength_control()
-
-    def _sync_point_strength_control(self):
-        """Point the stepper at whatever it will act on next."""
-        if getattr(self, "point_strength", None) is None:
-            return
-        target = self._selected_prompt_point()
-        if target is None:
-            hint = "for new points"
-        else:
-            idx, pt_i = target
-            self.point_strength.set(point_weight(self.points[idx][pt_i]))
-            hint = "selected point"
-        self.lbl_point_strength.configure(text=str(int(self.point_strength.get())))
-        self.lbl_point_strength_hint.configure(text=hint)
-
-    def adjust_point_strength(self, delta):
-        """Step strength on the selected point, else set it for the next one."""
-        target = self._selected_prompt_point()
-        if target is None:
-            self.point_strength.set(self._clamp_point_strength(int(self.point_strength.get()) + int(delta)))
-            self._sync_point_strength_control()
-            return
-
-        if not self._segmentation_edits_allowed():
-            self._on_segmentation_edit_blocked("point_strength")
-            return
-
-        idx, pt_i = target
-        pt_list = self.points[idx]
-        current = point_weight(pt_list[pt_i])
-        new_value = self._clamp_point_strength(current + int(delta))
-        if new_value == current:
-            return
-
-        data_before = copy.deepcopy(pt_list)
-        updated = dict(pt_list[pt_i])
-        updated["weight"] = new_value
-        pt_list[pt_i] = updated
-        self.seg_state.invalidate_user_frames()
-        self.seg_state.invalidate_final_mask_frames()
-        # A strength change is its own undo entry rather than folding into the
-        # placement, so stepping up and back is reversible step by step.
-        self.record_action("point", idx, data_before, copy.deepcopy(pt_list))
-        self._sync_point_strength_control()
-        self._mark_project_dirty("point_strength")
-        if self.model_ready:
-            self._update_mask_prediction(idx)
-        else:
-            self.update_display()
 
     def _trigger_background_propagation(self):
         if not self.model_ready or self.predictor is None or self.inference_state is None:

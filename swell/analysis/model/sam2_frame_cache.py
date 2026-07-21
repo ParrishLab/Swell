@@ -12,12 +12,25 @@ import time
 import cv2
 import numpy as np
 
+from swell.shared.frame_source.source_identity import source_identity, visual_stack_digest
+
 
 def _safe_tuple(values) -> tuple[int, ...]:
     try:
         return tuple(int(v) for v in tuple(values or ()))
     except Exception:
         return ()
+
+
+def _array_digest(value) -> str | None:
+    if value is None:
+        return None
+    arr = np.ascontiguousarray(np.asarray(value))
+    digest = sha256()
+    digest.update(str(arr.dtype).encode("utf-8"))
+    digest.update(repr(tuple(int(v) for v in arr.shape)).encode("utf-8"))
+    digest.update(arr.tobytes(order="C"))
+    return digest.hexdigest()
 
 
 def _stable_source_identity(frame_source, *, frame_count: int, frame_shape: tuple[int, int]) -> str:
@@ -33,6 +46,7 @@ def _stable_source_identity(frame_source, *, frame_count: int, frame_shape: tupl
         "last_source_paths": source_paths[-3:],
         "first_frame_names": frame_names[:3],
         "last_frame_names": frame_names[-3:],
+        "content_identity": source_identity(frame_source) if frame_source is not None else {},
     }
     return sha256(repr(payload).encode("utf-8")).hexdigest()[:24]
 
@@ -49,12 +63,19 @@ def build_sam2_frame_cache_key(
     apply_global_normalization: bool,
     apply_stabilization: bool,
     stats,
+    frames_viz=None,
 ) -> str:
     baseline_shape = None
+    baseline_digest = None
+    stabilization_offsets_digest = None
     if stats is not None and getattr(stats, "baseline", None) is not None:
         baseline_shape = _safe_tuple(getattr(stats.baseline, "shape", ()))
+        baseline_digest = _array_digest(stats.baseline)
+    if stats is not None:
+        stabilization_offsets_digest = _array_digest(getattr(stats, "stabilization_offsets_px", None))
     payload = {
         "source": _stable_source_identity(frame_source, frame_count=frame_count, frame_shape=frame_shape),
+        "visual_stack_digest": visual_stack_digest(frames_viz) if frames_viz is not None else None,
         "frame_count": int(frame_count),
         "frame_shape": list(_safe_tuple(frame_shape)),
         "baseline_frames": int(baseline_frames),
@@ -83,6 +104,8 @@ def build_sam2_frame_cache_key(
             "p1": None if getattr(stats, "p1", None) is None else round(float(stats.p1), 6),
             "p99": None if getattr(stats, "p99", None) is None else round(float(stats.p99), 6),
             "baseline_shape": list(baseline_shape or ()),
+            "baseline_digest": baseline_digest,
+            "stabilization_offsets_digest": stabilization_offsets_digest,
         },
     }
     return sha256(repr(payload).encode("utf-8")).hexdigest()

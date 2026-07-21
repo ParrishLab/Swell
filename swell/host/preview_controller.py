@@ -367,7 +367,7 @@ class HostPreviewController:
         baseline_count = self.app._popup.mark_baseline_count_var.get().strip() if self.app._popup.mark_baseline_count_var is not None else "30"
         baseline_end = self.app._popup.mark_baseline_end_var.get().strip() if self.app._popup.mark_baseline_end_var is not None else "0"
         self.app._popup.mark_window_info_var.set(
-            f"Range: [{self.app._popup.mark_popup_local_start}, {self.app._popup.mark_popup_local_end}] | "
+            f"Frames: [{self.app._popup.mark_popup_local_start + 1}, {self.app._popup.mark_popup_local_end + 1}] | "
             f"Baseline: count={baseline_count}, end={baseline_end}{self.app._popup.mark_last_full_refresh_note}"
         )
 
@@ -414,14 +414,14 @@ class HostPreviewController:
             raw = self.app._popup.mark_start_var.get().strip()
             if raw:
                 try:
-                    start_idx = int(float(raw))
+                    start_idx = int(float(raw)) - 1
                 except ValueError:
                     start_idx = None
         if self.app._popup.mark_end_var is not None:
             raw = self.app._popup.mark_end_var.get().strip()
             if raw:
                 try:
-                    end_idx = int(float(raw))
+                    end_idx = int(float(raw)) - 1
                 except ValueError:
                     end_idx = None
         frame_count = int(self.app.stack_info.frame_count) if self.app.stack_info is not None else 0

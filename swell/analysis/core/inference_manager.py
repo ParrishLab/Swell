@@ -17,7 +17,7 @@ import numpy as np
 from swell.shared.errors import InferenceRuntimeError
 from swell.shared.ui.theme import APP_COLORS
 
-from swell.analysis.core.seg_state import SegmentationState, expand_point_prompts, point_weight
+from swell.analysis.core.seg_state import SegmentationState
 
 torch = None
 
@@ -518,12 +518,8 @@ class InferenceManager:
         raw_box = boxes.get(frame_idx) if isinstance(boxes, dict) else None
         box = self.state._normalize_box(raw_box) if raw_box is not None else None
         try:
-            # Weight is part of the prompt: two points at the same place with
-            # different strengths expand to different token sets and must not
-            # share a cache entry.
             points_sig = tuple(
-                (float(p["x"]), float(p["y"]), int(p["label"]), point_weight(p))
-                for p in list(pt_list or [])
+                (float(p["x"]), float(p["y"]), int(p["label"])) for p in list(pt_list or [])
             )
         except Exception:
             return None
@@ -674,12 +670,12 @@ class InferenceManager:
                 points = None
                 labels = None
                 if pt_list:
-                    points, labels = expand_point_prompts(pt_list, frame_shape=self._frame_shape_hw())
-                    if points is not None:
-                        valid_arrays, reason = self._validate_point_prompt_arrays(points, labels)
-                        if not valid_arrays:
-                            self._log_warn("Model", f"Skipping inference prompt on frame {frame_idx + 1}: {reason}.")
-                            return
+                    points = np.array([[p["x"], p["y"]] for p in pt_list], dtype=np.float32)
+                    labels = np.array([p["label"] for p in pt_list], dtype=np.int32)
+                    valid_arrays, reason = self._validate_point_prompt_arrays(points, labels)
+                    if not valid_arrays:
+                        self._log_warn("Model", f"Skipping inference prompt on frame {frame_idx + 1}: {reason}.")
+                        return
                 box_arr = self._normalize_box_prompt(frame_idx)
                 if points is None and box_arr is None:
                     return
@@ -926,17 +922,14 @@ class InferenceManager:
                                     points = None
                                     labels = None
                                     if pt_list:
-                                        # Must expand identically to the
-                                        # interactive path, or a click would
-                                        # preview differently than it runs.
-                                        points, labels = expand_point_prompts(pt_list, frame_shape=frame_shape)
-                                        if points is not None:
-                                            valid_arrays, reason = self._validate_point_prompt_arrays(points, labels)
-                                            if not valid_arrays:
-                                                self._log_warn(
-                                                    "Propagation", f"Skipping frame {f_idx + 1}: invalid point prompt ({reason})."
-                                                )
-                                                continue
+                                        points = np.array([[p["x"], p["y"]] for p in pt_list], dtype=np.float32)
+                                        labels = np.array([p["label"] for p in pt_list], dtype=np.int32)
+                                        valid_arrays, reason = self._validate_point_prompt_arrays(points, labels)
+                                        if not valid_arrays:
+                                            self._log_warn(
+                                                "Propagation", f"Skipping frame {f_idx + 1}: invalid point prompt ({reason})."
+                                            )
+                                            continue
                                     box_arr = self._normalize_box_prompt(f_idx)
                                     if points is None and box_arr is None:
                                         self._log_warn("Propagation", f"Skipping frame {f_idx + 1}: no valid point or box prompts.")

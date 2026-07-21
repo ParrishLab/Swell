@@ -53,6 +53,8 @@ def _coerce_stack_ref(raw: dict[str, Any] | None) -> StackRef | None:
             frame_height=int(raw["frame_height"]),
             frame_width=int(raw["frame_width"]),
             dtype=str(raw.get("dtype", "uint8")),
+            frame_names_digest=(str(raw.get("frame_names_digest")) if raw.get("frame_names_digest") else None),
+            source_fingerprint=(str(raw.get("source_fingerprint")) if raw.get("source_fingerprint") else None),
         )
     except KeyError as e:
         raise ProjectLoadError(f"Missing required stack reference field: {e}")

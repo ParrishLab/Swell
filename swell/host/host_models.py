@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from swell.shared.frame_source.source_identity import source_identity
 from swell.shared.models import StackRef, UnifiedProjectState
 
 from .config import EventCandidate
@@ -79,13 +80,16 @@ def event_meta_from_candidate(event: EventCandidate, label: str | None = None) -
     )
 
 
-def stack_ref_from_stack_info(info) -> StackRef:
+def stack_ref_from_stack_info(info, source=None) -> StackRef:
+    identity = source_identity(source) if source is not None else {}
     return StackRef(
         input_dir=str(Path(info.input_dir)),
         frame_count=int(info.frame_count),
         frame_height=int(info.frame_height),
         frame_width=int(info.frame_width),
         dtype=str(info.dtype),
+        frame_names_digest=identity.get("frame_names_digest"),
+        source_fingerprint=identity.get("source_fingerprint"),
     )
 
 

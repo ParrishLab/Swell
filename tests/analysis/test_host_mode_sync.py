@@ -301,6 +301,80 @@ class HostModeSyncTests(unittest.TestCase):
         self.assertEqual(masks.shape, (3, 2048, 3072))
         self.assertTrue(bool(np.any(masks[1])))
 
+    def test_scope_local_frame_zero_and_draft_prompt_metadata_are_restored(self):
+        scoped_source = EagerFrameSource(
+            raw_frames=[np.zeros((64, 64), dtype=np.uint8) for _ in range(6)],
+            subtracted_frames=[np.zeros((64, 64), dtype=np.uint8) for _ in range(6)],
+            visual_frames=[np.zeros((64, 64), dtype=np.uint8) for _ in range(6)],
+            frame_names=[f"s{i}.tif" for i in range(6)],
+            source_paths=["/tmp/scoped"] * 6,
+        )
+        draft = np.zeros((6, 64, 64), dtype=np.uint8)
+        draft[0] = 1
+        context = {
+            "session_id": "session_abc",
+            "stack_id": "stack_abc",
+            "event": {
+                "event_id": "event_0001",
+                "label": "Event 1",
+                "start_idx": 12,
+                "end_idx": 15,
+                "flags": {
+                    "analysis_scope_start_idx": 10,
+                    "analysis_scope_end_idx": 15,
+                    "analysis_local_event_start_idx": 2,
+                    "analysis_local_event_end_idx": 5,
+                },
+            },
+            "analysis_state": {
+                "prompts": {
+                    "event_id": "event_0001",
+                    "frames": {"0": {"points": [{"x": 4.0, "y": 5.0, "label": 1}]}},
+                    "ground_truth_frames": [0],
+                    "persistent_regions": [
+                        {
+                            "id": "r0",
+                            "frame_start": 0,
+                            "frame_end": 2,
+                            "polygon": [[1, 1], [4, 1], [4, 4], [1, 4]],
+                        }
+                    ],
+                },
+                "prompts_frame_origin": "analysis_scope_local",
+                "masks_committed": np.zeros((6, 64, 64), dtype=np.uint8),
+                "masks_committed_frame_origin": "analysis_scope_local",
+                "masks_draft": draft,
+                "masks_draft_frame_origin": "analysis_scope_local",
+                "propagation_completed": False,
+            },
+        }
+
+        result = self.controller.open_from_host_event_context(context, frame_source=scoped_source)
+
+        self.assertTrue(result["ok"])
+        record = self.state.event_records["event_0001"]
+        self.assertIn(0, record.analysis.points)
+        self.assertEqual(record.analysis.ground_truth_frames, {0})
+        self.assertEqual(record.analysis.persistent_regions[0]["frame_start"], 0)
+        self.assertFalse(record.metadata.propagation_completed)
+        self.assertTrue(record.analysis.use_draft)
+        self.assertTrue(bool(np.any(self.seg_state.masks_cache[0])))
+
+    def test_export_declares_scope_local_origins(self):
+        self.controller.bind_frame_source(self.frame_source)
+        self.state.active_event_id = "event_0001"
+        self.state.event_records = self.service.coerce_event_records({"event_0001": {}}, 12)
+        record = self.state.event_records["event_0001"]
+        record.analysis.masks_draft = {0: np.ones((64, 64), dtype=bool)}
+        record.analysis.use_draft = True
+        record.metadata.propagation_completed = False
+
+        payload = self.controller.export_active_event_analysis_payload()
+
+        self.assertEqual(payload["prompts_frame_origin"], "analysis_scope_local")
+        self.assertEqual(payload["masks_committed_frame_origin"], "analysis_scope_local")
+        self.assertEqual(payload["masks_draft_frame_origin"], "analysis_scope_local")
+
     def test_open_from_host_context_uses_scoped_get_raw_frame_shape_when_metadata_is_wrong(self):
         frames = [np.zeros((2048, 3072), dtype=np.uint8) for _ in range(11)]
         global_masks = np.zeros((11, 2048, 3072), dtype=np.uint8)
@@ -383,6 +457,85 @@ class HostModeSyncTests(unittest.TestCase):
         analysis_payload = sync_payload["analysis"]
         self.assertEqual(analysis_payload["masks_committed"]["frame_count"], 5)
         self.assertEqual(analysis_payload["masks_committed"]["shape"], [2048, 3072])
+
+    def _strict_restore_context(self, analysis_state):
+        return {
+            "session_id": "session_abc",
+            "stack_id": "stack_abc",
+            "analysis_mapping_signature": "mapping",
+            "event": {
+                "event_id": "event_0001",
+                "label": "Event 1",
+                "start_idx": 101,
+                "end_idx": 103,
+                "flags": {
+                    "analysis_scope_start_idx": 100,
+                    "analysis_scope_end_idx": 103,
+                    "analysis_local_event_start_idx": 1,
+                    "analysis_local_event_end_idx": 3,
+                },
+            },
+            "analysis_state": analysis_state,
+        }
+
+    def _small_scoped_source(self):
+        frames = [np.zeros((8, 9), dtype=np.uint8) for _ in range(4)]
+        return EagerFrameSource(
+            raw_frames=frames,
+            subtracted_frames=frames,
+            visual_frames=frames,
+            frame_names=[f"s{i}.tif" for i in range(4)],
+            source_paths=["/tmp/scoped"] * 4,
+        )
+
+    def test_scope_local_mask_with_wrong_spatial_shape_is_rejected(self):
+        result = self.controller.open_from_host_event_context(
+            self._strict_restore_context(
+                {
+                    "masks_committed": np.ones((4, 7, 9), dtype=bool),
+                    "masks_committed_frame_origin": "analysis_scope_local",
+                }
+            ),
+            frame_source=self._small_scoped_source(),
+        )
+
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["code"], "MASK_PAYLOAD_INVALID")
+
+    def test_explicit_scope_local_mask_with_event_length_is_not_reinterpreted(self):
+        result = self.controller.open_from_host_event_context(
+            self._strict_restore_context(
+                {
+                    "masks_committed": np.ones((3, 8, 9), dtype=bool),
+                    "masks_committed_frame_origin": "analysis_scope_local",
+                }
+            ),
+            frame_source=self._small_scoped_source(),
+        )
+
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["code"], "MASK_PAYLOAD_INVALID")
+
+    def test_empty_draft_does_not_hide_valid_committed_masks(self):
+        committed = np.zeros((4, 8, 9), dtype=bool)
+        committed[2] = True
+        result = self.controller.open_from_host_event_context(
+            self._strict_restore_context(
+                {
+                    "masks_committed": committed,
+                    "masks_committed_frame_origin": "analysis_scope_local",
+                    "masks_draft": np.zeros((4, 8, 9), dtype=bool),
+                    "masks_draft_frame_origin": "analysis_scope_local",
+                    "propagation_completed": False,
+                }
+            ),
+            frame_source=self._small_scoped_source(),
+        )
+
+        self.assertTrue(result["ok"])
+        record = self.state.event_records["event_0001"]
+        self.assertFalse(record.analysis.use_draft)
+        self.assertIn(2, self.seg_state.masks_cache)
 
 
 if __name__ == "__main__":

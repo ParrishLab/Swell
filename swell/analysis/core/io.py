@@ -281,6 +281,13 @@ class IOActions:
             return
 
         self.slider.configure(to=count - 1)
+        if bool(preserve_workspace_state) and hasattr(self, "_redraw_slider_overlay"):
+            # Host-open restores event-local markers before this method updates
+            # the slider extent. Redraw those existing markers now that the
+            # scale uses the scoped frame count, otherwise their pixel positions
+            # remain tied to the previous/default slider range. Do this before
+            # the frame-readiness return so asynchronous opens are covered too.
+            self._redraw_slider_overlay()
         self.current_frame_idx = max(0, min(int(self.current_frame_idx), count - 1))
         if not bool(preserve_workspace_state):
             self.points.clear()

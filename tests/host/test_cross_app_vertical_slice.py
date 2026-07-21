@@ -105,6 +105,18 @@ def test_vertical_slice_event_roundtrip_no_id_drift() -> None:
     assert apply_result["ok"] is True
     assert apply_result["normalized"]["event_id"] == event.event_id
     assert host.session.state().dirty is True
+    stored = host.session.load_analysis_sidecar(event.event_id)
+    assert isinstance(stored, dict)
+    assert isinstance(stored["masks_committed"], np.ndarray)
+    assert bool(np.any(stored["masks_committed"]))
+
+    reopened = _analysis_controller()
+    reopen_result = reopened.open_from_handoff_payload(
+        host.handoff.selected_event_payload(),
+        frame_source=host.get_frame_source(),
+    )
+    assert reopen_result["ok"] is True
+    assert 3 in reopened.seg_state.masks_cache
 
 
 def test_vertical_slice_stack_mismatch_rejected() -> None:

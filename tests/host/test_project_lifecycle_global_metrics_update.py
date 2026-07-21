@@ -66,9 +66,12 @@ def test_global_metrics_update_sets_defaults_and_preserves_existing_local_overri
     )
     controller = HostProjectLifecycleController(app)
     roi_mask = np.ones((8, 9), dtype=bool)
+    signature = browser.host_context_for_event(event_2.event_id)["analysis_mapping_signature"]
 
     result = controller.on_analysis_global_metrics_update(
         {
+            "event_id": event_2.event_id,
+            "analysis_mapping_signature": signature,
             "metrics_settings": {
                 "scale_px_per_mm": 7.5,
                 "roi_points": [[1.0, 1.0], [3.0, 1.0], [3.0, 3.0]],
@@ -110,10 +113,12 @@ def test_analysis_metrics_update_can_clear_local_roi_override() -> None:
         _log_info=lambda text: logs.append(str(text)),
     )
     controller = HostProjectLifecycleController(app)
+    signature = browser.host_context_for_event(event.event_id)["analysis_mapping_signature"]
 
     result = controller.on_analysis_metrics_update(
         {
             "event_id": event.event_id,
+            "analysis_mapping_signature": signature,
             "metrics_settings": {},
             "clear_local_metric_keys": ["roi_points", "roi_mask"],
             "reason": "reset_local_roi",
@@ -142,10 +147,12 @@ def test_analysis_metrics_update_log_uses_event_label() -> None:
         _log_info=lambda text: logs.append(str(text)),
     )
     controller = HostProjectLifecycleController(app)
+    signature = browser.host_context_for_event(event.event_id)["analysis_mapping_signature"]
 
     result = controller.on_analysis_metrics_update(
         {
             "event_id": event.event_id,
+            "analysis_mapping_signature": signature,
             "metrics_settings": {"frames_per_sec": 10.0},
         }
     )
@@ -168,8 +175,45 @@ def test_analysis_state_update_log_uses_event_label() -> None:
     )
     controller = HostProjectLifecycleController(app)
 
-    result = controller.on_analysis_state_update({"event_id": event.event_id, "analysis": {"prompts": {}}})
+    signature = browser.host_context_for_event(event.event_id)["analysis_mapping_signature"]
+    result = controller.on_analysis_state_update(
+        {"event_id": event.event_id, "analysis_mapping_signature": signature, "analysis": {"prompts": {}}}
+    )
 
     assert result["ok"] is True
     assert logs[-1] == "Analysis state updated for event Visible Event."
     assert statuses[-1] == "Analysis state saved: Visible Event"
+
+
+def test_stale_metrics_updates_are_rejected_for_local_and_global_settings() -> None:
+    browser = BrowserController()
+    browser.on_stack_loaded(_FakeReader(), _FakeStackInfo())
+    event = browser.create_event(start_idx=1, end_idx=3, frame_count=6, label="Visible Event")
+    stale_signature = browser.host_context_for_event(event.event_id)["analysis_mapping_signature"]
+    browser.update_event(
+        event.event_id,
+        start_idx=2,
+        end_idx=4,
+        label=event.label,
+        frame_count=6,
+        flags=dict(event.flags),
+    )
+    app = SimpleNamespace(
+        browser_controller=browser,
+        _set_status=lambda _text: None,
+        _log_info=lambda _text: None,
+    )
+    controller = HostProjectLifecycleController(app)
+    payload = {
+        "event_id": event.event_id,
+        "analysis_mapping_signature": stale_signature,
+        "metrics_settings": {"frames_per_sec": 99.0, "roi_points": [[1, 1], [2, 1], [2, 2]]},
+    }
+
+    local_result = controller.on_analysis_metrics_update(payload)
+    global_result = controller.on_analysis_global_metrics_update(payload)
+
+    assert local_result["ok"] is False and local_result["code"] == "STALE_ANALYSIS_MAPPING"
+    assert global_result["ok"] is False and global_result["code"] == "STALE_ANALYSIS_MAPPING"
+    assert browser.load_event_metrics_settings(event.event_id) is None
+    assert browser.get_global_metrics_defaults() == {}

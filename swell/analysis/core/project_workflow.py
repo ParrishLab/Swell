@@ -79,7 +79,11 @@ def save_project_to_path(
         _require_existing_project_target(target_path)
     if bool(getattr(app, "_host_mode", False)) and callable(getattr(app, "_host_project_saver", None)) and not is_autosave:
         if hasattr(app, "_emit_host_sync"):
-            app._emit_host_sync(reason="save")
+            sync_result = app._emit_host_sync(reason="save")
+            if isinstance(sync_result, dict) and sync_result.get("ok") is False:
+                code = str(sync_result.get("code", "HOST_SYNC_REJECTED"))
+                message = str(sync_result.get("message", "The host rejected the analysis update."))
+                raise RuntimeError(f"Host sync rejected ({code}): {message}")
         state = app._host_project_saver(str(target_path))
         if isinstance(state, dict):
             path_from_state = state.get("project_path")
@@ -417,34 +421,39 @@ def on_close(app) -> None:
             _close_log_debug(app, "Close canceled by user at propagation-running prompt.")
             return
 
-    has_unsaved_masks = bool(getattr(app, "project_dirty", False))
-    _close_log_debug(app, f"Project dirty before mask check: {has_unsaved_masks}.")
-    if has_unsaved_masks and hasattr(app, "_collect_nonempty_final_mask_frames"):
-        try:
-            nonempty = app._collect_nonempty_final_mask_frames()
-            has_unsaved_masks = bool(nonempty)
-            _close_log_debug(
-                app,
-                f"Non-empty final mask frames detected: {len(nonempty) if hasattr(nonempty, '__len__') else 'unknown'}.",
-            )
-        except Exception:
-            has_unsaved_masks = bool(getattr(app, "project_dirty", False))
-            _close_log_debug(app, "Mask-frame collection failed; falling back to project_dirty state.")
-    if has_unsaved_masks and callable(getattr(app, "save_current_masks", None)):
-        _close_log_debug(app, "Showing unsaved-masks close confirmation.")
+    has_unsaved_changes = bool(getattr(app, "project_dirty", False))
+    _close_log_debug(app, f"Project dirty before close prompt: {has_unsaved_changes}.")
+    if has_unsaved_changes and callable(getattr(app, "save_current_masks", None)):
+        _close_log_debug(app, "Showing unsaved-analysis close confirmation.")
         response = _show_close_prompt(
             app,
             messagebox.askyesnocancel,
-            "Unsaved Masks",
-            "Current masks have unsaved changes.\n\nSave masks before closing?",
+            "Unsaved Analysis Changes",
+            "The current analysis has unsaved changes.\n\nSave before closing?",
         )
         _close_log_debug(app, f"Unsaved-masks prompt response: {response!r}.")
         if response is None:
             _close_log_debug(app, "Close canceled by user at unsaved-masks prompt.")
             return
         if response is True:
-            _close_log_debug(app, "User selected save before close; invoking save_current_masks().")
-            app.save_current_masks()
+            save_action = app.save_current_masks
+            if (
+                bool(getattr(app, "_host_mode", False))
+                and bool(getattr(app, "current_project_path", None))
+                and callable(getattr(app, "save_project", None))
+            ):
+                save_action = app.save_project
+            action_name = str(getattr(save_action, "__name__", "save"))
+            _close_log_debug(app, f"User selected save before close; invoking {action_name}().")
+            try:
+                save_action()
+            except Exception as exc:
+                _close_log_debug(app, f"Close aborted because save failed: {exc}")
+                try:
+                    _show_close_prompt(app, messagebox.showerror, "Save Failed", str(exc))
+                except Exception:
+                    pass
+                return
             if bool(getattr(app, "project_dirty", False)):
                 # Save was canceled or failed; keep window open.
                 _close_log_debug(app, "Close aborted because project remains dirty after save attempt.")

@@ -46,12 +46,12 @@ class PopupPreviewController:
         if self.app._popup.mark_start_var is None:
             return
         idx = int(self.app._popup.mark_popup_current_idx)
-        self.app._popup.mark_start_var.set(str(idx))
+        self.app._popup.mark_start_var.set(str(idx + 1))
         if self.app._popup.mark_end_var is not None:
             try:
-                end_val = int(float(self.app._popup.mark_end_var.get().strip()))
+                end_val = int(float(self.app._popup.mark_end_var.get().strip())) - 1
                 if idx > end_val:
-                    self.app._popup.mark_end_var.set(str(idx))
+                    self.app._popup.mark_end_var.set(str(idx + 1))
             except ValueError:
                 pass
         self.redraw_overlay()
@@ -62,12 +62,12 @@ class PopupPreviewController:
         if self.app._popup.mark_end_var is None:
             return
         idx = int(self.app._popup.mark_popup_current_idx)
-        self.app._popup.mark_end_var.set(str(idx))
+        self.app._popup.mark_end_var.set(str(idx + 1))
         if self.app._popup.mark_start_var is not None:
             try:
-                start_val = int(float(self.app._popup.mark_start_var.get().strip()))
+                start_val = int(float(self.app._popup.mark_start_var.get().strip())) - 1
                 if idx < start_val:
-                    self.app._popup.mark_start_var.set(str(idx))
+                    self.app._popup.mark_start_var.set(str(idx + 1))
             except ValueError:
                 pass
         self.redraw_overlay()

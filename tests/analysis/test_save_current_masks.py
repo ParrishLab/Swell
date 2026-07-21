@@ -22,6 +22,7 @@ def _build_app() -> SwellAnalysisApp:
     app.active_event_id = "event_0001"
     app.project_dirty = False
     app._host_mode = True
+    app._host_mapping_signature = "mapping-signature"
     app._host_project_path_provider = None
     app._saved_project_masks_by_event = {}
     app._scale_is_local_override = False
@@ -381,7 +382,7 @@ def test_emit_host_metrics_update_sends_event_local_payload() -> None:
     assert emitted[0]["metrics_settings"]["scale_points"] == [[10.0, 12.0], [30.0, 12.0]]
 
 
-def test_emit_host_global_metrics_update_sends_payload_without_event_id() -> None:
+def test_emit_host_global_metrics_update_sends_mapping_context() -> None:
     app = _build_app()
     app._host_mode = True
     app._suppress_metrics_emit = False
@@ -395,7 +396,8 @@ def test_emit_host_global_metrics_update_sends_payload_without_event_id() -> Non
 
     assert isinstance(result, dict) and result.get("ok") is True
     assert len(emitted) == 1
-    assert "event_id" not in emitted[0]
+    assert emitted[0]["event_id"] == "event_0001"
+    assert emitted[0]["analysis_mapping_signature"] == "mapping-signature"
     assert emitted[0]["reason"] == "global_scale"
     assert float(emitted[0]["metrics_settings"]["scale_px_per_mm"]) == 7.0
     assert emitted[0]["metrics_settings"]["scale_points"] == [[10.0, 12.0], [30.0, 12.0]]

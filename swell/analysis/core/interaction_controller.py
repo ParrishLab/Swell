@@ -6,7 +6,6 @@ import cv2
 import numpy as np
 
 from swell.analysis.core.region_tools import is_region_tool_mode, region_mode_from_tool_mode
-from swell.analysis.core.seg_state import POINT_STRENGTH_DEFAULT, point_hit_tolerance
 
 DEFAULT_FILL_TOLERANCE = 8.0
 SHIFT_MASK = 0x0001
@@ -85,7 +84,6 @@ class InteractionController:
         can_mutate_segmentation=None,
         on_mutation_blocked=None,
         on_region_validation_error=None,
-        get_point_strength=None,
     ):
         self.seg_state = seg_state
         self.points = points
@@ -96,9 +94,6 @@ class InteractionController:
         self.get_current_frame_idx = get_current_frame_idx
         self.set_selected_point = set_selected_point
         self.get_selected_point = get_selected_point
-        # Optional: callers that do not supply a strength source place points
-        # at the default weight, which reproduces pre-strength behaviour.
-        self.get_point_strength = get_point_strength or (lambda: POINT_STRENGTH_DEFAULT)
         self.get_is_dragging = get_is_dragging
         self.set_is_dragging = set_is_dragging
         self.get_last_mouse_x = get_last_mouse_x
@@ -905,7 +900,7 @@ class InteractionController:
     def _point_hit_test(self, idx, event, ratio, offset_x, offset_y):
         if idx not in self.points:
             return None
-        closest_dist = None
+        closest_dist = 1000
         found_idx = -1
         click_x = event.x
         click_y = event.y
@@ -913,10 +908,7 @@ class InteractionController:
             cx = int(pt["x"] * ratio + offset_x)
             cy = int(pt["y"] * ratio + offset_y)
             dist = (cx - click_x) ** 2 + (cy - click_y) ** 2
-            # Tolerance follows the drawn radius, so a strong point stays
-            # grabbable across the whole marker rather than only its centre.
-            tolerance = point_hit_tolerance(pt)
-            if dist <= tolerance**2 and (closest_dist is None or dist < closest_dist):
+            if dist < 100 and dist < closest_dist:
                 closest_dist = dist
                 found_idx = i
         if found_idx == -1:
@@ -1283,9 +1275,7 @@ class InteractionController:
                 label = 1 if mode == "point_pos" else 0
                 if idx not in self.points:
                     self.points[idx] = []
-                self.points[idx].append(
-                    {"x": img_x, "y": img_y, "label": label, "weight": self.get_point_strength()}
-                )
+                self.points[idx].append({"x": img_x, "y": img_y, "label": label})
                 self.seg_state.invalidate_user_frames()
                 self.seg_state.invalidate_final_mask_frames()
 

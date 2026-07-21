@@ -3,6 +3,8 @@ from __future__ import annotations
 import numpy as np
 
 from swell.host.host_models import EventMeta, HostSessionState
+from swell.host.analysis_payload_mapper import EventBounds, analysis_mapping_signature, annotate_payload_origins
+from swell.shared.models import clone_analysis_payload
 from swell.shared.frame_source import StackReaderFrameSource
 
 from swell.shared.contracts import CONTRACT_VERSION, validate_handoff_payload as _validate_handoff_payload
@@ -54,6 +56,10 @@ def build_handoff_payload(event: EventMeta, frame_source: StackReaderFrameSource
     session_id = str(metadata.get("session_id", "") or "")
     stack_id = str(metadata.get("stack_id", "") or "")
     active_event_id = str(session.active_event_id or event.event_id)
+    bounds = EventBounds(int(event.start_idx), int(event.end_idx), dict(event.flags))
+    analysis_state = clone_analysis_payload(dict(session.analysis_sidecar.get(str(event.event_id), {}) or {}))
+    if analysis_state:
+        analysis_state = annotate_payload_origins(analysis_state, bounds=bounds)
     return {
         "contract_version": CONTRACT_VERSION,
         "session": {
@@ -78,6 +84,8 @@ def build_handoff_payload(event: EventMeta, frame_source: StackReaderFrameSource
             "end_idx": int(event.end_idx),
             "flags": dict(event.flags),
         },
+        "analysis_mapping_signature": analysis_mapping_signature(bounds),
+        "analysis_state": analysis_state or None,
         "analysis_state_ref": {
             "storage": "host_session",
             "ref_id": f"{session_id}:{event.event_id}",

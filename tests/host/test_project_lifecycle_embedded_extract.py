@@ -142,7 +142,11 @@ def test_open_project_extracts_embedded_when_source_folder_missing(tmp_path: Pat
         "frame_002.png",
         "frame_003.png",
     }
-    assert app.session_calls["set_stack_ref"] == []
+    assert len(app.session_calls["set_stack_ref"]) == 1
+    refreshed_ref = app.session_calls["set_stack_ref"][0]
+    assert refreshed_ref.input_dir == str(frames_dir)
+    assert refreshed_ref.frame_names_digest
+    assert refreshed_ref.source_fingerprint
     assert app.warnings == []
 
 
@@ -171,6 +175,49 @@ def test_open_project_prefers_on_disk_folder_over_embedded(tmp_path: Path) -> No
 
     assert opened_dirs == [str(frames_dir)]
     assert app._embedded_extract_dir is None
+    assert app.warnings == []
+
+
+def test_open_project_uses_embedded_stack_when_existing_folder_mismatches(tmp_path: Path) -> None:
+    project_path, frames_dir = _save_embedded_project(tmp_path)
+    app = _build_app()
+    controller = HostProjectLifecycleController(app)
+    controller.prepare_context_switch = lambda: True
+    controller.warmup_main_preview_async = lambda: None
+    state = SimpleNamespace(
+        project_path=str(project_path),
+        stack_ref=SimpleNamespace(
+            input_dir=str(frames_dir), frame_count=3, frame_height=16, frame_width=16, dtype="uint8"
+        ),
+    )
+    app.browser_controller.open_session = lambda _path: state
+    opened_dirs: list[str] = []
+
+    class _Reader:
+        def open_stack(self, folder: str):
+            opened_dirs.append(str(folder))
+            is_recorded_folder = Path(folder) == frames_dir
+            return SimpleNamespace(
+                input_dir=str(folder),
+                frame_count=4 if is_recorded_folder else 3,
+                frame_height=16,
+                frame_width=16,
+                dtype="uint8",
+            )
+
+    with patch("swell.host.controllers.project_lifecycle_controller.threading.Thread", _ImmediateThread):
+        with patch("swell.host.controllers.project_lifecycle_controller.messagebox.askyesno") as askyesno:
+            with patch(
+                "swell.host.controllers.project_lifecycle_controller.StackReader",
+                side_effect=lambda **_kwargs: _Reader(),
+            ):
+                controller.open_project(str(project_path))
+
+    assert len(opened_dirs) == 2
+    assert opened_dirs[0] == str(frames_dir)
+    assert opened_dirs[1] != str(frames_dir)
+    assert app._embedded_extract_dir == opened_dirs[1]
+    assert askyesno.called is False
     assert app.warnings == []
 
 

@@ -32,6 +32,7 @@ class AppCloseWarningsTests(unittest.TestCase):
         app.inference_manager = _MgrStub()
         app.cleanup_temp_files = lambda: None
         app._ui_alive = lambda: True
+        app._host_mode = False
         app.project_dirty = False
         app._collect_nonempty_final_mask_frames = lambda: set()
         app.save_current_masks = lambda: None
@@ -120,6 +121,43 @@ class AppCloseWarningsTests(unittest.TestCase):
         self.assertFalse(app.root.destroyed)
         self.assertIsNotNone(manager.get("scope", "event_1"))
         ask_ync_mock.assert_called_once()
+        ask_yesno_mock.assert_not_called()
+
+    @patch("swell.analysis.app.messagebox.askyesnocancel")
+    @patch("swell.analysis.app.messagebox.askyesno")
+    def test_dirty_prompt_only_workspace_is_not_closed_without_confirmation(self, ask_yesno_mock, ask_ync_mock):
+        app = self._make_app()
+        app._is_propagation_running = lambda: False
+        app.frames_raw = [object()]
+        app.current_project_path = "/tmp/proj.sdproj"
+        app.project_dirty = True
+        app._collect_nonempty_final_mask_frames = lambda: set()
+        ask_ync_mock.return_value = None
+
+        app.on_close()
+
+        self.assertFalse(app.root.destroyed)
+        ask_ync_mock.assert_called_once()
+        ask_yesno_mock.assert_not_called()
+
+    @patch("swell.analysis.app.messagebox.showerror")
+    @patch("swell.analysis.app.messagebox.askyesnocancel")
+    @patch("swell.analysis.app.messagebox.askyesno")
+    def test_stale_host_save_rejection_keeps_dirty_window_open(self, ask_yesno_mock, ask_ync_mock, showerror_mock):
+        app = self._make_app()
+        app._host_mode = True
+        app._is_propagation_running = lambda: False
+        app.frames_raw = [object()]
+        app.current_project_path = "/tmp/proj.sdproj"
+        app.project_dirty = True
+        app.save_project = lambda: (_ for _ in ()).throw(RuntimeError("STALE_ANALYSIS_MAPPING"))
+        ask_ync_mock.return_value = True
+
+        app.on_close()
+
+        self.assertFalse(app.root.destroyed)
+        self.assertTrue(app.project_dirty)
+        showerror_mock.assert_called_once()
         ask_yesno_mock.assert_not_called()
 
 

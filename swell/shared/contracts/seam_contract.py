@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import json
 from enum import StrEnum
 from pathlib import Path
@@ -14,6 +15,7 @@ class ValidatorErrorCode(StrEnum):
     STACK_MISMATCH = "STACK_MISMATCH"
     EVENT_NOT_FOUND = "EVENT_NOT_FOUND"
     MASK_SHAPE_MISMATCH = "MASK_SHAPE_MISMATCH"
+    STALE_ANALYSIS_MAPPING = "STALE_ANALYSIS_MAPPING"
     PAYLOAD_INVALID = "PAYLOAD_INVALID"
 
 
@@ -90,8 +92,8 @@ def _normalize_frame_shape(shape_value: Any) -> list[int]:
     width = shape_value[1]
     if isinstance(height, bool) or isinstance(width, bool) or not isinstance(height, int) or not isinstance(width, int):
         raise ValueError("frame_shape values must be integers")
-    if int(height) < 0 or int(width) < 0:
-        raise ValueError("frame_shape values must be >= 0")
+    if int(height) <= 0 or int(width) <= 0:
+        raise ValueError("frame_shape values must be greater than zero")
     return [int(height), int(width)]
 
 
@@ -135,12 +137,20 @@ def validate_handoff_payload(payload: dict[str, Any]) -> dict[str, Any]:
                 "visual": _expect_bool(capabilities, "visual"),
             },
         }
+        if int(stack_norm["frame_count"]) <= 0:
+            raise ValueError("stack.frame_count must be greater than zero")
+        if len(stack_norm["frame_names"]) != len(stack_norm["source_paths"]):
+            raise ValueError("stack.frame_names and stack.source_paths must have equal lengths")
+        if len(stack_norm["frame_names"]) != int(stack_norm["frame_count"]):
+            raise ValueError("stack frame metadata must contain one entry per frame")
 
         event = _expect_dict(root.get("event"), field="event")
         start_idx = _expect_int(event, "start_idx")
         end_idx = _expect_int(event, "end_idx")
         if end_idx < start_idx:
             start_idx, end_idx = end_idx, start_idx
+        if start_idx < 0 or end_idx >= int(stack_norm["frame_count"]):
+            raise ValueError("event bounds must fall within stack.frame_count")
         event_norm = {
             "event_id": _expect_str(event, "event_id"),
             "label": _expect_str(event, "label"),
@@ -154,6 +164,12 @@ def validate_handoff_payload(payload: dict[str, Any]) -> dict[str, Any]:
             "session": session_norm,
             "stack": stack_norm,
             "event": event_norm,
+            "analysis_mapping_signature": _expect_str(root, "analysis_mapping_signature"),
+            "analysis_state": (
+                copy.deepcopy(_expect_dict(root.get("analysis_state"), field="analysis_state"))
+                if root.get("analysis_state") is not None
+                else None
+            ),
             "analysis_state_ref": _normalize_analysis_state_ref(root),
         }
         return ok(normalized)
@@ -178,6 +194,15 @@ def _validate_sync_shapes(analysis: dict[str, Any], active_context: dict[str, An
     masks_draft = analysis.get("masks_draft")
     if masks_draft is not None:
         masks_draft = _expect_dict(masks_draft, field="masks_draft")
+        draft_shape = _normalize_frame_shape(masks_draft.get("shape"))
+        masks_draft = {
+            "encoding": _expect_str(masks_draft, "encoding"),
+            "frame_count": _expect_int(masks_draft, "frame_count"),
+            "shape": draft_shape,
+            "blob_ref": _expect_str(masks_draft, "blob_ref"),
+        }
+        if draft_shape != masks_shape or int(masks_draft["frame_count"]) != int(masks_norm["frame_count"]):
+            raise RuntimeError(ValidatorErrorCode.MASK_SHAPE_MISMATCH)
 
     prompts = _expect_dict(analysis.get("prompts"), field="prompts")
     prompts_norm = {
@@ -206,6 +231,7 @@ def validate_sync_payload(payload: dict[str, Any], active_context: dict[str, Any
         session_id = _expect_str(root, "session_id")
         stack_id = _expect_str(root, "stack_id")
         event_id = _expect_str(root, "event_id")
+        mapping_signature = _expect_optional_str(root, "analysis_mapping_signature")
 
         if active_context is not None:
             expected_session_id = str(active_context.get("session_id", ""))
@@ -218,21 +244,36 @@ def validate_sync_payload(payload: dict[str, Any], active_context: dict[str, Any
                 raise RuntimeError(ValidatorErrorCode.STACK_MISMATCH)
             if event_ids and event_id not in event_ids:
                 raise RuntimeError(ValidatorErrorCode.EVENT_NOT_FOUND)
+            expected_signatures = dict(active_context.get("event_mapping_signatures", {}) or {})
+            expected_signature = str(expected_signatures.get(event_id, "") or "")
+            if expected_signature:
+                if not mapping_signature or mapping_signature != expected_signature:
+                    raise RuntimeError(ValidatorErrorCode.STALE_ANALYSIS_MAPPING)
 
         analysis = _expect_dict(root.get("analysis"), field="analysis")
         analysis_norm, _ = _validate_sync_shapes(analysis, active_context)
+        if active_context is not None:
+            expected_counts = dict(active_context.get("event_frame_counts", {}) or {})
+            expected_count = expected_counts.get(event_id)
+            if expected_count is not None and int(analysis_norm["masks_committed"]["frame_count"]) != int(expected_count):
+                raise RuntimeError(ValidatorErrorCode.MASK_SHAPE_MISMATCH)
 
         ui_hints = root.get("ui_hints")
         if ui_hints is not None:
             ui_hints = _expect_dict(ui_hints, field="ui_hints")
+        analysis_payload = root.get("analysis_payload")
+        if analysis_payload is not None:
+            analysis_payload = copy.deepcopy(_expect_dict(analysis_payload, field="analysis_payload"))
 
         normalized = {
             "contract_version": contract_version,
             "session_id": session_id,
             "stack_id": stack_id,
             "event_id": event_id,
+            "analysis_mapping_signature": mapping_signature,
             "analysis_state_ref": _normalize_analysis_state_ref(root),
             "analysis": analysis_norm,
+            "analysis_payload": analysis_payload,
             "ui_hints": ui_hints,
         }
         return ok(normalized)
@@ -248,6 +289,11 @@ def validate_sync_payload(payload: dict[str, Any], active_context: dict[str, Any
             return err(ValidatorErrorCode.EVENT_NOT_FOUND, "event_id not found in host event catalog")
         if code == ValidatorErrorCode.MASK_SHAPE_MISMATCH:
             return err(ValidatorErrorCode.MASK_SHAPE_MISMATCH, "mask shape does not match host frame_shape")
+        if code == ValidatorErrorCode.STALE_ANALYSIS_MAPPING:
+            return err(
+                ValidatorErrorCode.STALE_ANALYSIS_MAPPING,
+                "event range, baseline, or preprocessing no longer matches the Analysis window",
+            )
         return err(ValidatorErrorCode.PAYLOAD_INVALID, str(exc))
     except Exception as exc:  # noqa: BLE001
         return err(ValidatorErrorCode.PAYLOAD_INVALID, str(exc))

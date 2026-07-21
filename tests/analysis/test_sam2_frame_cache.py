@@ -48,6 +48,46 @@ def test_frame_cache_key_changes_with_processing_flags():
     assert key_a != key_c
 
 
+def test_frame_cache_key_changes_with_baseline_content_and_stabilization_offsets():
+    common = dict(
+        frame_source=_Source(),
+        frame_count=3,
+        frame_shape=(4, 5),
+        baseline_frames=2,
+        apply_horizontal_bar_denoise=False,
+        apply_smoothing=True,
+        apply_baseline_subtraction=True,
+        apply_global_normalization=False,
+        apply_stabilization=True,
+    )
+    stats_a = VisualizationStats(
+        frame_count=3,
+        frame_shape=(4, 5),
+        baseline_frames=2,
+        apply_horizontal_bar_denoise=False,
+        apply_smoothing=True,
+        apply_baseline_subtraction=True,
+        apply_global_normalization=False,
+        apply_stabilization=True,
+        baseline=np.zeros((4, 5), dtype=np.float32),
+        stabilization_offsets_px=np.zeros((3, 2), dtype=np.float32),
+    )
+    stats_b = VisualizationStats(
+        frame_count=3,
+        frame_shape=(4, 5),
+        baseline_frames=2,
+        apply_horizontal_bar_denoise=False,
+        apply_smoothing=True,
+        apply_baseline_subtraction=True,
+        apply_global_normalization=False,
+        apply_stabilization=True,
+        baseline=np.ones((4, 5), dtype=np.float32),
+        stabilization_offsets_px=np.ones((3, 2), dtype=np.float32),
+    )
+
+    assert build_sam2_frame_cache_key(stats=stats_a, **common) != build_sam2_frame_cache_key(stats=stats_b, **common)
+
+
 def test_frame_cache_key_is_stable_for_equivalent_sources():
     class _EquivalentSource:
         frame_count = 3
@@ -71,6 +111,29 @@ def test_frame_cache_key_is_stable_for_equivalent_sources():
     key_b = build_sam2_frame_cache_key(frame_source=_EquivalentSource(), **common)
 
     assert key_a == key_b
+
+
+def test_frame_cache_key_changes_when_any_visual_frame_content_changes():
+    common = dict(
+        frame_source=_Source(),
+        frame_count=3,
+        frame_shape=(4, 5),
+        baseline_frames=1,
+        apply_horizontal_bar_denoise=False,
+        apply_smoothing=False,
+        apply_baseline_subtraction=True,
+        apply_global_normalization=False,
+        apply_stabilization=False,
+        stats=None,
+    )
+    frames_a = np.zeros((3, 4, 5), dtype=np.uint8)
+    frames_b = frames_a.copy()
+    frames_b[2, 3, 4] = 255
+
+    key_a = build_sam2_frame_cache_key(frames_viz=frames_a, **common)
+    key_b = build_sam2_frame_cache_key(frames_viz=frames_b, **common)
+
+    assert key_a != key_b
 
 
 def test_frame_cache_reuses_complete_dir(tmp_path: Path):

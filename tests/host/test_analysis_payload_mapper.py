@@ -38,6 +38,26 @@ def test_annotate_payload_origins_defaults_to_scope_local_for_scope_sized_masks(
     assert payload["masks_committed_frame_origin"] == FRAME_ORIGIN_SCOPE_LOCAL
 
 
+def test_legacy_prompt_only_payload_uses_non_shifting_scope_local_default() -> None:
+    bounds = EventBounds(
+        start_idx=110,
+        end_idx=115,
+        flags={
+            "analysis_scope_start_idx": 100,
+            "analysis_scope_end_idx": 115,
+            "analysis_local_event_start_idx": 10,
+            "analysis_local_event_end_idx": 15,
+        },
+    )
+
+    payload = annotate_payload_origins(
+        {"prompts": {"frames": {"2": {"points": [{"x": 2, "y": 3, "label": 1}]}}}},
+        bounds=bounds,
+    )
+
+    assert payload["prompts_frame_origin"] == FRAME_ORIGIN_SCOPE_LOCAL
+
+
 def test_remap_payload_moves_event_local_masks_into_new_scope() -> None:
     payload = {
         "prompts": {"frames": {"0": {"points": [{"x": 2, "y": 3, "label": 1}]}}},
