@@ -11,5 +11,8 @@ To ensure the stack loads successfully, verify your images meet these criteria:
 
 * **Supported Formats**: `.png`, `.jpg`, `.jpeg`, `.bmp`, `.tif`, `.tiff`.
 * **Multi-Page TIFF**: You can import a single multi-page `.tiff` file or a directory containing a series of single-page TIFFs.
+* **Consistent Dimensions**: Every decoded frame must have the same width and height after EXIF/TIFF orientation is applied. Mixed-size stacks are rejected as a unit rather than partially imported.
+* **Orientation & TIFF Layout**: Swell honors EXIF/TIFF orientation and TIFF axis metadata, including planar or interleaved RGB and embedded multi-frame arrays.
 * **Natural Sorting**: File names are sorted using natural alphanumeric ordering. For example, `frame_9.png` correctly precedes `frame_10.png` (instead of sorting alphabetically where `frame_10.png` would precede `frame_2.png`).
 * **RGB Channel Conversion**: If multi-channel RGB images are detected, the app converts them to single-channel grayscale (Luma averaged or first-channel selection) to run the analysis.
+* **Numeric Safety**: Non-finite floating-point pixels (`NaN` or infinity) are excluded from normalization statistics and replaced safely during preprocessing.

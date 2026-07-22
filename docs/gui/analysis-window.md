@@ -25,7 +25,6 @@ The toolbar floats on the left side of the main canvas. You can select tools by 
 
 Located below the status bar, the options bar dynamically displays parameters based on the active tool:
 
-* **Sensitivity Slider** (Point & Box modes): Controls model prompt sensitivity during inference.
 * **Brush Size Slider** (Brush & Eraser modes): Sets the brush radius in pixels (1–50 px, defaults to 10 px). Can also be adjusted using **Shift + Mouse Wheel**.
 * **Fill Mode Controls** (Fill mode):
     * **Add/Remove toggle**: Set whether click flood-fills or flood-erases.
@@ -49,6 +48,7 @@ The inspector on the right is divided into collapsible sections to manage second
 ### B. Propagation settings
 * **Run Propagation**: Runs bidirectional mask propagation across the event's frame range.
 * **Propagation Direction**: Choose to propagate forward, backward, or bidirectionally from your anchor frames.
+* **Mask Threshold**: Controls the threshold used to convert model logits into masks. Dragging previews the active prompted frame; releasing applies the threshold to every prompted frame. Propagated masks created at a threshold more than `0.2` away remain visibly stale until propagation is rerun.
 
 ### C. Event Metrics {: #metrics-settings}
 Configure parameters that override project-level defaults:
@@ -81,6 +81,7 @@ The timeline at the bottom of the canvas combines a frame scrubber with three di
 3. **Heatmap & Markers**:
     * **Leverage Heatmap**: Shows the intensity of temporal trouble scores (red is troubled, green is stable).
     * **Timeline Markers**: Green markers show positive prompt anchors; red markers show negative prompts; purple dots indicate committed persistent regions.
+    * **Stale Mask Bands**: Amber bands mark frames whose generated mask threshold no longer matches the current threshold. The active stale mask is amber and hatched on the canvas.
 
 ---
 

@@ -2,6 +2,42 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.3.2] - 2026-07-21
+
+### Analysis workflow
+- The global **Mask Threshold** control now lives with propagation settings. Releasing the slider re-thresholds every prompted frame, while propagated masks generated at a meaningfully different threshold are marked amber and hatched on the canvas and timeline until propagation is rerun.
+- Host-launched Analysis windows now restore committed and draft masks, prompts, ground-truth frames, scoped timeline state, and the active frame consistently. Unsaved prompt-only work is included in close warnings.
+- Host-to-Analysis mapping signatures reject stale mask, metrics, and project saves after event bounds, baseline scope, or preprocessing settings change. Baseline-scope edits remap saved analysis state; stabilization changes require clearing coordinate-dependent masks, prompts, and ROI geometry.
+
+### Image stacks and preprocessing
+- Added shared, metadata-aware image decoding for EXIF/TIFF orientation, planar and interleaved color, multi-frame TIFF axes, high-bit-depth grayscale, and consistent Host/Analysis results.
+- Stack imports now reject mixed oriented dimensions atomically instead of silently dropping frames, sanitize non-finite pixels throughout preprocessing, and preserve the previous open stack when a replacement fails.
+- New stack identity fingerprints prevent a different recording with matching dimensions from being rebound accidentally. When the recorded source folder has changed, an embedded matching stack is preferred when available.
+- Baseline subtraction now uses only available pre-event frames and permits a true zero-frame baseline; preview stabilization offsets are converted back to full-resolution coordinates before reuse.
+
+### Reliability and quality
+- SAM2 cache keys now include source content, visualization content, baseline data, and stabilization offsets, preventing stale prepared frames from being reused across materially different inputs.
+- Model runtime initialization validates checkpoint files earlier and fully cleans partial state after failed builds or model switches.
+- Improved extreme-aspect-ratio viewport fitting, tooltip scheduling, ROI downsampling, and analysis-window shutdown safety.
+- CI now enforces branch coverage and runs image-decoding and persistence tests on macOS and Windows in addition to Linux.
+
+### Model/checkpoint compatibility
+- No checkpoint format, catalog, or model-selection change in this release; existing managed and local SAM2 selections remain compatible.
+- Frame-cache identities changed, so cached prepared frames from earlier versions are not reused when their source or preprocessing content differs.
+
+### Platform/backend limitations
+- Every frame in a stack must resolve to the same dimensions after EXIF/TIFF orientation is applied. Mixed-size stacks are rejected with the mismatching files listed; resize, crop, or pad them before import.
+- CPU fallback behavior is unchanged and remains substantially slower than accelerated SAM2 inference on large stacks.
+
+### .swell/migration notes
+- No schema-number change in this release. `.swell` writers still emit schema 3, and schema 2 projects remain loadable.
+- Newly saved stack references include optional frame-name and source-content fingerprints. Older projects without these fields remain compatible and gain fingerprints when their stack is rebound or saved through the current workflow.
+
+### Known segmentation caveats/regressions
+- Mask-generation thresholds are tracked in memory but are not persisted in `.swell` files. Restored masks therefore begin with an unknown threshold and are treated as fresh until regenerated during the current session.
+- Changing **Mask Threshold** re-thresholds prompted frames on slider release; propagated frames remain visibly stale until propagation is rerun. Ground-truth and manually painted frames are never marked stale.
+- No known SAM2 inference or stored-mask regressions in this release.
+
 ## [0.3.1] - 2026-07-17
 
 ### Metrics and export

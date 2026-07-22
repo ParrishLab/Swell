@@ -81,7 +81,7 @@ To support fast rendering across different zoom levels, Swell uses a pipeline of
 
 * **`StackReaderFrameSource`**: Wraps the raw `StackReader` to yield raw image arrays.
 * **`PreparedFrameSource`**: Handles contrast normalization, channel reduction, and caches rendered canvases.
-* **`DownsampledFrameSource`**: Computes visual rendering stats at $0.25\times$ resolution to significantly accelerate the analysis window open-preview phase on large stacks, then upsamples the final baseline back to full resolution.
+* **`DownsampledFrameSource`**: Computes approximate preview-only rendering stats at $0.25\times$ resolution, then converts baseline arrays and stabilization offsets back to full-resolution coordinates. Preview stats are not reused as canonical model input.
 * **`EventScopedFrameSource`**: Scopes frame index queries to the bounds of a specific event.
 
 ---

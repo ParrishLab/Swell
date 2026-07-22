@@ -8,8 +8,8 @@ authors:
 repository-code: "https://github.com/ParrishLab/Swell"
 url: "https://github.com/ParrishLab/Swell"
 license: BSD-3-Clause
-version: "0.3.1"
-date-released: "2026-07-17"
+version: "0.3.2"
+date-released: "2026-07-21"
 keywords:
   - intrinsic optical signal imaging
   - spreading depolarization

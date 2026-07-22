@@ -7,6 +7,8 @@ After placing point, box, or brush prompts on one or more anchor frames:
 3. Propagation progress is displayed in real-time as a blue (`#1b75bc`) loading band on the timeline.
 4. If you notice inaccuracies on other frames, pause or wait for propagation to complete, add correction prompts on those frames, and re-run propagation. The model will refine its predictions using the new anchor data.
 
+The **Mask Threshold** slider is in the propagation panel because it applies across the workspace. Releasing it updates all prompted frames. Propagated frames created at an older threshold are shown with amber hatching and amber timeline bands; rerun propagation to bring those frames to the current threshold.
+
 ## Propagation Demo
 
 The mask starts on a single anchor frame (the purple marker on the timeline). Press **Run Propagation** to carry it across the range. This simulated run deliberately drifts into white matter on the later frames. Scrub to a drifted frame and click **Add manual correction** — this mimics placing manual point prompts: a green positive point on the cortical tissue the mask should cover and a red negative point in the white matter it should avoid. Re-run to see the downstream frames refine.

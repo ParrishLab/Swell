@@ -54,8 +54,10 @@ Describes the original image directory:
 * `frame_height` (int): Height of stack frames in pixels.
 * `frame_width` (int): Width of stack frames in pixels.
 * `dtype` (str): Pixel data type (typically `"uint8"`).
+* `frame_names_digest` (str or null): Optional SHA-256 identity of the ordered decoded frame names.
+* `source_fingerprint` (str or null): Optional SHA-256 identity derived from source-file boundaries and sampled decoded frame content. Used to reject a different recording that happens to share dimensions and dtype.
 
-> **Note:** `stack.json` always records the source folder by reference. Embedded frames (section E) are an *additional* resilience copy, not a replacement — on load the on-disk `input_dir` is preferred when it still exists, and embedded frames are used only when that folder is missing.
+> **Note:** `stack.json` always records the source folder by reference. Embedded frames (section E) are an *additional* resilience copy, not a replacement. On load, the on-disk `input_dir` is preferred only when its stack identity matches; otherwise Swell tries the embedded copy and then asks for a matching replacement folder.
 
 ### C. Event List Catalog (`events.json`)
 Stores event catalog bounds:
@@ -93,7 +95,7 @@ Present only when the project was saved with `metadata.embed_source_images = tru
 * `images_embedded.json`: Index mapping each embedded frame name to its archive path.
     * `embedded` (object): `{ <frame_filename>: <arcname> }`, e.g. `{"000090.tiff": "images/000090.tiff"}`.
 
-**Load behavior.** The on-disk `stack.json` `input_dir` is preferred whenever it still exists; embedded frames are extracted to a temporary directory and used only as a fallback when that folder is missing (no rebind prompt is shown in that case). Projects written without embedding are byte-for-byte equivalent to schema 2 and load identically.
+**Load behavior.** The on-disk `stack.json` `input_dir` is preferred when it exists and matches the recorded count, oriented dimensions, dtype, and any available fingerprints. If it is missing or mismatched, embedded frames are extracted to a temporary directory and used when they match; otherwise Swell asks for a matching replacement folder. Fingerprint fields are additive within schema 3, and older projects that do not contain them remain loadable.
 
 ---
 
@@ -187,6 +189,9 @@ Object-lineage metrics use physical defaults that are converted to pixels for ea
 
 * **Image Formats**: `.tif`, `.tiff`, `.png`, `.jpg`, `.jpeg`, `.bmp`.
 * **Multi-Page TIFF**: Multi-page tiff sequences are unpacked automatically into frame sequences.
+* **Orientation & Axes**: EXIF/TIFF orientation is applied before dimensions are compared. TIFF `Y`, `X`, sample/channel, and frame axes are used when available to distinguish planar color from frame sequences.
 * **RGB Conversion**: RGB channels are flattened to grayscale. The app default calculates luma averages ($Y = 0.299R + 0.587G + 0.114B$) or extracts the first channel (configurable).
+* **Dimension Policy**: All decoded frames must have one common oriented size. A mismatch rejects the entire open operation and preserves the previously loaded stack.
+* **Floating-Point Policy**: Non-finite pixels are ignored when calculating percentile bounds and replaced with a finite median (or zero when no finite pixels exist) before filtering and analysis.
 * **Sorting Policy**: Naturally sorted by filename sequence to ensure frame coherence.
 * **Event Path Directory Security**: On-disk event folder paths are automatically sanitized on save to prevent filesystem collisions and invalid character faults on Windows/macOS.
