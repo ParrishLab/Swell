@@ -26,6 +26,27 @@ class HostProjectLifecycleController:
     def __init__(self, app) -> None:
         self.app = app
 
+    def _set_export_default_from_project_path(
+        self,
+        project_path: str | Path,
+        *,
+        previous_project_path: str | Path | None = None,
+    ) -> None:
+        """Default future exports to the directory containing the saved project."""
+        try:
+            resolved_project_path = Path(project_path).expanduser().resolve()
+            if previous_project_path is not None:
+                previous = Path(previous_project_path).expanduser().resolve()
+                if previous == resolved_project_path:
+                    return
+            project_dir = str(resolved_project_path.parent)
+        except (OSError, RuntimeError, ValueError, TypeError):
+            return
+        output_var = getattr(self.app, "output_var", None)
+        setter = getattr(output_var, "set", None)
+        if callable(setter):
+            setter(project_dir)
+
     def _dialog_parent(self):
         return getattr(self.app, "root", None)
 
@@ -294,6 +315,7 @@ class HostProjectLifecycleController:
         if self.app.stack_info is None:
             self.app._show_warning("Save Swell Project", "Load a stack before saving.")
             return
+        previous_project_path = self.app.current_project_path
         initial_dir = None
         initial_name = derive_project_name(
             self.app.current_project_path,
@@ -323,6 +345,10 @@ class HostProjectLifecycleController:
         def on_done(state) -> None:
             self.app.current_project_path = state.project_path
             self.app.browser_controller.session.set_project_path(self.app.current_project_path)
+            self._set_export_default_from_project_path(
+                self.app.current_project_path,
+                previous_project_path=previous_project_path,
+            )
             self.app._set_status(f"Saved project: {Path(self.app.current_project_path).name}")
             self.app._log_info(f"Saved project as {self.app.current_project_path}.")
 
@@ -375,6 +401,7 @@ class HostProjectLifecycleController:
     def open_project(self, path: str) -> None:
         if not self.prepare_context_switch():
             return
+        previous_project_path = self.app.current_project_path
         self.app._set_status("Opening project...")
 
         def _load_project():
@@ -465,6 +492,10 @@ class HostProjectLifecycleController:
             used_embedded = bool(payload.get("used_embedded"))
             self.app.current_project_path = state.project_path
             self.app.browser_controller.session.set_project_path(self.app.current_project_path)
+            self._set_export_default_from_project_path(
+                self.app.current_project_path,
+                previous_project_path=previous_project_path,
+            )
             self._set_embedded_extract_dir(extracted_dir if reader is not None and stack_info is not None else None)
             if extracted_dir and reader is not None and stack_info is not None:
                 self.app._log_info(f"Loaded stack from embedded images (source folder missing): {extracted_dir}.")
@@ -854,16 +885,19 @@ class HostProjectLifecycleController:
         self.app._log_info(text)
 
     def on_analysis_project_saved(self, project_path: str) -> None:
+        previous_project_path = self.app.current_project_path
         try:
             resolved = str(Path(project_path).expanduser().resolve())
         except Exception:
             resolved = str(project_path)
         self.app.current_project_path = resolved
         self.app.browser_controller.session.set_project_path(resolved)
+        self._set_export_default_from_project_path(resolved, previous_project_path=previous_project_path)
         self.app._set_status(f"Project path updated from analysis: {Path(resolved).name}")
         self.app._log_info(f"Analysis set host project save target to {resolved}.")
 
     def save_project_from_analysis(self, project_path: str) -> dict:
+        previous_project_path = self.app.current_project_path
         if not self._run_on_ui_thread(self._confirm_save_embedding_cost):
             return {"ok": False, "reason": "save_canceled"}
         state = self.app.save_host_session(project_path)
@@ -873,6 +907,7 @@ class HostProjectLifecycleController:
             resolved = str(state.project_path)
         self.app.current_project_path = resolved
         self.app.browser_controller.session.set_project_path(resolved)
+        self._set_export_default_from_project_path(resolved, previous_project_path=previous_project_path)
         self.app._set_status(f"Saved project from analysis: {Path(resolved).name}")
         self.app._log_info(f"Host canonical save completed from analysis window: {resolved}.")
         return {

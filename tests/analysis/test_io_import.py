@@ -105,9 +105,9 @@ class IOImportTests(unittest.TestCase):
             )
 
             analysis_frames, _names = dummy._load_frames_and_names([path])
-            host = StackReader()
-            host.open_stack(tmp)
-            host_frame = host.read_frame(0)
+            with StackReader() as host:
+                host.open_stack(tmp)
+                host_frame = host.read_frame(0)
 
         self.assertEqual(len(analysis_frames), 1)
         np.testing.assert_array_equal(analysis_frames[0], host_frame)

@@ -41,6 +41,18 @@ class StackReader:
         self._channel_mode = "average"
         self._channel_mode_resolver = channel_mode_resolver
 
+    def __enter__(self) -> StackReader:
+        return self
+
+    def __exit__(self, _exc_type, _exc_value, _traceback) -> None:
+        self.close()
+
+    def close(self) -> None:
+        """Release cached frames and open TIFF handles held by this reader."""
+        with self._cache_lock:
+            self._cache.clear()
+        self._close_tiff_handles()
+
     def open_stack(self, input_dir: str | Path, progress_callback: Optional[Callable[[int, int], None]] = None) -> StackInfo:
         input_path = Path(input_dir).expanduser().resolve()
         if not input_path.exists() or not input_path.is_dir():
@@ -317,16 +329,13 @@ class StackReader:
             self._tiff_handle_locks.clear()
 
     def collect_garbage(self, aggressive: bool = False) -> None:
-        with self._cache_lock:
-            if aggressive:
-                self._cache.clear()
-            else:
-                keep = max(4, self.max_cache // 2)
-                while len(self._cache) > keep:
-                    self._cache.popitem(last=False)
         if aggressive:
-            self._close_tiff_handles()
+            self.close()
             return
+        with self._cache_lock:
+            keep = max(4, self.max_cache // 2)
+            while len(self._cache) > keep:
+                self._cache.popitem(last=False)
         with self._tiff_lock:
             keep_handles = max(2, self._tiff_pool_max // 2)
             while len(self._tiff_handle_pool) > keep_handles:
@@ -344,7 +353,7 @@ class StackReader:
 
     def __del__(self):
         try:
-            self._close_tiff_handles()
+            self.close()
         except Exception:
             pass
 

@@ -207,6 +207,24 @@ def test_read_tiff_pages_concurrently_preserves_outputs_and_handle_locks(tmp_pat
     assert len(reader._tiff_handle_locks) == len(reader._tiff_handle_pool)
 
 
+def test_context_manager_releases_cached_frames_and_tiff_handles(tmp_path: Path) -> None:
+    path = tmp_path / "frame.tif"
+    frame = np.arange(20, dtype=np.uint16).reshape(4, 5)
+    tifffile.imwrite(path, frame)
+
+    with StackReader() as reader:
+        reader.open_stack(tmp_path)
+        np.testing.assert_array_equal(reader.read_frame(0), frame)
+        assert reader._cache
+        assert reader._tiff_handle_pool
+
+    assert not reader._cache
+    assert not reader._tiff_handle_pool
+    assert not reader._tiff_handle_locks
+    reader.close()
+    path.unlink()
+
+
 def test_open_stack_ignores_macos_appledouble_tiff_sidecars(tmp_path: Path) -> None:
     page = np.full((4, 5), 11, dtype=np.uint16)
     tifffile.imwrite(tmp_path / "frame_001.tif", page)
