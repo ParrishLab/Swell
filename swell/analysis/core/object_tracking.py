@@ -64,6 +64,7 @@ class TrackFrameAssignment:
     bbox_w: int
     bbox_h: int
     mask: np.ndarray
+    contour_xy: np.ndarray | None = None
 
 
 @dataclass
@@ -86,6 +87,32 @@ class TrackRecord:
         return self.frame_assignments[-1]
 
 
+def materialize_assignment_mask(assignment, frame_shape: tuple[int, int]) -> np.ndarray:
+    """Expand a cropped tracking mask only when an export consumer needs it."""
+    h, w = int(frame_shape[0]), int(frame_shape[1])
+    mask = np.asarray(getattr(assignment, "mask", None), dtype=bool)
+    if mask.shape == (h, w):
+        return mask.copy()
+    out = np.zeros((h, w), dtype=bool)
+    x = int(getattr(assignment, "bbox_x", 0))
+    y = int(getattr(assignment, "bbox_y", 0))
+    bbox_w = int(getattr(assignment, "bbox_w", mask.shape[1] if mask.ndim == 2 else 0))
+    bbox_h = int(getattr(assignment, "bbox_h", mask.shape[0] if mask.ndim == 2 else 0))
+    if mask.ndim != 2 or bbox_w <= 0 or bbox_h <= 0:
+        return out
+    right = min(w, x + min(bbox_w, mask.shape[1]))
+    lower = min(h, y + min(bbox_h, mask.shape[0]))
+    left = max(0, x)
+    upper = max(0, y)
+    if right <= left or lower <= upper:
+        return out
+    out[upper:lower, left:right] = mask[
+        upper - y : lower - y,
+        left - x : right - x,
+    ]
+    return out
+
+
 def _extract_components(mask: np.ndarray, frame_index: int) -> list[ConnectedComponent]:
     arr = np.asarray(mask, dtype=bool)
     if arr.ndim != 2 or not np.any(arr):
@@ -96,13 +123,20 @@ def _extract_components(mask: np.ndarray, frame_index: int) -> list[ConnectedCom
         area = int(stats[label_id, cv2.CC_STAT_AREA])
         if area <= 0:
             continue
-        component_mask = labels == label_id
+        bbox_x = int(stats[label_id, cv2.CC_STAT_LEFT])
+        bbox_y = int(stats[label_id, cv2.CC_STAT_TOP])
+        bbox_w = int(stats[label_id, cv2.CC_STAT_WIDTH])
+        bbox_h = int(stats[label_id, cv2.CC_STAT_HEIGHT])
+        label_crop = labels[bbox_y : bbox_y + bbox_h, bbox_x : bbox_x + bbox_w]
+        component_mask = label_crop == label_id
         contour_xy = None
         contours, _ = cv2.findContours(component_mask.astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
         if contours:
             contour = max(contours, key=cv2.contourArea)
             if contour is not None and len(contour) >= 1:
                 contour_xy = contour[:, 0, :].astype(np.float64)
+                contour_xy[:, 0] += float(bbox_x)
+                contour_xy[:, 1] += float(bbox_y)
         out.append(
             ConnectedComponent(
                 frame_index=int(frame_index),
@@ -111,10 +145,10 @@ def _extract_components(mask: np.ndarray, frame_index: int) -> list[ConnectedCom
                 area_px=int(area),
                 centroid_x=float(centroids[label_id][0]),
                 centroid_y=float(centroids[label_id][1]),
-                bbox_x=int(stats[label_id, cv2.CC_STAT_LEFT]),
-                bbox_y=int(stats[label_id, cv2.CC_STAT_TOP]),
-                bbox_w=int(stats[label_id, cv2.CC_STAT_WIDTH]),
-                bbox_h=int(stats[label_id, cv2.CC_STAT_HEIGHT]),
+                bbox_x=bbox_x,
+                bbox_y=bbox_y,
+                bbox_w=bbox_w,
+                bbox_h=bbox_h,
                 contour_xy=contour_xy,
             )
         )
@@ -128,15 +162,50 @@ def _boundary_distance_px(lhs: ConnectedComponent, rhs: ConnectedComponent) -> f
         contours, _ = cv2.findContours(np.asarray(lhs.mask, dtype=np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
         if contours:
             left = max(contours, key=cv2.contourArea)[:, 0, :].astype(np.float64)
+            left[:, 0] += float(lhs.bbox_x)
+            left[:, 1] += float(lhs.bbox_y)
     if right is None and rhs.mask is not None:
         contours, _ = cv2.findContours(np.asarray(rhs.mask, dtype=np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
         if contours:
             right = max(contours, key=cv2.contourArea)[:, 0, :].astype(np.float64)
+            right[:, 0] += float(rhs.bbox_x)
+            right[:, 1] += float(rhs.bbox_y)
     if left is None or right is None or len(left) == 0 or len(right) == 0:
         return float("inf")
-    delta = left[:, None, :] - right[None, :, :]
-    dist2 = np.sum(delta * delta, axis=2)
-    return float(np.sqrt(float(np.min(dist2)))) if dist2.size else float("inf")
+    try:
+        from scipy.spatial import cKDTree
+
+        distances, _indices = cKDTree(right).query(left, k=1)
+        return float(np.min(distances)) if len(distances) else float("inf")
+    except Exception:
+        best = float("inf")
+        # Bound fallback memory if SciPy is unavailable.
+        for start in range(0, len(left), 512):
+            delta = left[start : start + 512, None, :] - right[None, :, :]
+            dist2 = np.sum(delta * delta, axis=2)
+            if dist2.size:
+                best = min(best, float(np.min(dist2)))
+        return float(np.sqrt(best)) if np.isfinite(best) else float("inf")
+
+
+def _cropped_overlap(lhs, rhs) -> int:
+    left = max(int(lhs.bbox_x), int(rhs.bbox_x))
+    upper = max(int(lhs.bbox_y), int(rhs.bbox_y))
+    right = min(int(lhs.bbox_x + lhs.bbox_w), int(rhs.bbox_x + rhs.bbox_w))
+    lower = min(int(lhs.bbox_y + lhs.bbox_h), int(rhs.bbox_y + rhs.bbox_h))
+    if right <= left or lower <= upper:
+        return 0
+    lhs_mask = np.asarray(lhs.mask, dtype=bool)
+    rhs_mask = np.asarray(rhs.mask, dtype=bool)
+    lhs_roi = lhs_mask[
+        upper - int(lhs.bbox_y) : lower - int(lhs.bbox_y),
+        left - int(lhs.bbox_x) : right - int(lhs.bbox_x),
+    ]
+    rhs_roi = rhs_mask[
+        upper - int(rhs.bbox_y) : lower - int(rhs.bbox_y),
+        left - int(rhs.bbox_x) : right - int(rhs.bbox_x),
+    ]
+    return int(np.count_nonzero(lhs_roi & rhs_roi))
 
 
 def _component_distance_score(
@@ -172,6 +241,11 @@ def _append_assignment(track: TrackRecord, component: ConnectedComponent) -> Non
             bbox_w=int(component.bbox_w),
             bbox_h=int(component.bbox_h),
             mask=np.asarray(component.mask, dtype=bool).copy(),
+            contour_xy=(
+                np.asarray(component.contour_xy, dtype=np.float64).copy()
+                if component.contour_xy is not None
+                else None
+            ),
         )
     )
     if track.birth_frame is None:
@@ -266,9 +340,8 @@ def build_object_lineage(
             prev_frame = prev_track.last_assignment
             if prev_frame is None:
                 continue
-            prev_mask = np.asarray(prev_frame.mask, dtype=bool)
             for curr_idx, component in enumerate(components):
-                overlap = int(np.count_nonzero(prev_mask & np.asarray(component.mask, dtype=bool)))
+                overlap = _cropped_overlap(prev_frame, component)
                 if overlap <= 0:
                     continue
                 overlaps[(int(prev_track_id), int(curr_idx))] = int(overlap)
@@ -337,6 +410,7 @@ def build_object_lineage(
                 bbox_y=int(prev_frame.bbox_y),
                 bbox_w=int(prev_frame.bbox_w),
                 bbox_h=int(prev_frame.bbox_h),
+                contour_xy=prev_frame.contour_xy,
             )
             for curr_idx, component in enumerate(components):
                 if int(curr_idx) in assigned_curr:

@@ -42,6 +42,34 @@ class SegmentationStateTests(unittest.TestCase):
         )
         self.assertGreater(state.content_generation, after_paint)
 
+    def test_frame_content_tokens_do_not_change_for_unrelated_frame_edits(self):
+        state = SegmentationState()
+        token_0 = state.content_token_for_frame(0)
+        token_1 = state.content_token_for_frame(1)
+
+        state.set_mask(1, np.ones((4, 4), dtype=bool))
+
+        self.assertEqual(state.content_token_for_frame(0), token_0)
+        self.assertNotEqual(state.content_token_for_frame(1), token_1)
+
+    def test_region_content_changes_every_frame_token(self):
+        state = SegmentationState()
+        token_0 = state.content_token_for_frame(0)
+        token_9 = state.content_token_for_frame(9)
+
+        state.add_persistent_region(
+            {
+                "id": "all",
+                "mode": "include",
+                "frame_start": 0,
+                "frame_end": 9,
+                "polygon": [[0, 0], [3, 0], [3, 3]],
+            }
+        )
+
+        self.assertNotEqual(state.content_token_for_frame(0), token_0)
+        self.assertNotEqual(state.content_token_for_frame(9), token_9)
+
     def test_ground_truth_frame_is_anchor_but_not_user_frame(self):
         state = SegmentationState()
         state.set_mask(3, np.array([[True]], dtype=bool))

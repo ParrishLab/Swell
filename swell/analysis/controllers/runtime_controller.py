@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import threading
 import time
 
 from swell.shared.ui import BackgroundTaskRunner
@@ -8,6 +9,9 @@ from swell.shared.ui import BackgroundTaskRunner
 class AnalysisRuntimeController:
     def __init__(self, app) -> None:
         self.app = app
+        self._prewarm_lock = threading.Lock()
+        self._prewarm_request = None
+        self._prewarm_worker_active = False
 
     def _set_propagation_button_state(self, running: bool, paused: bool = False) -> None:
         run_button = getattr(self.app, "btn_run_propagation", None)
@@ -131,35 +135,81 @@ class AnalysisRuntimeController:
         indices = list(range(lo, hi + 1))
         generation = int(getattr(self.app, "_analysis_prewarm_generation", 0) or 0) + 1
         self.app._analysis_prewarm_generation = generation
+        request = {
+            "frame_source": frame_source,
+            "indices": indices,
+            "generation": generation,
+            "center": idx + 1,
+        }
+        with self._prewarm_lock:
+            # Navigation can outpace preprocessing. Keep only the newest
+            # destination and let one worker abandon stale work between frames
+            # instead of spawning an ever-growing group of competing threads.
+            self._prewarm_request = request
+            if self._prewarm_worker_active:
+                return
+            self._prewarm_worker_active = True
 
         def _run():
-            started = time.perf_counter()
-            if int(getattr(self.app, "_analysis_prewarm_generation", 0) or 0) != generation:
-                return None
-            frame_source.prewarm(
-                indices,
-                generation=generation,
-                should_continue=lambda: int(getattr(self.app, "_analysis_prewarm_generation", 0) or 0) == generation,
-            )
-            if int(getattr(self.app, "_analysis_prewarm_generation", 0) or 0) != generation:
-                return None
-            return {
-                "elapsed_ms": (time.perf_counter() - started) * 1000.0,
-                "center": idx + 1,
-                "count": len(indices),
-                "generation": generation,
-            }
+            latest_result = None
+            latest_error = None
+            while True:
+                with self._prewarm_lock:
+                    pending = self._prewarm_request
+                    self._prewarm_request = None
+                    if pending is None:
+                        self._prewarm_worker_active = False
+                        return {"result": latest_result, "error": latest_error}
 
-        def _on_success(result) -> None:
-            if not isinstance(result, dict):
-                return
-            self.app.log_debug(
-                "Perf",
-                f"Analysis prewarm elapsed={result['elapsed_ms']:.1f}ms "
-                f"center={result['center']} frames={result['count']} generation={result['generation']}",
-            )
+                source = pending["frame_source"]
+                requested_indices = pending["indices"]
+                requested_generation = int(pending["generation"])
+
+                def _is_current() -> bool:
+                    return bool(
+                        getattr(self.app, "frame_source", None) is source
+                        and int(getattr(self.app, "_analysis_prewarm_generation", 0) or 0)
+                        == requested_generation
+                    )
+
+                if not _is_current():
+                    continue
+                started = time.perf_counter()
+                try:
+                    source.prewarm(
+                        requested_indices,
+                        generation=requested_generation,
+                        should_continue=_is_current,
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    latest_error = exc
+                    continue
+                if not _is_current():
+                    continue
+                latest_error = None
+                latest_result = {
+                    "elapsed_ms": (time.perf_counter() - started) * 1000.0,
+                    "center": int(pending["center"]),
+                    "count": len(requested_indices),
+                    "generation": requested_generation,
+                }
+
+        def _on_success(payload) -> None:
+            payload = payload if isinstance(payload, dict) else {}
+            result = payload.get("result")
+            error = payload.get("error")
+            if isinstance(result, dict):
+                self.app.log_debug(
+                    "Perf",
+                    f"Analysis prewarm elapsed={result['elapsed_ms']:.1f}ms "
+                    f"center={result['center']} frames={result['count']} generation={result['generation']}",
+                )
+            if isinstance(error, Exception):
+                self.app.log_debug("Perf", f"Analysis prewarm skipped: {error}")
 
         def _on_error(exc: Exception) -> None:
+            with self._prewarm_lock:
+                self._prewarm_worker_active = False
             self.app.log_debug("Perf", f"Analysis prewarm skipped: {exc}")
 
         self.app._analysis_prewarm_thread = self._task_runner().start(_run, on_success=_on_success, on_error=_on_error)

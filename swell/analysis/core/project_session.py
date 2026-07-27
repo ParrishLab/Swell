@@ -10,6 +10,7 @@ import numpy as np
 from swell.analysis.core.project_fingerprint import compute_file_fingerprint
 from swell.analysis.core.project_schema import default_project_state, utc_now_iso
 from swell.analysis.core.seg_state import SegmentationState
+from swell.shared.metrics_defaults import DEFAULT_SCALE_AXIS_LOCK
 
 
 @dataclass
@@ -32,6 +33,29 @@ class EventAnalysisState:
     masks_draft: dict[int, np.ndarray] | None = None
     use_draft: bool = False
     ground_truth_frames: set[int] = field(default_factory=set)
+
+
+@dataclass(frozen=True)
+class PackedMask:
+    """Immutable bit-packed mask used by background project snapshots."""
+
+    shape: tuple[int, int]
+    data: bytes
+    nonempty: bool
+
+    @classmethod
+    def from_array(cls, mask: np.ndarray) -> "PackedMask":
+        arr = np.ascontiguousarray(np.asarray(mask, dtype=bool))
+        return cls(
+            shape=(int(arr.shape[0]), int(arr.shape[1])),
+            data=np.packbits(arr.reshape(-1), bitorder="little").tobytes(),
+            nonempty=bool(np.any(arr)),
+        )
+
+    def to_array(self) -> np.ndarray:
+        size = int(self.shape[0]) * int(self.shape[1])
+        packed = np.frombuffer(self.data, dtype=np.uint8)
+        return np.unpackbits(packed, count=size, bitorder="little").reshape(self.shape).astype(bool)
 
 
 @dataclass
@@ -130,16 +154,71 @@ class ProjectSessionService:
             out.append(normalized)
         return out
 
+    @staticmethod
+    def _materialize_mask(mask) -> np.ndarray:
+        if isinstance(mask, PackedMask):
+            return mask.to_array()
+        return np.asarray(mask, dtype=bool)
+
     def copy_masks_dict(self, masks: dict[int, np.ndarray]) -> dict[int, np.ndarray]:
-        return {int(idx): np.asarray(mask, dtype=bool).copy() for idx, mask in masks.items() if mask is not None}
+        return {
+            int(idx): (mask if isinstance(mask, PackedMask) else np.asarray(mask, dtype=bool).copy())
+            for idx, mask in masks.items()
+            if mask is not None
+        }
 
     def copy_paint_layers(self, layers: dict[int, dict[str, np.ndarray]]) -> dict[int, dict[str, np.ndarray]]:
         out = {}
         for frame_idx, layer in layers.items():
-            plus = np.asarray(layer.get("plus"), dtype=bool).copy()
-            minus = np.asarray(layer.get("minus"), dtype=bool).copy()
+            plus = self._materialize_mask(layer.get("plus")).copy()
+            minus = self._materialize_mask(layer.get("minus")).copy()
             out[int(frame_idx)] = {"plus": plus, "minus": minus}
         return out
+
+    def pack_event_records(self, event_records: dict[str, EventRecord]) -> dict[str, EventRecord]:
+        """Freeze mutable analysis arrays into compact worker-safe records."""
+        packed_records: dict[str, EventRecord] = {}
+        for event_id, record in event_records.items():
+            analysis = record.analysis
+            packed_records[str(event_id)] = EventRecord(
+                metadata=EventMetadata(
+                    event_id=str(record.metadata.event_id),
+                    label=str(record.metadata.label),
+                    start_idx=int(record.metadata.start_idx if record.metadata.start_idx is not None else 0),
+                    end_idx=int(record.metadata.end_idx if record.metadata.end_idx is not None else 0),
+                    analysis_output_dir=record.metadata.analysis_output_dir,
+                    propagation_completed=bool(record.metadata.propagation_completed),
+                ),
+                analysis=EventAnalysisState(
+                    points=self.copy_points_dict(analysis.points),
+                    boxes=self.copy_boxes_dict(analysis.boxes),
+                    persistent_regions=self.copy_persistent_regions(analysis.persistent_regions),
+                    paint_layers={
+                        int(idx): {
+                            "plus": PackedMask.from_array(layer.get("plus")),
+                            "minus": PackedMask.from_array(layer.get("minus")),
+                        }
+                        for idx, layer in analysis.paint_layers.items()
+                    },
+                    masks_committed={
+                        int(idx): PackedMask.from_array(mask)
+                        for idx, mask in analysis.masks_committed.items()
+                        if mask is not None
+                    },
+                    masks_draft=(
+                        {
+                            int(idx): PackedMask.from_array(mask)
+                            for idx, mask in (analysis.masks_draft or {}).items()
+                            if mask is not None
+                        }
+                        if analysis.masks_draft is not None
+                        else None
+                    ),
+                    use_draft=bool(analysis.use_draft),
+                    ground_truth_frames=set(analysis.ground_truth_frames),
+                ),
+            )
+        return packed_records
 
     def apply_paint_to_masks(
         self,
@@ -165,7 +244,12 @@ class ProjectSessionService:
     def event_mask_bounds(self, mask_dict: dict[int, np.ndarray], frame_count: int) -> tuple[int, int]:
         if not mask_dict:
             return 0, max(0, frame_count - 1)
-        nonempty = [idx for idx, mask in mask_dict.items() if mask is not None and np.any(mask)]
+        nonempty = [
+            idx
+            for idx, mask in mask_dict.items()
+            if mask is not None
+            and (bool(mask.nonempty) if isinstance(mask, PackedMask) else bool(np.any(mask)))
+        ]
         if not nonempty:
             return 0, max(0, frame_count - 1)
         return int(min(nonempty)), int(max(nonempty))
@@ -176,7 +260,7 @@ class ProjectSessionService:
         for frame_idx, mask in mask_dict.items():
             idx = int(frame_idx)
             if 0 <= idx < frame_count and mask is not None:
-                mask_arr = np.asarray(mask, dtype=np.uint8)
+                mask_arr = np.asarray(self._materialize_mask(mask), dtype=np.uint8)
                 if tuple(mask_arr.shape) != (h, w):
                     squeezed = np.squeeze(mask_arr)
                     if tuple(squeezed.shape) != (h, w):
@@ -557,7 +641,9 @@ class ProjectSessionService:
             event_records=event_records,
             scale_px_per_mm=global_state.get("scale_px_per_mm"),
             scale_points=list(global_state.get("scale_points", [])) if isinstance(global_state.get("scale_points"), list) else [],
-            scale_axis_lock=bool(global_state.get("scale_axis_lock", True)),
+            scale_axis_lock=bool(
+                global_state.get("scale_axis_lock", DEFAULT_SCALE_AXIS_LOCK)
+            ),
             scale_image_path=str(global_state.get("scale_image_path", "") or ""),
             roi_points=roi_points,
             roi_polygons=roi_polygons,

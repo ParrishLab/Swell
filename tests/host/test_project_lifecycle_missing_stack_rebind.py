@@ -6,9 +6,15 @@ from unittest.mock import patch
 
 import pytest
 import numpy as np
+from PIL import Image
 
 from swell.host.controllers.project_lifecycle_controller import HostProjectLifecycleController
-from swell.shared.frame_source.source_identity import source_identity
+from swell.host.host_models import stack_ref_from_stack_info
+from swell.host.stack_reader import StackReader
+from swell.shared.frame_source.source_identity import (
+    source_identity,
+    source_identity_for_saved_ref,
+)
 
 
 class _ImmediateRoot:
@@ -276,6 +282,132 @@ def test_stack_identity_rejects_different_recording_with_same_dimensions_and_dty
     )
     assert not HostProjectLifecycleController._stack_info_matches_ref(
         stack_info, stack_ref, reader=_IdentityReader(100)
+    )
+
+
+def test_stack_identity_still_matches_legacy_unversioned_project_fingerprint() -> None:
+    class _IdentityReader:
+        def get_frame_count(self):
+            return 2
+
+        def get_frame_name(self, idx):
+            return f"frame_{idx}.tif"
+
+        def read_frame(self, idx, use_cache=True):  # noqa: ARG002
+            return np.full((3, 4), 20 + idx, dtype=np.uint8)
+
+    reader = _IdentityReader()
+    legacy_identity = source_identity_for_saved_ref(reader, "unversioned")
+    stack_ref = SimpleNamespace(
+        frame_count=2,
+        frame_height=3,
+        frame_width=4,
+        dtype="uint8",
+        **legacy_identity,
+    )
+    stack_info = SimpleNamespace(
+        frame_count=2,
+        frame_height=3,
+        frame_width=4,
+        dtype="uint8",
+    )
+
+    assert HostProjectLifecycleController._stack_info_matches_ref(
+        stack_info,
+        stack_ref,
+        reader=reader,
+    )
+
+
+def test_stack_identity_rejects_same_rgb_files_with_different_decode_policy(
+    tmp_path: Path,
+) -> None:
+    rgb = np.zeros((3, 4, 3), dtype=np.uint8)
+    rgb[:, :, 0] = 200
+    rgb[:, :, 1] = 10
+    Image.fromarray(rgb).save(tmp_path / "rgb.png")
+    first_reader = StackReader(channel_mode="first")
+    average_reader = StackReader(channel_mode="average")
+    first_info = first_reader.open_stack(tmp_path)
+    average_info = average_reader.open_stack(tmp_path)
+    expected_ref = stack_ref_from_stack_info(first_info, first_reader)
+
+    assert expected_ref.channel_mode == "first"
+    assert not np.array_equal(
+        first_reader.read_frame(0),
+        average_reader.read_frame(0),
+    )
+    assert not HostProjectLifecycleController._stack_info_matches_ref(
+        average_info,
+        expected_ref,
+        reader=average_reader,
+    )
+
+
+def test_active_stack_rebind_can_confirm_structurally_compatible_identity_change(
+    tmp_path: Path,
+) -> None:
+    app = _build_app()
+    controller = HostProjectLifecycleController(app)
+    missing_dir = tmp_path / "old_stack"
+    replacement_dir = tmp_path / "replacement"
+    replacement_dir.mkdir()
+
+    class _IdentityReader:
+        def __init__(self, value: int) -> None:
+            self.value = value
+
+        def open_stack(self, _folder: str):
+            return SimpleNamespace(
+                input_dir=str(replacement_dir),
+                frame_count=4,
+                frame_height=8,
+                frame_width=9,
+                dtype="uint8",
+            )
+
+        def get_frame_count(self):
+            return 4
+
+        def get_frame_name(self, idx):
+            return f"frame_{idx}.tif"
+
+        def read_frame(self, idx, use_cache=True):  # noqa: ARG002
+            return np.full((8, 9), self.value + idx, dtype=np.uint8)
+
+    expected_reader = _IdentityReader(10)
+    expected_ref = SimpleNamespace(
+        frame_count=4,
+        frame_height=8,
+        frame_width=9,
+        dtype="uint8",
+        **source_identity(expected_reader),
+    )
+    app.browser_controller.session.state = lambda: SimpleNamespace(stack_ref=expected_ref)
+    app.reader = SimpleNamespace(missing_source_paths=lambda limit=1: [missing_dir])
+    app.stack_info = SimpleNamespace(input_dir=str(missing_dir), frame_count=4)
+
+    with patch(
+        "swell.host.controllers.project_lifecycle_controller.messagebox.askyesno",
+        side_effect=[True, True],
+    ) as askyesno:
+        with patch(
+            "swell.host.controllers.project_lifecycle_controller.filedialog.askdirectory",
+            return_value=str(replacement_dir),
+        ):
+            with patch(
+                "swell.host.controllers.project_lifecycle_controller.StackReader",
+                return_value=_IdentityReader(100),
+            ):
+                ok = controller.ensure_active_stack_available()
+
+    assert ok is True
+    assert askyesno.call_count == 2
+    assert "another operating system" in str(askyesno.call_args_list[1].args[1])
+    assert app.session_calls["set_stack_ref"]
+    assert (
+        app.session_calls["set_stack_ref"][-1].source_fingerprint
+        != expected_ref.source_fingerprint
     )
 
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 import math
 from pathlib import Path
 import threading
@@ -107,16 +108,45 @@ class HostDCTraceController:
             return
         source_path = str(Path(attachment.source_path).expanduser())
         if not Path(source_path).exists():
-            if self._missing_restore_warning_path != source_path:
-                self._missing_restore_warning_path = source_path
-                self.app._show_warning(
-                    "DC Trace",
-                    (
-                        "The project references a DC trace file that is not available.\n\n"
-                        f"Missing file:\n{source_path}\n\n"
-                        "The trace panel will stay hidden until you reimport or remove the DC trace."
-                    ),
+            if self._missing_restore_warning_path == source_path:
+                self.clear_runtime()
+                return
+            self._missing_restore_warning_path = source_path
+            should_rebind = messagebox.askyesno(
+                "DC Trace Missing",
+                (
+                    "The project references a DC trace file that is not available.\n\n"
+                    f"Missing file:\n{source_path}\n\n"
+                    "Select the corresponding replacement trace now?"
+                ),
+                parent=self.app.root,
+            )
+            if should_rebind:
+                selected = filedialog.askopenfilename(
+                    parent=self.app.root,
+                    title="Select Replacement DC Trace",
+                    initialdir=self._initial_trace_dir(),
+                    filetypes=[
+                        ("WaveSurfer files", "*.h5 *.H5 *.hdf5 *.HDF5"),
+                        ("All files", "*.*"),
+                    ],
                 )
+                if selected:
+                    rebound = replace(
+                        attachment,
+                        source_path=str(Path(selected).expanduser().resolve()),
+                    )
+                    self._load_attachment_async(
+                        rebound,
+                        persist_on_success=True,
+                        failure_title="DC Trace",
+                        missing_path_warning=True,
+                    )
+                    return
+            self.app._show_warning(
+                "DC Trace",
+                "The trace panel will stay hidden until the trace is rebound, reimported, or removed.",
+            )
             self.clear_runtime()
             return
         self._load_attachment_async(

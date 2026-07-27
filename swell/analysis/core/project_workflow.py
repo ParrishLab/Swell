@@ -141,28 +141,47 @@ def save_project_as(app) -> None:
     save_project_to_path(app, target, is_autosave=False, require_existing_target=False)
 
 
-def resolve_project_image_paths(app, loaded) -> list[str]:
+def resolve_project_image_paths(
+    app,
+    loaded,
+    *,
+    project_path: str | Path | None = None,
+) -> list[str]:
     resolved = []
     embedded = loaded.embedded_image_paths
+    active_project_path = project_path or getattr(app, "current_project_path", None)
+    project_dir = (
+        Path(active_project_path).expanduser().resolve().parent
+        if active_project_path
+        else None
+    )
     for entry in loaded.images_manifest.get("images", []):
         image_id = str(entry.get("id", ""))
         if image_id in embedded:
             resolved.append(embedded[image_id])
             continue
-        abs_path = entry.get("absolute_path")
-        rel_path = entry.get("relative_path")
-        candidate = None
-        if abs_path and Path(abs_path).exists():
-            candidate = abs_path
-        elif rel_path and Path(rel_path).exists():
-            candidate = rel_path
-        elif rel_path and app.current_project_path is not None:
-            p = (Path(app.current_project_path).parent / rel_path).resolve()
-            if p.exists():
-                candidate = str(p)
+        candidate = _resolve_manifest_image_entry(entry, project_dir=project_dir)
         if candidate is not None:
             resolved.append(str(candidate))
     return resolved
+
+
+def _resolve_manifest_image_entry(entry, *, project_dir: Path | None) -> str | None:
+    """Resolve one manifest image using portable references before stale absolutes."""
+
+    abs_path = entry.get("absolute_path")
+    rel_path = entry.get("relative_path")
+    if rel_path and project_dir is not None:
+        candidate = (project_dir / rel_path).resolve()
+        if candidate.exists():
+            return str(candidate)
+    if abs_path and Path(abs_path).exists():
+        return str(Path(abs_path).expanduser().resolve())
+    if rel_path and Path(rel_path).exists():
+        # Compatibility fallback for legacy manifests that stored a
+        # working-directory-relative path instead of a project-relative one.
+        return str(Path(rel_path).resolve())
+    return None
 
 
 def apply_loaded_project(app, loaded, project_path: str | Path) -> ProjectLoadPlan:
@@ -182,7 +201,11 @@ def prepare_loaded_project(app, loaded, project_path) -> ProjectLoadPlan:
     ui_state = state.get("ui_state", {})
     project_path = str(project_path)
 
-    image_paths = resolve_project_image_paths(app, loaded)
+    image_paths = resolve_project_image_paths(
+        app,
+        loaded,
+        project_path=project_path,
+    )
     if not image_paths:
         raise RuntimeError("No accessible image paths found in project.")
 
@@ -218,11 +241,20 @@ def prepare_loaded_project(app, loaded, project_path) -> ProjectLoadPlan:
         roi_mask = None
 
     mismatches = []
+    project_dir = Path(project_path).expanduser().resolve().parent
     for entry in loaded.images_manifest.get("images", []):
-        abs_path = entry.get("absolute_path")
+        image_id = str(entry.get("id", ""))
+        selected_path = loaded.embedded_image_paths.get(image_id)
+        if selected_path is None:
+            selected_path = _resolve_manifest_image_entry(entry, project_dir=project_dir)
         fp = entry.get("fingerprint", {})
-        if abs_path and fp and Path(abs_path).exists() and not fingerprints_match(abs_path, fp):
-            mismatches.append(Path(abs_path).name)
+        if (
+            selected_path
+            and fp
+            and Path(selected_path).exists()
+            and not fingerprints_match(selected_path, fp)
+        ):
+            mismatches.append(Path(selected_path).name)
 
     return ProjectLoadPlan(
         project_path=project_path,

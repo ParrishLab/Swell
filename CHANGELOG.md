@@ -2,6 +2,44 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.3.3] - 2026-07-27
+
+### Analysis responsiveness and memory
+- Navigation prewarming, leverage-map recomputation, and metrics previews now coalesce superseded work and keep expensive computation off the UI thread. Interactive point, box, and region drags redraw only editable vector overlays until release instead of rebuilding the full frame.
+- Mask rendering now uses bounded, frame-scoped composition and ghost-contour caches. Brush and fill tools avoid repeated full-frame scratch allocations while preserving their previous rasterization, and unchanged paint gestures no longer create undo entries.
+- Boolean mask snapshots are bit-packed for undo, autosave, and background project serialization. Undo history now has both action-count and memory limits, autosave retains only the newest pending snapshot, and object-lineage tracking stores cropped component masks and uses bounded nearest-boundary searches.
+
+### Project and stack portability
+- Stack identity v2 normalizes Unicode frame names and fingerprints sampled source-file content independently of absolute paths and decoder output. Saved RGB channel policy and a separate decoded-pixel fingerprint prevent silent channel reinterpretation while allowing the same unchanged source stack to move between operating systems and codec environments.
+- Structurally incompatible replacement stacks remain blocked. A structurally compatible stack with a different saved identity can now be accepted explicitly after a detailed warning, and legacy unversioned stack fingerprints remain supported.
+- Project image references are rewritten relative to the `.swell` file and resolved relative to that project before stale absolute or working-directory paths. Content fingerprints no longer change solely because a file timestamp changed.
+- Embedded images, event folders, and exported frames now use normalized, length-bounded, Windows-safe names with case-insensitive collision handling. Project names derived from Windows paths also work when Swell is running on another platform.
+- Missing external DC traces can be rebound during project restore, with the replacement path persisted after a successful load.
+
+### Image and metrics behavior
+- Host and Analysis imports now reject stacks containing mixed pixel dtypes instead of accepting a partial stack. Natural filename ordering has a deterministic Unicode-aware tie-breaker and is shared by image and mask-folder imports.
+- Scale calibration now defaults to an unlocked axis in new state and in older projects that do not contain an explicit axis-lock preference.
+- Multi-monitor tooltip placement now respects negative virtual-desktop coordinates and keeps tooltips within the active application window.
+
+### Model/checkpoint compatibility
+- No checkpoint format, catalog, model-selection, or SAM2 inference change in this release; existing managed and local SAM2 selections remain compatible.
+- Prepared-frame cache identity now follows the portable source identity rather than absolute source paths, so moving an unchanged stack does not invalidate otherwise equivalent cache content.
+
+### Platform/backend limitations
+- Every frame in a stack must now share both its oriented dimensions and canonical pixel dtype. Mixed-dtype stacks are rejected with the mismatching files listed; convert them to one common dtype before import.
+- RGB stacks saved with a persisted `average` or `first` channel policy reopen with that policy without prompting. Older projects without the field retain the existing selection prompt when needed.
+- CPU fallback behavior is unchanged and remains substantially slower than accelerated SAM2 inference on large stacks.
+
+### .swell/migration notes
+- No schema-number change is required. `.swell` writers still emit schema 3, and schema 2 projects plus unversioned 0.3.2 stack fingerprints remain loadable.
+- Newly saved stack references may include versioned source/name fingerprints, a decoded-pixel fingerprint, RGB channel mode, and decode-policy version. Older projects can omit all of these fields.
+- Newly saved image manifests include paths relative to the project location. Existing absolute paths remain readable, and embedded image extraction remains compatible while applying portable output names.
+
+### Known segmentation caveats/regressions
+- Mask-generation thresholds are still not persisted in `.swell` files. Restored masks begin with an unknown threshold and are treated as fresh until regenerated during the current session.
+- Changing **Mask Threshold** still re-thresholds prompted frames on slider release; propagated frames remain visibly stale until propagation is rerun. Ground-truth and manually painted frames are never marked stale.
+- The rendering, paint, undo, autosave, and object-tracking changes are storage and execution optimizations with output-parity regression coverage; no known SAM2 inference or stored-mask regression is introduced.
+
 ## [0.3.2] - 2026-07-21
 
 ### Analysis workflow

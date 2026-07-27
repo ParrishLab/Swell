@@ -5,6 +5,7 @@ import cv2
 import numpy as np
 from PIL import Image, ImageTk
 
+from swell.shared.metrics_defaults import DEFAULT_SCALE_AXIS_LOCK
 from swell.shared.ui.theme import APP_COLORS, SPACING, apply_theme
 from swell.shared.ui.bootstrap import center_window_on_screen, semantic_button_options, ttk
 
@@ -97,7 +98,13 @@ def open_scale_dialog(
     zoom_min = 1.0
     zoom_max = 12.0
 
-    axis_lock_var = tk.BooleanVar(value=bool(True if initial_axis_lock is None else initial_axis_lock))
+    axis_lock_var = tk.BooleanVar(
+        value=bool(
+            DEFAULT_SCALE_AXIS_LOCK
+            if initial_axis_lock is None
+            else initial_axis_lock
+        )
+    )
     points_seed = []
     if isinstance(initial_scale_points, list) and len(initial_scale_points) >= 2:
         for pt in list(initial_scale_points)[:2]:

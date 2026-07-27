@@ -141,7 +141,12 @@ class TooltipManager:
             window.update_idletasks()
         except Exception:
             pass
-        x, y = self._clamp_geometry(x_root + self.offset_px, y_root + self.offset_px, window)
+        x, y = self._clamp_geometry(
+            x_root + self.offset_px,
+            y_root + self.offset_px,
+            window,
+            widget=widget,
+        )
         try:
             window.geometry(f"+{x}+{y}")
             window.deiconify()
@@ -194,17 +199,48 @@ class TooltipManager:
         except Exception:
             return 0, 0
 
-    def _clamp_geometry(self, x: int, y: int, window) -> tuple[int, int]:
+    def _desktop_bounds(self, widget=None) -> tuple[int, int, int, int]:
+        # Screen width/height are primary-monitor dimensions on macOS. A
+        # toplevel's root coordinates, however, live in the virtual desktop and
+        # may be negative. Prefer the hovered control's containing window so a
+        # tooltip can never be teleported to a different monitor.
+        if widget is not None:
+            try:
+                top = widget.winfo_toplevel()
+                left = int(top.winfo_rootx())
+                upper = int(top.winfo_rooty())
+                width = int(top.winfo_width())
+                height = int(top.winfo_height())
+                if width > 1 and height > 1:
+                    return left, upper, left + width, upper + height
+            except Exception:
+                pass
+        for source in (widget, self.root):
+            if source is None:
+                continue
+            try:
+                left = int(source.winfo_vrootx())
+                upper = int(source.winfo_vrooty())
+                width = int(source.winfo_vrootwidth())
+                height = int(source.winfo_vrootheight())
+                if width > 1 and height > 1:
+                    return left, upper, left + width, upper + height
+            except Exception:
+                pass
         try:
             screen_w = int(self.root.winfo_screenwidth())
             screen_h = int(self.root.winfo_screenheight())
         except Exception:
             screen_w, screen_h = 1920, 1080
+        return 0, 0, screen_w, screen_h
+
+    def _clamp_geometry(self, x: int, y: int, window, *, widget=None) -> tuple[int, int]:
+        left, upper, right, lower = self._desktop_bounds(widget)
         try:
             req_w = int(window.winfo_reqwidth())
             req_h = int(window.winfo_reqheight())
         except Exception:
             req_w, req_h = 1, 1
-        x = max(0, min(int(x), max(0, screen_w - req_w - self.offset_px)))
-        y = max(0, min(int(y), max(0, screen_h - req_h - self.offset_px)))
+        x = max(left, min(int(x), max(left, right - req_w - self.offset_px)))
+        y = max(upper, min(int(y), max(upper, lower - req_h - self.offset_px)))
         return x, y

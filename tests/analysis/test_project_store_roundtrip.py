@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+import json
 from pathlib import Path
 import zipfile
 
@@ -123,6 +124,35 @@ class ProjectStoreRoundtripTests(unittest.TestCase):
             loaded = store.load(project_path)
             self.assertIn(unsafe_event_id, loaded.event_payloads)
             self.assertEqual(loaded.event_payloads[unsafe_event_id]["masks"].shape, (2, 3, 3))
+
+    def test_save_rewrites_manifest_paths_relative_to_project(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project_path = root / "project" / "portable.swell"
+            image_path = root / "project" / "images" / "frame.tif"
+            image_path.parent.mkdir(parents=True)
+            image_path.write_bytes(b"image")
+
+            ProjectStore().save(
+                project_path,
+                project_state=default_project_state("1.0.0"),
+                images_manifest={
+                    "images": [
+                        {
+                            "id": "frame-1",
+                            "absolute_path": str(image_path),
+                            "relative_path": "stale/location.tif",
+                        }
+                    ]
+                },
+                roi_data={"roi_points": []},
+                event_payloads={},
+                embed_images=False,
+            )
+
+            with zipfile.ZipFile(project_path, "r") as zf:
+                manifest = json.loads(zf.read("images.json").decode("utf-8"))
+            self.assertEqual(manifest["images"][0]["relative_path"], "images/frame.tif")
 
 
 if __name__ == "__main__":

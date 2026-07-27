@@ -12,7 +12,13 @@ from swell.shared.frame_source.preprocessing import (
 )
 from swell.shared.frame_source.protocols import FrameSource
 from swell.shared.frame_source.stack_frame_source import StackReaderFrameSource
-from swell.shared.frame_source.source_identity import canonical_dtype_name, source_identity, visual_stack_digest
+from swell.shared.frame_source.source_identity import (
+    canonical_dtype_name,
+    decoded_source_fingerprint,
+    source_identity,
+    source_identity_for_saved_ref,
+    visual_stack_digest,
+)
 from swell.shared.frame_source.stack_files import (
     SUPPORTED_STACK_EXTENSIONS,
     is_supported_stack_file,
@@ -27,7 +33,9 @@ __all__ = [
     "PreparedFrameSource",
     "StackReaderFrameSource",
     "canonical_dtype_name",
+    "decoded_source_fingerprint",
     "source_identity",
+    "source_identity_for_saved_ref",
     "visual_stack_digest",
     "SUPPORTED_STACK_EXTENSIONS",
     "VisualizationCancelled",

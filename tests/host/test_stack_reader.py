@@ -341,6 +341,33 @@ def test_open_stack_rgb_defaults_to_average_when_resolver_invalid(tmp_path: Path
     assert np.array_equal(out, expected)
 
 
+def test_open_stack_rgb_uses_persisted_channel_mode_without_prompt(tmp_path: Path) -> None:
+    path = tmp_path / "rgb.png"
+    rgb = np.zeros((2, 2, 3), dtype=np.uint8)
+    rgb[:, :, 0] = 101
+    rgb[:, :, 1] = 7
+    Image.fromarray(rgb).save(path)
+    calls: list[bool] = []
+
+    reader = StackReader(
+        channel_mode="first",
+        channel_mode_resolver=lambda: calls.append(True) or "average",
+    )
+    reader.open_stack(tmp_path)
+
+    assert calls == []
+    assert reader.channel_mode == "first"
+    np.testing.assert_array_equal(reader.read_frame(0), rgb[:, :, 0])
+
+
+def test_open_stack_rejects_mixed_frame_dtypes(tmp_path: Path) -> None:
+    tifffile.imwrite(tmp_path / "frame1.tif", np.zeros((3, 4), dtype=np.uint8))
+    tifffile.imwrite(tmp_path / "frame2.tif", np.zeros((3, 4), dtype=np.uint16))
+
+    with pytest.raises(ValueError, match="mixed frame dtypes"):
+        StackReader().open_stack(tmp_path)
+
+
 def test_read_tiff_falls_back_to_pillow_when_tifffile_decode_fails(tmp_path: Path, monkeypatch) -> None:
     tiff_path = tmp_path / "stack_fallback.tif"
     page0 = np.full((4, 5), 17, dtype=np.uint8)

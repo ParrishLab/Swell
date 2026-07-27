@@ -33,10 +33,10 @@ def test_real_files_flow_through_host_preprocessing_segmentation_persistence_and
     images_dir.mkdir()
     height, width = 32, 40
     frame0 = np.zeros((height, width), dtype=np.uint8)
-    frame1 = np.zeros((height, width), dtype=np.uint16)
+    frame1 = np.zeros((height, width), dtype=np.uint8)
     frame2 = np.zeros((height, width, 3), dtype=np.uint8)
     frame0[8:18, 10:22] = 100
-    frame1[8:18, 10:22] = 25_000
+    frame1[8:18, 10:22] = 180
     frame2[8:18, 10:22, :] = (30, 120, 220)
     Image.fromarray(frame0).save(images_dir / "frame_000.png")
     tifffile.imwrite(images_dir / "frame_001.tif", frame1, compression="deflate")
@@ -84,7 +84,15 @@ def test_real_files_flow_through_host_preprocessing_segmentation_persistence_and
     store.save(
         project_path,
         project_state=project_state,
-        images_manifest={"images": [str(reader.get_frame_ref(i).source_path) for i in range(info.frame_count)]},
+        images_manifest={
+            "images": [
+                {
+                    "id": f"image_{i + 1}",
+                    "absolute_path": str(reader.get_frame_ref(i).source_path),
+                }
+                for i in range(info.frame_count)
+            ]
+        },
         roi_data={"roi_points": []},
         event_payloads={"event_001": {"masks": masks, "prompts": {"frames": {}}}},
         embed_images=False,

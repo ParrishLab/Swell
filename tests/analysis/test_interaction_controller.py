@@ -1,6 +1,7 @@
 import unittest
 from unittest.mock import patch
 
+import cv2
 import numpy as np
 
 from swell.analysis.core.interaction_controller import InteractionController
@@ -68,6 +69,7 @@ class InteractionControllerTests(unittest.TestCase):
         can_mutate_segmentation=None,
         on_mutation_blocked=None,
         on_region_validation_error=None,
+        use_overlay_callback=False,
     ):
         seg_state = SegmentationState()
         points = {}
@@ -91,6 +93,7 @@ class InteractionControllerTests(unittest.TestCase):
             "model_ready": True,
             "records": [],
             "updates": 0,
+            "overlay_updates": 0,
             "preview_segments": [],
             "box_previews": [],
             "box_clears": 0,
@@ -168,6 +171,11 @@ class InteractionControllerTests(unittest.TestCase):
             can_mutate_segmentation=can_mutate_segmentation,
             on_mutation_blocked=on_mutation_blocked,
             on_region_validation_error=on_region_validation_error,
+            redraw_interaction_overlays=(
+                lambda: holder.__setitem__("overlay_updates", holder["overlay_updates"] + 1)
+            )
+            if use_overlay_callback
+            else None,
         )
         return c, holder, tool_mode, lbl, fill_mode, fill_tolerance
 
@@ -334,6 +342,7 @@ class InteractionControllerTests(unittest.TestCase):
         changed = controller.on_mouse_up(_Event(0, 0))
 
         self.assertFalse(changed)
+        self.assertEqual(holder["records"], [])
 
     def test_point_click_maps_canvas_coordinates_through_zoomed_transform(self):
         controller, holder, mode, _lbl, _fill_mode, _fill_tolerance = self._make_controller(display_transform=(2.0, 10.0, 20.0))
@@ -349,6 +358,61 @@ class InteractionControllerTests(unittest.TestCase):
         controller.on_mouse_down(_Event(14, 28))
         radius = holder["preview_segments"][0][4]
         self.assertEqual(radius, 6.0)
+
+    def test_direct_brush_rasterization_matches_full_frame_reference(self):
+        controller, _holder, _mode, _lbl, _fill_mode, _fill_tolerance = self._make_controller()
+        shape = (20, 20)
+        plus = np.zeros(shape, dtype=bool)
+        minus = np.zeros(shape, dtype=bool)
+        minus[3:15, 4:16] = True
+        controller.paint_layers[0] = {"plus": plus, "minus": minus}
+
+        reference = np.zeros(shape, dtype=np.uint8)
+        cv2.line(reference, (2, 4), (17, 15), 1, 6)
+        cv2.circle(reference, (2, 4), 3, 1, -1)
+        cv2.circle(reference, (17, 15), 3, 1, -1)
+        expected_plus = plus.copy()
+        expected_minus = minus.copy()
+        expected_plus[reference > 0] = True
+        expected_minus[reference > 0] = False
+
+        controller._apply_paint_line(0, 2, 4, 17, 15, "brush", shape[1], shape[0])
+
+        self.assertTrue(np.array_equal(controller.paint_layers[0]["plus"], expected_plus))
+        self.assertTrue(np.array_equal(controller.paint_layers[0]["minus"], expected_minus))
+
+    def test_direct_eraser_rasterization_matches_full_frame_reference(self):
+        controller, _holder, _mode, _lbl, _fill_mode, _fill_tolerance = self._make_controller()
+        shape = (20, 20)
+        plus = np.ones(shape, dtype=bool)
+        minus = np.zeros(shape, dtype=bool)
+        controller.paint_layers[0] = {"plus": plus, "minus": minus}
+
+        reference = np.zeros(shape, dtype=np.uint8)
+        cv2.line(reference, (1, 18), (18, 1), 1, 6)
+        cv2.circle(reference, (1, 18), 3, 1, -1)
+        cv2.circle(reference, (18, 1), 3, 1, -1)
+        expected_plus = plus.copy()
+        expected_minus = minus.copy()
+        expected_plus[reference > 0] = False
+        expected_minus[reference > 0] = True
+
+        controller._apply_paint_line(0, 1, 18, 18, 1, "eraser", shape[1], shape[0])
+
+        self.assertTrue(np.array_equal(controller.paint_layers[0]["plus"], expected_plus))
+        self.assertTrue(np.array_equal(controller.paint_layers[0]["minus"], expected_minus))
+
+    def test_direct_paint_normalizes_noncontiguous_layers(self):
+        controller, _holder, _mode, _lbl, _fill_mode, _fill_tolerance = self._make_controller()
+        plus = np.zeros((20, 40), dtype=bool)[:, ::2]
+        minus = np.zeros((20, 40), dtype=bool)[:, ::2]
+        self.assertFalse(plus.flags.c_contiguous)
+        controller.paint_layers[0] = {"plus": plus, "minus": minus}
+
+        controller._apply_paint(0, 10, 10, "brush", 20, 20)
+
+        self.assertTrue(controller.paint_layers[0]["plus"].flags.c_contiguous)
+        self.assertTrue(controller.paint_layers[0]["plus"][10, 10])
 
     def test_mouse_up_without_edit_returns_false(self):
         controller, _holder, mode, _lbl, _fill_mode, _fill_tolerance = self._make_controller()
@@ -453,6 +517,22 @@ class InteractionControllerTests(unittest.TestCase):
         self.assertEqual(controller.boxes[0], [4.0, 5.0, 18.0, 19.0])
         self.assertEqual(holder["records"][0], ("box", 0, [2.0, 2.0, 16.0, 16.0], [4.0, 5.0, 18.0, 19.0]))
         self.assertEqual(holder["mask_updates"], 1)
+
+    def test_select_drag_uses_vector_overlay_until_release(self):
+        controller, holder, mode, _lbl, _fill_mode, _fill_tolerance = self._make_controller(
+            use_overlay_callback=True
+        )
+        controller.boxes[0] = [2.0, 2.0, 16.0, 16.0]
+        mode.set("select")
+
+        controller.on_mouse_down(_Event(9, 9))
+        full_redraws_before_drag = holder["updates"]
+        controller.on_mouse_drag(_Event(11, 12))
+
+        self.assertGreater(holder["overlay_updates"], 0)
+        self.assertEqual(holder["updates"], full_redraws_before_drag)
+        controller.on_mouse_up(_Event(11, 12))
+        self.assertGreater(holder["updates"], full_redraws_before_drag)
 
     def test_select_drag_box_handle_resizes_prompt(self):
         controller, holder, mode, _lbl, _fill_mode, _fill_tolerance = self._make_controller()

@@ -1,6 +1,8 @@
 import unittest
+import os
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from types import SimpleNamespace
 
 from swell.analysis.core import project_workflow
 
@@ -113,6 +115,45 @@ class ProjectWorkflowActionsTests(unittest.TestCase):
                 project_workflow.save_project(app)
 
         self.assertEqual(calls, [])
+
+    def test_resolve_project_image_paths_prefers_project_directory_over_cwd(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project_dir = root / "project"
+            cwd_dir = root / "cwd"
+            project_image = project_dir / "images" / "frame.tif"
+            cwd_image = cwd_dir / "images" / "frame.tif"
+            project_image.parent.mkdir(parents=True)
+            cwd_image.parent.mkdir(parents=True)
+            project_image.write_bytes(b"project")
+            cwd_image.write_bytes(b"cwd")
+            stale_absolute = root / "old-drive" / "frame.tif"
+            stale_absolute.parent.mkdir()
+            stale_absolute.write_bytes(b"stale")
+            loaded = SimpleNamespace(
+                embedded_image_paths={},
+                images_manifest={
+                    "images": [
+                        {
+                            "id": "frame-1",
+                            "absolute_path": str(stale_absolute),
+                            "relative_path": "images/frame.tif",
+                        }
+                    ]
+                },
+            )
+            previous_cwd = Path.cwd()
+            try:
+                os.chdir(cwd_dir)
+                resolved = project_workflow.resolve_project_image_paths(
+                    SimpleNamespace(current_project_path=None),
+                    loaded,
+                    project_path=project_dir / "analysis.swell",
+                )
+            finally:
+                os.chdir(previous_cwd)
+
+            self.assertEqual(resolved, [str(project_image.resolve())])
 
 if __name__ == "__main__":
     unittest.main()

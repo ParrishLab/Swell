@@ -38,6 +38,7 @@ from swell.shared.persistence.serialization import (
     encode_metadata_for_write,
 )
 from swell.shared.errors import ProjectLoadError
+from swell.shared.persistence.embedded_images import reserve_embedded_image_arcname
 from swell.shared.persistence.zip_io import read_json, read_npz, touch_extract_dir_marker, write_json, write_npz
 
 
@@ -47,6 +48,10 @@ def _coerce_stack_ref(raw: dict[str, Any] | None) -> StackRef | None:
     if not isinstance(raw, dict):
         raise ProjectLoadError("Stack reference data must be a dictionary.")
     try:
+        channel_mode = str(raw.get("channel_mode", "") or "").strip().lower()
+        if channel_mode not in {"average", "first"}:
+            channel_mode = None
+        decode_policy_version = raw.get("decode_policy_version")
         return StackRef(
             input_dir=str(raw["input_dir"]),
             frame_count=int(raw["frame_count"]),
@@ -55,6 +60,17 @@ def _coerce_stack_ref(raw: dict[str, Any] | None) -> StackRef | None:
             dtype=str(raw.get("dtype", "uint8")),
             frame_names_digest=(str(raw.get("frame_names_digest")) if raw.get("frame_names_digest") else None),
             source_fingerprint=(str(raw.get("source_fingerprint")) if raw.get("source_fingerprint") else None),
+            decoded_fingerprint=(
+                str(raw.get("decoded_fingerprint"))
+                if raw.get("decoded_fingerprint")
+                else None
+            ),
+            channel_mode=channel_mode,
+            decode_policy_version=(
+                int(decode_policy_version)
+                if decode_policy_version is not None
+                else None
+            ),
         )
     except KeyError as e:
         raise ProjectLoadError(f"Missing required stack reference field: {e}")
@@ -223,9 +239,14 @@ class UnifiedProjectStore:
                     extract_root = Path(dest_dir)
                     extract_root.mkdir(parents=True, exist_ok=True)
                 extracted_any = False
+                used_output_names: set[str] = set()
                 for _name, arcname in embedded.items():
                     try:
-                        out_path = extract_root / Path(str(arcname)).name
+                        safe_arcname = reserve_embedded_image_arcname(
+                            Path(str(arcname)).name,
+                            used_output_names,
+                        )
+                        out_path = extract_root / Path(safe_arcname).name
                         with zf.open(str(arcname), "r") as src_f, out_path.open("wb") as out_f:
                             out_f.write(src_f.read())
                         extracted_any = True

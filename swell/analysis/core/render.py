@@ -20,6 +20,10 @@ GHOST_CONTOUR_THICKNESS = 2
 
 class RenderActions:
     _DISPLAY_PHOTO_CACHE_MAX = 12
+    _COMPOSITED_FRAME_CACHE_MAX = 3
+    _COMPOSITED_FRAME_CACHE_MAX_BYTES = 48 * 1024 * 1024
+    _GHOST_CONTOUR_CACHE_MAX = 24
+    _GHOST_CONTOUR_CACHE_MAX_BYTES = 32 * 1024 * 1024
 
     def _compute_display_ratio(self, max_w, max_h, orig_w, orig_h):
         return compute_fit_scale(max_w, max_h, orig_w, orig_h)
@@ -63,6 +67,13 @@ class RenderActions:
     def _segmentation_content_generation(self) -> int:
         return int(getattr(getattr(self, "seg_state", None), "content_generation", 0) or 0)
 
+    def _frame_content_generation(self, frame_idx: int) -> tuple:
+        seg_state = getattr(self, "seg_state", None)
+        getter = getattr(seg_state, "content_token_for_frame", None)
+        if callable(getter):
+            return tuple(getter(int(frame_idx)))
+        return (self._segmentation_content_generation(),)
+
     def _mask_content_token(self, frame_idx: int, mask, *, prefix: str = "mask") -> tuple:
         source = np.asarray(mask)
         return (
@@ -70,7 +81,7 @@ class RenderActions:
             int(frame_idx),
             tuple(int(v) for v in source.shape),
             str(source.dtype),
-            self._segmentation_content_generation(),
+            self._frame_content_generation(frame_idx),
         )
 
     def _canvas_is_visible(self, canvas) -> bool:
@@ -96,6 +107,49 @@ class RenderActions:
         cache.move_to_end(key)
         while len(cache) > int(self._DISPLAY_PHOTO_CACHE_MAX):
             cache.popitem(last=False)
+
+    def _composited_frame_cache(self) -> OrderedDict:
+        cache = getattr(self, "_composited_frame_cache_store", None)
+        if isinstance(cache, OrderedDict):
+            return cache
+        cache = OrderedDict()
+        self._composited_frame_cache_store = cache
+        return cache
+
+    def _cache_composited_frame(self, key: tuple, frame: np.ndarray) -> np.ndarray:
+        cache = self._composited_frame_cache()
+        value = np.asarray(frame, dtype=np.uint8)
+        value.setflags(write=False)
+        cache[key] = value
+        cache.move_to_end(key)
+        max_entries = max(1, int(self._COMPOSITED_FRAME_CACHE_MAX))
+        max_bytes = max(1, int(self._COMPOSITED_FRAME_CACHE_MAX_BYTES))
+        while len(cache) > max_entries:
+            cache.popitem(last=False)
+        total_bytes = sum(int(np.asarray(item).nbytes) for item in cache.values())
+        while len(cache) > 1 and total_bytes > max_bytes:
+            _old_key, old_value = cache.popitem(last=False)
+            total_bytes -= int(np.asarray(old_value).nbytes)
+        return value
+
+    def _composited_mask_frame(
+        self,
+        frame: np.ndarray,
+        mask: np.ndarray,
+        *,
+        key: tuple,
+        color: tuple[int, int, int] | None,
+        hatch: bool,
+    ) -> np.ndarray:
+        cache = self._composited_frame_cache()
+        cached = cache.get(key)
+        if cached is not None:
+            cache.move_to_end(key)
+            return cached
+        return self._cache_composited_frame(
+            key,
+            apply_mask_overlay(frame, mask, color=color, hatch=hatch),
+        )
 
     def _cached_canvas_photo(self, canvas, img_arr, *, resample, fill_value, token: tuple):
         src = np.asarray(img_arr, dtype=np.uint8)
@@ -218,7 +272,11 @@ class RenderActions:
         """
         token = self._mask_content_token(ghost_idx, ghost_mask, prefix="ghost")
         key = (int(ghost_idx), token, (int(h), int(w)))
-        entry = self._ghost_contours_cache.get(key)
+        cache = getattr(self, "_ghost_contours_cache", None)
+        if not isinstance(cache, OrderedDict):
+            cache = OrderedDict(cache or {})
+            self._ghost_contours_cache = cache
+        entry = cache.get(key)
         if entry is None:
             mask_bool = np.asarray(ghost_mask, dtype=bool)
             t = max(1, int(GHOST_CONTOUR_THICKNESS))
@@ -234,7 +292,24 @@ class RenderActions:
                 bbox = (y0, y1, x0, x1)
                 ring_sub = ring[y0:y1, x0:x1]
             entry = {"ring": ring_sub, "bbox": bbox}
-            self._ghost_contours_cache[key] = entry
+            cache[key] = entry
+            cache.move_to_end(key)
+            max_entries = max(1, int(getattr(self, "_GHOST_CONTOUR_CACHE_MAX", 24)))
+            max_bytes = max(1, int(getattr(self, "_GHOST_CONTOUR_CACHE_MAX_BYTES", 32 * 1024 * 1024)))
+
+            def _cache_bytes() -> int:
+                return sum(
+                    int(np.asarray(item.get("ring")).nbytes)
+                    for item in cache.values()
+                    if isinstance(item, dict) and item.get("ring") is not None
+                )
+
+            while len(cache) > max_entries:
+                cache.popitem(last=False)
+            while len(cache) > 1 and _cache_bytes() > max_bytes:
+                cache.popitem(last=False)
+        else:
+            cache.move_to_end(key)
         return token, entry
 
     def _draw_ghost_contour(self, img_arr, ghost_idx, color, alpha):
@@ -331,7 +406,7 @@ class RenderActions:
         final_mask_token = (
             self._mask_content_token(idx, final_mask, prefix="mask")
             if final_mask_any
-            else ("mask-empty", int(idx), tuple(final_mask.shape), self._segmentation_content_generation())
+            else ("mask-empty", int(idx), tuple(final_mask.shape), self._frame_content_generation(idx))
         )
         mask_peek = bool(getattr(self, "_mask_peek", False))
         mask_is_stale = False
@@ -339,9 +414,16 @@ class RenderActions:
             seg_state = getattr(self, "seg_state", None)
             if seg_state is not None and hasattr(self, "_current_mask_threshold"):
                 mask_is_stale = seg_state.is_mask_stale(idx, self._current_mask_threshold())
-            img_arr = apply_mask_overlay(
+            img_arr = self._composited_mask_frame(
                 img_arr,
                 final_mask,
+                key=(
+                    "composited",
+                    int(idx),
+                    visual_token,
+                    final_mask_token,
+                    bool(mask_is_stale),
+                ),
                 color=MASK_OVERLAY_STALE_COLOR_RGB if mask_is_stale else None,
                 hatch=mask_is_stale,
             )
@@ -356,9 +438,7 @@ class RenderActions:
             n_frames = int(self.ghost_range_var.get()) if getattr(self, "ghost_range_var", None) is not None else 2
             if n_frames > 0:
                 if not hasattr(self, "_ghost_contours_cache"):
-                    self._ghost_contours_cache = {}
-                if len(self._ghost_contours_cache) > 200:
-                    self._ghost_contours_cache.clear()
+                    self._ghost_contours_cache = OrderedDict()
                 # Boolean indexing below writes into img_arr; ensure it is writable.
                 if not img_arr.flags.writeable:
                     img_arr = img_arr.copy()
@@ -457,9 +537,17 @@ class RenderActions:
                         is_selected = True
 
                 if is_selected:
-                    self.canvas_left.create_oval(cx - 5, cy - 5, cx + 5, cy + 5, fill=color, outline=APP_COLORS["measurement"], width=2)
+                    self.canvas_left.create_oval(
+                        cx - 5, cy - 5, cx + 5, cy + 5,
+                        fill=color, outline=APP_COLORS["measurement"], width=2,
+                        tags="analysis_overlay",
+                    )
                 else:
-                    self.canvas_left.create_oval(cx - 3, cy - 3, cx + 3, cy + 3, fill=color, outline=APP_COLORS["white"])
+                    self.canvas_left.create_oval(
+                        cx - 3, cy - 3, cx + 3, cy + 3,
+                        fill=color, outline=APP_COLORS["white"],
+                        tags="analysis_overlay",
+                    )
 
         boxes = getattr(self, "boxes", {}) or {}
         box = boxes.get(idx)
@@ -481,6 +569,7 @@ class RenderActions:
                 cy1,
                 outline=APP_COLORS["measurement"] if is_selected else APP_COLORS["white"],
                 width=3 if is_selected else 2,
+                tags="analysis_overlay",
             )
             if is_selected:
                 handle_radius = 4
@@ -505,6 +594,7 @@ class RenderActions:
                         fill=CANVAS_FILL_HEX,
                         outline=APP_COLORS["measurement"],
                         width=1,
+                        tags="analysis_overlay",
                     )
 
         regions = list(getattr(self.seg_state, "persistent_regions", []) or [])
@@ -527,7 +617,10 @@ class RenderActions:
             else:
                 color = APP_COLORS["roi_active"] if is_selected else APP_COLORS["roi_inactive"]
             width = 3 if is_selected else 2
-            self.canvas_left.create_line(*points, points[0], points[1], fill=color, width=width)
+            self.canvas_left.create_line(
+                *points, points[0], points[1],
+                fill=color, width=width, tags="analysis_overlay",
+            )
             if is_selected:
                 handle_radius = 5
                 for hx, hy in zip(points[0::2], points[1::2]):
@@ -539,6 +632,7 @@ class RenderActions:
                         fill=color,
                         outline=APP_COLORS["measurement"],
                         width=2,
+                        tags="analysis_overlay",
                     )
 
         draft_points = []
@@ -569,6 +663,7 @@ class RenderActions:
                     fill=draft_color,
                     width=2,
                     dash=() if draft_closed else (3, 2),
+                    tags="analysis_overlay",
                 )
             for handle_idx, (hx, hy) in enumerate(zip(points[0::2], points[1::2])):
                 # Every draft handle already carries the measurement outline, so
@@ -583,7 +678,24 @@ class RenderActions:
                     fill=draft_color,
                     outline=APP_COLORS["measurement"],
                     width=3 if selected else 2,
+                    tags="analysis_overlay",
                 )
+
+    def _redraw_interaction_overlays(self) -> None:
+        """Refresh editable vectors without rebuilding the image or mask."""
+        canvas = getattr(self, "canvas_left", None)
+        if canvas is None:
+            return
+        canvas.delete("analysis_overlay")
+        idx = int(getattr(self, "current_frame_idx", 0))
+        raw_frame = self._get_raw_frame(idx) if hasattr(self, "_get_raw_frame") else None
+        visual_frame = self._get_visual_frame(idx) if hasattr(self, "_get_visual_frame") else None
+        source = raw_frame if raw_frame is not None else visual_frame
+        if source is None:
+            return
+        h, w = np.asarray(source).shape[:2]
+        transform = self._get_canvas_viewport_transform(canvas, w, h)
+        self._draw_overlay_elements(transform, (h, w))
 
     def _draw_analysis_overlay_on_right(self, idx):
         raw_frame = self._get_raw_frame(idx) if hasattr(self, "_get_raw_frame") else None

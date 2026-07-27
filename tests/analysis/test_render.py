@@ -772,6 +772,19 @@ class RenderActionsTests(unittest.TestCase):
         token_b = harness._mask_content_token(0, mask)
         self.assertNotEqual(token_a, token_b)
 
+    def test_mask_content_token_ignores_unrelated_frame_generation(self):
+        class _Harness(RenderActions):
+            def __init__(self):
+                self.seg_state = SegmentationState()
+
+        harness = _Harness()
+        mask = np.zeros((8, 8), dtype=bool)
+        token_before = harness._mask_content_token(0, mask)
+
+        harness.seg_state.set_mask(1, np.ones((8, 8), dtype=bool))
+
+        self.assertEqual(harness._mask_content_token(0, mask), token_before)
+
     def test_ghost_contour_empty_frame_returns_none_token(self):
         class _GhostBlendHarness(RenderActions):
             def __init__(self):
@@ -787,6 +800,23 @@ class RenderActionsTests(unittest.TestCase):
         token = harness._draw_ghost_contour(img, 9, (255, 0, 128), 0.5)
         self.assertEqual(token, (9, None))
         self.assertTrue(np.array_equal(img, before))
+
+    def test_ghost_contour_cache_is_lru_bounded_across_edits(self):
+        class _GhostBlendHarness(RenderActions):
+            _GHOST_CONTOUR_CACHE_MAX = 3
+
+            def __init__(self):
+                self.seg_state = SegmentationState()
+                self._ghost_contours_cache = {}
+
+        harness = _GhostBlendHarness()
+        for edit in range(10):
+            mask = np.zeros((64, 64), dtype=bool)
+            mask[8 + edit : 20 + edit, 12:28] = True
+            harness.seg_state.set_mask(1, mask)
+            harness._ghost_cache_entry(1, mask, 64, 64)
+
+        self.assertLessEqual(len(harness._ghost_contours_cache), 3)
 
 
 if __name__ == "__main__":

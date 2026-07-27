@@ -15,6 +15,7 @@ from swell.analysis.ui.roi_dialog import _call_preserving_geometry, open_roi_dia
 from swell.analysis.ui.scale_dialog import open_scale_dialog
 from swell.shared.ui.theme import APP_COLORS, SPACING, apply_theme
 from swell.host.exporter import analysis_image_cache_key, export_analysis
+from swell.shared.metrics_defaults import DEFAULT_SCALE_AXIS_LOCK
 from swell.shared.models import clone_analysis_payload
 from swell.shared.services import MetricsSettingsResolver
 from swell.shared.ui.bootstrap import center_window_on_screen as center_window, semantic_button_options, ttk
@@ -90,7 +91,9 @@ class HostWindowController:
         except (TypeError, ValueError):
             scale_value = None
         scale_points = list(defaults.get("scale_points", [])) if isinstance(defaults.get("scale_points"), list) else []
-        scale_axis_lock = bool(defaults.get("scale_axis_lock", True))
+        scale_axis_lock = bool(
+            defaults.get("scale_axis_lock", DEFAULT_SCALE_AXIS_LOCK)
+        )
         roi_points = list(defaults.get("roi_points", [])) if isinstance(defaults.get("roi_points"), list) else []
         roi_polygons = list(defaults.get("roi_polygons", [])) if isinstance(defaults.get("roi_polygons"), list) else []
         roi_mask = defaults.get("roi_mask")
@@ -1072,7 +1075,9 @@ class HostWindowController:
                 for pt in list(result.get("scale_points", []))[:2]
                 if isinstance(pt, (list, tuple)) and len(pt) >= 2
             ]
-            scale_axis_lock = bool(result.get("axis_lock", True))
+            scale_axis_lock = bool(
+                result.get("axis_lock", DEFAULT_SCALE_AXIS_LOCK)
+            )
             _refresh_labels()
 
         def _set_roi() -> None:

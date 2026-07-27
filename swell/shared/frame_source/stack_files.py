@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import re
+import unicodedata
 
 
 SUPPORTED_STACK_EXTENSIONS = (".tif", ".tiff", ".png", ".jpg", ".jpeg", ".bmp")
@@ -21,14 +22,18 @@ def is_supported_stack_file(path: str | Path) -> bool:
 
 
 def natural_stack_sort_key(path: str | Path) -> tuple:
-    parts = re.split(r"(\d+)", Path(path).name.lower())
+    name = unicodedata.normalize("NFC", Path(path).name)
+    parts = re.split(r"(\d+)", name.casefold())
     key: list[int | str] = []
     for part in parts:
         if part.isdigit():
             key.append(int(part))
         else:
             key.append(part)
-    return tuple(key)
+    # Natural-number parsing intentionally makes names such as frame1/frame01
+    # equivalent. The normalized full name is a deterministic cross-filesystem
+    # tie-breaker rather than inheriting arbitrary directory enumeration order.
+    return tuple(key), name.casefold(), name
 
 
 def list_stack_files(input_dir: str | Path) -> list[Path]:

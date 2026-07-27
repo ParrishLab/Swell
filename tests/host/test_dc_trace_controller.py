@@ -83,6 +83,48 @@ def test_import_dc_trace_requires_explicit_project_fps(monkeypatch) -> None:
     assert app.warnings == []
 
 
+def test_restore_missing_dc_trace_can_rebind_and_persist(monkeypatch, tmp_path) -> None:
+    missing = tmp_path / "old-drive" / "trace.h5"
+    replacement = tmp_path / "new-drive" / "trace.h5"
+    replacement.parent.mkdir()
+    replacement.write_bytes(b"trace")
+    attachment = TraceAttachment(
+        source_type="wavesurfer_h5",
+        source_path=str(missing),
+        channel_index=2,
+        channel_name="DC",
+        sample_rate_hz=1000.0,
+        unit="mV",
+        alignment=TimeAlignment(mode="manual_offset", offset_s=0.75),
+        metadata={"duration_s": 3.0},
+    )
+    app = _build_app(with_stack=True, attachment=attachment.to_metadata_dict())
+    controller = HostDCTraceController(app)
+    captured = []
+    monkeypatch.setattr(
+        "swell.host.controllers.dc_trace_controller.messagebox.askyesno",
+        lambda *args, **kwargs: True,
+    )
+    monkeypatch.setattr(
+        "swell.host.controllers.dc_trace_controller.filedialog.askopenfilename",
+        lambda *args, **kwargs: str(replacement),
+    )
+    monkeypatch.setattr(
+        controller,
+        "_load_attachment_async",
+        lambda rebound, **kwargs: captured.append((rebound, kwargs)),
+    )
+
+    controller.restore_from_project_metadata()
+
+    assert len(captured) == 1
+    rebound, options = captured[0]
+    assert rebound.source_path == str(replacement.resolve())
+    assert rebound.channel_index == attachment.channel_index
+    assert rebound.alignment.offset_s == attachment.alignment.offset_s
+    assert options["persist_on_success"] is True
+
+
 def test_trace_frame_mapping_round_trip_uses_manual_offset() -> None:
     app = _build_app(with_stack=True, defaults={"frames_per_sec": 2.0})
     controller = HostDCTraceController(app)

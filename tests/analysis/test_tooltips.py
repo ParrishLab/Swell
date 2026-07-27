@@ -288,6 +288,29 @@ def test_tooltip_geometry_clamps_to_screen_bounds() -> None:
     assert manager._clamp_geometry(95, 75, top) == (52, 52)
 
 
+def test_tooltip_geometry_preserves_negative_multimonitor_coordinates() -> None:
+    class _NegativeMonitorRoot(_FakeRoot):
+        def winfo_rootx(self):
+            return -1400
+
+        def winfo_rooty(self):
+            return -900
+
+        def winfo_width(self):
+            return 1200
+
+        def winfo_height(self):
+            return 800
+
+    root = _NegativeMonitorRoot()
+    widget = _FakeWidget(root, x=-1350, y=-850)
+    manager = _manager(root)
+    top = _FakeTop(root)
+
+    assert manager._clamp_geometry(-1342, -842, top, widget=widget) == (-1342, -842)
+    assert manager._clamp_geometry(-180, -80, top, widget=widget) == (-248, -128)
+
+
 def _find_label_text(widget, text):
     for child in widget.winfo_children():
         try:

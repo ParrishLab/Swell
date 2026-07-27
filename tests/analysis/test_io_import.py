@@ -9,6 +9,7 @@ from PIL import Image
 
 from swell.analysis.core.io import IOActions
 from swell.host.stack_reader import StackReader
+from swell.shared.frame_source.stack_files import natural_stack_sort_key
 
 
 class _DummyIO(IOActions):
@@ -64,6 +65,16 @@ class IOImportTests(unittest.TestCase):
             tifffile.imwrite(a_path, np.zeros((4, 4), dtype=np.uint8))
             tifffile.imwrite(b_path, np.zeros((5, 5), dtype=np.uint8))
             with self.assertRaisesRegex(ValueError, "mixed frame dimensions"):
+                dummy._load_frames_and_names([a_path, b_path])
+
+    def test_dtype_mismatch_frames_are_rejected(self):
+        dummy = _DummyIO()
+        with tempfile.TemporaryDirectory() as tmp:
+            a_path = Path(tmp) / "a.tif"
+            b_path = Path(tmp) / "b.tif"
+            tifffile.imwrite(a_path, np.zeros((4, 4), dtype=np.uint8))
+            tifffile.imwrite(b_path, np.zeros((4, 4), dtype=np.uint16))
+            with self.assertRaisesRegex(ValueError, "mixed frame dtypes"):
                 dummy._load_frames_and_names([a_path, b_path])
 
     def test_file_selection_order_preserved(self):
@@ -166,6 +177,20 @@ class IOImportTests(unittest.TestCase):
                 ordered = dummy._collect_image_files_from_folder(tmp)
 
         self.assertEqual([p.name for p in ordered], ["frame1.png", "frame2.png", "frame10.png"])
+
+    def test_folder_import_breaks_natural_sort_ties_deterministically(self):
+        dummy = _DummyIO()
+        with tempfile.TemporaryDirectory() as tmp:
+            for name in ("frame01.png", "frame1.png"):
+                (Path(tmp) / name).write_bytes(b"")
+
+            forward = dummy._collect_image_files_from_folder(tmp)
+            reverse = sorted(
+                reversed(forward),
+                key=natural_stack_sort_key,
+            )
+
+        self.assertEqual([p.name for p in forward], [p.name for p in reverse])
 
     def test_validate_selected_files_rejects_unsupported_and_duplicates(self):
         dummy = _DummyIO()

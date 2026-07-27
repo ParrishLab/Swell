@@ -763,10 +763,14 @@ class AnalysisWorkspaceController:
             scale_image_path=str(ui_state.scale_image_path or ""),
             roi_points=list(ui_state.roi_points) if ui_state.roi_points else [],
             roi_polygons=list(ui_state.roi_polygons) if ui_state.roi_polygons else [],
-            roi_mask=ui_state.roi_mask,
+            roi_mask=(
+                np.asarray(ui_state.roi_mask, dtype=bool).copy()
+                if ui_state.roi_mask is not None
+                else None
+            ),
             created_at=str(ui_state.created_at),
             current_image_source_paths=list(self.frame_source.source_paths),
-            event_records=dict(self.session_state.event_records),
+            event_records=self.session_service.pack_event_records(self.session_state.event_records),
         )
 
     def on_propagation_status(self, status: str, prop_start: int, prop_end: int, committed_snapshot):

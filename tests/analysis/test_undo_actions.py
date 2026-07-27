@@ -3,7 +3,7 @@ import unittest
 import numpy as np
 
 from swell.analysis.core.seg_state import SegmentationState
-from swell.analysis.core.undo import UndoActions
+from swell.analysis.core.undo import UndoActions, _undo_payload_bytes
 
 
 class _SliderStub:
@@ -84,6 +84,42 @@ class UndoActionsTests(unittest.TestCase):
         for i in range(60):
             s.record_action("point", i, None, None)
         self.assertEqual(len(s.undo_stack), 50)
+
+    def test_boolean_mask_snapshots_are_compacted_in_history(self):
+        s = self._make_subject()
+        plus = np.zeros((1024, 1024), dtype=bool)
+        minus = np.zeros((1024, 1024), dtype=bool)
+        plus[100:200, 300:400] = True
+        before = {"plus": plus, "minus": minus}
+        after = {"plus": plus.copy(), "minus": minus.copy()}
+        after["plus"][500:510, 500:510] = True
+
+        s.record_action("paint", 0, before, after)
+
+        stored_bytes = _undo_payload_bytes(s.undo_stack[0])
+        raw_bytes = sum(arr.nbytes for payload in (before, after) for arr in payload.values())
+        # Packbits is a guaranteed 8:1 reduction for boolean arrays; allow a
+        # little dictionary/key overhead in the action envelope.
+        self.assertLess(stored_bytes, raw_bytes // 7)
+
+        s.seg_state.set_paint_layer(0, after["plus"].copy(), after["minus"].copy())
+        s.on_undo()
+        self.assertTrue(np.array_equal(s.seg_state.paint_layers[0]["plus"], before["plus"]))
+        s.on_redo()
+        self.assertTrue(np.array_equal(s.seg_state.paint_layers[0]["plus"], after["plus"]))
+
+    def test_history_byte_budget_evicts_old_large_actions(self):
+        s = self._make_subject()
+        s._UNDO_MAX_BYTES = 128
+        rng = np.random.default_rng(7)
+        for frame_idx in range(4):
+            mask = rng.integers(0, 2, size=(128, 128), dtype=np.uint8).astype(bool)
+            s.record_action("point", frame_idx, None, None, mask_before=mask)
+
+        # The newest action remains undoable even when it alone is larger than
+        # the configured test budget.
+        self.assertEqual(len(s.undo_stack), 1)
+        self.assertEqual(s.undo_stack[0]["frame"], 3)
 
     def test_undo_and_redo_point(self):
         s = self._make_subject()

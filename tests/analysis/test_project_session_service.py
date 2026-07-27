@@ -7,6 +7,18 @@ from swell.analysis.core.seg_state import SegmentationState
 
 
 class ProjectSessionServiceTests(unittest.TestCase):
+    def test_load_legacy_project_without_axis_lock_defaults_to_unchecked(self):
+        actions = ProjectSessionService().apply_loaded_project(
+            state={"global": {}, "events": []},
+            loaded_event_payloads={},
+            frame_count=1,
+            frame_shape=(2, 2),
+            choose_resume_draft=lambda _event_id: False,
+            decode_rle=lambda _payload: np.zeros((2, 2), dtype=bool),
+        )
+
+        self.assertIs(actions.scale_axis_lock, False)
+
     def test_build_payload_multi_event(self):
         svc = ProjectSessionService()
         roi = np.zeros((4, 4), dtype=bool)

@@ -65,11 +65,27 @@ def test_canonical_swell_layout_is_single_stack(tmp_path) -> None:
 def test_canonical_store_roundtrip_preserves_analysis_payload(tmp_path) -> None:
     store = UnifiedProjectStore()
     out = tmp_path / "roundtrip.swell"
-    store.save(out, _state())
+    state = _state()
+    state.stack_ref = StackRef(
+        input_dir="/tmp/in",
+        frame_count=5,
+        frame_height=16,
+        frame_width=16,
+        dtype="uint8",
+        frame_names_digest="v2:names",
+        source_fingerprint="v2:source",
+        decoded_fingerprint="v1:decoded",
+        channel_mode="first",
+        decode_policy_version=1,
+    )
+    store.save(out, state)
 
     loaded = store.load(out)
     assert loaded.stack_ref is not None
     assert loaded.stack_ref.frame_count == 5
+    assert loaded.stack_ref.channel_mode == "first"
+    assert loaded.stack_ref.decode_policy_version == 1
+    assert loaded.stack_ref.decoded_fingerprint == "v1:decoded"
     assert loaded.active_event_id == "event_0001"
     assert len(loaded.events) == 1
     payload = loaded.analysis_sidecar["event_0001"]

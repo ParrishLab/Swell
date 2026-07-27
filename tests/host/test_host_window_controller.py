@@ -21,6 +21,16 @@ class _NonMaterializedFrames:
         raise AssertionError(f"should not materialize frame {idx}")
 
 
+def test_global_metrics_axis_lock_defaults_to_unchecked() -> None:
+    app = SimpleNamespace(
+        browser_controller=SimpleNamespace(get_global_metrics_defaults=lambda: {})
+    )
+
+    state = HostWindowController(app)._global_metrics_defaults_state()
+
+    assert state[3] is False
+
+
 def test_seed_analysis_image_export_cache_keeps_live_sequence_without_materializing() -> None:
     frames_viz = _NonMaterializedFrames()
     event = EventCandidate(

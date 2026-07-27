@@ -1,10 +1,15 @@
 from __future__ import annotations
 
+import unicodedata
 from hashlib import sha256
 from pathlib import Path
 from typing import Any
 
 import numpy as np
+
+
+SOURCE_IDENTITY_VERSION = "v2"
+DECODED_IDENTITY_VERSION = "v1"
 
 
 def canonical_dtype_name(value: object) -> str:
@@ -86,13 +91,8 @@ def _sample_indices(count: int, limit: int = 9) -> list[int]:
     return sorted({int(round(i * (count - 1) / float(limit - 1))) for i in range(limit)})
 
 
-def source_identity(source: object) -> dict[str, str]:
-    """Return stable ordered-name and content fingerprints for a stack source.
-
-    File-size and boundary-byte signatures cover every source file, while sampled decoded
-    frames protect against a different recording with matching dimensions and
-    filenames. Legacy projects can omit these fields; newly bound stacks cannot.
-    """
+def _legacy_source_identity(source: object) -> dict[str, str]:
+    """Recreate the unversioned identity written by Swell 0.3.2."""
 
     count = _frame_count(source)
     names = [_frame_name(source, idx) for idx in range(count)]
@@ -139,6 +139,131 @@ def source_identity(source: object) -> dict[str, str]:
         "frame_names_digest": names_digest,
         "source_fingerprint": content.hexdigest(),
     }
+
+
+def _ordered_unique_paths(paths: list[str]) -> list[str]:
+    unique_paths: list[str] = []
+    seen: set[str] = set()
+    for raw_path in paths:
+        path_text = str(raw_path or "")
+        if path_text in seen:
+            continue
+        seen.add(path_text)
+        unique_paths.append(path_text)
+    return unique_paths
+
+
+def _update_file_signature(content, path_text: str) -> bool:
+    if not path_text:
+        content.update(b"no-path\0")
+        return False
+    try:
+        source_path = Path(path_text)
+        stat = source_path.stat()
+        if not source_path.is_file():
+            content.update(b"not-file\0")
+            return False
+        size = int(stat.st_size)
+        content.update(b"file\0")
+        content.update(str(size).encode("ascii"))
+        content.update(b"\0")
+        offsets = sorted({0, max(0, (size // 2) - 2048), max(0, size - 4096)})
+        with source_path.open("rb") as handle:
+            for offset in offsets:
+                handle.seek(offset)
+                block = handle.read(4096)
+                content.update(str(offset).encode("ascii"))
+                content.update(b":")
+                content.update(str(len(block)).encode("ascii"))
+                content.update(b":")
+                content.update(block)
+        return True
+    except OSError:
+        content.update(b"unreadable-path\0")
+        return False
+
+
+def source_identity(source: object) -> dict[str, str]:
+    """Return a path- and decoder-independent identity for a stack source.
+
+    Version 2 normalizes Unicode frame names and fingerprints source-file bytes
+    without hashing decoded frames. The latter is important when the same TIFF
+    stack is opened on another operating system or with a different optional
+    image codec. Sources without file paths retain a decoded-frame fallback.
+    """
+
+    count = _frame_count(source)
+    names = [
+        unicodedata.normalize("NFC", _frame_name(source, idx))
+        for idx in range(count)
+    ]
+    paths = [_source_path(source, idx) for idx in range(count)]
+    names_hash = sha256(repr(names).encode("utf-8")).hexdigest()
+
+    content = sha256()
+    content.update(b"swell-source-identity-v2\0")
+    content.update(str(count).encode("ascii"))
+    content.update(b"\0")
+    unique_paths = _ordered_unique_paths(paths)
+    readable_file_count = 0
+    content.update(str(len(unique_paths)).encode("ascii"))
+    content.update(b"\0")
+    for path_text in unique_paths:
+        readable_file_count += int(_update_file_signature(content, path_text))
+
+    if readable_file_count == 0:
+        content.update(b"decoded-fallback\0")
+        for idx in _sample_indices(count):
+            frame = _raw_frame(source, idx)
+            content.update(str(idx).encode("ascii"))
+            content.update(b"\0")
+            if frame is None:
+                content.update(b"unreadable\0")
+                continue
+            arr = np.ascontiguousarray(frame)
+            content.update(str(arr.dtype).encode("ascii"))
+            content.update(b"\0")
+            content.update(repr(tuple(int(v) for v in arr.shape)).encode("ascii"))
+            content.update(b"\0")
+            content.update(arr.tobytes(order="C"))
+
+    return {
+        "frame_names_digest": f"{SOURCE_IDENTITY_VERSION}:{names_hash}",
+        "source_fingerprint": f"{SOURCE_IDENTITY_VERSION}:{content.hexdigest()}",
+    }
+
+
+def source_identity_for_saved_ref(source: object, source_fingerprint: object) -> dict[str, str]:
+    """Compute the identity format used by an existing saved stack reference."""
+
+    expected = str(source_fingerprint or "")
+    if expected.startswith(f"{SOURCE_IDENTITY_VERSION}:"):
+        return source_identity(source)
+    return _legacy_source_identity(source)
+
+
+def decoded_source_fingerprint(source: object) -> str:
+    """Fingerprint sampled decoded frames independently from source-file identity."""
+
+    count = _frame_count(source)
+    digest = sha256()
+    digest.update(b"swell-decoded-identity-v1\0")
+    digest.update(str(count).encode("ascii"))
+    digest.update(b"\0")
+    for idx in _sample_indices(count):
+        frame = _raw_frame(source, idx)
+        digest.update(str(idx).encode("ascii"))
+        digest.update(b"\0")
+        if frame is None:
+            digest.update(b"unreadable\0")
+            continue
+        arr = np.ascontiguousarray(frame)
+        digest.update(str(arr.dtype).encode("ascii"))
+        digest.update(b"\0")
+        digest.update(repr(tuple(int(v) for v in arr.shape)).encode("ascii"))
+        digest.update(b"\0")
+        digest.update(arr.tobytes(order="C"))
+    return f"{DECODED_IDENTITY_VERSION}:{digest.hexdigest()}"
 
 
 def visual_stack_digest(frames: Any) -> str:

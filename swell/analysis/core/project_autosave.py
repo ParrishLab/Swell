@@ -17,6 +17,7 @@ class AutosaveSnapshot:
     roi_data: dict[str, Any]
     event_payloads: dict[str, Any]
     embed_images: bool
+    session_snapshot: Any | None = None
 
 
 class ProjectAutosaveManager:
@@ -43,7 +44,9 @@ class ProjectAutosaveManager:
         self._lock = threading.Lock()
         self._timer: Optional[threading.Timer] = None
         self._slot_counter = {}
-        self._write_queue: queue.Queue[tuple[AutosaveSnapshot, Path] | None] = queue.Queue()
+        # Only the newest not-yet-written snapshot matters. A slow disk write
+        # must not grow a queue of dense, obsolete project payloads.
+        self._write_queue: queue.Queue[tuple[AutosaveSnapshot, Path] | None] = queue.Queue(maxsize=1)
         self._stop_event = threading.Event()
         self._worker = threading.Thread(target=self._worker_loop, daemon=True)
         self._worker.start()
@@ -98,7 +101,16 @@ class ProjectAutosaveManager:
             return
         if snapshot is None:
             return
-        self._write_queue.put((snapshot, slot_path))
+        item = (snapshot, slot_path)
+        try:
+            self._write_queue.put_nowait(item)
+        except queue.Full:
+            try:
+                self._write_queue.get_nowait()
+                self._write_queue.task_done()
+            except queue.Empty:
+                pass
+            self._write_queue.put_nowait(item)
 
     def _get_snapshot_on_main(self) -> AutosaveSnapshot | None:
         if self.dispatch_to_main is None:
@@ -150,7 +162,15 @@ class ProjectAutosaveManager:
                 self._timer.cancel()
                 self._timer = None
         self._stop_event.set()
-        self._write_queue.put(None)
+        try:
+            self._write_queue.put_nowait(None)
+        except queue.Full:
+            try:
+                self._write_queue.get_nowait()
+                self._write_queue.task_done()
+            except queue.Empty:
+                pass
+            self._write_queue.put_nowait(None)
         self._worker.join(timeout=2.0)
 
     def autosave_paths(self) -> list[Path]:

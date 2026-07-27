@@ -101,6 +101,23 @@ class ProjectStore:
     ) -> None:
         target = normalize_project_save_path(target_path)
         target.parent.mkdir(parents=True, exist_ok=True)
+        images_manifest_to_write = {
+            **dict(images_manifest or {}),
+            "images": [],
+        }
+        for raw_entry in list(dict(images_manifest or {}).get("images", []) or []):
+            if not isinstance(raw_entry, dict):
+                continue
+            entry = dict(raw_entry)
+            absolute = str(entry.get("absolute_path") or "").strip()
+            if absolute:
+                try:
+                    relative = os.path.relpath(absolute, start=str(target.parent))
+                except (OSError, ValueError):
+                    relative = ""
+                if relative:
+                    entry["relative_path"] = Path(relative).as_posix()
+            images_manifest_to_write["images"].append(entry)
         event_segment_by_id = _build_event_segment_map(project_state, event_payloads)
         project_state_to_write = _project_state_with_persisted_event_refs(
             project_state,
@@ -115,13 +132,13 @@ class ProjectStore:
         try:
             with zipfile.ZipFile(tmp_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
                 write_json(zf, "project_state.json", project_state_to_write)
-                write_json(zf, "images.json", images_manifest)
+                write_json(zf, "images.json", images_manifest_to_write)
                 write_json(zf, "roi.json", roi_data)
 
                 embedded_map = {}
                 if embed_images:
                     used_arcnames: set[str] = set()
-                    for entry in images_manifest.get("images", []):
+                    for entry in images_manifest_to_write.get("images", []):
                         src = entry.get("absolute_path") or entry.get("relative_path")
                         if not src:
                             continue
@@ -216,9 +233,14 @@ class ProjectStore:
                     else:
                         extract_root = Path(extract_embedded_to)
                         extract_root.mkdir(parents=True, exist_ok=True)
+                    used_output_names: set[str] = set()
                     for image_id, arcname in embedded_map.items():
                         try:
-                            out_path = extract_root / Path(arcname).name
+                            safe_arcname = reserve_embedded_image_arcname(
+                                Path(arcname).name,
+                                used_output_names,
+                            )
+                            out_path = extract_root / Path(safe_arcname).name
                             with zf.open(arcname, "r") as src_f, out_path.open("wb") as out_f:
                                 out_f.write(src_f.read())
                             extracted[str(image_id)] = str(out_path)

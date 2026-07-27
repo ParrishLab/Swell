@@ -10,7 +10,11 @@ from swell.shared.ui import dialogs as messagebox
 from swell.shared.ui.theme import SPACING, apply_theme
 from swell.host.host_models import stack_ref_from_stack_info
 from swell.host.stack_reader import StackReader
-from swell.shared.frame_source.source_identity import canonical_dtype_name, source_identity
+from swell.shared.frame_source.source_identity import (
+    canonical_dtype_name,
+    decoded_source_fingerprint,
+    source_identity_for_saved_ref,
+)
 from swell.shared.persistence.schema import (
     METADATA_EMBED_IMAGES_KEY,
     PROJECT_EXTENSION,
@@ -149,8 +153,14 @@ class HostProjectLifecycleController:
         except Exception:
             return "average"
 
-    def _create_stack_reader(self) -> StackReader:
-        return StackReader(channel_mode_resolver=self._select_stack_channel_mode)
+    def _create_stack_reader(self, stack_ref=None) -> StackReader:
+        channel_mode = str(getattr(stack_ref, "channel_mode", "") or "").strip().lower()
+        if channel_mode not in {"average", "first"}:
+            channel_mode = None
+        return StackReader(
+            channel_mode_resolver=self._select_stack_channel_mode,
+            channel_mode=channel_mode,
+        )
 
     def _stack_missing_reason(self) -> str | None:
         reader = getattr(self.app, "reader", None)
@@ -178,17 +188,23 @@ class HostProjectLifecycleController:
         if not replacement:
             self.app._show_warning(title, f"Stack folder is missing and was not rebound:\n\n{missing}")
             return False
-        reader = self._create_stack_reader()
-        stack_info = reader.open_stack(replacement)
         session = getattr(self.app.browser_controller, "session", None)
         state_getter = getattr(session, "state", None)
         expected_ref = getattr(state_getter(), "stack_ref", None) if callable(state_getter) else None
-        if expected_ref is not None and not self._stack_info_matches_ref(stack_info, expected_ref, reader=reader):
-            self.app._show_warning(
-                title,
-                "The selected replacement stack does not match the saved frame count, dimensions, or dtype.",
+        reader = self._create_stack_reader(expected_ref)
+        stack_info = reader.open_stack(replacement)
+        if expected_ref is not None:
+            accepted, warning = self._replacement_stack_is_acceptable(
+                stack_info,
+                expected_ref,
+                reader=reader,
+                replacement=str(replacement),
+                title=title,
             )
-            return False
+            if not accepted:
+                if warning:
+                    self.app._show_warning(title, warning)
+                return False
         self.app.reader = reader
         self.app.stack_info = stack_info
         self.app.browser_controller.bind_frame_source(reader)
@@ -416,16 +432,20 @@ class HostProjectLifecycleController:
                 input_dir = str(stack_ref.input_dir)
                 if Path(input_dir).exists():
                     # On-disk source preferred: no extraction even if images are embedded.
-                    reader = self._create_stack_reader()
+                    reader = self._create_stack_reader(stack_ref)
                     stack_info = reader.open_stack(input_dir)
                     if not self._stack_info_matches_ref(stack_info, stack_ref, reader=reader):
                         reader = None
                         stack_info = None
                         extracted_dir = self._extract_embedded_stack(path)
                         if extracted_dir:
-                            embedded_reader = self._create_stack_reader()
+                            embedded_reader = self._create_stack_reader(stack_ref)
                             embedded_info = embedded_reader.open_stack(extracted_dir)
-                            if self._stack_info_matches_ref(embedded_info, stack_ref, reader=embedded_reader):
+                            if self._embedded_stack_matches_ref(
+                                embedded_info,
+                                stack_ref,
+                                reader=embedded_reader,
+                            ):
                                 reader = embedded_reader
                                 stack_info = embedded_info
                                 used_embedded = True
@@ -436,21 +456,35 @@ class HostProjectLifecycleController:
                             lambda: self._prompt_rebind_missing_stack_folder(input_dir)
                         ) if reader is None else None
                         if replacement and reader is None:
-                            reader = self._create_stack_reader()
+                            reader = self._create_stack_reader(stack_ref)
                             stack_info = reader.open_stack(replacement)
-                            if not self._stack_info_matches_ref(stack_info, stack_ref, reader=reader):
+                            accepted, replacement_warning = self._replacement_stack_is_acceptable(
+                                stack_info,
+                                stack_ref,
+                                reader=reader,
+                                replacement=str(replacement),
+                                title="Open Swell Project",
+                            )
+                            if not accepted:
                                 reader = None
                                 stack_info = None
+                                warning = replacement_warning
                         if reader is None or stack_info is None:
-                            warning = "The recorded or replacement stack did not match the saved frame count, dimensions, or dtype."
+                            warning = warning or (
+                                "The recorded or replacement stack did not match the saved stack."
+                            )
                 else:
                     # Source folder moved/deleted: fall back to embedded images if present,
                     # otherwise prompt the user to rebind a replacement folder.
                     extracted_dir = self._extract_embedded_stack(path)
                     if extracted_dir:
-                        reader = self._create_stack_reader()
+                        reader = self._create_stack_reader(stack_ref)
                         stack_info = reader.open_stack(extracted_dir)
-                        if self._stack_info_matches_ref(stack_info, stack_ref, reader=reader):
+                        if self._embedded_stack_matches_ref(
+                            stack_info,
+                            stack_ref,
+                            reader=reader,
+                        ):
                             used_embedded = True
                         else:
                             self._cleanup_extract_dir_path(extracted_dir)
@@ -463,14 +497,19 @@ class HostProjectLifecycleController:
                     if reader is None or stack_info is None:
                         replacement = self._run_on_ui_thread(lambda: self._prompt_rebind_missing_stack_folder(input_dir))
                         if replacement:
-                            reader = self._create_stack_reader()
+                            reader = self._create_stack_reader(stack_ref)
                             stack_info = reader.open_stack(replacement)
-                            if not self._stack_info_matches_ref(stack_info, stack_ref, reader=reader):
+                            accepted, replacement_warning = self._replacement_stack_is_acceptable(
+                                stack_info,
+                                stack_ref,
+                                reader=reader,
+                                replacement=str(replacement),
+                                title="Open Swell Project",
+                            )
+                            if not accepted:
                                 reader = None
                                 stack_info = None
-                                warning = (
-                                    "The selected replacement stack did not match the saved frame count, dimensions, or dtype."
-                                )
+                                warning = replacement_warning
                         else:
                             warning = f"Stack folder is missing and was not rebound:\n\n{input_dir}"
             return {
@@ -634,28 +673,160 @@ class HostProjectLifecycleController:
             shutil.rmtree(path, ignore_errors=True)
 
     @staticmethod
-    def _stack_info_matches_ref(stack_info, stack_ref, *, reader=None) -> bool:
+    def _stack_ref_mismatches(
+        stack_info,
+        stack_ref,
+        *,
+        reader=None,
+    ) -> tuple[list[str], list[str]]:
+        structural: list[str] = []
+        labels = {
+            "frame_count": "frame count",
+            "frame_height": "frame height",
+            "frame_width": "frame width",
+        }
         for attr in ("frame_count", "frame_height", "frame_width"):
             ref_value = getattr(stack_ref, attr, None)
             info_value = getattr(stack_info, attr, None)
             if ref_value is None or info_value is None:
                 continue
             if int(ref_value) != int(info_value):
-                return False
+                structural.append(
+                    f"{labels[attr]} is {info_value}; the project expects {ref_value}"
+                )
         ref_dtype = canonical_dtype_name(getattr(stack_ref, "dtype", ""))
         info_dtype = canonical_dtype_name(getattr(stack_info, "dtype", ""))
         if ref_dtype and info_dtype and ref_dtype != info_dtype:
-            return False
+            structural.append(f"dtype is {info_dtype}; the project expects {ref_dtype}")
+
+        identity: list[str] = []
         expected_names = str(getattr(stack_ref, "frame_names_digest", "") or "")
         expected_source = str(getattr(stack_ref, "source_fingerprint", "") or "")
-        if (expected_names or expected_source) and reader is None:
+        expected_decoded = str(getattr(stack_ref, "decoded_fingerprint", "") or "")
+        if (expected_names or expected_source or expected_decoded) and reader is None:
+            identity.append("the saved filename/content identity could not be verified")
+        elif reader is not None and (expected_names or expected_source or expected_decoded):
+            actual = source_identity_for_saved_ref(reader, expected_source)
+            source_matches = bool(
+                expected_source
+                and actual.get("source_fingerprint") == expected_source
+            )
+            if (
+                expected_names
+                and actual.get("frame_names_digest") != expected_names
+                and not source_matches
+            ):
+                identity.append("the ordered filenames differ from the saved stack")
+            if expected_source and not source_matches:
+                identity.append(
+                    "the source-file content fingerprint differs from the saved stack"
+                )
+            if (
+                expected_decoded
+                and decoded_source_fingerprint(reader) != expected_decoded
+            ):
+                identity.append(
+                    "the decoded pixel fingerprint differs from the saved stack"
+                )
+        return structural, identity
+
+    @staticmethod
+    def _structural_mismatch_message(mismatches: list[str]) -> str:
+        details = "\n".join(f"• {item}" for item in mismatches)
+        return (
+            "The selected replacement stack does not match the saved stack and is "
+            f"structurally incompatible:\n\n{details}"
+        )
+
+    def _confirm_identity_mismatch(
+        self,
+        *,
+        replacement: str,
+        mismatches: list[str],
+        title: str,
+    ) -> bool:
+        details = "\n".join(f"• {item}" for item in mismatches)
+        return bool(
+            messagebox.askyesno(
+                title,
+                (
+                    "The replacement has the saved frame count, dimensions, and dtype, "
+                    "but its saved identity check differs.\n\n"
+                    f"Selected folder:\n{replacement}\n\n"
+                    f"{details}\n\n"
+                    "This can happen when the same stack is read on another operating "
+                    "system or with a different image codec, but it can also indicate a "
+                    "modified, reordered, or different stack.\n\n"
+                    "Use this replacement and update the project to its new path and "
+                    "identity?"
+                ),
+                parent=self._dialog_parent(),
+            )
+        )
+
+    def _replacement_stack_is_acceptable(
+        self,
+        stack_info,
+        stack_ref,
+        *,
+        reader,
+        replacement: str,
+        title: str,
+    ) -> tuple[bool, str | None]:
+        structural, identity = self._stack_ref_mismatches(
+            stack_info,
+            stack_ref,
+            reader=reader,
+        )
+        if structural:
+            return False, self._structural_mismatch_message(structural)
+        if not identity:
+            return True, None
+        accepted = self._run_on_ui_thread(
+            lambda: self._confirm_identity_mismatch(
+                replacement=replacement,
+                mismatches=identity,
+                title=title,
+            )
+        )
+        if not accepted:
+            return False, None
+        log_warn = getattr(self.app, "_log_warn", None)
+        if callable(log_warn):
+            log_warn(
+                "Accepted a structurally compatible replacement stack after its saved "
+                f"identity check differed: {replacement}"
+            )
+        return True, None
+
+    @staticmethod
+    def _stack_info_matches_ref(stack_info, stack_ref, *, reader=None) -> bool:
+        structural, identity = HostProjectLifecycleController._stack_ref_mismatches(
+            stack_info,
+            stack_ref,
+            reader=reader,
+        )
+        return not structural and not identity
+
+    @staticmethod
+    def _embedded_stack_matches_ref(stack_info, stack_ref, *, reader=None) -> bool:
+        structural, _identity = HostProjectLifecycleController._stack_ref_mismatches(
+            stack_info,
+            stack_ref,
+            reader=reader,
+        )
+        if structural:
             return False
-        if reader is not None and (expected_names or expected_source):
-            actual = source_identity(reader)
-            if expected_names and actual.get("frame_names_digest") != expected_names:
+        expected_decoded = str(
+            getattr(stack_ref, "decoded_fingerprint", "") or ""
+        )
+        if expected_decoded:
+            if reader is None:
                 return False
-            if expected_source and actual.get("source_fingerprint") != expected_source:
-                return False
+            return decoded_source_fingerprint(reader) == expected_decoded
+        # Embedded files are part of the checksummed project ZIP itself. Legacy
+        # projects may need safe extraction names on Windows, so filename-based
+        # identities are not required once structural compatibility is proven.
         return True
 
     def _confirm_save_embedding_cost(self) -> bool:

@@ -75,6 +75,25 @@ def test_resolve_roi_mask_falls_back_to_roi_polygons() -> None:
     assert not mask[0, 0]
 
 
+def test_export_frame_sanitizes_reserved_and_long_source_names(tmp_path: Path) -> None:
+    reader = FakeReader([np.zeros((3, 3), dtype=np.uint8)], source_ext=".tif")
+    unsafe_stem = "CON:" + ("x" * 250)
+    reader._refs[0] = FrameRef(
+        frame_idx=0,
+        source_path=Path(f"/fake/{unsafe_stem}.tif"),
+        page_index=None,
+        source_ext=".tif",
+        frame_name=f"{unsafe_stem}.tif",
+    )
+
+    record = exporter._export_frame(reader, 0, tmp_path, "event", "event", None)
+    output_name = Path(record.output_path).name
+
+    assert Path(record.output_path).exists()
+    assert len(output_name) <= 180
+    assert not any(char in output_name for char in '<>:"/\\|?*')
+
+
 def _load_manifest_rows(csv_path: Path) -> list[dict]:
     with csv_path.open("r", newline="", encoding="utf-8") as f:
         return list(csv.DictReader(f))

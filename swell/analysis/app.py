@@ -14,6 +14,7 @@ from swell.shared.ui import dialogs as messagebox
 import numpy as np
 
 from swell.shared.config import AppConfig
+from swell.shared.metrics_defaults import DEFAULT_SCALE_AXIS_LOCK
 from swell.analysis.core.io import IOActions
 from swell.analysis.core.segmentation import SegmentationActions
 from swell.analysis.core.render import RenderActions
@@ -157,7 +158,7 @@ class SwellAnalysisApp(LayoutBuilder, IOActions, SegmentationActions, RenderActi
         self.roi_points = []
         self.roi_polygons = []
         self.scale_points = []
-        self.scale_axis_lock = True
+        self.scale_axis_lock = DEFAULT_SCALE_AXIS_LOCK
         self._scale_is_local_override = False
         self._roi_is_local_override = False
         self._frames_per_sec_is_local_override = False
@@ -195,6 +196,9 @@ class SwellAnalysisApp(LayoutBuilder, IOActions, SegmentationActions, RenderActi
         self._pending_display_update = False
         self._pending_display_preview = True
         self._pending_leverage_recompute_job = None
+        self._leverage_worker_lock = threading.Lock()
+        self._pending_leverage_request = None
+        self._leverage_worker_active = False
         self._propagation_progress_active = False
         self._timeline_progress_state = None
         self._timeline_progress_item_ids = {}
@@ -374,6 +378,7 @@ class SwellAnalysisApp(LayoutBuilder, IOActions, SegmentationActions, RenderActi
             can_mutate_segmentation=self._segmentation_edits_allowed,
             on_mutation_blocked=self._on_segmentation_edit_blocked,
             on_region_validation_error=self._show_region_validation_error,
+            redraw_interaction_overlays=self._redraw_interaction_overlays,
         )
         self.app_context = AppContext(
             app_root=Path(self.app_root),
@@ -1829,7 +1834,7 @@ class SwellAnalysisApp(LayoutBuilder, IOActions, SegmentationActions, RenderActi
         return overlay_renderer.recompute_slider_jump_markers(self)
 
     def _recompute_leverage_map(self):
-        from swell.analysis.core.leverage import compute_leverage, compute_trouble
+        from swell.analysis.core.leverage import TROUBLE_SAMPLE_MAX, compute_leverage, compute_trouble
 
         seg_state = getattr(self, "seg_state", None)
         if seg_state is None:
@@ -1839,15 +1844,18 @@ class SwellAnalysisApp(LayoutBuilder, IOActions, SegmentationActions, RenderActi
             seg_state.set_leverage_map({}, None)
             return
         shape = self._get_frame_shape()
-        candidates = seg_state.get_exportable_mask_frames(fc, shape)
+        candidates = seg_state._candidate_nonempty_final_mask_frames(fc, include_regions=True)
         if not candidates:
             seg_state.set_leverage_map({}, None)
             return
         masks = {}
         for frame_idx in sorted(candidates):
             mask = seg_state.compose_final_mask(frame_idx, shape)
-            if mask is not None:
-                masks[int(frame_idx)] = np.asarray(mask, dtype=bool)
+            if mask is None or not np.any(mask):
+                continue
+            mask_arr = np.asarray(mask, dtype=bool)
+            step = max(1, int(max(mask_arr.shape) // TROUBLE_SAMPLE_MAX))
+            masks[int(frame_idx)] = np.ascontiguousarray(mask_arr[::step, ::step])
         user = seg_state.get_prompt_anchor_frames(fc)
         trouble = compute_trouble(masks, fc, shape, user)
         leverage, suggested = compute_leverage(trouble, fc)
@@ -1860,16 +1868,98 @@ class SwellAnalysisApp(LayoutBuilder, IOActions, SegmentationActions, RenderActi
                 self.root.after_cancel(existing)
             except Exception:
                 pass
+        generation = int(getattr(self, "_leverage_recompute_generation", 0) or 0) + 1
+        self._leverage_recompute_generation = generation
         if not self._ui_alive():
             self._recompute_leverage_map()
             return
 
         def _run():
             self._pending_leverage_recompute_job = None
-            self._recompute_leverage_map()
-            self._redraw_slider_overlay()
+            self._queue_leverage_worker(generation)
 
         self._pending_leverage_recompute_job = self.root.after(max(0, int(delay_ms)), _run)
+
+    def _queue_leverage_worker(self, generation: int) -> None:
+        from swell.analysis.core.leverage import TROUBLE_SAMPLE_MAX
+
+        seg_state = getattr(self, "seg_state", None)
+        if seg_state is None:
+            return
+        frame_count = int(self._get_frame_count())
+        if frame_count <= 0:
+            seg_state.set_leverage_map({}, None)
+            return
+        shape = tuple(int(v) for v in self._get_frame_shape()[:2])
+        candidates = sorted(seg_state._candidate_nonempty_final_mask_frames(frame_count, include_regions=True))
+        request = {
+            "generation": int(generation),
+            "content_generation": int(getattr(seg_state, "content_generation", 0) or 0),
+            "frame_count": frame_count,
+            "shape": shape,
+            "candidates": candidates,
+            "user_frames": seg_state.get_prompt_anchor_frames(frame_count),
+            "sample_max": int(TROUBLE_SAMPLE_MAX),
+        }
+        worker_lock = getattr(self, "_leverage_worker_lock", None)
+        if worker_lock is None:
+            worker_lock = threading.Lock()
+            self._leverage_worker_lock = worker_lock
+        with worker_lock:
+            self._pending_leverage_request = request
+            if bool(getattr(self, "_leverage_worker_active", False)):
+                return
+            self._leverage_worker_active = True
+
+        def _worker() -> None:
+            from swell.analysis.core.leverage import compute_leverage, compute_trouble
+
+            while True:
+                with worker_lock:
+                    current = getattr(self, "_pending_leverage_request", None)
+                    self._pending_leverage_request = None
+                    if current is None:
+                        self._leverage_worker_active = False
+                        return
+                masks = {}
+                for frame_idx in current["candidates"]:
+                    if int(getattr(seg_state, "content_generation", 0) or 0) != int(current["content_generation"]):
+                        break
+                    mask = seg_state.compose_final_mask(int(frame_idx), current["shape"])
+                    if mask is None or not np.any(mask):
+                        continue
+                    arr = np.asarray(mask, dtype=bool)
+                    step = max(1, int(max(arr.shape) // int(current["sample_max"])))
+                    masks[int(frame_idx)] = np.ascontiguousarray(arr[::step, ::step])
+                else:
+                    trouble = compute_trouble(
+                        masks,
+                        int(current["frame_count"]),
+                        current["shape"],
+                        set(current["user_frames"]),
+                    )
+                    leverage, suggested = compute_leverage(trouble, int(current["frame_count"]))
+
+                    def _apply(
+                        *,
+                        result_generation=int(current["generation"]),
+                        result_content=int(current["content_generation"]),
+                        values=leverage,
+                        target=suggested,
+                    ) -> None:
+                        if result_generation != int(getattr(self, "_leverage_recompute_generation", 0) or 0):
+                            return
+                        if result_content != int(getattr(seg_state, "content_generation", 0) or 0):
+                            return
+                        seg_state.set_leverage_map(values, target)
+                        self._redraw_slider_overlay()
+
+                    try:
+                        self.root.after(0, _apply)
+                    except Exception:
+                        pass
+
+        threading.Thread(target=_worker, daemon=True, name="swell-leverage").start()
 
     def _find_clicked_marker_frame(self, x_px):
         return overlay_renderer.find_clicked_marker_frame(self, x_px)
@@ -2172,22 +2262,31 @@ class SwellAnalysisApp(LayoutBuilder, IOActions, SegmentationActions, RenderActi
     def _build_autosave_snapshot(self) -> AutosaveSnapshot | None:
         if not self._has_loaded_stack():
             return None
-        state, images_manifest, roi_data, event_payloads = self._build_project_payload()
+        session_snapshot = self._build_session_snapshot()
         return AutosaveSnapshot(
-            project_state=state,
-            images_manifest=images_manifest,
-            roi_data=roi_data,
-            event_payloads=event_payloads,
+            project_state={},
+            images_manifest={},
+            roi_data={},
+            event_payloads={},
             embed_images=bool(getattr(self, "_project_embed_images", False)),
+            session_snapshot=session_snapshot,
         )
 
     def _write_autosave_snapshot(self, snapshot: AutosaveSnapshot, target_path: Path) -> None:
+        state = snapshot.project_state
+        images_manifest = snapshot.images_manifest
+        roi_data = snapshot.roi_data
+        event_payloads = snapshot.event_payloads
+        if snapshot.session_snapshot is not None:
+            state, images_manifest, roi_data, event_payloads = self.project_session_service.build_payload(
+                snapshot.session_snapshot
+            )
         self.project_store.save(
             target_path,
-            snapshot.project_state,
-            snapshot.images_manifest,
-            snapshot.roi_data,
-            snapshot.event_payloads,
+            state,
+            images_manifest,
+            roi_data,
+            event_payloads,
             embed_images=bool(snapshot.embed_images),
         )
 
@@ -2215,13 +2314,13 @@ class SwellAnalysisApp(LayoutBuilder, IOActions, SegmentationActions, RenderActi
             except Exception:
                 pass
 
-    def _build_project_payload(self):
+    def _build_session_snapshot(self) -> SessionSnapshot:
         if self.frame_source is None or not self._has_loaded_stack():
             raise RuntimeError("No loaded stack to save.")
         frame_count = self._get_frame_count()
         prop_start = int(self.spin_prop_start.get())
         prop_end = int(self.spin_prop_end.get())
-        snapshot = self.analysis_workspace.build_session_snapshot(
+        return self.analysis_workspace.build_session_snapshot(
             WorkspaceUiState(
                 current_frame_idx=int(self.current_frame_idx),
                 tool_mode=str(self.tool_mode.get()),
@@ -2245,7 +2344,9 @@ class SwellAnalysisApp(LayoutBuilder, IOActions, SegmentationActions, RenderActi
                 created_at=self._project_created_at,
             )
         )
-        return self.project_session_service.build_payload(snapshot)
+
+    def _build_project_payload(self):
+        return self.project_session_service.build_payload(self._build_session_snapshot())
 
     def _host_ui_hints(self) -> dict[str, object]:
         tool = "select"
@@ -2464,21 +2565,34 @@ class SwellAnalysisApp(LayoutBuilder, IOActions, SegmentationActions, RenderActi
                 tags="paint_preview",
             )
             return
-        self.canvas_left.create_line(
-            x0,
-            y0,
-            x1,
-            y1,
-            fill=color,
-            width=width,
-            capstyle=tk.ROUND,
-            joinstyle=tk.ROUND,
-            smooth=False,
-            tags="paint_preview",
-        )
+        coords = list(getattr(self, "_paint_preview_chunk_coords", []) or [])
+        item = getattr(self, "_paint_preview_chunk_item", None)
+        style = getattr(self, "_paint_preview_chunk_style", None)
+        if item is None or len(coords) >= 64 or style != (color, width):
+            coords = [float(x0), float(y0), float(x1), float(y1)]
+            item = self.canvas_left.create_line(
+                *coords,
+                fill=color,
+                width=width,
+                capstyle=tk.ROUND,
+                joinstyle=tk.ROUND,
+                smooth=False,
+                tags="paint_preview",
+            )
+            self._paint_preview_chunk_item = item
+            self._paint_preview_chunk_style = (color, width)
+        else:
+            last_x, last_y = coords[-2], coords[-1]
+            if abs(float(x1) - last_x) >= 0.5 or abs(float(y1) - last_y) >= 0.5:
+                coords.extend([float(x1), float(y1)])
+                self.canvas_left.coords(item, *coords)
+        self._paint_preview_chunk_coords = coords
 
     def _clear_paint_preview_on_canvas(self):
         self.canvas_left.delete("paint_preview")
+        self._paint_preview_chunk_item = None
+        self._paint_preview_chunk_coords = []
+        self._paint_preview_chunk_style = None
 
     def _draw_box_preview_on_canvas(self, x0, y0, x1, y1):
         self.canvas_left.delete("box_preview")

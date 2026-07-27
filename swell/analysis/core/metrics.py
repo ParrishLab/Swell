@@ -66,6 +66,48 @@ def smooth_boundary_fft(boundary_xy: np.ndarray, n_keep: int = 25) -> np.ndarray
     return np.column_stack((y_smooth, x_smooth))
 
 
+def _outward_boundary_distances(inner_b: np.ndarray, outer_b: np.ndarray) -> np.ndarray:
+    """Vectorized approximation of pointPolygonTest(..., measureDist=True).
+
+    Boundaries originate from pixel contours, so a raster distance transform
+    preserves their effective precision while avoiding one Python/OpenCV call
+    per contour point.
+    """
+    inner_xy = np.asarray(inner_b, dtype=np.float64)[:, [1, 0]]
+    outer_xy = np.asarray(outer_b, dtype=np.float64)[:, [1, 0]]
+    all_xy = np.vstack((inner_xy, outer_xy))
+    pad = 3
+    min_x = int(np.floor(np.min(all_xy[:, 0]))) - pad
+    min_y = int(np.floor(np.min(all_xy[:, 1]))) - pad
+    max_x = int(np.ceil(np.max(all_xy[:, 0]))) + pad
+    max_y = int(np.ceil(np.max(all_xy[:, 1]))) + pad
+    width = max(1, max_x - min_x + 1)
+    height = max(1, max_y - min_y + 1)
+
+    inner_mask = np.zeros((height, width), dtype=np.uint8)
+    shifted_inner = np.rint(
+        inner_xy - np.asarray([min_x, min_y], dtype=np.float64)
+    ).astype(np.int32)
+    cv2.fillPoly(inner_mask, [shifted_inner.reshape(-1, 1, 2)], 1)
+    outside_distance = cv2.distanceTransform(1 - inner_mask, cv2.DIST_L2, cv2.DIST_MASK_PRECISE)
+
+    shifted_outer = outer_xy - np.asarray([min_x, min_y], dtype=np.float64)
+    map_x = shifted_outer[:, 0].astype(np.float32).reshape(1, -1)
+    map_y = shifted_outer[:, 1].astype(np.float32).reshape(1, -1)
+    sampled = cv2.remap(
+        outside_distance,
+        map_x,
+        map_y,
+        interpolation=cv2.INTER_LINEAR,
+        borderMode=cv2.BORDER_CONSTANT,
+        borderValue=0,
+    ).reshape(-1)
+    nearest_x = np.clip(np.rint(shifted_outer[:, 0]).astype(np.intp), 0, width - 1)
+    nearest_y = np.clip(np.rint(shifted_outer[:, 1]).astype(np.intp), 0, height - 1)
+    sampled[inner_mask[nearest_y, nearest_x] != 0] = 0.0
+    return np.asarray(sampled, dtype=np.float64)
+
+
 def compute_frame_metrics(boundaries: List[Optional[np.ndarray]], min_dist_px: float = 2.0) -> dict:
     n = len(boundaries)
     areas_px = np.full(n, np.nan, dtype=np.float64)
@@ -86,17 +128,11 @@ def compute_frame_metrics(boundaries: List[Optional[np.ndarray]], min_dist_px: f
         if inner_b is None or outer_b is None:
             continue
         transition_valid[q] = True
-        outer_xy = outer_b[:, [1, 0]].astype(np.float64)
-        if len(inner_b) < 3 or len(outer_xy) == 0:
+        if len(inner_b) < 3 or len(outer_b) == 0:
             continue
 
         # Compute outward displacement by sampling frame q points against the frame q-1 boundary.
-        inner_contour = inner_b[:, [1, 0]].astype(np.float32).reshape(-1, 1, 2)
-        signed_to_prev = np.array(
-            [cv2.pointPolygonTest(inner_contour, (float(x), float(y)), True) for x, y in outer_xy],
-            dtype=np.float64,
-        )
-        outward_disp = np.maximum(0.0, -signed_to_prev)
+        outward_disp = _outward_boundary_distances(inner_b, outer_b)
         active_disp = outward_disp[outward_disp > float(min_dist_px)]
         if active_disp.size > 0:
             avg_dist_px[q] = float(np.mean(active_disp))

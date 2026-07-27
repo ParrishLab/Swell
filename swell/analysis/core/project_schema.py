@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any, Dict
 
+from swell.shared.metrics_defaults import DEFAULT_SCALE_AXIS_LOCK
 from swell.shared.persistence.event_path import sanitize_event_path_segment
 
 
@@ -36,7 +37,7 @@ def default_project_state(app_version: str = "dev") -> Dict[str, Any]:
         "global": {
             "scale_px_per_mm": None,
             "scale_points": [],
-            "scale_axis_lock": True,
+            "scale_axis_lock": DEFAULT_SCALE_AXIS_LOCK,
             "scale_image_path": "",
             "roi": {"ref": "roi.json"},
             "baseline_frame_count": 30,

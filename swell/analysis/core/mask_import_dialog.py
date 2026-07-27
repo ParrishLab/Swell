@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import re
 from pathlib import Path
 from typing import Optional
 
@@ -14,18 +13,12 @@ from PIL import Image, ImageTk
 from swell.shared.ui.theme import APP_COLORS, SPACING, apply_theme
 from swell.shared.ui.bootstrap import center_window_on_screen, semantic_button_options, ttk
 from swell.shared.image_overlay import apply_mask_overlay
+from swell.shared.frame_source.stack_files import natural_stack_sort_key
 
 
 class MaskImportDialogService:
     def path_natural_key(self, path: str | Path):
-        parts = re.split(r"(\d+)", Path(path).name.lower())
-        key = []
-        for part in parts:
-            if part.isdigit():
-                key.append(int(part))
-            else:
-                key.append(part)
-        return key
+        return natural_stack_sort_key(path)
 
     def collect_mask_paths_from_folder(self, folder: str | Path) -> list[Path]:
         p = Path(folder)

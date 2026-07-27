@@ -84,6 +84,7 @@ class InteractionController:
         can_mutate_segmentation=None,
         on_mutation_blocked=None,
         on_region_validation_error=None,
+        redraw_interaction_overlays=None,
     ):
         self.seg_state = seg_state
         self.points = points
@@ -137,6 +138,7 @@ class InteractionController:
         self.can_mutate_segmentation = can_mutate_segmentation
         self.on_mutation_blocked = on_mutation_blocked
         self.on_region_validation_error = on_region_validation_error
+        self.redraw_interaction_overlays = redraw_interaction_overlays
         self._pending_dirty = False
         self._box_drag_start_img = None
         self._box_drag_start_canvas = None
@@ -153,6 +155,13 @@ class InteractionController:
         self._region_draft_drag_handle = None
         self._region_draft_drag_start_img = None
         self._region_draft_drag_ratio = 1.0
+
+    def _redraw_edit_overlays(self) -> None:
+        callback = self.redraw_interaction_overlays
+        if callable(callback):
+            callback()
+        else:
+            self.update_display()
 
     def reset_transient_state(self):
         """Clear gesture and draft state that must never cross project/tool boundaries."""
@@ -335,7 +344,7 @@ class InteractionController:
             self._region_draft_drag_ratio = max(float(ratio), 0.001)
             self.set_is_dragging(True)
             self.refresh_region_controls()
-            self.update_display()
+            self._redraw_edit_overlays()
         elif mode == "select":
             self._handle_selection(event)
             selected_point = self.get_selected_point()
@@ -400,11 +409,13 @@ class InteractionController:
                     "minus": self.paint_layers[idx]["minus"].copy(),
                 }
 
-            self.record_action("paint", idx, paint_before, data_after)
+            paint_changed = not self._paint_payloads_equal(paint_before, data_after)
+            if paint_changed:
+                self.record_action("paint", idx, paint_before, data_after)
             self.set_paint_snapshot_before(None)
             self.update_display(update_preview=True)
             self.recompute_slider_jump_markers()
-            if not self._paint_payloads_equal(paint_before, data_after):
+            if paint_changed:
                 self._pending_dirty = True
 
         if mode == "box":
@@ -438,7 +449,7 @@ class InteractionController:
                     if before != after:
                         self.record_action("box", idx, before, after)
                         self.seg_state.invalidate_user_frames()
-                        self.seg_state.invalidate_final_mask_frames()
+                        self.seg_state.invalidate_final_mask_frames(idx)
                         self.recompute_slider_jump_markers()
                         self._pending_dirty = True
                     if self.get_model_ready():
@@ -460,7 +471,7 @@ class InteractionController:
                 if box_before != box_after:
                     self.record_action("box", idx, box_before, box_after)
                     self.seg_state.invalidate_user_frames()
-                    self.seg_state.invalidate_final_mask_frames()
+                    self.seg_state.invalidate_final_mask_frames(idx)
                     self._pending_dirty = True
             else:
                 points_before = self.get_points_snapshot_before()
@@ -469,15 +480,20 @@ class InteractionController:
                     if data_after != points_before:
                         self.record_action("point", idx, points_before, data_after)
                         self.seg_state.invalidate_user_frames()
-                        self.seg_state.invalidate_final_mask_frames()
+                        self.seg_state.invalidate_final_mask_frames(idx)
                         self._pending_dirty = True
 
         if mode == "select" and self._region_drag_snapshot_before is not None:
             before = copy.deepcopy(self._region_drag_record_before)
-            after = copy.deepcopy(self.seg_state.get_persistent_region(self.get_selected_region_id()))
+            region_id = self.get_selected_region_id()
+            after = copy.deepcopy(self.seg_state.get_persistent_region(region_id))
             if before != after:
                 self.record_action("region", idx, before, after)
-                self.seg_state.invalidate_final_mask_frames()
+                commit_preview = getattr(self.seg_state, "commit_persistent_region_preview", None)
+                if callable(commit_preview):
+                    commit_preview(region_id)
+                else:
+                    self.seg_state.invalidate_final_mask_frames(regions=True)
                 self.refresh_region_controls()
                 self._pending_dirty = True
 
@@ -1003,7 +1019,7 @@ class InteractionController:
             max(0.0, min(float(orig_h - 1), float(img_y))),
         ]
         draft.selected_idx = vertex_idx
-        self.update_display()
+        self._redraw_edit_overlays()
 
     def _move_selected_region(self, idx, img_x, img_y, orig_w, orig_h):
         region_id = self.get_selected_region_id()
@@ -1074,7 +1090,7 @@ class InteractionController:
             updated = bool(self.seg_state.update_persistent_region(region_id, {"polygon": polygon}))
         if updated:
             self._pending_dirty = True
-            self.update_display()
+            self._redraw_edit_overlays()
 
     def _move_selected_box(self, idx, img_x, img_y, orig_w, orig_h):
         if self._box_drag_start_img is None or self._box_drag_original is None:
@@ -1112,10 +1128,11 @@ class InteractionController:
             next_box = self.seg_state._normalize_box([next_x0, next_y0, next_x1, next_y1])
             if next_box is None:
                 return
-        self.seg_state.set_box(idx, next_box)
-        self.seg_state.invalidate_final_mask_frames()
+        # Keep drag motion canvas-only. The release path invalidates the frame
+        # and runs inference once after the final geometry is known.
+        self.boxes[int(idx)] = list(next_box)
         self._pending_dirty = True
-        self.update_display()
+        self._redraw_edit_overlays()
 
     def _canvas_event_to_image(self, event, *, clamp: bool = False):
         frame_count = int(self.get_frame_count())
@@ -1144,7 +1161,7 @@ class InteractionController:
         if coords is None:
             if self.get_selected_point() is not None:
                 self.set_selected_point(None)
-                self.update_display()
+                self._redraw_edit_overlays()
             return
         img_x, img_y, orig_w, orig_h, ratio, offset_x, offset_y = coords
         hit_kind, hit_value = self._resolve_select_hit(idx, event, img_x, img_y, ratio, offset_x, offset_y)
@@ -1156,7 +1173,7 @@ class InteractionController:
             if self.get_selected_region_id() != new_region_id:
                 self.set_selected_region_id(new_region_id)
                 self.refresh_region_controls()
-            self.update_display()
+            self._redraw_edit_overlays()
             return
 
         new_selection = hit_value if hit_kind in {"point", "box"} else None
@@ -1169,7 +1186,7 @@ class InteractionController:
 
         if self.get_selected_point() != new_selection:
             self.set_selected_point(new_selection)
-            self.update_display()
+            self._redraw_edit_overlays()
 
     def delete_selected_point(self, _event=None):
         selected_point = self.get_selected_point()
@@ -1183,7 +1200,7 @@ class InteractionController:
                 self.set_selected_point(None)
                 self.record_action("box", idx, data_before, None)
                 self.seg_state.invalidate_user_frames()
-                self.seg_state.invalidate_final_mask_frames()
+                self.seg_state.invalidate_final_mask_frames(idx)
 
                 if self.get_model_ready():
                     self.update_mask_prediction(idx)
@@ -1206,7 +1223,7 @@ class InteractionController:
                 self.record_action("point", idx, data_before, data_after)
                 self.prune_empty_point_frames()
                 self.seg_state.invalidate_user_frames()
-                self.seg_state.invalidate_final_mask_frames()
+                self.seg_state.invalidate_final_mask_frames(idx)
 
                 if self.get_model_ready():
                     self.update_mask_prediction(idx)
@@ -1259,9 +1276,8 @@ class InteractionController:
                 elif s_idx == idx and isinstance(s_pt_i, int) and idx in self.points and s_pt_i < len(self.points[idx]):
                     self.points[idx][s_pt_i]["x"] = img_x
                     self.points[idx][s_pt_i]["y"] = img_y
-                    self.seg_state.invalidate_final_mask_frames()
                     self._pending_dirty = True
-                    self.update_display()
+                    self._redraw_edit_overlays()
 
         elif mode in ["point_pos", "point_neg"]:
             if is_click:
@@ -1277,7 +1293,7 @@ class InteractionController:
                     self.points[idx] = []
                 self.points[idx].append({"x": img_x, "y": img_y, "label": label})
                 self.seg_state.invalidate_user_frames()
-                self.seg_state.invalidate_final_mask_frames()
+                self.seg_state.invalidate_final_mask_frames(idx)
 
                 data_after = copy.deepcopy(self.points.get(idx))
                 if mask_before is not None:
@@ -1322,6 +1338,21 @@ class InteractionController:
                 return self._apply_bucket_fill(idx, img_x, img_y, orig_w, orig_h)
         return False
 
+    @staticmethod
+    def _paint_layer_byte_views(layer, w, h, mode):
+        expected_shape = (int(h), int(w))
+        normalized = {}
+        for key in ("plus", "minus"):
+            arr = np.asarray(layer.get(key), dtype=bool)
+            if arr.shape != expected_shape:
+                raise ValueError(f"Paint layer {key!r} has shape {arr.shape}; expected {expected_shape}.")
+            if not arr.flags.c_contiguous or not arr.flags.writeable:
+                arr = np.array(arr, dtype=bool, copy=True, order="C")
+            layer[key] = arr
+            normalized[key] = arr
+        active_key, opposite_key = ("plus", "minus") if mode == "brush" else ("minus", "plus")
+        return normalized[active_key].view(np.uint8), normalized[opposite_key].view(np.uint8)
+
     def _apply_paint_line(self, frame_idx, x0, y0, x1, y1, mode, w, h):
         if frame_idx not in self.paint_layers:
             self.paint_layers[frame_idx] = {
@@ -1331,22 +1362,18 @@ class InteractionController:
 
         radius = int(self.brush_size.get())
         thickness = radius * 2
-
-        temp_mask = np.zeros((h, w), dtype=np.uint8)
-        cv2.line(temp_mask, (x0, y0), (x1, y1), 1, thickness)
-        cv2.circle(temp_mask, (x0, y0), radius, 1, -1)
-        cv2.circle(temp_mask, (x1, y1), radius, 1, -1)
-
-        mask_bool = temp_mask > 0
-
-        if mode == "brush":
-            self.paint_layers[frame_idx]["plus"][mask_bool] = True
-            self.paint_layers[frame_idx]["minus"][mask_bool] = False
-        else:
-            self.paint_layers[frame_idx]["minus"][mask_bool] = True
-            self.paint_layers[frame_idx]["plus"][mask_bool] = False
+        active_u8, opposite_u8 = self._paint_layer_byte_views(self.paint_layers[frame_idx], w, h, mode)
+        # NumPy bools use one byte with 0/1 values. Drawing through a uint8
+        # view preserves OpenCV's previous rasterization exactly while avoiding
+        # full-frame scratch arrays on every pointer event.
+        cv2.line(active_u8, (x0, y0), (x1, y1), 1, thickness)
+        cv2.circle(active_u8, (x0, y0), radius, 1, -1)
+        cv2.circle(active_u8, (x1, y1), radius, 1, -1)
+        cv2.line(opposite_u8, (x0, y0), (x1, y1), 0, thickness)
+        cv2.circle(opposite_u8, (x0, y0), radius, 0, -1)
+        cv2.circle(opposite_u8, (x1, y1), radius, 0, -1)
         self.seg_state.invalidate_user_frames()
-        self.seg_state.invalidate_final_mask_frames()
+        self.seg_state.invalidate_final_mask_frames(frame_idx)
 
     def _apply_paint(self, frame_idx, x, y, mode, w, h):
         if frame_idx not in self.paint_layers:
@@ -1356,18 +1383,11 @@ class InteractionController:
             }
 
         radius = int(self.brush_size.get())
-        temp_mask = np.zeros((h, w), dtype=np.uint8)
-        cv2.circle(temp_mask, (x, y), radius, 1, -1)
-        mask_bool = temp_mask > 0
-
-        if mode == "brush":
-            self.paint_layers[frame_idx]["plus"][mask_bool] = True
-            self.paint_layers[frame_idx]["minus"][mask_bool] = False
-        else:
-            self.paint_layers[frame_idx]["minus"][mask_bool] = True
-            self.paint_layers[frame_idx]["plus"][mask_bool] = False
+        active_u8, opposite_u8 = self._paint_layer_byte_views(self.paint_layers[frame_idx], w, h, mode)
+        cv2.circle(active_u8, (x, y), radius, 1, -1)
+        cv2.circle(opposite_u8, (x, y), radius, 0, -1)
         self.seg_state.invalidate_user_frames()
-        self.seg_state.invalidate_final_mask_frames()
+        self.seg_state.invalidate_final_mask_frames(frame_idx)
 
     def _paint_layer_snapshot(self, frame_idx):
         if frame_idx not in self.paint_layers:
@@ -1400,7 +1420,7 @@ class InteractionController:
             return False
         self.record_action("paint", frame_idx, before, after)
         self.seg_state.invalidate_user_frames()
-        self.seg_state.invalidate_final_mask_frames()
+        self.seg_state.invalidate_final_mask_frames(frame_idx)
         self.recompute_slider_jump_markers()
         return True
 
@@ -1413,15 +1433,23 @@ class InteractionController:
         if not (0 <= int(seed_x) < w and 0 <= int(seed_y) < h):
             return None
         tol = max(0.0, float(tolerance))
-        if arr.ndim == 2:
-            work = arr.astype(np.float32, copy=False)
-            seed = float(work[int(seed_y), int(seed_x)])
-            candidate = np.abs(work - seed) <= tol
-        else:
-            work = arr[..., :3].astype(np.float32, copy=False)
-            seed = work[int(seed_y), int(seed_x)]
-            candidate = np.max(np.abs(work - seed), axis=2) <= tol
-        return InteractionController._connected_component_region(candidate, int(seed_x), int(seed_y))
+        source = arr if arr.ndim == 2 else arr[..., :3]
+        if source.dtype not in (np.uint8, np.float32):
+            source = source.astype(np.float32)
+        work = np.ascontiguousarray(source).copy()
+        flood_mask = np.zeros((h + 2, w + 2), dtype=np.uint8)
+        diff = float(tol) if work.ndim == 2 else (float(tol),) * int(work.shape[2])
+        flags = 4 | cv2.FLOODFILL_FIXED_RANGE | cv2.FLOODFILL_MASK_ONLY | (1 << 8)
+        cv2.floodFill(
+            work,
+            flood_mask,
+            (int(seed_x), int(seed_y)),
+            0,
+            loDiff=diff,
+            upDiff=diff,
+            flags=flags,
+        )
+        return flood_mask[1:-1, 1:-1].astype(bool)
 
     @staticmethod
     def _connected_component_region(candidate: np.ndarray, seed_x: int, seed_y: int) -> np.ndarray | None:
@@ -1433,13 +1461,17 @@ class InteractionController:
             return None
         if not bool(arr[int(seed_y), int(seed_x)]):
             return None
-        labels_count, labels = cv2.connectedComponents(arr.astype(np.uint8), connectivity=4)
-        if labels_count <= 1:
-            return np.zeros((h, w), dtype=bool)
-        seed_label = int(labels[int(seed_y), int(seed_x)])
-        if seed_label <= 0:
-            return np.zeros((h, w), dtype=bool)
-        return labels == seed_label
+        work = arr.astype(np.uint8)
+        flood_mask = np.zeros((h + 2, w + 2), dtype=np.uint8)
+        flags = 4 | cv2.FLOODFILL_FIXED_RANGE | cv2.FLOODFILL_MASK_ONLY | (1 << 8)
+        cv2.floodFill(
+            work,
+            flood_mask,
+            (int(seed_x), int(seed_y)),
+            0,
+            flags=flags,
+        )
+        return flood_mask[1:-1, 1:-1].astype(bool)
 
     def _mask_bounded_fill_region(self, frame_idx, img_x, img_y, w, h, mode: str) -> np.ndarray | None:
         final_mask = self.seg_state.compose_final_mask(frame_idx, (h, w))
@@ -1513,18 +1545,20 @@ class InteractionController:
     @staticmethod
     def _fill_holes(mask: np.ndarray) -> np.ndarray:
         mask_bool = np.asarray(mask, dtype=bool)
-        try:
-            from scipy import ndimage
-
-            return np.asarray(ndimage.binary_fill_holes(mask_bool), dtype=bool)
-        except Exception:
-            padded = np.pad(mask_bool.astype(np.uint8), 1, constant_values=0)
-            flood = padded.copy()
-            h, w = flood.shape
-            cv2.floodFill(flood, np.zeros((h + 2, w + 2), dtype=np.uint8), (0, 0), 1)
-            background = flood[1:-1, 1:-1].astype(bool) & ~mask_bool
-            holes = ~mask_bool & ~background
-            return mask_bool | holes
+        if mask_bool.ndim != 2 or mask_bool.size == 0:
+            return mask_bool.copy()
+        padded = np.pad(mask_bool.astype(np.uint8), 1, constant_values=0)
+        h, w = padded.shape
+        cv2.floodFill(
+            padded,
+            np.zeros((h + 2, w + 2), dtype=np.uint8),
+            (0, 0),
+            2,
+            flags=4 | cv2.FLOODFILL_FIXED_RANGE,
+        )
+        center = padded[1:-1, 1:-1]
+        holes = center == 0
+        return mask_bool | holes
 
     def fill_current_frame_holes(self):
         if not self._mutation_allowed("fill_holes"):

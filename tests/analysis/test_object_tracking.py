@@ -5,7 +5,12 @@ import json
 import numpy as np
 import pytest
 
-from swell.analysis.core.object_tracking import PhysicalTrackingConfig, TrackingConfig, build_object_lineage
+from swell.analysis.core.object_tracking import (
+    PhysicalTrackingConfig,
+    TrackingConfig,
+    build_object_lineage,
+    materialize_assignment_mask,
+)
 
 
 @pytest.mark.parametrize(
@@ -70,6 +75,18 @@ def test_object_tracker_filters_small_one_frame_noise() -> None:
     assert len(lineage_rows) == 1
     assert lineage_rows[0]["birth_frame"] == 10
     assert lineage_rows[0]["end_frame"] == 12
+
+
+def test_track_assignments_store_cropped_masks_and_materialize_losslessly() -> None:
+    source = np.zeros((80, 120), dtype=bool)
+    source[30:36, 70:79] = True
+
+    result = build_object_lineage([0], [source])
+    assignment = next(iter(result["tracks"].values())).frame_assignments[0]
+
+    assert assignment.mask.shape == (6, 9)
+    assert assignment.mask.nbytes < source.nbytes
+    assert np.array_equal(materialize_assignment_mask(assignment, source.shape), source)
 
 
 def test_object_tracker_preserves_lineage_when_objects_merge() -> None:

@@ -27,11 +27,19 @@ from swell.analysis.core.metrics import (
 )
 from swell.analysis.core.seg_state import SegmentationState
 from swell.host.analysis_payload_mapper import EventBounds, normalize_sidecar_index, scope_metadata
-from swell.analysis.core.object_tracking import PhysicalTrackingConfig, build_object_lineage
+from swell.analysis.core.object_tracking import (
+    PhysicalTrackingConfig,
+    build_object_lineage,
+    materialize_assignment_mask,
+)
 from swell.shared.frame_source import EventScopedFrameSource, PreparedFrameSource, StackReaderFrameSource
 from swell.shared.image_overlay import apply_mask_overlay
 from swell.shared.models import clone_analysis_payload
-from swell.shared.persistence.event_path import allocate_event_path_segment, sanitize_event_path_segment
+from swell.shared.persistence.event_path import (
+    allocate_event_path_segment,
+    sanitize_event_path_segment,
+    sanitize_filesystem_filename,
+)
 from swell.shared.services import MetricsSettingsResolver
 from swell.shared.errors import DataCorruptionError, InferenceRuntimeError
 from swell.shared.app_metadata import detect_app_version
@@ -1010,13 +1018,29 @@ def _track_speed_rows(
         assignments = list(getattr(track, "frame_assignments", []) or [])
         if not assignments:
             continue
+        derived_shape = (
+            max(
+                1,
+                max(
+                    int(getattr(item, "bbox_y", 0)) + int(getattr(item, "bbox_h", 0))
+                    for item in assignments
+                ),
+            ),
+            max(
+                1,
+                max(
+                    int(getattr(item, "bbox_x", 0)) + int(getattr(item, "bbox_w", 0))
+                    for item in assignments
+                ),
+            ),
+        )
         boundaries: list[np.ndarray | None] = []
         for assignment in assignments:
             mask = None
             if isinstance(mask_by_track_frame, dict):
                 mask = mask_by_track_frame.get((int(track_id), int(getattr(assignment, "frame_index", 0))))
             if mask is None:
-                mask = getattr(assignment, "mask", None)
+                mask = materialize_assignment_mask(assignment, derived_shape)
             boundary = extract_primary_boundary(np.asarray(mask, dtype=bool))
             if boundary is not None:
                 boundary = smooth_boundary_fft(boundary, n_keep=25)
@@ -1589,7 +1613,7 @@ def _export_event_metrics(
             for assignment in list(getattr(track, "frame_assignments", []) or []):
                 frame_index = int(getattr(assignment, "frame_index", 0))
                 local_idx = local_index_by_frame[int(frame_index)]
-                original_mask = np.asarray(getattr(assignment, "mask", None), dtype=bool)
+                original_mask = materialize_assignment_mask(assignment, frame_shape)
                 export_mask = (
                     np.asarray(original_mask & roi_mask, dtype=bool).copy()
                     if has_roi and roi_mask is not None
@@ -2177,7 +2201,10 @@ def _export_frame(
     else:
         out_ext = ".tiff"
 
-    output_name = f"{frame_idx:06d}_{stem}{out_ext}"
+    output_name = sanitize_filesystem_filename(
+        f"{frame_idx:06d}_{stem}{out_ext}",
+        default=f"{frame_idx:06d}_frame{out_ext}",
+    )
     output_path = out_dir / output_name
 
     _write_frame(output_path, frame, out_ext)
@@ -2398,7 +2425,10 @@ def _export_analysis_frame(
     stem = Path(frame_name).stem
     source_ext = ref.source_ext
     output_ext = source_ext if source_ext in {".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff"} else ".tiff"
-    output_name = f"{int(frame_idx):06d}_{role}_{stem}{output_ext}"
+    output_name = sanitize_filesystem_filename(
+        f"{int(frame_idx):06d}_{role}_{stem}{output_ext}",
+        default=f"{int(frame_idx):06d}_{role}{output_ext}",
+    )
     _write_frame(out_dir / output_name, np.asarray(analysis_frame, dtype=np.uint8), output_ext)
 
 
@@ -2415,7 +2445,10 @@ def _export_mask_overlay_frame(
     stem = Path(frame_name).stem
     source_ext = ref.source_ext
     output_ext = source_ext if source_ext in {".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff"} else ".tiff"
-    output_name = f"{int(frame_idx):06d}_{role}_overlay_{stem}{output_ext}"
+    output_name = sanitize_filesystem_filename(
+        f"{int(frame_idx):06d}_{role}_overlay_{stem}{output_ext}",
+        default=f"{int(frame_idx):06d}_{role}_overlay{output_ext}",
+    )
     _write_frame(out_dir / output_name, apply_mask_overlay(frame, mask), output_ext)
 
 
@@ -2432,7 +2465,10 @@ def _export_analysis_overlay_frame(
     stem = Path(frame_name).stem
     source_ext = ref.source_ext
     output_ext = source_ext if source_ext in {".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff"} else ".tiff"
-    output_name = f"{int(frame_idx):06d}_{role}_analysis_overlay_{stem}{output_ext}"
+    output_name = sanitize_filesystem_filename(
+        f"{int(frame_idx):06d}_{role}_analysis_overlay_{stem}{output_ext}",
+        default=f"{int(frame_idx):06d}_{role}_analysis_overlay{output_ext}",
+    )
     _write_frame(out_dir / output_name, apply_mask_overlay(analysis_frame, mask), output_ext)
 
 

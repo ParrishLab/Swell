@@ -25,3 +25,18 @@ def test_derive_input_folder_name_rejects_mixed_source_parents() -> None:
 
 def test_derive_project_filename_falls_back_when_input_folder_missing() -> None:
     assert derive_project_filename(default_base="session") == "session.swell"
+
+
+def test_derive_project_name_handles_windows_paths_on_non_windows_hosts() -> None:
+    assert derive_project_name(
+        r"C:\data\experiment\project.swell",
+        default_base="session",
+    ) == "project"
+    assert derive_project_name(
+        None,
+        default_base="session",
+        source_paths=[
+            r"E:\images\stack_04\frame_001.tif",
+            r"E:\images\stack_04\frame_002.tif",
+        ],
+    ) == "stack_04"

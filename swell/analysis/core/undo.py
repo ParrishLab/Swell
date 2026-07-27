@@ -1,20 +1,86 @@
 import copy
+from dataclasses import dataclass
+
 import numpy as np
 
 
+@dataclass(frozen=True)
+class _PackedBoolArray:
+    """Compact immutable representation of a boolean undo snapshot."""
+
+    shape: tuple[int, ...]
+    payload: bytes
+
+
+def _pack_undo_payload(value):
+    if isinstance(value, np.ndarray) and value.dtype == np.bool_:
+        flat = np.packbits(np.asarray(value, dtype=bool).reshape(-1), bitorder="little")
+        return _PackedBoolArray(
+            shape=tuple(int(v) for v in value.shape),
+            payload=flat.tobytes(),
+        )
+    if isinstance(value, dict):
+        return {key: _pack_undo_payload(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_pack_undo_payload(item) for item in value]
+    if isinstance(value, tuple):
+        return tuple(_pack_undo_payload(item) for item in value)
+    return value
+
+
+def _unpack_undo_payload(value):
+    if isinstance(value, _PackedBoolArray):
+        item_count = int(np.prod(value.shape, dtype=np.int64))
+        packed = np.frombuffer(value.payload, dtype=np.uint8)
+        unpacked = np.unpackbits(packed, bitorder="little", count=item_count)
+        return unpacked.astype(bool, copy=False).reshape(value.shape)
+    if isinstance(value, dict):
+        return {key: _unpack_undo_payload(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_unpack_undo_payload(item) for item in value]
+    if isinstance(value, tuple):
+        return tuple(_unpack_undo_payload(item) for item in value)
+    return value
+
+
+def _undo_payload_bytes(value) -> int:
+    if isinstance(value, _PackedBoolArray):
+        return len(value.payload)
+    if isinstance(value, np.ndarray):
+        return int(value.nbytes)
+    if isinstance(value, dict):
+        return sum(_undo_payload_bytes(key) + _undo_payload_bytes(item) for key, item in value.items())
+    if isinstance(value, (list, tuple)):
+        return sum(_undo_payload_bytes(item) for item in value)
+    if isinstance(value, (bytes, bytearray, memoryview, str)):
+        return len(value)
+    return 8
+
+
 class UndoActions:
+    _UNDO_MAX_ACTIONS = 50
+    _UNDO_MAX_BYTES = 64 * 1024 * 1024
+
     def record_action(self, action_type, frame_idx, data_before, data_after, **metadata):
         action = {
             "type": action_type,
             "frame": frame_idx,
-            "before": data_before,
-            "after": data_after,
+            "before": _pack_undo_payload(data_before),
+            "after": _pack_undo_payload(data_after),
         }
         if metadata:
-            action.update(dict(metadata))
+            action.update(_pack_undo_payload(dict(metadata)))
         self.undo_stack.append(action)
         self.redo_stack.clear()
-        if len(self.undo_stack) > 50:
+        max_actions = max(1, int(getattr(self, "_UNDO_MAX_ACTIONS", 50)))
+        max_bytes = max(1, int(getattr(self, "_UNDO_MAX_BYTES", 64 * 1024 * 1024)))
+        while len(self.undo_stack) > max_actions:
+            self.undo_stack.pop(0)
+        # A count limit is not enough for full-resolution masks: fifty paint
+        # snapshots can otherwise retain more than a gigabyte. Keep the newest
+        # action even if it alone exceeds the budget so immediate undo remains
+        # available.
+        while len(self.undo_stack) > 1 and sum(_undo_payload_bytes(item) for item in self.undo_stack) > max_bytes:
             self.undo_stack.pop(0)
 
     def on_undo(self, event=None):
@@ -32,7 +98,13 @@ class UndoActions:
 
         action = self.undo_stack.pop()
         self.redo_stack.append(action)
-        self._apply_state(action["frame"], action["before"], action["type"], action=action, direction="undo")
+        self._apply_state(
+            action["frame"],
+            _unpack_undo_payload(action["before"]),
+            action["type"],
+            action=action,
+            direction="undo",
+        )
         self.log_info("Undo", f"Applied action: {action['type']}")
         return "break"
 
@@ -43,7 +115,13 @@ class UndoActions:
 
         action = self.redo_stack.pop()
         self.undo_stack.append(action)
-        self._apply_state(action["frame"], action["after"], action["type"], action=action, direction="redo")
+        self._apply_state(
+            action["frame"],
+            _unpack_undo_payload(action["after"]),
+            action["type"],
+            action=action,
+            direction="redo",
+        )
         self.log_info("Undo", f"Reapplied action: {action['type']}")
         return "break"
 
@@ -64,7 +142,7 @@ class UndoActions:
             if isinstance(action, dict):
                 mask_key = "mask_before" if str(direction) == "undo" else "mask_after"
                 if mask_key in action:
-                    mask_payload = action.get(mask_key)
+                    mask_payload = _unpack_undo_payload(action.get(mask_key))
                     if mask_payload is None:
                         self.seg_state.clear_mask(frame_idx)
                     else:
@@ -116,7 +194,7 @@ class UndoActions:
                         self.seg_state.persistent_regions.append(normalized)
                 if hasattr(self.seg_state, "_clear_region_raster_cache"):
                     self.seg_state._clear_region_raster_cache()
-            self.seg_state.invalidate_final_mask_frames()
+            self.seg_state.invalidate_final_mask_frames(regions=True)
             if hasattr(self, "selected_region_id"):
                 valid_ids = {str(r.get("id")) for r in self.seg_state.persistent_regions}
                 if getattr(self, "selected_region_id", None) not in valid_ids:

@@ -15,6 +15,7 @@ from swell.shared.frame_source.image_decoding import (
     tiff_page_is_rgb,
     tiff_page_orientation,
 )
+from swell.shared.frame_source.source_identity import canonical_dtype_name
 from swell.shared.ui.theme import APP_COLORS
 from swell.shared.utils.paths import resolve_existing_directory
 
@@ -186,7 +187,9 @@ class IOActions:
         frames = []
         frame_names = []
         base_shape = None
+        base_dtype = None
         dimension_mismatches: list[tuple[str, tuple[int, int]]] = []
+        dtype_mismatches: list[tuple[str, str]] = []
 
         for fpath in image_files:
             try:
@@ -210,6 +213,12 @@ class IOActions:
                     elif f_img.shape != base_shape:
                         dimension_mismatches.append((fpath.name, tuple(int(v) for v in f_img.shape[:2])))
                         continue
+                    frame_dtype = canonical_dtype_name(f_img.dtype)
+                    if base_dtype is None:
+                        base_dtype = frame_dtype
+                    elif frame_dtype != base_dtype:
+                        dtype_mismatches.append((fpath.name, frame_dtype))
+                        continue
 
                     frames.append(f_img)
                     if len(loaded_frames) > 1:
@@ -228,6 +237,16 @@ class IOActions:
             raise ValueError(
                 f"Stack contains mixed frame dimensions; expected {expected_text}, but found {examples}{suffix}. "
                 "Resize, crop, or pad the source images to one common size before importing."
+            )
+
+        if dtype_mismatches:
+            examples = ", ".join(
+                f"{name} ({dtype})" for name, dtype in dtype_mismatches[:5]
+            )
+            suffix = ", ..." if len(dtype_mismatches) > 5 else ""
+            raise ValueError(
+                f"Stack contains mixed frame dtypes; expected {base_dtype}, but found "
+                f"{examples}{suffix}. Convert the source images to one common dtype before importing."
             )
 
         return frames, frame_names

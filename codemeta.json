@@ -8,8 +8,8 @@
   "license": "https://spdx.org/licenses/BSD-3-Clause.html",
   "programmingLanguage": "Python",
   "runtimePlatform": "Python 3.12",
-  "version": "0.3.2",
-  "datePublished": "2026-07-21",
+  "version": "0.3.3",
+  "datePublished": "2026-07-27",
   "keywords": [
     "intrinsic optical signal imaging",
     "spreading depolarization",

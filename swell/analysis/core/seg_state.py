@@ -47,9 +47,27 @@ class SegmentationState:
         self.dirty_mask_frames_no_regions = True
         self.dirty_timeline_extent_frames = True
         self.content_generation = 0
+        self._global_content_generation = 0
+        self._region_content_generation = 0
+        self._frame_content_generations: dict[int, int] = {}
 
-    def _bump_content_generation(self) -> None:
+    def _bump_content_generation(self, frame_idx: int | None = None, *, regions: bool = False) -> None:
         self.content_generation += 1
+        if regions:
+            self._region_content_generation += 1
+        elif frame_idx is None:
+            self._global_content_generation += 1
+        else:
+            idx = int(frame_idx)
+            self._frame_content_generations[idx] = int(self._frame_content_generations.get(idx, 0)) + 1
+
+    def content_token_for_frame(self, frame_idx: int) -> tuple[int, int, int]:
+        """Return generations that can affect one frame's composed mask."""
+        return (
+            int(self._global_content_generation),
+            int(self._region_content_generation),
+            int(self._frame_content_generations.get(int(frame_idx), 0)),
+        )
 
     def _has_valid_points_for_frame(self, frame_idx: int) -> bool:
         pt_list = self.points.get(frame_idx)
@@ -97,31 +115,31 @@ class SegmentationState:
         self.dirty_valid_box_frames = True
         self.dirty_user_frames = True
 
-    def invalidate_final_mask_frames(self):
+    def invalidate_final_mask_frames(self, frame_idx: int | None = None, *, regions: bool = False):
         self.dirty_final_mask_frames = True
         self._final_mask_frames_scope = None
         self.dirty_mask_frames_no_regions = True
         self._mask_frames_no_regions_scope = None
         self.dirty_timeline_extent_frames = True
         self._timeline_extent_scope = None
-        self._bump_content_generation()
+        self._bump_content_generation(frame_idx, regions=regions)
 
-    def _mark_user_changed(self):
+    def _mark_user_changed(self, frame_idx: int | None = None):
         self.dirty_valid_point_frames = True
         self.dirty_valid_box_frames = True
         self.dirty_user_frames = True
-        self.invalidate_final_mask_frames()
+        self.invalidate_final_mask_frames(frame_idx)
 
     def set_points(self, frame_idx: int, points_list: list[dict]):
         if points_list:
             self.points[int(frame_idx)] = points_list
         else:
             self.points.pop(int(frame_idx), None)
-        self._mark_user_changed()
+        self._mark_user_changed(frame_idx)
 
     def clear_points(self, frame_idx: int):
         self.points.pop(int(frame_idx), None)
-        self._mark_user_changed()
+        self._mark_user_changed(frame_idx)
 
     def set_box(self, frame_idx: int, box):
         normalized = self._normalize_box(box)
@@ -130,19 +148,19 @@ class SegmentationState:
             self.boxes.pop(idx, None)
         else:
             self.boxes[idx] = normalized
-        self._mark_user_changed()
+        self._mark_user_changed(idx)
 
     def clear_box(self, frame_idx: int):
         self.boxes.pop(int(frame_idx), None)
-        self._mark_user_changed()
+        self._mark_user_changed(frame_idx)
 
     def set_paint_layer(self, frame_idx: int, plus: np.ndarray, minus: np.ndarray):
         self.paint_layers[int(frame_idx)] = {"plus": plus, "minus": minus}
-        self._mark_user_changed()
+        self._mark_user_changed(frame_idx)
 
     def clear_paint_layer(self, frame_idx: int):
         self.paint_layers.pop(int(frame_idx), None)
-        self._mark_user_changed()
+        self._mark_user_changed(frame_idx)
 
     def set_mask(self, frame_idx: int, mask: np.ndarray, *, threshold: float | None = None):
         idx = int(frame_idx)
@@ -154,7 +172,7 @@ class SegmentationState:
             self.mask_thresholds.pop(idx, None)
         else:
             self.mask_thresholds[idx] = float(threshold)
-        self.invalidate_final_mask_frames()
+        self.invalidate_final_mask_frames(idx)
 
     def get_mask_threshold(self, frame_idx: int) -> float | None:
         value = self.mask_thresholds.get(int(frame_idx))
@@ -193,7 +211,7 @@ class SegmentationState:
         self.mask_thresholds.pop(idx, None)
         self.ground_truth_frames.discard(idx)
         self.invalidate_user_frames()
-        self.invalidate_final_mask_frames()
+        self.invalidate_final_mask_frames(idx)
 
     def set_ground_truth(self, frame_idx: int, enabled: bool):
         idx = int(frame_idx)
@@ -204,7 +222,7 @@ class SegmentationState:
             self.ground_truth_frames.discard(idx)
         if before != (idx in self.ground_truth_frames):
             self.invalidate_user_frames()
-            self._bump_content_generation()
+            self._bump_content_generation(idx)
 
     def is_ground_truth_frame(self, frame_idx: int) -> bool:
         return int(frame_idx) in self.ground_truth_frames
@@ -224,7 +242,8 @@ class SegmentationState:
         for frame_idx in to_delete:
             del self.points[frame_idx]
         if to_delete:
-            self._mark_user_changed()
+            for frame_idx in to_delete:
+                self._mark_user_changed(frame_idx)
 
     def get_valid_point_frames(self) -> set[int]:
         if self.dirty_valid_point_frames:
@@ -393,7 +412,7 @@ class SegmentationState:
             return ""
         self.persistent_regions.append(normalized)
         self._clear_region_raster_cache(normalized.get("id"))
-        self.invalidate_final_mask_frames()
+        self.invalidate_final_mask_frames(regions=True)
         return str(normalized["id"])
 
     def get_persistent_region(self, region_id) -> dict | None:
@@ -418,7 +437,7 @@ class SegmentationState:
                 return False
             self.persistent_regions[i] = normalized
             self._clear_region_raster_cache(rid)
-            self.invalidate_final_mask_frames()
+            self.invalidate_final_mask_frames(regions=True)
             return True
         return False
 
@@ -434,10 +453,13 @@ class SegmentationState:
             if normalized is None or normalized == region:
                 return False
             self.persistent_regions[i] = normalized
-            self._clear_region_raster_cache(rid)
-            self._bump_content_generation()
             return True
         return False
+
+    def commit_persistent_region_preview(self, region_id) -> None:
+        """Invalidate raster/composition state once after a geometry drag."""
+        self._clear_region_raster_cache(region_id)
+        self.invalidate_final_mask_frames(regions=True)
 
     def delete_persistent_region(self, region_id) -> dict | None:
         rid = str(region_id)
@@ -445,7 +467,7 @@ class SegmentationState:
             if str(region.get("id")) == rid:
                 removed = self.persistent_regions.pop(i)
                 self._clear_region_raster_cache(rid)
-                self.invalidate_final_mask_frames()
+                self.invalidate_final_mask_frames(regions=True)
                 return removed
         return None
 
@@ -453,7 +475,7 @@ class SegmentationState:
         if self.persistent_regions:
             self.persistent_regions.clear()
             self._clear_region_raster_cache()
-            self.invalidate_final_mask_frames()
+            self.invalidate_final_mask_frames(regions=True)
 
     def get_active_persistent_regions(self, frame_idx, base_shape) -> list[dict]:
         shape = self._shape_hw(base_shape)

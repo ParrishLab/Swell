@@ -4,7 +4,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from swell.shared.frame_source.source_identity import source_identity
+from swell.shared.frame_source.source_identity import (
+    decoded_source_fingerprint,
+    source_identity,
+)
 from swell.shared.models import StackRef, UnifiedProjectState
 
 from .config import EventCandidate
@@ -82,6 +85,9 @@ def event_meta_from_candidate(event: EventCandidate, label: str | None = None) -
 
 def stack_ref_from_stack_info(info, source=None) -> StackRef:
     identity = source_identity(source) if source is not None else {}
+    channel_mode = str(getattr(source, "channel_mode", "") or "").strip().lower()
+    if channel_mode not in {"average", "first"}:
+        channel_mode = None
     return StackRef(
         input_dir=str(Path(info.input_dir)),
         frame_count=int(info.frame_count),
@@ -90,6 +96,11 @@ def stack_ref_from_stack_info(info, source=None) -> StackRef:
         dtype=str(info.dtype),
         frame_names_digest=identity.get("frame_names_digest"),
         source_fingerprint=identity.get("source_fingerprint"),
+        decoded_fingerprint=(
+            decoded_source_fingerprint(source) if source is not None else None
+        ),
+        channel_mode=channel_mode,
+        decode_policy_version=1 if channel_mode is not None else None,
     )
 
 

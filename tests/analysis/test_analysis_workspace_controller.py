@@ -4,7 +4,7 @@ import numpy as np
 
 from swell.analysis.core.analysis_workspace import AnalysisWorkspaceController, WorkspaceUiState
 from swell.analysis.core.frame_source import EagerFrameSource
-from swell.analysis.core.project_session import ProjectSessionService
+from swell.analysis.core.project_session import PackedMask, ProjectSessionService
 from swell.analysis.core.seg_state import SegmentationState
 from swell.analysis.core.session_state import SessionState
 from swell.shared.contracts import load_contract_fixture
@@ -45,6 +45,7 @@ class AnalysisWorkspaceControllerTests(unittest.TestCase):
 
     def test_build_session_snapshot_uses_frame_source(self):
         self.controller.reset_workspace_for_new_stack()
+        self.seg_state.masks_cache[2] = np.ones((4, 4), dtype=bool)
         snap = self.controller.build_session_snapshot(
             WorkspaceUiState(
                 current_frame_idx=2,
@@ -72,6 +73,9 @@ class AnalysisWorkspaceControllerTests(unittest.TestCase):
         self.assertEqual(snap.frame_count, 5)
         self.assertEqual(snap.frame_shape, (4, 4))
         self.assertEqual(snap.current_image_source_paths, ["/tmp/stack"])
+        packed = snap.event_records["event_001"].analysis.masks_committed[2]
+        self.assertIsInstance(packed, PackedMask)
+        self.assertTrue(np.array_equal(packed.to_array(), self.seg_state.masks_cache[2]))
 
     def test_propagation_transition_preserves_draft(self):
         self.controller.reset_workspace_for_new_stack()

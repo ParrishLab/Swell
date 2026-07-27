@@ -11,6 +11,7 @@ from swell.analysis.core.analysis_context import AnalysisContext
 from swell.analysis.core.metrics import compute_scale
 from swell.analysis.ui.roi_dialog import _call_preserving_geometry, open_roi_dialog
 from swell.analysis.ui.scale_dialog import open_scale_dialog
+from swell.shared.metrics_defaults import DEFAULT_SCALE_AXIS_LOCK
 from swell.shared.utils.paths import resolve_existing_directory
 
 
@@ -157,12 +158,19 @@ class AnalysisController:
         t_vals = np.linspace(0.0, length, n_samples)
         offsets = np.linspace(-linewidth / 2.0, linewidth / 2.0, max(3, int(linewidth)))
 
-        img_f = img_u8.astype(np.float32)
+        source = np.asarray(img_u8)
         sampled_rows = np.empty((len(offsets), n_samples), dtype=np.float32)
         for row_idx, off in enumerate(offsets):
             xs = x1 + ux * t_vals + nx * off
             ys = y1 + uy * t_vals + ny * off
-            vals = map_coordinates(img_f, [ys, xs], order=1, mode="nearest")
+            vals = map_coordinates(
+                source,
+                [ys, xs],
+                order=1,
+                mode="nearest",
+                output=np.float32,
+                prefilter=False,
+            )
             sampled_rows[row_idx, :] = vals
 
         profile = np.mean(sampled_rows, axis=0)
@@ -443,7 +451,9 @@ class AnalysisController:
     def _apply_local_scale_selection(self, result) -> None:
         self.set_scale_px_per_mm(result["px_per_mm"])
         self.set_scale_points(result["scale_points"])
-        self.set_scale_axis_lock(bool(result.get("axis_lock", True)))
+        self.set_scale_axis_lock(
+            bool(result.get("axis_lock", DEFAULT_SCALE_AXIS_LOCK))
+        )
         self.set_last_scale_image_path(result.get("image_path", ""))
         self.set_scale_is_local_override(True)
         if result.get("axis_mode") == "manual":
@@ -627,7 +637,9 @@ class AnalysisController:
             "scale_unit": "px_per_mm",
             "scale_source": "calibration",
             "scale_points": [[float(pt[0]), float(pt[1])] for pt in list(result.get("scale_points", []))],
-            "scale_axis_lock": bool(result.get("axis_lock", True)),
+            "scale_axis_lock": bool(
+                result.get("axis_lock", DEFAULT_SCALE_AXIS_LOCK)
+            ),
         }
         scale_image_path = str(result.get("image_path", "") or "").strip()
         if scale_image_path:
@@ -640,7 +652,9 @@ class AnalysisController:
         if not bool(self.get_scale_is_local_override()):
             self.set_scale_px_per_mm(result["px_per_mm"])
             self.set_scale_points(result["scale_points"])
-            self.set_scale_axis_lock(bool(result.get("axis_lock", True)))
+            self.set_scale_axis_lock(
+                bool(result.get("axis_lock", DEFAULT_SCALE_AXIS_LOCK))
+            )
             self.set_last_scale_image_path(scale_image_path)
             self.set_scale_is_local_override(False)
         self.refresh_metrics_status()

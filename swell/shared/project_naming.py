@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 
 from swell.shared.persistence.schema import PROJECT_EXTENSION, SUPPORTED_PROJECT_EXTENSIONS
 
@@ -10,7 +10,22 @@ def _coerce_path_name(value: str | Path | None) -> str | None:
     raw = str(value or "").strip()
     if not raw:
         return None
-    return str(Path(raw).expanduser().name).strip() or None
+    if "\\" in raw:
+        name = PureWindowsPath(raw).name
+    else:
+        name = PurePosixPath(raw).name
+    return str(name).strip() or None
+
+
+def _coerce_parent_name(value: str | Path | None) -> str | None:
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    if "\\" in raw:
+        name = PureWindowsPath(raw).parent.name
+    else:
+        name = PurePosixPath(raw).parent.name
+    return str(name).strip() or None
 
 
 def derive_input_folder_name(
@@ -27,7 +42,7 @@ def derive_input_folder_name(
         raw = str(raw_path or "").strip()
         if not raw:
             continue
-        parent_name = str(Path(raw).expanduser().parent.name).strip()
+        parent_name = _coerce_parent_name(raw)
         if not parent_name:
             continue
         parent_names.add(parent_name)

@@ -9,6 +9,7 @@ class ProjectSchemaTests(unittest.TestCase):
         validate_project_state(state)
         self.assertEqual(state["schema_version"], SCHEMA_VERSION)
         self.assertEqual(state["app_version"], "x.y.z")
+        self.assertIs(state["global"]["scale_axis_lock"], False)
 
     def test_validate_rejects_missing_keys(self):
         with self.assertRaises(ValueError):

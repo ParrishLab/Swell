@@ -1,16 +1,19 @@
 from __future__ import annotations
 
 from pathlib import Path
+import threading
 from swell.shared.ui import dialogs as messagebox
 
 import numpy as np
 
+from swell.shared.metrics_defaults import DEFAULT_SCALE_AXIS_LOCK
 from swell.shared.services import MetricsSettingsResolver
 
 
 class AnalysisWindowController:
     def __init__(self, app) -> None:
         self.app = app
+        self._metrics_preview_generation = 0
 
     def _dialog_parent(self):
         return getattr(self.app, "root", None)
@@ -67,73 +70,81 @@ class AnalysisWindowController:
     def compute_metrics_preview(self) -> None:
         if not hasattr(self.app, "metrics_preview_var"):
             return
-        
-        import numpy as np
-        from swell.analysis.core.metrics import compute_frame_metrics, extract_primary_boundary
 
         self.app.metrics_preview_var.set("Preview: Computing...")
         if self.app._ui_alive():
             self.app.root.update_idletasks()
 
-        try:
-            frame_count = int(self.app._get_frame_count()) if hasattr(self.app, "_get_frame_count") else 0
-            if frame_count <= 0:
-                self.app.metrics_preview_var.set("Preview: No frames loaded.")
-                return
+        frame_count = int(self.app._get_frame_count()) if hasattr(self.app, "_get_frame_count") else 0
+        if frame_count <= 0:
+            self.app.metrics_preview_var.set("Preview: No frames loaded.")
+            return
+        compose_final = getattr(self.app, "_compose_final_mask_for_frame", None)
+        masks_cache = getattr(self.app, "masks_cache", {})
+        fps = float(self.app.frames_per_sec_var.get())
+        scale_px_per_mm = getattr(self.app, "scale_px_per_mm", None)
+        roi_mask = getattr(self.app, "roi_mask", None)
+        roi_pixels = int(np.count_nonzero(np.asarray(roi_mask, dtype=bool))) if roi_mask is not None else 0
+        seg_state = getattr(self.app, "seg_state", None)
+        content_generation = int(getattr(seg_state, "content_generation", 0) or 0)
+        self._metrics_preview_generation += 1
+        request_generation = int(self._metrics_preview_generation)
 
-            boundaries = []
-            masks_cache = getattr(self.app, "masks_cache", {})
-            compose_final = getattr(self.app, "_compose_final_mask_for_frame", None)
-            for i in range(frame_count):
-                mask = None
-                if callable(compose_final):
-                    mask = compose_final(i)
+        def _compute() -> str:
+            from swell.analysis.core.metrics import compute_frame_metrics, extract_primary_boundary
+
+            try:
+                boundaries = []
+                for frame_idx in range(frame_count):
+                    mask = compose_final(frame_idx) if callable(compose_final) else masks_cache.get(frame_idx)
+                    if mask is not None and np.any(mask):
+                        boundaries.append(extract_primary_boundary(np.asarray(mask, dtype=bool)))
+                    else:
+                        boundaries.append(None)
+                if not any(boundary is not None for boundary in boundaries):
+                    return "Preview: No active masks to measure."
+                metrics_dict = compute_frame_metrics(boundaries)
+                areas_px = metrics_dict.get("areas_px", np.array([]))
+                valid_areas = areas_px[np.isfinite(areas_px)]
+                max_area_px = float(np.max(valid_areas)) if valid_areas.size > 0 else 0.0
+                lines = []
+                if scale_px_per_mm and float(scale_px_per_mm) > 0:
+                    scale_val = float(scale_px_per_mm)
+                    lines.append(f"Max Area: {(max_area_px / (scale_val**2)):.4g} mm²")
+                    avg_dist_px = metrics_dict.get("avg_dist_px", np.array([]))
+                    valid_speed = avg_dist_px[np.isfinite(avg_dist_px)]
+                    if valid_speed.size > 0:
+                        avg_speed_px_frame = float(np.mean(valid_speed))
+                        avg_speed_um_sec = (avg_speed_px_frame * 1000.0 / scale_val) * fps
+                        lines.append(f"Avg Speed: {avg_speed_um_sec:.4g} μm/s")
                 else:
-                    mask = masks_cache.get(i)
-                if mask is not None and np.any(mask):
-                    boundaries.append(extract_primary_boundary(np.asarray(mask, dtype=bool)))
-                else:
-                    boundaries.append(None)
+                    lines.append(f"Max Area: {max_area_px:.0f} px")
+                if roi_pixels > 0:
+                    lines.append(f"ROI Fill: {(max_area_px / roi_pixels * 100.0):.1f}%")
+                return " | ".join(lines)
+            except Exception as exc:
+                return f"Preview error: {exc}"
 
-            if not any(b is not None for b in boundaries):
-                self.app.metrics_preview_var.set("Preview: No active masks to measure.")
+        def _apply(text: str) -> None:
+            if request_generation != int(self._metrics_preview_generation):
                 return
+            if content_generation != int(getattr(seg_state, "content_generation", 0) or 0):
+                self.compute_metrics_preview()
+                return
+            self.app.metrics_preview_var.set(text)
 
-            metrics_dict = compute_frame_metrics(boundaries)
-            areas_px = metrics_dict.get("areas_px", np.array([]))
-            valid_areas = areas_px[np.isfinite(areas_px)]
-            max_area_px = float(np.max(valid_areas)) if valid_areas.size > 0 else 0.0
+        if not self.app._ui_alive():
+            _apply(_compute())
+            return
 
-            fps = float(self.app.frames_per_sec_var.get())
-            scale_px_per_mm = getattr(self.app, "scale_px_per_mm", None)
+        def _worker() -> None:
+            text = _compute()
+            try:
+                self.app.root.after(0, lambda: _apply(text))
+            except Exception:
+                pass
 
-            lines = []
-            if scale_px_per_mm and float(scale_px_per_mm) > 0:
-                scale_val = float(scale_px_per_mm)
-                max_area_mm2 = max_area_px / (scale_val**2)
-                lines.append(f"Max Area: {max_area_mm2:.4g} mm²")
-
-                avg_dist_px = metrics_dict.get("avg_dist_px", np.array([]))
-                valid_speed = avg_dist_px[np.isfinite(avg_dist_px)]
-                if valid_speed.size > 0:
-                    avg_speed_px_frame = float(np.mean(valid_speed))
-                    avg_speed_um_sec = (avg_speed_px_frame * 1000.0 / scale_val) * fps
-                    lines.append(f"Avg Speed: {avg_speed_um_sec:.4g} μm/s")
-            else:
-                lines.append(f"Max Area: {max_area_px:.0f} px")
-
-            roi_mask = getattr(self.app, "roi_mask", None)
-            if roi_mask is not None:
-                roi_arr = np.asarray(roi_mask, dtype=bool)
-                if np.any(roi_arr):
-                    roi_pixels = int(np.count_nonzero(roi_arr))
-                    if roi_pixels > 0:
-                        lines.append(f"ROI Fill: {(max_area_px / roi_pixels * 100.0):.1f}%")
-
-            self.app.metrics_preview_var.set(" | ".join(lines))
-
-        except Exception as e:
-            self.app.metrics_preview_var.set(f"Preview error: {e}")
+        threading.Thread(target=_worker, daemon=True, name="swell-metrics-preview").start()
 
     def collect_current_metrics_settings(self) -> dict[str, object]:
         metrics: dict[str, object] = {}
@@ -161,7 +172,9 @@ class AnalysisWindowController:
             if len(clean_scale_points) == 2:
                 metrics["scale_points"] = clean_scale_points
         if bool(getattr(self.app, "_scale_is_local_override", False)):
-            metrics["scale_axis_lock"] = bool(getattr(self.app, "scale_axis_lock", True))
+            metrics["scale_axis_lock"] = bool(
+                getattr(self.app, "scale_axis_lock", DEFAULT_SCALE_AXIS_LOCK)
+            )
         if bool(getattr(self.app, "_scale_is_local_override", False)):
             scale_image_path = str(getattr(self.app, "_last_scale_image_path", "") or "").strip()
             if scale_image_path:
@@ -256,7 +269,7 @@ class AnalysisWindowController:
             if "scale_axis_lock" in normalized:
                 self.app.scale_axis_lock = bool(normalized.get("scale_axis_lock"))
             elif not self.app._scale_is_local_override:
-                self.app.scale_axis_lock = True
+                self.app.scale_axis_lock = DEFAULT_SCALE_AXIS_LOCK
             if "scale_image_path" in normalized:
                 self.app._last_scale_image_path = str(normalized.get("scale_image_path", "") or "").strip()
             elif not self.app._scale_is_local_override:

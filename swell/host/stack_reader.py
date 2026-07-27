@@ -19,6 +19,7 @@ from swell.shared.frame_source.image_decoding import (
 )
 from swell.shared.frame_source.stack_files import list_stack_files
 from swell.shared.frame_source.preprocessing import sanitize_nonfinite_pixels
+from swell.shared.frame_source.source_identity import canonical_dtype_name
 
 from .config import FrameRef, MAX_PREVIEW_CACHE, StackInfo
 
@@ -28,6 +29,7 @@ class StackReader:
         self,
         max_cache: int = MAX_PREVIEW_CACHE,
         channel_mode_resolver: Optional[Callable[[], str]] = None,
+        channel_mode: str | None = None,
     ):
         self.max_cache = max(1, int(max_cache))
         self._frame_refs: list[FrameRef] = []
@@ -38,7 +40,13 @@ class StackReader:
         self._tiff_handle_locks: dict[str, Lock] = {}
         self._tiff_pool_max = 4
         self._tiff_lock = Lock()
-        self._channel_mode = "average"
+        configured_channel_mode = str(channel_mode or "").strip().lower()
+        self._configured_channel_mode = (
+            configured_channel_mode
+            if configured_channel_mode in {"average", "first"}
+            else None
+        )
+        self._channel_mode = self._configured_channel_mode or "average"
         self._channel_mode_resolver = channel_mode_resolver
 
     def __enter__(self) -> StackReader:
@@ -68,6 +76,7 @@ class StackReader:
         counter = 0
         prompted_rgb = False
         dimension_mismatches: list[tuple[str, tuple[int, int]]] = []
+        dtype_mismatches: list[tuple[str, str]] = []
 
         for file_idx, file_path in enumerate(files):
             ext = file_path.suffix.lower()
@@ -97,6 +106,11 @@ class StackReader:
                                 prompted_rgb = True
                         if shape != expected_shape:
                             dimension_mismatches.append((f"{file_path.name} page {page_idx + 1}", shape))
+                            continue
+                        if canonical_dtype_name(page.dtype) != canonical_dtype_name(dtype_str):
+                            dtype_mismatches.append(
+                                (f"{file_path.name} page {page_idx + 1}", str(page.dtype))
+                            )
                             continue
                         for subframe_idx in range(int(embedded_frame_count)):
                             if page_count == 1 and embedded_frame_count == 1:
@@ -135,6 +149,9 @@ class StackReader:
                 if shape != expected_shape:
                     dimension_mismatches.append((file_path.name, shape))
                     continue
+                if canonical_dtype_name(dtype_guess) != canonical_dtype_name(dtype_str):
+                    dtype_mismatches.append((file_path.name, str(dtype_guess)))
+                    continue
                 frame_refs.append(
                     FrameRef(
                         frame_idx=counter,
@@ -156,6 +173,18 @@ class StackReader:
             raise ValueError(
                 f"Stack contains mixed frame dimensions; expected {expected_text}, but found {examples}{suffix}. "
                 "Resize, crop, or pad the source images to one common size before importing."
+            )
+
+        if dtype_mismatches:
+            expected_text = canonical_dtype_name(dtype_str)
+            examples = ", ".join(
+                f"{name} ({canonical_dtype_name(dtype)})"
+                for name, dtype in dtype_mismatches[:5]
+            )
+            suffix = ", ..." if len(dtype_mismatches) > 5 else ""
+            raise ValueError(
+                f"Stack contains mixed frame dtypes; expected {expected_text}, but found "
+                f"{examples}{suffix}. Convert the source images to one common dtype before importing."
             )
 
         if not frame_refs:
@@ -358,6 +387,8 @@ class StackReader:
             pass
 
     def _resolve_channel_mode(self) -> str:
+        if self._configured_channel_mode is not None:
+            return self._configured_channel_mode
         resolver = self._channel_mode_resolver
         if not callable(resolver):
             return "average"

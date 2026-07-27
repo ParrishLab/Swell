@@ -16,6 +16,9 @@ class StackRef:
     dtype: str
     frame_names_digest: str | None = None
     source_fingerprint: str | None = None
+    decoded_fingerprint: str | None = None
+    channel_mode: str | None = None
+    decode_policy_version: int | None = None
 
 
 @dataclass(init=False)

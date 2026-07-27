@@ -113,6 +113,39 @@ def test_frame_cache_key_is_stable_for_equivalent_sources():
     assert key_a == key_b
 
 
+def test_frame_cache_key_is_stable_after_source_files_move(tmp_path: Path):
+    first = tmp_path / "drive_a" / "frame.tif"
+    second = tmp_path / "drive_b" / "frame.tif"
+    first.parent.mkdir()
+    second.parent.mkdir()
+    first.write_bytes(b"same source bytes")
+    second.write_bytes(b"same source bytes")
+
+    class _MovedSource:
+        frame_count = 1
+        frame_shape = (4, 5)
+        frame_names = ["frame.tif"]
+
+        def __init__(self, path: Path) -> None:
+            self.source_paths = [str(path)]
+
+    common = dict(
+        frame_count=1,
+        frame_shape=(4, 5),
+        baseline_frames=1,
+        apply_horizontal_bar_denoise=False,
+        apply_smoothing=True,
+        apply_baseline_subtraction=True,
+        apply_global_normalization=True,
+        apply_stabilization=False,
+        stats=None,
+    )
+
+    key_a = build_sam2_frame_cache_key(frame_source=_MovedSource(first), **common)
+    key_b = build_sam2_frame_cache_key(frame_source=_MovedSource(second), **common)
+    assert key_a == key_b
+
+
 def test_frame_cache_key_changes_when_any_visual_frame_content_changes():
     common = dict(
         frame_source=_Source(),
