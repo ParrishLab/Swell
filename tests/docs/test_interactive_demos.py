@@ -33,6 +33,7 @@ DEMO_PAGES = (
     ("/user-guide/5-segment-events/", "main canvas", 3),
     ("/user-guide/6-propagate-masks/", "[data-swell-propagation-demo] .swell-propagation-demo__canvas", 1),
     ("/user-guide/7-review-overlays/", "[data-swell-propagation-demo] .swell-propagation-demo__canvas", 2),
+    ("/user-guide/7-review-overlays/", "[data-swell-correction-strategy-demo] .swell-correction-strategy-demo__shell", 1),
 )
 VIEWPORTS = (
     pytest.param({"width": 1440, "height": 1000}, id="desktop"),
@@ -212,6 +213,11 @@ def test_demo_controls_respond_to_basic_interactions(page, docs_url: str) -> Non
     leverage = browser_page.locator("[data-swell-propagation-demo='leverage']")
     leverage.get_by_role("button", name="Jump to Suggested Correction").click()
     assert leverage.get_by_role("slider", name="Current frame").input_value() != "1"
+    strategy = browser_page.locator("[data-swell-correction-strategy-demo]")
+    strategy.get_by_role("tab", name="Continuing drift").click()
+    assert "Correct the earliest credible divergence" in strategy.inner_text()
+    strategy.get_by_role("tab", name="Trusted anchor").click()
+    assert "Lock the current frame as ground truth" in strategy.inner_text()
 
     assert_page_fits_viewport(browser_page)
     assert not errors
@@ -237,6 +243,15 @@ def test_instant_navigation_remounts_demos(page, docs_url: str) -> None:
     assert browser_page.locator("[data-swell-event-range-demo] .swell-event-range-demo__shell").count() == 1
 
     goto_demo(browser_page, docs_url, "/user-guide/5-segment-events/", "main canvas", 3)
+    browser_page.locator("a[href$='6-propagate-masks/']").first.click()
+    browser_page.locator("[data-swell-propagation-demo] .swell-propagation-demo__canvas").wait_for(state="visible")
+    assert browser_page.locator("[data-swell-propagation-demo] .swell-propagation-demo__canvas").count() == 1
+
+    browser_page.locator("a[href$='7-review-overlays/']").first.click()
+    browser_page.locator("[data-swell-correction-strategy-demo] .swell-correction-strategy-demo__shell").wait_for(state="visible")
+    assert browser_page.locator("[data-swell-propagation-demo] .swell-propagation-demo__canvas").count() == 2
+    assert browser_page.locator("[data-swell-correction-strategy-demo] .swell-correction-strategy-demo__shell").count() == 1
+
     browser_page.locator("a[href$='6-propagate-masks/']").first.click()
     browser_page.locator("[data-swell-propagation-demo] .swell-propagation-demo__canvas").wait_for(state="visible")
     assert browser_page.locator("[data-swell-propagation-demo] .swell-propagation-demo__canvas").count() == 1

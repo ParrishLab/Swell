@@ -22,3 +22,21 @@ The timeline strip below grades each frame by how much its mask changes from the
 </div>
 
 **Simulated diagnostic preview — no model inference.** The leverage scores are computed from the fixed demo masks; this exercise does not run SAM 2.1 or mask propagation.
+
+## Choosing a Correction Strategy
+
+Ghost outlines and leverage identify frames worth inspecting; they do not decide
+whether the anatomy is correct. Confirm the first credible divergence in the
+image, then choose the smallest correction that matches the pattern:
+
+<div class="swell-correction-strategy-demo" data-swell-correction-strategy-demo>
+  <p class="swell-correction-strategy-demo__fallback">Preparing the correction strategy guide...</p>
+</div>
+
+**Interactive decision guide — no project data is changed.** Point and box
+prompts ask the model for a new mask; brush, eraser, and fill edit the current
+final mask directly. Both prompt frames and painted frames can act as propagation
+anchors. A nonempty, reviewed mask can also be **Locked as ground truth** so it
+remains a protected mask seed on later runs. Persistent regions modify final
+masks and exports across their inclusive frame ranges but intentionally do not
+seed propagation.

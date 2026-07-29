@@ -61,6 +61,7 @@ Configure parameters that override project-level defaults:
 * **Ghost Frame Range Slider**: Configure the sliding window range ($\pm N$ frames) for showing ghosts.
 * **Leverage Visibility Toggle**: Shows or hides the timeline leverage heatmap and correction indicators.
 * **Jump to Suggested Correction**: Seeks the playhead to the worst-scoring troubled frame.
+* **Lock current frame as ground truth**: Available when the current frame has a nonempty mask. Protects that reviewed mask as a propagation seed until it is unlocked.
 
 ### E. Regions List
 * Displays committed persistent regions.
