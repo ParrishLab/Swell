@@ -10,6 +10,14 @@ Once the stack is loaded, you can browse frames using the slider at the bottom o
 6. Click **Confirm**.
 7. The event is added to the **Event List** on the left, and a colored timeline band is rendered overlaying the frame scrubber at the bottom of the window.
 
+## Try Marking an Event
+
+<div data-swell-event-range-demo>
+  <p class="swell-event-range-demo__fallback">Preparing the event-range marking demo...</p>
+</div>
+
+**Simulated range-marking dialog — no recording is loaded and nothing is saved to Swell.** Use the slider or **Prev**/**Next** to inspect the fixed illustrative sequence, then use **Set Start**, **Set End**, or the frame fields to refine the range. **Confirm** follows the desktop dialog's rule of clamping values to the recording and swapping an inverted start/end pair.
+
 ## Mark Event Controls
 
 * **Baseline Count**: The number of pre-event frames to retain as baseline context. This value is saved with the event and is used when Swell prepares frames for analysis.

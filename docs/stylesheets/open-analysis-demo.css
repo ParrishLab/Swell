@@ -1,0 +1,266 @@
+.swell-open-analysis-demo {
+  margin: 1.25rem 0 0.75rem;
+  max-width: 49.5rem;
+}
+
+.swell-open-analysis-demo__shell {
+  background: var(--md-default-bg-color);
+  border: 1px solid var(--md-default-fg-color--lighter);
+  border-radius: 6px;
+  box-sizing: border-box;
+  color: var(--md-default-fg-color);
+  overflow: hidden;
+  width: 100%;
+}
+
+.swell-open-analysis-demo__summary,
+.swell-open-analysis-demo__footer {
+  align-items: center;
+  display: flex;
+  gap: 0.75rem;
+  justify-content: space-between;
+  padding: 0.75rem 0.85rem;
+}
+
+.swell-open-analysis-demo__summary {
+  background: var(--md-default-bg-color--light);
+  border-bottom: 1px solid var(--md-default-fg-color--lighter);
+}
+
+.swell-open-analysis-demo__summary strong,
+.swell-open-analysis-demo__baseline,
+.swell-open-analysis-demo__options,
+.swell-open-analysis-demo__footer {
+  font-size: 0.78rem;
+}
+
+.swell-open-analysis-demo__baseline {
+  align-items: center;
+  display: flex;
+  font-weight: 600;
+  gap: 0.45rem;
+}
+
+.swell-open-analysis-demo__baseline input {
+  background: var(--md-default-bg-color);
+  border: 1px solid var(--md-default-fg-color--lighter);
+  border-radius: 3px;
+  box-sizing: border-box;
+  color: var(--md-default-fg-color);
+  font: inherit;
+  padding: 0.25rem 0.35rem;
+  width: 4.5rem;
+}
+
+.swell-open-analysis-demo__baseline input:focus-visible,
+.swell-open-analysis-demo__check input:focus-visible,
+.swell-open-analysis-demo__footer button:focus-visible {
+  outline: 2px solid var(--md-accent-fg-color);
+  outline-offset: 2px;
+}
+
+.swell-open-analysis-demo__options {
+  border: 0;
+  display: grid;
+  gap: 0.5rem 1rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin: 0;
+  padding: 0.8rem 0.85rem;
+}
+
+.swell-open-analysis-demo__options legend {
+  float: left;
+  font-weight: 700;
+  grid-column: 1 / -1;
+  padding: 0;
+  width: 100%;
+}
+
+.swell-open-analysis-demo__check {
+  align-items: center;
+  cursor: pointer;
+  display: flex;
+  gap: 0.45rem;
+  min-width: 0;
+}
+
+.swell-open-analysis-demo__check input {
+  accent-color: var(--md-accent-fg-color);
+  flex: 0 0 auto;
+  margin: 0;
+}
+
+.swell-open-analysis-demo__preview {
+  background: #0f1318;
+  display: grid;
+  gap: 1px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.swell-open-analysis-demo__figure {
+  background: #171b20;
+  color: #edf1f3;
+  margin: 0;
+  min-width: 0;
+}
+
+.swell-open-analysis-demo__canvas-frame {
+  aspect-ratio: 240 / 156;
+  position: relative;
+}
+
+.swell-open-analysis-demo__figure canvas {
+  display: block;
+  height: 100%;
+  image-rendering: pixelated;
+  width: 100%;
+}
+
+.swell-open-analysis-demo__figure canvas.is-stale {
+  filter: brightness(0.45);
+}
+
+.swell-open-analysis-demo__figure figcaption {
+  border-top: 1px solid #39424f;
+  font-size: 0.72rem;
+  margin: 0;
+  padding: 0.45rem 0.65rem;
+}
+
+.swell-open-analysis-demo__placeholder {
+  color: #edf1f3;
+  font-size: 0.78rem;
+  font-weight: 600;
+  left: 50%;
+  position: absolute;
+  text-align: center;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: calc(100% - 2rem);
+}
+
+.swell-open-analysis-demo__reasoning {
+  border-top: 1px solid var(--md-default-fg-color--lighter);
+  padding: 0.8rem 0.85rem;
+}
+
+.swell-open-analysis-demo__reasoning p {
+  font-size: 0.78rem;
+  margin: 0 0 0.75rem;
+}
+
+.swell-open-analysis-demo__pipeline {
+  display: grid;
+  gap: 0.45rem;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.swell-open-analysis-demo__pipeline li {
+  border-top: 3px solid var(--md-default-fg-color--lighter);
+  display: grid;
+  gap: 0.15rem;
+  min-width: 0;
+  padding-top: 0.4rem;
+}
+
+.swell-open-analysis-demo__pipeline li.is-active {
+  border-top-color: var(--md-accent-fg-color);
+}
+
+.swell-open-analysis-demo__pipeline strong,
+.swell-open-analysis-demo__pipeline span,
+.swell-open-analysis-demo__pipeline small {
+  font-size: 0.68rem;
+  line-height: 1.35;
+}
+
+.swell-open-analysis-demo__pipeline span {
+  color: var(--md-default-fg-color--light);
+  font-weight: 700;
+}
+
+.swell-open-analysis-demo__pipeline small {
+  color: var(--md-default-fg-color--light);
+}
+
+.swell-open-analysis-demo__footer {
+  border-top: 1px solid var(--md-default-fg-color--lighter);
+}
+
+.swell-open-analysis-demo__footer p {
+  color: var(--md-default-fg-color--light);
+  margin: 0;
+}
+
+.swell-open-analysis-demo__footer p.is-stale {
+  color: var(--md-default-fg-color);
+}
+
+.swell-open-analysis-demo__footer button {
+  background: var(--md-primary-fg-color);
+  border: 1px solid var(--md-primary-fg-color--dark);
+  border-radius: 4px;
+  color: #fff;
+  cursor: pointer;
+  flex: 0 0 auto;
+  font: inherit;
+  font-weight: 700;
+  padding: 0.4rem 0.7rem;
+}
+
+.swell-open-analysis-demo__footer button:hover {
+  background: var(--md-primary-fg-color--dark);
+}
+
+.swell-open-analysis-demo__footer button:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+.swell-open-analysis-demo__fallback {
+  background: var(--md-default-bg-color--light);
+  border: 1px solid var(--md-default-fg-color--lighter);
+  border-radius: 6px;
+  color: var(--md-default-fg-color);
+  margin: 0;
+  padding: 1rem;
+}
+
+@media screen and (max-width: 42rem) {
+  .swell-open-analysis-demo__pipeline {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media screen and (max-width: 30rem) {
+  .swell-open-analysis-demo__summary {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .swell-open-analysis-demo__options,
+  .swell-open-analysis-demo__preview,
+  .swell-open-analysis-demo__pipeline {
+    grid-template-columns: 1fr;
+  }
+
+  .swell-open-analysis-demo__preview {
+    gap: 0;
+  }
+
+  .swell-open-analysis-demo__figure + .swell-open-analysis-demo__figure {
+    border-top: 1px solid #39424f;
+  }
+
+  .swell-open-analysis-demo__footer {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .swell-open-analysis-demo__footer button {
+    align-self: flex-end;
+  }
+}

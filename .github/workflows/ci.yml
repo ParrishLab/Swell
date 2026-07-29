@@ -15,6 +15,29 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
 jobs:
+  docs-browser:
+    name: docs browser
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install documentation browser-test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[docs-test]"
+          python -m playwright install --with-deps chromium chromium-headless-shell
+
+      - name: Run interactive documentation browser tests
+        run: python -m pytest -q tests/docs
+
   test:
     name: test
     runs-on: ubuntu-latest

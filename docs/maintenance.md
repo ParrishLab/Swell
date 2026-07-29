@@ -76,12 +76,33 @@ mkdocs build --strict
 
 If the compilation succeeds without errors, the production site is generated under the `site/` folder and is ready to be published.
 
+### Testing Interactive Demos
+
+Install the browser-test dependencies and Chromium once:
+
+```bash
+pip install -e ".[docs-test]"
+python -m playwright install chromium chromium-headless-shell
+```
+
+Then run the interactive documentation suite:
+
+```bash
+python -m pytest -q tests/docs
+```
+
+The suite builds and serves the documentation, exercises the demos at desktop
+and 375-pixel viewports, checks for local resource and JavaScript errors,
+verifies page-level overflow, and covers Material instant-navigation remounting.
+The `docs browser` CI job runs the same checks on every push and pull request.
+
 ### Publishing to GitHub Pages
 Documentation is published to GitHub Pages by the `Deploy docs` workflow. Before
 merging documentation changes, run:
 
 ```bash
 mkdocs build --strict
+python -m pytest -q tests/docs
 ```
 
 After changes are merged to `main`, confirm the `Deploy docs` workflow succeeds,

@@ -43,8 +43,12 @@ extra:
 extra_css:
   - stylesheets/extra.css
   - stylesheets/prompt-demo.css
+  - stylesheets/event-range-demo.css
+  - stylesheets/open-analysis-demo.css
 
 extra_javascript:
+  - javascripts/event-range-demo.js?v=20260729.2
+  - javascripts/open-analysis-demo.js?v=20260729.1
   - javascripts/prompt-demo.js
   - javascripts/mask-edit-demo.js?v=20260710.1
   - javascripts/region-demo.js?v=20260710.9
