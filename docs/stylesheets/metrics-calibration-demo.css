@@ -1,0 +1,284 @@
+.swell-metrics-demo {
+  margin: 1.25rem 0 0.75rem;
+  max-width: 55rem;
+}
+
+.swell-metrics-demo__shell {
+  background: var(--md-default-bg-color);
+  border: 1px solid var(--md-default-fg-color--lighter);
+  border-radius: 6px;
+  box-sizing: border-box;
+  color: var(--md-default-fg-color);
+  overflow: hidden;
+}
+
+.swell-metrics-demo__heading {
+  align-items: baseline;
+  background: var(--md-default-bg-color--light);
+  border-bottom: 1px solid var(--md-default-fg-color--lighter);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.7rem;
+  padding: 0.75rem 0.85rem;
+}
+
+.swell-metrics-demo__heading strong {
+  font-size: 0.86rem;
+}
+
+.swell-metrics-demo__heading span,
+.swell-metrics-demo__instruction,
+.swell-metrics-demo__formula {
+  color: var(--md-default-fg-color--light);
+  font-size: 0.7rem;
+}
+
+.swell-metrics-demo__body {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(16rem, 0.85fr);
+}
+
+.swell-metrics-demo__viewer,
+.swell-metrics-demo__panel {
+  min-width: 0;
+  padding: 0.85rem;
+}
+
+.swell-metrics-demo__viewer {
+  background: #11171d;
+  color: #edf1f3;
+}
+
+.swell-metrics-demo__panel {
+  border-left: 1px solid var(--md-default-fg-color--lighter);
+}
+
+.swell-metrics-demo__canvas {
+  aspect-ratio: 792 / 612;
+  background: #0c1116;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 4px;
+  box-sizing: border-box;
+  cursor: crosshair;
+  display: block;
+  height: auto;
+  max-width: 100%;
+  touch-action: none;
+  width: 100%;
+}
+
+.swell-metrics-demo__canvas:focus-visible,
+.swell-metrics-demo__button:focus-visible,
+.swell-metrics-demo input:focus-visible {
+  outline: 2px solid var(--md-accent-fg-color);
+  outline-offset: 2px;
+}
+
+.swell-metrics-demo__instruction {
+  color: #c4cdd5;
+  line-height: 1.45;
+  margin: 0.55rem 0;
+  min-height: 2.1em;
+}
+
+.swell-metrics-demo__toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.swell-metrics-demo__button {
+  background: #252d35;
+  border: 1px solid rgba(255, 255, 255, 0.24);
+  border-radius: 4px;
+  color: #edf1f3;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.66rem;
+  font-weight: 700;
+  line-height: 1.25;
+  padding: 0.42rem 0.55rem;
+}
+
+.swell-metrics-demo__button:hover,
+.swell-metrics-demo__button.is-active {
+  background: #1b75bc;
+  border-color: #63d2ff;
+}
+
+.swell-metrics-demo__button:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+}
+
+.swell-metrics-demo__eyebrow {
+  color: var(--md-accent-fg-color);
+  display: block;
+  font-size: 0.62rem;
+  font-weight: 750;
+  letter-spacing: 0.06em;
+  margin-bottom: 0.45rem;
+  text-transform: uppercase;
+}
+
+.swell-metrics-demo__eyebrow:not(:first-child) {
+  margin-top: 0.9rem;
+}
+
+.swell-metrics-demo__controls {
+  display: grid;
+  gap: 0.55rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.swell-metrics-demo__field {
+  display: grid;
+  font-size: 0.68rem;
+  font-weight: 700;
+  gap: 0.25rem;
+  min-width: 0;
+}
+
+.swell-metrics-demo__field--wide,
+.swell-metrics-demo__toggle {
+  grid-column: 1 / -1;
+}
+
+.swell-metrics-demo__field-heading {
+  align-items: baseline;
+  display: flex;
+  justify-content: space-between;
+}
+
+.swell-metrics-demo__field output {
+  color: var(--md-accent-fg-color);
+  font-size: 0.64rem;
+}
+
+.swell-metrics-demo input[type="number"] {
+  background: var(--md-default-bg-color--light);
+  border: 1px solid var(--md-default-fg-color--lighter);
+  border-radius: 4px;
+  box-sizing: border-box;
+  color: var(--md-default-fg-color);
+  font: inherit;
+  min-width: 0;
+  padding: 0.4rem 0.45rem;
+  width: 100%;
+}
+
+.swell-metrics-demo input[type="range"] {
+  accent-color: var(--md-accent-fg-color);
+  width: 100%;
+}
+
+.swell-metrics-demo__toggle {
+  align-items: center;
+  background: var(--md-default-bg-color--light);
+  border: 1px solid var(--md-default-fg-color--lighter);
+  border-radius: 4px;
+  display: flex;
+  font-size: 0.66rem;
+  font-weight: 700;
+  gap: 0.42rem;
+  padding: 0.45rem 0.5rem;
+}
+
+.swell-metrics-demo__toggle input {
+  accent-color: var(--md-accent-fg-color);
+  margin: 0;
+}
+
+.swell-metrics-demo__results {
+  display: grid;
+  gap: 0.4rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.swell-metrics-demo__result {
+  background: var(--md-default-bg-color--light);
+  border: 1px solid var(--md-default-fg-color--lighter);
+  border-radius: 4px;
+  display: grid;
+  gap: 0.12rem;
+  min-width: 0;
+  padding: 0.45rem 0.5rem;
+}
+
+.swell-metrics-demo__result span {
+  color: var(--md-default-fg-color--light);
+  font-size: 0.6rem;
+  line-height: 1.3;
+}
+
+.swell-metrics-demo__result strong {
+  font-size: 0.67rem;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.swell-metrics-demo__result:last-child {
+  background: rgba(27, 117, 188, 0.1);
+  border-color: var(--md-accent-fg-color);
+  grid-column: 1 / -1;
+}
+
+.swell-metrics-demo__formula {
+  background: var(--md-default-bg-color--light);
+  border-left: 3px solid var(--md-accent-fg-color);
+  line-height: 1.45;
+  margin: 0.75rem 0 0;
+  padding: 0.5rem 0.6rem;
+}
+
+.swell-metrics-demo__fallback {
+  background: var(--md-default-bg-color--light);
+  border: 1px solid var(--md-default-fg-color--lighter);
+  border-radius: 6px;
+  color: var(--md-default-fg-color);
+  margin: 0;
+  padding: 1rem;
+}
+
+.swell-metrics-demo__sr-status {
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  height: 1px;
+  overflow: hidden;
+  position: absolute;
+  white-space: nowrap;
+  width: 1px;
+}
+
+@media screen and (max-width: 48rem) {
+  .swell-metrics-demo__body {
+    grid-template-columns: 1fr;
+  }
+
+  .swell-metrics-demo__panel {
+    border-left: 0;
+    border-top: 1px solid var(--md-default-fg-color--lighter);
+  }
+}
+
+@media screen and (max-width: 30rem) {
+  .swell-metrics-demo__heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .swell-metrics-demo__controls,
+  .swell-metrics-demo__results {
+    grid-template-columns: 1fr;
+  }
+
+  .swell-metrics-demo__field--wide,
+  .swell-metrics-demo__toggle,
+  .swell-metrics-demo__result:last-child {
+    grid-column: 1;
+  }
+
+  .swell-metrics-demo__button {
+    flex: 1 1 calc(50% - 0.4rem);
+  }
+}

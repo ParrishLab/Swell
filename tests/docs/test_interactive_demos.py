@@ -34,6 +34,7 @@ DEMO_PAGES = (
     ("/user-guide/6-propagate-masks/", "[data-swell-propagation-demo] .swell-propagation-demo__canvas", 1),
     ("/user-guide/7-review-overlays/", "[data-swell-propagation-demo] .swell-propagation-demo__canvas", 2),
     ("/user-guide/7-review-overlays/", "[data-swell-correction-strategy-demo] .swell-correction-strategy-demo__shell", 1),
+    ("/user-guide/8-event-metrics/", "[data-swell-metrics-calibration-demo] .swell-metrics-demo__shell", 1),
 )
 VIEWPORTS = (
     pytest.param({"width": 1440, "height": 1000}, id="desktop"),
@@ -219,6 +220,22 @@ def test_demo_controls_respond_to_basic_interactions(page, docs_url: str) -> Non
     strategy.get_by_role("tab", name="Trusted anchor").click()
     assert "Lock the current frame as ground truth" in strategy.inner_text()
 
+    goto_demo(browser_page, docs_url, "/user-guide/8-event-metrics/", "[data-swell-metrics-calibration-demo] .swell-metrics-demo__shell", 1)
+    calibration = browser_page.locator("[data-swell-metrics-calibration-demo]")
+    assert calibration.locator("[data-metric='scale']").inner_text() == "140.00 px/mm"
+    calibration.get_by_role("spinbutton", name="Known length (mm)").fill("1")
+    assert calibration.locator("[data-metric='scale']").inner_text() == "280.00 px/mm"
+    calibration.get_by_role("spinbutton", name="Frames per second (FPS)").fill("4")
+    assert calibration.locator("[data-metric='speed']").inner_text() == "85.7 μm/s"
+    calibration.get_by_role("checkbox", name="Apply ROI to example mask").uncheck()
+    assert "full-frame px" in calibration.locator("[data-metric='roi']").inner_text()
+    calibration.get_by_role("button", name="Redraw ROI").click()
+    calibration_canvas = calibration.locator("canvas")
+    for position in ({"x": 60, "y": 55}, {"x": 205, "y": 65}, {"x": 135, "y": 165}):
+        calibration_canvas.click(position=position)
+    calibration.get_by_role("button", name="Close ROI").click()
+    assert "roi closed with 3 vertices" in calibration.locator(".swell-metrics-demo__sr-status").inner_text().lower()
+
     assert_page_fits_viewport(browser_page)
     assert not errors
 
@@ -250,6 +267,14 @@ def test_instant_navigation_remounts_demos(page, docs_url: str) -> None:
     browser_page.locator("a[href$='7-review-overlays/']").first.click()
     browser_page.locator("[data-swell-correction-strategy-demo] .swell-correction-strategy-demo__shell").wait_for(state="visible")
     assert browser_page.locator("[data-swell-propagation-demo] .swell-propagation-demo__canvas").count() == 2
+    assert browser_page.locator("[data-swell-correction-strategy-demo] .swell-correction-strategy-demo__shell").count() == 1
+
+    browser_page.locator("a[href$='8-event-metrics/']").first.click()
+    browser_page.locator("[data-swell-metrics-calibration-demo] .swell-metrics-demo__shell").wait_for(state="visible")
+    assert browser_page.locator("[data-swell-metrics-calibration-demo] .swell-metrics-demo__shell").count() == 1
+
+    browser_page.locator("a[href$='7-review-overlays/']").first.click()
+    browser_page.locator("[data-swell-correction-strategy-demo] .swell-correction-strategy-demo__shell").wait_for(state="visible")
     assert browser_page.locator("[data-swell-correction-strategy-demo] .swell-correction-strategy-demo__shell").count() == 1
 
     browser_page.locator("a[href$='6-propagate-masks/']").first.click()
