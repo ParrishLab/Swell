@@ -2,7 +2,11 @@ from __future__ import annotations
 
 from pathlib import Path
 import re
+import shutil
+import subprocess
 import tomllib
+
+import pytest
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -95,6 +99,34 @@ def test_release_workflow_uses_draft_release_assets_instead_of_actions_storage()
     assert 'IS_DRAFT="$(gh release view "$RELEASE_TAG" --json isDraft --jq \'.isDraft\')"' in workflow
     assert "Release $RELEASE_TAG is already published" in workflow
     assert "publish-draft:" not in workflow
+
+
+def test_release_workflow_explicit_bash_blocks_are_syntactically_valid() -> None:
+    bash = shutil.which("bash")
+    if bash is None:
+        pytest.skip("bash is not available")
+
+    workflow = (ROOT / ".github" / "workflows" / "release_phase3_tag.yml").read_text(encoding="utf-8")
+    lines = workflow.splitlines()
+    checked = 0
+    for index, line in enumerate(lines):
+        if line.strip() != "shell: bash":
+            continue
+        run_line = lines[index + 1]
+        assert run_line.strip() == "run: |"
+        base_indent = len(run_line) - len(run_line.lstrip())
+        body: list[str] = []
+        for candidate in lines[index + 2 :]:
+            candidate_indent = len(candidate) - len(candidate.lstrip())
+            if candidate.strip() and candidate_indent <= base_indent:
+                break
+            body.append(candidate[base_indent + 2 :] if candidate.strip() else "")
+
+        result = subprocess.run([bash, "-n"], input="\n".join(body), text=True, capture_output=True, check=False)
+        assert result.returncode == 0, result.stderr
+        checked += 1
+
+    assert checked >= 4
 
 
 def test_validation_workflows_disable_optional_installer_and_updater_outputs() -> None:

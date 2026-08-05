@@ -118,6 +118,7 @@ jobs:
                 --draft \
                 --verify-tag
             fi
+          fi
 
   macos-arm64-package:
     name: macos-arm64-package
