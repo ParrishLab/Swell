@@ -82,6 +82,21 @@ def test_release_workflow_disables_updater_artifacts_by_default() -> None:
     assert "--bundle-path dist/macos-arm64/Swell.app" in workflow
 
 
+def test_release_workflow_uses_draft_release_assets_instead_of_actions_storage() -> None:
+    workflow = (ROOT / ".github" / "workflows" / "release_phase3_tag.yml").read_text(encoding="utf-8")
+
+    assert "actions/upload-artifact" not in workflow
+    assert "actions/download-artifact" not in workflow
+    assert "softprops/action-gh-release" not in workflow
+    assert 'gh release create "$RELEASE_TAG"' in workflow
+    assert 'gh release upload "$RELEASE_TAG" "${FILES[@]}" --clobber' in workflow
+    assert 'gh release upload "$env:RELEASE_TAG" @files --clobber' in workflow
+    assert 'gh release download "$RELEASE_TAG"' in workflow
+    assert 'IS_DRAFT="$(gh release view "$RELEASE_TAG" --json isDraft --jq \'.isDraft\')"' in workflow
+    assert "Release $RELEASE_TAG is already published" in workflow
+    assert "publish-draft:" not in workflow
+
+
 def test_validation_workflows_disable_optional_installer_and_updater_outputs() -> None:
     phase2 = (ROOT / ".github" / "workflows" / "release_phase2_pr.yml").read_text(encoding="utf-8")
     quick = (ROOT / ".github" / "workflows" / "windows_quick_package.yml").read_text(encoding="utf-8")
