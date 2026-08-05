@@ -2,11 +2,35 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from swell.analysis.core.project_autosave import AutosaveSnapshot, ProjectAutosaveManager
 
 
 class ProjectAutosaveRingTests(unittest.TestCase):
+    def test_rotation_continues_after_highest_existing_slot(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "autosave_1.swell").write_text("oldest", encoding="utf-8")
+            (root / "autosave_2.swell").write_text("newest", encoding="utf-8")
+            mgr = ProjectAutosaveManager(lambda: None, lambda *_args: None, root, max_slots=3)
+            try:
+                self.assertEqual(mgr._next_slot_path().name, "autosave_3.swell")
+            finally:
+                mgr.stop()
+
+    def test_existing_slot_detection_uses_configured_project_extension(self):
+        with tempfile.TemporaryDirectory() as tmp, patch(
+            "swell.analysis.core.project_autosave.PROJECT_EXTENSION", ".sdproj"
+        ):
+            root = Path(tmp)
+            (root / "autosave_2.sdproj").write_text("recovery", encoding="utf-8")
+            mgr = ProjectAutosaveManager(lambda: None, lambda *_args: None, root, max_slots=3)
+            try:
+                self.assertEqual(mgr._next_slot_path().name, "autosave_3.sdproj")
+            finally:
+                mgr.stop()
+
     def test_ring_rotation_and_write(self):
         with tempfile.TemporaryDirectory() as tmp:
             writes = []

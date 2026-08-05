@@ -215,6 +215,103 @@ def test_save_project_after_metrics_apply_warns_when_save_fails() -> None:
     assert calls["statuses"][-1] == "Metrics updated; project save failed."
 
 
+def test_metrics_apply_closes_dialog_after_unsuccessful_save(monkeypatch) -> None:
+    buttons: dict[str, object] = {}
+
+    class _Variable:
+        def __init__(self, value="") -> None:
+            self.value = value
+
+        def get(self):
+            return self.value
+
+        def set(self, value) -> None:
+            self.value = value
+
+    class _Widget:
+        def __init__(self, *_args, **_kwargs) -> None:
+            pass
+
+        def pack(self, *_args, **_kwargs):
+            return self
+
+    class _Button(_Widget):
+        def __init__(self, *_args, text="", command=None, **_kwargs) -> None:
+            super().__init__()
+            buttons[str(text)] = command
+
+    class _Dialog(_Widget):
+        def __init__(self, *_args, **_kwargs) -> None:
+            self.destroyed = False
+
+        def withdraw(self):
+            return None
+
+        def title(self, _value):
+            return None
+
+        def transient(self, _value):
+            return None
+
+        def resizable(self, *_args):
+            return None
+
+        def geometry(self, _value):
+            return None
+
+        def bind(self, *_args):
+            return None
+
+        def deiconify(self):
+            return None
+
+        def grab_set(self):
+            return None
+
+        def wait_window(self):
+            buttons["Apply"]()
+
+        def destroy(self):
+            self.destroyed = True
+
+    dialog = _Dialog()
+    browser = SimpleNamespace(
+        get_global_metrics_defaults=lambda: {"frames_per_sec": 2.0},
+        set_global_metrics_defaults=lambda _payload: None,
+        materialize_metrics_defaults_to_events=lambda: 0,
+    )
+    app = SimpleNamespace(
+        reader=object(),
+        stack_info=object(),
+        root=object(),
+        browser_controller=browser,
+        _open_metrics_dialog=None,
+        _refresh_open_metrics_dialog=None,
+        _set_status=lambda _message: None,
+        _log_info=lambda _message: None,
+    )
+    controller = HostWindowController(app)
+    save_attempts = []
+    monkeypatch.setattr(host_window_controller.tk, "Toplevel", lambda *_args: dialog)
+    monkeypatch.setattr(host_window_controller.tk, "StringVar", _Variable)
+    monkeypatch.setattr(host_window_controller.ttk, "Frame", _Widget)
+    monkeypatch.setattr(host_window_controller.ttk, "Label", _Widget)
+    monkeypatch.setattr(host_window_controller.ttk, "Entry", _Widget)
+    monkeypatch.setattr(host_window_controller.ttk, "Button", _Button)
+    monkeypatch.setattr(host_window_controller, "apply_theme", lambda _dialog: None)
+    monkeypatch.setattr(controller, "center_window_on_screen", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        controller,
+        "_save_project_after_metrics_apply",
+        lambda: save_attempts.append("save") or False,
+    )
+
+    controller.open_generate_metrics_popup()
+
+    assert save_attempts == ["save"]
+    assert dialog.destroyed is True
+
+
 def test_restore_snapshot_if_masks_changed_restores_event_sidecar() -> None:
     initial_payload = {
         "masks_committed": np.zeros((3, 6, 6), dtype=np.uint8),

@@ -81,58 +81,90 @@ class StackReader:
         for file_idx, file_path in enumerate(files):
             ext = file_path.suffix.lower()
             if ext in {".tif", ".tiff"}:
-                with tifffile.TiffFile(str(file_path)) as tif:
-                    page_count = int(len(tif.pages))
-                    if page_count <= 0:
-                        continue
-                    for page_idx, page in enumerate(tif.pages):
-                        axes = str(getattr(page, "axes", "") or "")
-                        is_rgb = tiff_page_is_rgb(page)
-                        orientation = tiff_page_orientation(page)
-                        layout = array_frame_layout(
-                            page.shape,
-                            axes=axes,
-                            rgb=is_rgb,
-                            orientation=orientation,
-                        )
-                        if layout is None:
+                try:
+                    with tifffile.TiffFile(str(file_path)) as tif:
+                        page_count = int(len(tif.pages))
+                        if page_count <= 0:
                             continue
-                        shape, embedded_frame_count = layout
-                        if expected_shape is None:
-                            expected_shape = shape
-                            dtype_str = str(page.dtype)
-                            if is_rgb and not prompted_rgb:
-                                self._channel_mode = self._resolve_channel_mode()
-                                prompted_rgb = True
-                        if shape != expected_shape:
-                            dimension_mismatches.append((f"{file_path.name} page {page_idx + 1}", shape))
-                            continue
-                        if canonical_dtype_name(page.dtype) != canonical_dtype_name(dtype_str):
-                            dtype_mismatches.append(
-                                (f"{file_path.name} page {page_idx + 1}", str(page.dtype))
+                        for page_idx, page in enumerate(tif.pages):
+                            axes = str(getattr(page, "axes", "") or "")
+                            is_rgb = tiff_page_is_rgb(page)
+                            orientation = tiff_page_orientation(page)
+                            layout = array_frame_layout(
+                                page.shape,
+                                axes=axes,
+                                rgb=is_rgb,
+                                orientation=orientation,
                             )
-                            continue
-                        for subframe_idx in range(int(embedded_frame_count)):
-                            if page_count == 1 and embedded_frame_count == 1:
-                                name = file_path.name
-                            elif embedded_frame_count == 1:
-                                name = f"{file_path.name}_p{page_idx:04d}"
-                            else:
-                                name = f"{file_path.name}_p{page_idx:04d}_f{subframe_idx:04d}"
-                            frame_refs.append(
-                                FrameRef(
-                                    frame_idx=counter,
-                                    source_path=file_path,
-                                    page_index=page_idx,
-                                    source_ext=ext,
-                                    frame_name=name,
-                                    subframe_index=subframe_idx,
-                                    axes=axes,
-                                    is_rgb=is_rgb,
-                                    orientation=orientation,
+                            if layout is None:
+                                continue
+                            shape, embedded_frame_count = layout
+                            if expected_shape is None:
+                                expected_shape = shape
+                                dtype_str = str(page.dtype)
+                                if is_rgb and not prompted_rgb:
+                                    self._channel_mode = self._resolve_channel_mode()
+                                    prompted_rgb = True
+                            if shape != expected_shape:
+                                dimension_mismatches.append((f"{file_path.name} page {page_idx + 1}", shape))
+                                continue
+                            if canonical_dtype_name(page.dtype) != canonical_dtype_name(dtype_str):
+                                dtype_mismatches.append(
+                                    (f"{file_path.name} page {page_idx + 1}", str(page.dtype))
                                 )
+                                continue
+                            for subframe_idx in range(int(embedded_frame_count)):
+                                if page_count == 1 and embedded_frame_count == 1:
+                                    name = file_path.name
+                                elif embedded_frame_count == 1:
+                                    name = f"{file_path.name}_p{page_idx:04d}"
+                                else:
+                                    name = f"{file_path.name}_p{page_idx:04d}_f{subframe_idx:04d}"
+                                frame_refs.append(
+                                    FrameRef(
+                                        frame_idx=counter,
+                                        source_path=file_path,
+                                        page_index=page_idx,
+                                        source_ext=ext,
+                                        frame_name=name,
+                                        subframe_index=subframe_idx,
+                                        axes=axes,
+                                        is_rgb=is_rgb,
+                                        orientation=orientation,
+                                    )
+                                )
+                                counter += 1
+                except Exception:
+                    # tifffile could not parse this file (unsupported codec,
+                    # corruption, etc). Fall back to Pillow for a single-frame
+                    # read, matching the runtime fallback used in read_frame().
+                    with Image.open(file_path) as img:
+                        shape = oriented_pil_shape(img)
+                        dtype_guess = _pil_dtype_str(img)
+                        is_rgb = img.mode in ("RGB", "RGBA")
+                    if shape is None:
+                        continue
+                    if expected_shape is None:
+                        expected_shape = shape
+                        dtype_str = dtype_guess
+                        if is_rgb and not prompted_rgb:
+                            self._channel_mode = self._resolve_channel_mode()
+                            prompted_rgb = True
+                    if shape != expected_shape:
+                        dimension_mismatches.append((file_path.name, shape))
+                    elif canonical_dtype_name(dtype_guess) != canonical_dtype_name(dtype_str):
+                        dtype_mismatches.append((file_path.name, str(dtype_guess)))
+                    else:
+                        frame_refs.append(
+                            FrameRef(
+                                frame_idx=counter,
+                                source_path=file_path,
+                                page_index=None,
+                                source_ext=ext,
+                                frame_name=file_path.name,
                             )
-                            counter += 1
+                        )
+                        counter += 1
             else:
                 with Image.open(file_path) as img:
                     shape = oriented_pil_shape(img)
@@ -302,8 +334,10 @@ class StackReader:
                 handle_lock = Lock()
                 self._tiff_handle_locks[path_str] = handle_lock
             self._tiff_handle_pool.move_to_end(path_str)
-            handle_lock.acquire()
             self._evict_tiff_handles_locked(exclude={path_str})
+        # Acquire the per-file lock outside the global lock's scope so a slow
+        # read on one file cannot block every other thread's access to the pool.
+        handle_lock.acquire()
         try:
             arr = tif.pages[key].asarray()
         finally:
@@ -368,17 +402,25 @@ class StackReader:
         with self._tiff_lock:
             keep_handles = max(2, self._tiff_pool_max // 2)
             while len(self._tiff_handle_pool) > keep_handles:
-                old_path, old_tif = self._tiff_handle_pool.popitem(last=False)
-                old_lock = self._tiff_handle_locks.pop(old_path, None)
-                if old_lock is not None:
-                    old_lock.acquire()
-                try:
-                    old_tif.close()
-                except Exception:
-                    pass
-                finally:
+                evicted = False
+                for old_path in list(self._tiff_handle_pool.keys()):
+                    old_lock = self._tiff_handle_locks.get(old_path)
+                    # Non-blocking: skip handles actively in use rather than
+                    # stalling every other TIFF reader behind the global lock.
+                    if old_lock is not None and not old_lock.acquire(blocking=False):
+                        continue
+                    old_tif = self._tiff_handle_pool.pop(old_path)
+                    try:
+                        old_tif.close()
+                    except Exception:
+                        pass
                     if old_lock is not None:
                         old_lock.release()
+                    self._tiff_handle_locks.pop(old_path, None)
+                    evicted = True
+                    break
+                if not evicted:
+                    break
 
     def __del__(self):
         try:

@@ -307,15 +307,18 @@ class HostDCTraceController:
             self.app._log_info("DC trace import canceled from dialog.")
             return
         channel_index, offset_s = dialog_result
+        channel_names = list(metadata.get("channel_names") or [])
+        units = list(metadata.get("units") or [])
+        channel_idx = int(channel_index)
         attachment = TraceAttachment(
             source_type=self._adapter.source_type,
             source_path=str(Path(source_path).expanduser().resolve()),
-            channel_index=int(channel_index),
-            channel_name=str(list(metadata.get("channel_names") or [])[int(channel_index)]),
+            channel_index=channel_idx,
+            channel_name=str(channel_names[channel_idx]) if channel_idx < len(channel_names) else f"Channel {channel_idx + 1}",
             sample_rate_hz=(
                 None if metadata.get("sample_rate_hz") is None else float(metadata.get("sample_rate_hz"))
             ),
-            unit=str(list(metadata.get("units") or [""])[int(channel_index)]),
+            unit=str(units[channel_idx]) if channel_idx < len(units) else "",
             alignment=TimeAlignment(mode="manual_offset", offset_s=float(offset_s)),
             metadata={
                 "duration_s": metadata.get("duration_s"),
@@ -643,7 +646,7 @@ class HostDCTraceController:
             return cached
         if signal.size <= max(1000, int(width_px) * 2):
             data = (times, signal)
-            self._display_cache[cache_key] = data
+            self._store_display_cache(cache_key, data)
             return data
         bucket_count = max(1, int(width_px))
         edges = np.linspace(0, signal.size, bucket_count + 1, dtype=int)
@@ -662,8 +665,17 @@ class HostDCTraceController:
                 x_out.append(float(segment_times[idx]))
                 y_out.append(float(segment[idx]))
         data = (np.asarray(x_out, dtype=np.float64), np.asarray(y_out, dtype=np.float64))
-        self._display_cache[cache_key] = data
+        self._store_display_cache(cache_key, data)
         return data
+
+    _DISPLAY_CACHE_MAX_ENTRIES = 64
+
+    def _store_display_cache(self, cache_key: tuple, data: tuple[np.ndarray, np.ndarray]) -> None:
+        self._display_cache[cache_key] = data
+        # Continuous <Configure> events during a window resize would otherwise
+        # generate one entry per width_px seen and leak memory unboundedly.
+        while len(self._display_cache) > self._DISPLAY_CACHE_MAX_ENTRIES:
+            self._display_cache.pop(next(iter(self._display_cache)))
 
     def _ios_time_bounds(self) -> tuple[float, float] | None:
         stack_info = getattr(self.app, "stack_info", None)

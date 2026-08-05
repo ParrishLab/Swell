@@ -111,7 +111,8 @@ def _cleanup_extract_dirs_for_prefix(base: Path, prefix: str, cutoff: float) -> 
             if age_source.stat().st_mtime > cutoff:
                 continue
             shutil.rmtree(p, ignore_errors=True)
-            removed += 1
+            if not p.exists():
+                removed += 1
         except OSError:
             continue
     return removed

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from threading import Lock, Thread
 
 import numpy as np
 import pytest
@@ -166,6 +167,52 @@ def test_open_stack_tiff_multipage_creates_page_names(tmp_path: Path) -> None:
     assert reader.get_frame_name(1) == "stack.tif_p0001"
     assert np.array_equal(reader.read_frame(0), page0)
     assert np.array_equal(reader.read_frame(1), page1)
+
+
+def test_open_stack_uses_pillow_when_tifffile_cannot_parse_file(tmp_path: Path, monkeypatch) -> None:
+    path = tmp_path / "fallback.tif"
+    expected = np.arange(20, dtype=np.uint8).reshape(4, 5)
+    Image.fromarray(expected).save(path)
+
+    monkeypatch.setattr(
+        "swell.host.stack_reader.tifffile.TiffFile",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("unsupported codec")),
+    )
+
+    reader = StackReader()
+    info = reader.open_stack(tmp_path)
+
+    assert info.frame_count == 1
+    assert reader.get_frame_ref(0).page_index is None
+    np.testing.assert_array_equal(reader.read_frame(0, use_cache=False), expected)
+
+
+def test_nonaggressive_garbage_collection_skips_active_tiff_handle() -> None:
+    class _Handle:
+        def __init__(self) -> None:
+            self.closed = False
+
+        def close(self) -> None:
+            self.closed = True
+
+    reader = StackReader()
+    handles = {name: _Handle() for name in ("active", "idle-1", "idle-2")}
+    reader._tiff_handle_pool.update(handles)
+    reader._tiff_handle_locks = {name: Lock() for name in handles}
+    reader._tiff_handle_locks["active"].acquire()
+    worker = Thread(target=reader.collect_garbage, kwargs={"aggressive": False}, daemon=True)
+
+    try:
+        worker.start()
+        worker.join(timeout=0.5)
+        assert not worker.is_alive(), "garbage collection blocked on a TIFF handle in active use"
+        assert "active" in reader._tiff_handle_pool
+        assert len(reader._tiff_handle_pool) == 2
+        assert sum(handle.closed for handle in handles.values()) == 1
+    finally:
+        reader._tiff_handle_locks["active"].release()
+        worker.join(timeout=1.0)
+        reader.close()
 
 
 def test_tiff_decode_failure_releases_per_handle_lock(tmp_path: Path, monkeypatch) -> None:

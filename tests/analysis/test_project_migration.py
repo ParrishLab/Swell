@@ -1,5 +1,7 @@
 import unittest
 
+import numpy as np
+
 from swell.analysis.core.project_migration import migrate_project_state
 
 
@@ -28,6 +30,35 @@ class ProjectMigrationTests(unittest.TestCase):
         }
         migrated = migrate_project_state(state_v2)
         self.assertEqual(migrated["events"][0]["custom_field"], {"x": 1})
+        self.assertFalse(migrated["events"][0]["propagation_completed"])
+
+    def test_v2_migration_uses_loaded_masks_to_mark_propagation_complete(self):
+        state_v2 = {
+            "schema_version": 2,
+            "events": [{"id": "sd_event_001"}],
+            "image_manifest": {"ref": "images.json"},
+        }
+
+        migrated = migrate_project_state(
+            state_v2,
+            event_payloads={"sd_event_001": {"masks": np.ones((1, 2, 2), dtype=np.uint8)}},
+        )
+
+        self.assertTrue(migrated["events"][0]["propagation_completed"])
+
+    def test_v2_migration_does_not_treat_empty_loaded_masks_as_complete(self):
+        state_v2 = {
+            "schema_version": 2,
+            "events": [{"id": "sd_event_001", "masks_ref": "events/sd_event_001/masks.npz"}],
+            "image_manifest": {"ref": "images.json"},
+        }
+
+        migrated = migrate_project_state(
+            state_v2,
+            event_payloads={"sd_event_001": {"masks": np.asarray([], dtype=np.uint8)}},
+        )
+
+        self.assertFalse(migrated["events"][0]["propagation_completed"])
 
     def test_migrates_v3_to_latest_without_prompt_changes(self):
         state_v3 = {

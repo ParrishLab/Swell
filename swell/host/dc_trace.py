@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeVar
 
 import numpy as np
 
 from swell.shared.trace import TraceAdapter, TraceRecord
+
+
+_T = TypeVar("_T")
 
 
 def _load_h5py():
@@ -223,13 +226,25 @@ def _filtered_scaling_coefficients(
         data_channel_count=n_channels,
         configured_channel_count=configured_channel_count,
     )
-    if active_mask and len(rows) >= len(active_mask):
-        filtered = [row for row, is_active in zip(rows, active_mask) if bool(is_active)]
-        if filtered:
-            rows = filtered
+    rows = _filter_active_values(rows, active_mask)
     if len(rows) < n_channels:
         rows.extend([np.array([], dtype=np.float64) for _ in range(n_channels - len(rows))])
     return rows[:n_channels]
+
+
+def _filter_active_values(values: list[_T], active_mask: list[bool] | None) -> list[_T]:
+    if not active_mask:
+        return values
+    active_count = sum(bool(value) for value in active_mask)
+    if len(values) == active_count:
+        # Some WaveSurfer files store active channels only.
+        return values
+    filtered = [
+        values[idx]
+        for idx, is_active in enumerate(active_mask)
+        if bool(is_active) and idx < len(values)
+    ]
+    return filtered or values
 
 
 def _infer_trace_layout(
@@ -491,10 +506,7 @@ class WaveSurferH5Adapter(TraceAdapter):
                 ],
             )
         )
-        if active_mask and len(scales) >= len(active_mask):
-            filtered = [scale for scale, is_active in zip(scales, active_mask) if bool(is_active)]
-            if filtered:
-                scales = filtered
+        scales = _filter_active_values(scales, active_mask)
         if len(scales) < n_channels:
             scales.extend([1.0] * (n_channels - len(scales)))
         return [float(scale) for scale in scales[:n_channels]]

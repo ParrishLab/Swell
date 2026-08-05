@@ -6,7 +6,11 @@ from typing import Any, Dict
 from swell.analysis.core.project_schema import SCHEMA_VERSION
 
 
-def migrate_project_state(state: Dict[str, Any]) -> Dict[str, Any]:
+def migrate_project_state(
+    state: Dict[str, Any],
+    *,
+    event_payloads: Dict[str, Dict[str, Any]] | None = None,
+) -> Dict[str, Any]:
     migrated = deepcopy(state)
     version = int(migrated.get("schema_version", 1))
 
@@ -20,10 +24,19 @@ def migrate_project_state(state: Dict[str, Any]) -> Dict[str, Any]:
                 if not isinstance(ev, dict):
                     continue
                 event_id = str(ev.get("id", "event_001"))
+                had_masks_ref = "masks_ref" in ev
                 ev.setdefault("masks_ref", f"events/{event_id}/masks.npz")
                 ev.setdefault("prompts_ref", f"events/{event_id}/prompts.json")
                 if "propagation_completed" not in ev:
-                    ev["propagation_completed"] = bool(ev.get("masks_ref"))
+                    if event_payloads is not None:
+                        # masks_ref is set unconditionally above (including a
+                        # freshly-invented default path), so its mere presence
+                        # can't indicate completion. Check the actual loaded
+                        # mask payload for this event instead.
+                        masks = (event_payloads.get(event_id) or {}).get("masks")
+                        ev["propagation_completed"] = bool(getattr(masks, "size", 0))
+                    else:
+                        ev["propagation_completed"] = had_masks_ref
                 ev.setdefault("masks_draft_ref", None)
                 ev.setdefault("analysis_output_dir", None)
         migrated["schema_version"] = 3

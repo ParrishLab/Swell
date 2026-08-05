@@ -1178,8 +1178,7 @@ class HostWindowController:
                 )
             else:
                 self.app._log_info("Updated global metrics defaults.")
-            if not self._save_project_after_metrics_apply():
-                return
+            self._save_project_after_metrics_apply()
             dialog.destroy()
 
         ttk.Button(actions, text="Cancel", command=_cancel, **semantic_button_options("secondary")).pack(side="right")

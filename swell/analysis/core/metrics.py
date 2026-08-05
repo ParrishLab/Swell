@@ -165,6 +165,10 @@ def compute_roi_metrics(
     px_per_mm: float,
     sec_per_frame: float,
 ) -> dict:
+    if px_per_mm <= 0:
+        raise ValueError(f"px_per_mm must be positive, got {px_per_mm}.")
+    if sec_per_frame <= 0:
+        raise ValueError(f"sec_per_frame must be positive, got {sec_per_frame}.")
     um_per_px = 1000.0 / px_per_mm
     mm_per_px = 1.0 / px_per_mm
     roi_pixels = int(np.count_nonzero(roi_mask))

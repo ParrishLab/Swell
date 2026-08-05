@@ -9,6 +9,21 @@ from swell.analysis.core.project_autosave import AutosaveSnapshot, ProjectAutosa
 
 
 class ProjectAutosaveThreadingTests(unittest.TestCase):
+    def test_main_thread_dispatch_times_out_when_callback_never_runs(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            mgr = ProjectAutosaveManager(
+                snapshot_callable=lambda: None,
+                write_callable=lambda *_args: None,
+                autosave_dir=tmp,
+                dispatch_to_main=lambda _callback: None,
+            )
+            mgr._MAIN_DISPATCH_TIMEOUT_SEC = 0.01
+            try:
+                with self.assertRaisesRegex(TimeoutError, "waiting for the main thread"):
+                    mgr._get_snapshot_on_main()
+            finally:
+                mgr.stop()
+
     def test_snapshot_runs_on_dispatched_main_and_writes_serially(self):
         with tempfile.TemporaryDirectory() as tmp:
             main_queue: queue.Queue[callable | None] = queue.Queue()

@@ -46,3 +46,25 @@ def test_compute_roi_metrics_nan_handling():
     assert np.isnan(res["overall_max_speed_um_per_sec"])
     assert np.isnan(res["max_area_mm2"])
     assert np.isnan(res["relative_area_pct"])
+
+
+@pytest.mark.parametrize(
+    ("px_per_mm", "sec_per_frame", "message"),
+    [
+        (0.0, 1.0, "px_per_mm must be positive"),
+        (-1.0, 1.0, "px_per_mm must be positive"),
+        (10.0, 0.0, "sec_per_frame must be positive"),
+        (10.0, -1.0, "sec_per_frame must be positive"),
+    ],
+)
+def test_compute_roi_metrics_rejects_nonpositive_calibration(px_per_mm, sec_per_frame, message):
+    roi_mask = np.ones((2, 2), dtype=bool)
+
+    with pytest.raises(ValueError, match=message):
+        compute_roi_metrics(
+            roi_mask,
+            np.asarray([1.0]),
+            np.asarray([1.0]),
+            px_per_mm,
+            sec_per_frame,
+        )

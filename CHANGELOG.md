@@ -2,6 +2,35 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.3.4] - 2026-08-05
+
+### Documentation and guided workflows
+- Added interactive documentation for event marking, opening Analysis, segmentation prompts, propagation review, correction strategy, preprocessing choices, and metrics calibration.
+- Expanded the correction-strategy and calibration guidance so users can practice common review decisions before applying them to experimental data.
+
+### Reliability and data integrity
+- Autosave rotation now resumes after the newest existing recovery slot, main-thread snapshot dispatches time out cleanly, and stale extraction cleanup reports only directories that were actually removed.
+- Legacy project migration determines propagation completion from loaded mask payloads instead of generated reference paths, and rejected host saves no longer appear successful.
+- TIFF indexing falls back to Pillow when tifffile cannot parse a single-frame image. Per-file reads and non-aggressive cleanup no longer hold the global TIFF pool lock while waiting on an active handle.
+- DC-trace imports tolerate incomplete channel metadata, preserve active-only scaling rows and vectors, and bound resized display-data caches.
+- Invalid nonpositive metric calibration values are rejected, repeated out-of-memory recovery retains its target calculator, and the metrics dialog closes after reporting save failures.
+
+### Model/checkpoint compatibility
+- No checkpoint format, catalog, model-selection, or SAM2 inference change in this release; existing managed and local SAM2 selections remain compatible.
+
+### Platform/backend limitations
+- The Pillow TIFF fallback indexes files as single-frame images; multi-page and multidimensional TIFF stacks still require tifffile-compatible metadata and codecs for full fidelity.
+- CPU fallback behavior is unchanged and remains substantially slower than accelerated SAM2 inference on large stacks.
+
+### .swell/migration notes
+- No schema-number change is required. Schema 2 projects still migrate to the current schema, but propagation completion is now inferred from the masks actually loaded for each event when payloads are available.
+- Existing `.swell` projects, autosave slots, external image references, and DC-trace attachments remain compatible.
+
+### Known segmentation caveats/regressions
+- Mask-generation thresholds are still not persisted in `.swell` files. Restored masks begin with an unknown threshold and are treated as fresh until regenerated during the current session.
+- Changing **Mask Threshold** still re-thresholds prompted frames on slider release; propagated frames remain visibly stale until propagation is rerun. Ground-truth and manually painted frames are never marked stale.
+- No known SAM2 inference or stored-mask regression is introduced by this release.
+
 ## [0.3.3] - 2026-07-27
 
 ### Analysis responsiveness and memory

@@ -83,6 +83,45 @@ def test_import_dc_trace_requires_explicit_project_fps(monkeypatch) -> None:
     assert app.warnings == []
 
 
+def test_metadata_import_falls_back_when_channel_labels_are_missing(monkeypatch, tmp_path) -> None:
+    source = tmp_path / "trace.h5"
+    source.write_bytes(b"trace")
+    app = _build_app(with_stack=True, defaults={"frames_per_sec": 2.0})
+    controller = HostDCTraceController(app)
+    controller._load_generation = 3
+    captured = []
+    monkeypatch.setattr(controller, "_close_loading_dialog", lambda _dialog: None)
+    monkeypatch.setattr(controller, "_open_import_dialog", lambda _metadata: (2, 0.5))
+    monkeypatch.setattr(
+        controller,
+        "_load_attachment_async",
+        lambda attachment, **kwargs: captured.append((attachment, kwargs)),
+    )
+
+    controller._on_metadata_load_succeeded(
+        3,
+        object(),
+        str(source),
+        {"channel_names": ["First"], "units": [], "sample_rate_hz": 1000.0},
+    )
+
+    attachment, _options = captured[0]
+    assert attachment.channel_name == "Channel 3"
+    assert attachment.unit == ""
+
+
+def test_display_cache_evicts_oldest_entries() -> None:
+    controller = HostDCTraceController(_build_app(with_stack=True))
+    data = (np.asarray([0.0]), np.asarray([1.0]))
+
+    for idx in range(controller._DISPLAY_CACHE_MAX_ENTRIES + 6):
+        controller._store_display_cache((idx,), data)
+
+    assert len(controller._display_cache) == controller._DISPLAY_CACHE_MAX_ENTRIES
+    assert (0,) not in controller._display_cache
+    assert (controller._DISPLAY_CACHE_MAX_ENTRIES + 5,) in controller._display_cache
+
+
 def test_restore_missing_dc_trace_can_rebind_and_persist(monkeypatch, tmp_path) -> None:
     missing = tmp_path / "old-drive" / "trace.h5"
     replacement = tmp_path / "new-drive" / "trace.h5"

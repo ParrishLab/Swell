@@ -216,3 +216,22 @@ def test_ram_recovery_target_has_floor_but_stays_below_physical_total() -> None:
 
 def test_ram_recovery_target_zero_when_memory_probe_unavailable() -> None:
     assert SegmentationActions._ram_recovery_target_bytes(available_bytes=0, total_bytes=0) == 0
+
+
+def test_repeated_ram_recovery_monitor_keeps_target_calculator_callable(monkeypatch) -> None:
+    gib = 1024**3
+    app = SegmentationActions()
+    app.log_info = lambda *_args, **_kwargs: None
+    app._ui_alive = lambda: False
+    fake_psutil = type(
+        "Psutil",
+        (),
+        {"virtual_memory": staticmethod(lambda: type("Memory", (), {"available": 4 * gib, "total": 8 * gib})())},
+    )()
+    monkeypatch.setitem(__import__("sys").modules, "psutil", fake_psutil)
+
+    app._start_ram_recovery_monitor(None)
+    app._start_ram_recovery_monitor(None)
+
+    assert callable(app._ram_recovery_target_bytes)
+    assert app._ram_recovery_target_bytes_val == 4 * gib

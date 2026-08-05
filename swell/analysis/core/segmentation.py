@@ -641,7 +641,10 @@ class SegmentationActions:
         self._ram_recovery_prop_params = prop_params
         # If RAM cannot be read, target is 0 so the first poll immediately
         # offers re-initialization instead of waiting forever.
-        self._ram_recovery_target_bytes = target_bytes
+        # Stored under a different name than the _ram_recovery_target_bytes
+        # method so a second OOM/recovery cycle doesn't shadow the method
+        # with an int and break the next self._ram_recovery_target_bytes(...) call.
+        self._ram_recovery_target_bytes_val = target_bytes
         target_mb = target_bytes // (1024 * 1024)
         self.log_info("Model", f"RAM recovery monitor started. Available now: {available_mb} MB. "
                                f"Target: {target_mb} MB.")
@@ -661,7 +664,7 @@ class SegmentationActions:
             available = 0
             available_mb = 0
 
-        target = getattr(self, "_ram_recovery_target_bytes", 0)
+        target = getattr(self, "_ram_recovery_target_bytes_val", 0)
         if available >= target:
             self.log_info("Model", f"RAM recovery threshold met ({available_mb} MB free). Re-initializing model.")
             self._set_activity_message("RAM available \u2014 re-initializing model\u2026")

@@ -58,6 +58,27 @@ class ProjectWorkflowActionsTests(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             project_workflow.save_project_to_path(_App(), "/tmp/no_host_saver.sdproj", is_autosave=False)
 
+    def test_save_project_to_path_raises_when_host_saver_rejects_write(self):
+        class _App:
+            _host_mode = True
+            current_project_path = None
+            project_dirty = True
+            _host_project_saver = staticmethod(
+                lambda _path: {
+                    "ok": False,
+                    "reason": "write_failed",
+                    "message": "disk full",
+                }
+            )
+            _emit_host_sync = staticmethod(lambda reason: {"ok": True})  # noqa: ARG004
+
+        app = _App()
+        with self.assertRaisesRegex(RuntimeError, "disk full"):
+            project_workflow.save_project_to_path(app, "/tmp/rejected.sdproj", is_autosave=False)
+
+        self.assertIsNone(app.current_project_path)
+        self.assertTrue(app.project_dirty)
+
     def test_save_project_to_path_does_not_save_host_after_stale_sync_rejection(self):
         saver_calls = []
 

@@ -21,6 +21,8 @@ class AutosaveSnapshot:
 
 
 class ProjectAutosaveManager:
+    _MAIN_DISPATCH_TIMEOUT_SEC = 5.0
+
     def __init__(
         self,
         snapshot_callable: Callable[[], AutosaveSnapshot | None],
@@ -69,14 +71,29 @@ class ProjectAutosaveManager:
         except Exception:
             return "autosave"
 
+    def _slot_prefix(self, tag: str) -> str:
+        return "autosave_" if tag == "autosave" else f"{tag}_autosave_"
+
     def _slot_filename(self, tag: str, idx: int) -> str:
-        if tag == "autosave":
-            return f"autosave_{idx}{PROJECT_EXTENSION}"
-        return f"{tag}_autosave_{idx}{PROJECT_EXTENSION}"
+        return f"{self._slot_prefix(tag)}{idx}{PROJECT_EXTENSION}"
+
+    def _highest_existing_slot(self, tag: str) -> int:
+        pattern = re.compile(rf"^{re.escape(self._slot_prefix(tag))}(\d+){re.escape(PROJECT_EXTENSION)}$")
+        highest = 0
+        for p in self.autosave_dir.glob(f"{self._slot_prefix(tag)}*{PROJECT_EXTENSION}"):
+            match = pattern.match(p.name.lower())
+            if match:
+                highest = max(highest, int(match.group(1)))
+        return highest
 
     def _next_slot_path(self) -> Path:
         tag = self._active_tag()
         with self._lock:
+            if tag not in self._slot_counter:
+                # Continue the round-robin from whatever slots already exist on
+                # disk instead of restarting at 1, which would immediately
+                # overwrite the newest recovery file from a prior session.
+                self._slot_counter[tag] = self._highest_existing_slot(tag)
             current = int(self._slot_counter.get(tag, 0))
             next_idx = (current % self.max_slots) + 1
             self._slot_counter[tag] = next_idx
@@ -128,7 +145,11 @@ class ProjectAutosaveManager:
                 done.set()
 
         self.dispatch_to_main(_runner)
-        done.wait()
+        if not done.wait(timeout=self._MAIN_DISPATCH_TIMEOUT_SEC):
+            raise TimeoutError(
+                f"Timed out after {self._MAIN_DISPATCH_TIMEOUT_SEC}s waiting for the main "
+                "thread to produce an autosave snapshot."
+            )
         if out["error"] is not None:
             raise out["error"]
         return out["snapshot"]
@@ -178,11 +199,12 @@ class ProjectAutosaveManager:
         return [self.autosave_dir / self._slot_filename(tag, i) for i in range(1, self.max_slots + 1)]
 
     def _all_autosave_candidates(self) -> list[Path]:
+        ext = re.escape(PROJECT_EXTENSION)
         candidates = [p for p in self.autosave_dir.glob(f"*{PROJECT_EXTENSION}") if p.is_file()]
         out = []
         for p in candidates:
             name = p.name.lower()
-            if re.fullmatch(r"autosave_\d+\.swell", name) or re.fullmatch(r".+_autosave_\d+\.swell", name):
+            if re.fullmatch(rf"autosave_\d+{ext}", name) or re.fullmatch(rf".+_autosave_\d+{ext}", name):
                 out.append(p)
         return out
 

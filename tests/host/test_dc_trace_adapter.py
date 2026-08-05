@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from swell.host.dc_trace import WaveSurferH5Adapter
+from swell.host.dc_trace import WaveSurferH5Adapter, _filtered_scaling_coefficients
 
 
 class _FakeDataset:
@@ -348,3 +348,34 @@ def test_wavesurfer_handles_coefficients_for_active_channels_only(monkeypatch) -
         np.asarray(record.signals[:, 0]),
         np.asarray([7.56918844532, 7.40466448582, 7.43756927772, 7.33885490192]),
     )
+
+
+def test_active_only_coefficient_rows_are_not_filtered_a_second_time() -> None:
+    coefficients = np.asarray(
+        [
+            [1.0, 0.5, 0.0],
+            [3.0, 0.25, 0.0],
+        ]
+    )
+
+    rows = _filtered_scaling_coefficients(
+        coefficients,
+        active_mask=[True, False, True],
+        configured_channel_count=3,
+        n_channels=2,
+    )
+
+    assert len(rows) == 2
+    assert np.array_equal(rows[0], coefficients[0])
+    assert np.array_equal(rows[1], coefficients[1])
+
+
+def test_active_only_channel_scales_are_not_filtered_a_second_time(monkeypatch) -> None:
+    tree = _active_subset_coeff_tree()
+    tree["header"]["AIChannelScales"] = _FakeDataset([0.01, 0.02])
+    adapter = WaveSurferH5Adapter()
+    monkeypatch.setattr("swell.host.dc_trace._load_h5py", lambda: _fake_h5_module(tree))
+
+    metadata = adapter.load_metadata(Path("/tmp/active-only-scales.h5"))
+
+    assert metadata["channel_scales"] == [0.01, 0.02]

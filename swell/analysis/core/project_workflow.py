@@ -85,6 +85,10 @@ def save_project_to_path(
                 message = str(sync_result.get("message", "The host rejected the analysis update."))
                 raise RuntimeError(f"Host sync rejected ({code}): {message}")
         state = app._host_project_saver(str(target_path))
+        if isinstance(state, dict) and state.get("ok") is False:
+            reason = str(state.get("reason") or state.get("code") or "unknown")
+            message = str(state.get("message") or f"Host save was not completed ({reason}).")
+            raise RuntimeError(message)
         if isinstance(state, dict):
             path_from_state = state.get("project_path")
             if isinstance(path_from_state, str) and path_from_state:
@@ -192,7 +196,7 @@ def apply_loaded_project(app, loaded, project_path: str | Path) -> ProjectLoadPl
 
 def prepare_loaded_project(app, loaded, project_path) -> ProjectLoadPlan:
     """Build a load plan with normalized project state and decoded image stack."""
-    state = migrate_project_state(loaded.project_state)
+    state = migrate_project_state(loaded.project_state, event_payloads=loaded.event_payloads)
     try:
         validate_project_state(state)
     except Exception as exc:
