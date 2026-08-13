@@ -69,6 +69,9 @@ class AutoDetectWindow:
         self._n_grid: int = 40
         self._grid_opacity: float = 0.45
         self._params: dict = dict(_detector.PRESET)
+        # Frames/sec is a project-level metric (shared with global_metrics_defaults),
+        # kept separate from the detection PRESET/history. Read from the project in open().
+        self._fps: float = 1.0
 
         self._cached_traces: np.ndarray | None = None
         self._cached_frame_indices: np.ndarray | None = None
@@ -138,6 +141,7 @@ class AutoDetectWindow:
         container.columnconfigure(2, weight=0, minsize=320)
         container.rowconfigure(0, weight=1)
 
+        self._load_project_fps()
         self._layout.build_left_pane(container)
         self._layout.build_center_pane(container)
         self._layout.build_right_pane(container)
@@ -417,6 +421,7 @@ class AutoDetectWindow:
         n_grid = self._n_grid
         roi_mask = self._get_effective_roi()
         params = dict(self._params)
+        params["frames_per_sec"] = float(self._fps)
 
         def worker():
             h = int(app.stack_info.frame_height)
@@ -475,6 +480,7 @@ class AutoDetectWindow:
         if detrended is None or frame_indices is None:
             return self._run_full_pipeline(generation)
         params = dict(self._params)
+        params["frames_per_sec"] = float(self._fps)
 
         def worker():
             self._report("Finding candidates...")
@@ -506,6 +512,7 @@ class AutoDetectWindow:
         if raw_cands is None or detrended is None or frame_indices is None:
             return self._run_full_pipeline(generation)
         params = dict(self._params)
+        params["frames_per_sec"] = float(self._fps)
 
         def worker():
             self._report("Applying coherence filter...")
@@ -643,7 +650,9 @@ class AutoDetectWindow:
         flags["coherence_threshold"] = float(self._params["coherence_threshold"])
         flags["grid_density"] = int(self._n_grid)
         flags["polarity"] = self._params.get("polarity", "positive")
-        flags["persistence_frames"] = int(self._params.get("persistence_frames", 1))
+        flags["frames_per_sec"] = float(self._fps)
+        flags["persistence_sec"] = float(self._params.get("persistence_sec", 1))
+        flags["persistence_frames"] = int(_detector._sec_to_frames(self._params.get("persistence_sec", 1), self._fps))
         self.app.browser_controller.create_event(start_idx=int(cand["start_frame"]), end_idx=int(cand["end_frame"]), frame_count=int(self.app.stack_info.frame_count), flags=flags)
         if sync:
             self.app._sync_event_projections()
@@ -853,6 +862,43 @@ class AutoDetectWindow:
         self._current_idx = None
         return None
 
+    def _load_project_fps(self) -> None:
+        """Inherit the project's Frames/sec metric (falls back to 1.0)."""
+        try:
+            defaults = self.app.browser_controller.get_global_metrics_defaults()
+            fps = float(defaults.get("frames_per_sec", 1.0))
+            if fps > 0:
+                self._fps = fps
+        except (TypeError, ValueError, AttributeError):
+            pass
+
+    def _on_fps_commit(self, _event=None) -> None:
+        """Validate the Frames/sec field, persist it to the shared project metric,
+        and re-run detection (detrended traces are unaffected)."""
+        try:
+            fps = float(str(self._fps_var.get()).strip())
+            if fps <= 0:
+                raise ValueError
+        except (TypeError, ValueError, tk.TclError):
+            self._fps_var.set(self._fps)  # revert to last valid value
+            return
+        if abs(fps - self._fps) < 1e-9:
+            return
+        self._fps = fps
+        self._fps_var.set(fps)
+        # Read-modify-write so scale/ROI in global_metrics_defaults are preserved
+        # (set_global_metrics_defaults replaces the whole block).
+        try:
+            defaults = dict(self.app.browser_controller.get_global_metrics_defaults() or {})
+            defaults["frames_per_sec"] = float(fps)
+            self.app.browser_controller.set_global_metrics_defaults(defaults)
+        except Exception:
+            pass
+        self._dirty_find = True
+        self._dirty_gate = True
+        self._update_setup_labels()
+        self._schedule_algorithm_rerun()
+
     def _load_project_roi(self) -> None:
         try:
             defaults = self.app.browser_controller.get_global_metrics_defaults()
@@ -935,11 +981,12 @@ def _find_with_params(detrended: np.ndarray, frame_indices: np.ndarray, params: 
     return _detector.find_candidates(
         detrended,
         frame_indices,
+        frames_per_sec=float(params.get("frames_per_sec", 1.0)),
         diff_k_mad=float(params["diff_k_mad"]),
         peak_height_fraction=float(params["peak_height_fraction"]),
         split_broad_windows=bool(params["split_broad_windows"]),
         polarity=params.get("polarity", "positive"),
-        persistence_frames=int(params.get("persistence_frames", 1)),
+        persistence_sec=params.get("persistence_sec", 1),
     )
 
 def _gate_with_params(candidates: list[dict], detrended: np.ndarray, frame_indices: np.ndarray, params: dict) -> list[dict]:
@@ -949,6 +996,7 @@ def _gate_with_params(candidates: list[dict], detrended: np.ndarray, frame_indic
         frame_indices,
         active_threshold_mad=float(params.get("coherence_active_threshold_mad", 10.0)),
         coherence_threshold=float(params.get("coherence_threshold", 0.8257435331730181)),
-        quiet_pre_frames=int(params.get("quiet_pre_frames", 200)),
+        quiet_pre_sec=params.get("quiet_pre_sec", 200),
+        frames_per_sec=float(params.get("frames_per_sec", 1.0)),
         polarity=params.get("polarity", "positive"),
     )

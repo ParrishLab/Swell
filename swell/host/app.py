@@ -33,6 +33,7 @@ from .processing_engine import PopupProcessingEngine
 from .preview_controller import HostPreviewController
 from .stack_reader import StackReader
 from swell.shared.lru_cache import LRUCache
+from swell.shared.metrics_reference_dimensions import assess_metrics_reference_dimensions
 from swell.shared.services import AnalysisWindowManager, CheckpointRuntimeService, SingleInstanceBridge
 from swell.shared.menu.factory import build_shared_menu
 from swell.shared.app_metadata import format_window_title
@@ -963,6 +964,7 @@ class SwellHostApp:
         force_picker: bool = False,
     ) -> tuple[np.ndarray, str] | None:
         selected = ""
+        selected_from_picker = False
         if not force_picker and str(purpose or "").lower() == "scale":
             last_scale_image_path = str(getattr(self, "_last_scale_image_path", "") or "").strip()
             if last_scale_image_path and Path(last_scale_image_path).is_file():
@@ -985,8 +987,7 @@ class SwellHostApp:
             selected = filedialog.askopenfilename(**picker_options)
             if not selected:
                 return None
-            if str(purpose or "").lower() == "scale":
-                self._last_scale_image_path = str(selected)
+            selected_from_picker = True
         img_u8 = self._load_metrics_reference_image_u8(selected)
         if img_u8 is None:
             self._show_warning(
@@ -1000,17 +1001,25 @@ class SwellHostApp:
             expected_h = int(getattr(stack_info, "frame_height", 0) or 0)
             expected_w = int(getattr(stack_info, "frame_width", 0) or 0)
             if expected_h > 0 and expected_w > 0:
-                actual_h, actual_w = int(img_u8.shape[0]), int(img_u8.shape[1])
-                if (actual_h, actual_w) != (expected_h, expected_w):
+                decision = assess_metrics_reference_dimensions(
+                    purpose=purpose,
+                    expected_shape=(expected_h, expected_w),
+                    actual_shape=img_u8.shape[:2],
+                )
+                if decision.action == "reject":
                     self._show_warning(
                         purpose,
-                        (
-                            "Selected image shape does not match the loaded stack.\n"
-                            f"Expected: {expected_w}x{expected_h}\n"
-                            f"Got: {actual_w}x{actual_h}"
-                        ),
+                        decision.message,
                     )
                     return None
+                if decision.action == "confirm" and not messagebox.askyesno(
+                    "Scale Reference Dimensions",
+                    decision.message,
+                    parent=parent or getattr(self, "root", None),
+                ):
+                    return None
+        if selected_from_picker and str(purpose or "").strip().lower() == "scale":
+            self._last_scale_image_path = str(selected)
         return img_u8, Path(selected).name
 
     @staticmethod

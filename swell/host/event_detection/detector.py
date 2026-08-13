@@ -10,6 +10,12 @@ Functions copied verbatim from:
 The only adaptation: detect_events takes (detrended, frame_indices) directly
 instead of loading them from an HDF5 file.
 
+Timing parameters are expressed in SECONDS and converted to frames at runtime
+via ``frames_per_sec`` (``frames = round(seconds * frames_per_sec)``). The
+original detector was calibrated on recordings acquired at 1 frame/sec, so the
+``*_sec`` PRESET values equal the original frame counts and reproduce
+recall_split_coherence_v1 exactly when ``frames_per_sec == 1.0``.
+
 PRESET mirrors recall_split_coherence_v1 from
 Recovery Metric/scripts/run_event_detection_pipeline.py.
 """
@@ -31,32 +37,44 @@ PRESET: dict[str, Any] = {
     "diff_k_mad": 2.5,
     "peak_height_fraction": 0.05,
     "quiet_fraction": 0.01,
-    "smoothing_window": 10,
-    "peak_distance_frames": 50,
-    "lookback_frames": 150,
-    "lookahead_frames": 250,
-    "min_duration_frames": 40,
+    # Timing parameters in SECONDS (values equal the original frame counts at the
+    # 1 frame/sec calibration baseline; scaled to frames by frames_per_sec).
+    "smoothing_window_sec": 10,
+    "peak_distance_sec": 50,
+    "lookback_sec": 150,
+    "lookahead_sec": 250,
+    "min_duration_sec": 40,
     "legacy_exact": True,
     "overlap_mode": "skip",
     "split_broad_windows": True,
     "split_signal": "newly_active",
-    "split_min_candidate_frames": None,
-    "split_min_peak_distance_frames": None,
+    "split_min_candidate_sec": None,
+    "split_min_peak_distance_sec": None,
     "split_min_peak_height_fraction": None,
     "split_valley_fraction": 0.35,
-    "split_quiet_gap_frames": None,
-    "split_refractory_frames": None,
+    "split_quiet_gap_sec": None,
+    "split_refractory_sec": None,
     "split_max_segments": 3,
     "coherence_metric": "active_count_lag1_corr",
     "coherence_active_threshold_mad": 10.0,
     "coherence_threshold": 0.8257435331730181,
     # Coherence quiet baseline (from explore_spatial_coherence.py)
-    "quiet_pre_frames": 200,
+    "quiet_pre_sec": 200,
     # Validated default: K+ SD is positive-going. Dark-going recordings can use
     # "negative" or "both" from the host workbench.
     "polarity": "positive",
-    "persistence_frames": 1,
+    "persistence_sec": 1,
 }
+
+
+def _sec_to_frames(seconds: Any, frames_per_sec: float, *, minimum: int = 1) -> Any:
+    """Convert a seconds-valued parameter to an integer frame count.
+
+    ``None`` passes through unchanged (used by the optional split_* overrides).
+    """
+    if seconds is None:
+        return None
+    return max(int(minimum), int(round(float(seconds) * float(frames_per_sec))))
 
 
 # ---------------------------------------------------------------------------
@@ -235,25 +253,26 @@ def detect_events(
     frame_indices: np.ndarray,
     *,
     dataset_name: str = "stack",
+    frames_per_sec: float = 1.0,
     diff_k_mad: float = 2.5,
     peak_height_fraction: float = 0.05,
     quiet_fraction: float = 0.01,
-    smoothing_window: int = 10,
-    peak_distance_frames: int = 50,
-    lookback_frames: int = 150,
-    lookahead_frames: int = 250,
-    min_duration_frames: int = 40,
-    persistence_frames: int = 1,
+    smoothing_window_sec: float = 10,
+    peak_distance_sec: float = 50,
+    lookback_sec: float = 150,
+    lookahead_sec: float = 250,
+    min_duration_sec: float = 40,
+    persistence_sec: float = 1,
     legacy_exact: bool = True,
     overlap_mode: str = "skip",
     split_broad_windows: bool = True,
     split_signal: str = "newly_active",
-    split_min_candidate_frames: int | None = None,
-    split_min_peak_distance_frames: int | None = None,
+    split_min_candidate_sec: float | None = None,
+    split_min_peak_distance_sec: float | None = None,
     split_min_peak_height_fraction: float | None = None,
     split_valley_fraction: float = 0.35,
-    split_quiet_gap_frames: int | None = None,
-    split_refractory_frames: int | None = None,
+    split_quiet_gap_sec: float | None = None,
+    split_refractory_sec: float | None = None,
     split_max_segments: int = 3,
     polarity: str = "positive",
 ) -> list[dict[str, Any]]:
@@ -261,8 +280,23 @@ def detect_events(
 
     Adapted from validate_detector_v2.detect_events: instead of loading
     from `traces.h5`, the caller passes `detrended` and `frame_indices`
-    directly. All other logic is identical.
+    directly. Timing parameters are given in SECONDS and converted to frames
+    here via `frames_per_sec`; the detection logic below is otherwise identical.
     """
+    # Convert seconds-valued parameters to integer frame counts. All names below
+    # match the frame-based variables the original algorithm body expects.
+    fps = float(frames_per_sec)
+    smoothing_window = _sec_to_frames(smoothing_window_sec, fps)
+    peak_distance_frames = _sec_to_frames(peak_distance_sec, fps)
+    lookback_frames = _sec_to_frames(lookback_sec, fps)
+    lookahead_frames = _sec_to_frames(lookahead_sec, fps)
+    min_duration_frames = _sec_to_frames(min_duration_sec, fps)
+    persistence_frames = _sec_to_frames(persistence_sec, fps)
+    split_min_candidate_frames = _sec_to_frames(split_min_candidate_sec, fps)
+    split_min_peak_distance_frames = _sec_to_frames(split_min_peak_distance_sec, fps)
+    split_quiet_gap_frames = _sec_to_frames(split_quiet_gap_sec, fps)
+    split_refractory_frames = _sec_to_frames(split_refractory_sec, fps)
+
     traces = np.asarray(detrended)
     frame_indices = np.asarray(frame_indices)
     if traces.ndim != 2:
@@ -422,7 +456,8 @@ def compute_lag1_corr(
     candidate: dict,
     *,
     active_threshold_mad: float = 10.0,
-    quiet_pre_frames: int = 200,
+    quiet_pre_sec: float = 200,
+    frames_per_sec: float = 1.0,
     polarity: str = "positive",
     _mad_cache: dict | None = None,
 ) -> float:
@@ -441,6 +476,7 @@ def compute_lag1_corr(
     frame_indices = np.asarray(frame_indices)
     if detrended.ndim != 2 or frame_indices.ndim != 1 or frame_indices.size == 0:
         return float("nan")
+    quiet_pre_frames = _sec_to_frames(quiet_pre_sec, frames_per_sec)
 
     start_idx = candidate.get("_start_idx")
     end_idx = candidate.get("_end_idx")
@@ -508,7 +544,8 @@ def apply_coherence_gate(
     *,
     active_threshold_mad: float = 10.0,
     coherence_threshold: float = 0.8257435331730181,
-    quiet_pre_frames: int = 200,
+    quiet_pre_sec: float = 200,
+    frames_per_sec: float = 1.0,
     polarity: str = "positive",
 ) -> list[dict]:
     """Filter candidates by lag-1 coherence; adds 'lag1_corr' to each accepted dict."""
@@ -522,7 +559,8 @@ def apply_coherence_gate(
             frame_indices,
             cand,
             active_threshold_mad=active_threshold_mad,
-            quiet_pre_frames=quiet_pre_frames,
+            quiet_pre_sec=quiet_pre_sec,
+            frames_per_sec=frames_per_sec,
             polarity=polarity,
             _mad_cache=mad_cache,
         )
@@ -541,31 +579,36 @@ def apply_coherence_gate(
 def find_candidates(
     detrended: np.ndarray,
     frame_indices: np.ndarray,
+    *,
+    frames_per_sec: float = 1.0,
     **overrides: Any,
 ) -> list[dict]:
-    """Run detect_events with PRESET defaults overridden by `overrides`."""
+    """Run detect_events with PRESET defaults overridden by `overrides`.
+
+    Timing parameters are in seconds; `frames_per_sec` scales them to frames.
+    """
     params = {
         "diff_k_mad": PRESET["diff_k_mad"],
         "peak_height_fraction": PRESET["peak_height_fraction"],
         "quiet_fraction": PRESET["quiet_fraction"],
-        "smoothing_window": PRESET["smoothing_window"],
-        "peak_distance_frames": PRESET["peak_distance_frames"],
-        "lookback_frames": PRESET["lookback_frames"],
-        "lookahead_frames": PRESET["lookahead_frames"],
-        "min_duration_frames": PRESET["min_duration_frames"],
+        "smoothing_window_sec": PRESET["smoothing_window_sec"],
+        "peak_distance_sec": PRESET["peak_distance_sec"],
+        "lookback_sec": PRESET["lookback_sec"],
+        "lookahead_sec": PRESET["lookahead_sec"],
+        "min_duration_sec": PRESET["min_duration_sec"],
         "legacy_exact": PRESET["legacy_exact"],
         "overlap_mode": PRESET["overlap_mode"],
         "split_broad_windows": PRESET["split_broad_windows"],
         "split_signal": PRESET["split_signal"],
-        "split_min_candidate_frames": PRESET["split_min_candidate_frames"],
-        "split_min_peak_distance_frames": PRESET["split_min_peak_distance_frames"],
+        "split_min_candidate_sec": PRESET["split_min_candidate_sec"],
+        "split_min_peak_distance_sec": PRESET["split_min_peak_distance_sec"],
         "split_min_peak_height_fraction": PRESET["split_min_peak_height_fraction"],
         "split_valley_fraction": PRESET["split_valley_fraction"],
-        "split_quiet_gap_frames": PRESET["split_quiet_gap_frames"],
-        "split_refractory_frames": PRESET["split_refractory_frames"],
+        "split_quiet_gap_sec": PRESET["split_quiet_gap_sec"],
+        "split_refractory_sec": PRESET["split_refractory_sec"],
         "split_max_segments": PRESET["split_max_segments"],
         "polarity": PRESET["polarity"],
-        "persistence_frames": PRESET["persistence_frames"],
+        "persistence_sec": PRESET["persistence_sec"],
     }
     params.update({k: v for k, v in overrides.items() if k in params})
-    return detect_events(detrended, frame_indices, **params)
+    return detect_events(detrended, frame_indices, frames_per_sec=frames_per_sec, **params)

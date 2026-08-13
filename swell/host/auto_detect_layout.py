@@ -47,6 +47,19 @@ class AutoDetectLayoutBuilder:
         ttk.Separator(left, orient="horizontal").pack(fill="x", pady=(SPACING.inner, SPACING.inner))
         ttk.Label(left, text="Detection Algorithms", style="AppSidebarTitle.TLabel").pack(anchor="w", pady=(0, SPACING.inner))
 
+        ttk.Label(left, text="Frames per second", style="AppMeta.TLabel").pack(anchor="w")
+        w._fps_var = tk.DoubleVar(value=float(w._fps))
+        w._fps_entry = ttk.Entry(left, textvariable=w._fps_var, width=10, style="AppCompact.TEntry")
+        w._fps_entry.pack(anchor="w", pady=(SPACING.gap, 0))
+        w._fps_entry.bind("<Return>", w._on_fps_commit, add="+")
+        w._fps_entry.bind("<FocusOut>", w._on_fps_commit, add="+")
+        ttk.Label(
+            left,
+            text="Detection windows are defined in seconds and scaled by this rate; shared with the project's Frames/sec metric.",
+            style="AppMeta.TLabel",
+            wraplength=240,
+        ).pack(anchor="w", pady=(0, SPACING.outer))
+
         w._sens_label_var = tk.StringVar()
         w._sens_scale, w._sens_var = self.add_slider(left, w._sens_label_var, 0.0, 1.0, w._k_mad_to_sens(float(w._params["diff_k_mad"])), w._on_sens_change)
 

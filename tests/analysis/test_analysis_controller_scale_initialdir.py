@@ -116,7 +116,7 @@ def test_capture_scale_selection_passes_existing_scale_points_to_dialog(tmp_path
         source_paths=[],
         scale_points=[(10.0, 12.0), (30.0, 12.0)],
     )
-    controller._load_image_u8_from_path = lambda _path: np.zeros((40, 50), dtype=np.uint8)
+    controller._load_image_u8_from_path = lambda _path: np.zeros((8, 8), dtype=np.uint8)
 
     with patch("swell.analysis.core.analysis_controller.filedialog.askopenfilename", return_value=str(image_path)):
         with patch("swell.analysis.core.analysis_controller.open_scale_dialog", return_value=None) as dialog_mock:
@@ -166,7 +166,7 @@ def test_capture_scale_selection_passes_saved_axis_lock_to_dialog(tmp_path):
             log_success=lambda *_args: None,
         ),
     )
-    controller._load_image_u8_from_path = lambda _path: np.zeros((40, 50), dtype=np.uint8)
+    controller._load_image_u8_from_path = lambda _path: np.zeros((8, 8), dtype=np.uint8)
 
     with patch("swell.analysis.core.analysis_controller.filedialog.askopenfilename", return_value=str(image_path)):
         with patch("swell.analysis.core.analysis_controller.open_scale_dialog", return_value=None) as dialog_mock:
@@ -185,7 +185,7 @@ def test_capture_scale_selection_returns_selected_image_path(tmp_path):
         app_root=str(app_root),
         source_paths=[],
     )
-    controller._load_image_u8_from_path = lambda _path: np.zeros((40, 50), dtype=np.uint8)
+    controller._load_image_u8_from_path = lambda _path: np.zeros((8, 8), dtype=np.uint8)
 
     with patch("swell.analysis.core.analysis_controller.filedialog.askopenfilename", return_value=str(image_path)):
         with patch(
@@ -217,7 +217,7 @@ def test_capture_scale_selection_reuses_last_scale_image_path_when_available(tmp
         last_scale_path=str(image_path),
     )
     loaded_paths: list[str] = []
-    controller._load_image_u8_from_path = lambda path: loaded_paths.append(str(path)) or np.zeros((40, 50), dtype=np.uint8)
+    controller._load_image_u8_from_path = lambda path: loaded_paths.append(str(path)) or np.zeros((8, 8), dtype=np.uint8)
 
     with patch("swell.analysis.core.analysis_controller.filedialog.askopenfilename") as dialog_mock:
         with patch("swell.analysis.core.analysis_controller.open_scale_dialog", return_value=None):
@@ -225,6 +225,85 @@ def test_capture_scale_selection_reuses_last_scale_image_path_when_available(tmp
 
     dialog_mock.assert_not_called()
     assert loaded_paths == [str(image_path)]
+
+
+def test_capture_scale_selection_allows_mismatched_image_after_confirmation(tmp_path):
+    app_root = tmp_path / "app"
+    app_root.mkdir()
+    image_path = tmp_path / "combined_slices.png"
+    image_path.write_bytes(b"not-an-image")
+
+    controller = _make_controller(app_root=str(app_root), source_paths=[])
+    controller._load_image_u8_from_path = lambda _path: np.zeros((8, 16), dtype=np.uint8)
+    remembered_paths: list[str] = []
+    controller.set_last_scale_image_path = lambda path: remembered_paths.append(str(path))
+
+    with patch("swell.analysis.core.analysis_controller.filedialog.askopenfilename", return_value=str(image_path)):
+        with patch("swell.analysis.core.analysis_controller.messagebox.askyesno", return_value=True) as confirm_mock:
+            with patch("swell.analysis.core.analysis_controller.open_scale_dialog", return_value=None) as dialog_mock:
+                result = controller._capture_scale_selection()
+
+    assert result is None
+    dialog_mock.assert_called_once()
+    assert dialog_mock.call_args.kwargs["img_u8"].shape == (8, 16)
+    assert remembered_paths == [str(image_path)]
+    assert "cropped or split" in confirm_mock.call_args.args[1]
+
+
+def test_capture_scale_selection_decline_does_not_remember_mismatched_image(tmp_path):
+    app_root = tmp_path / "app"
+    app_root.mkdir()
+    image_path = tmp_path / "combined_slices.png"
+    image_path.write_bytes(b"not-an-image")
+
+    controller = _make_controller(app_root=str(app_root), source_paths=[])
+    controller._load_image_u8_from_path = lambda _path: np.zeros((8, 16), dtype=np.uint8)
+    remembered_paths: list[str] = []
+    controller.set_last_scale_image_path = lambda path: remembered_paths.append(str(path))
+
+    with patch("swell.analysis.core.analysis_controller.filedialog.askopenfilename", return_value=str(image_path)):
+        with patch("swell.analysis.core.analysis_controller.messagebox.askyesno", return_value=False):
+            with patch("swell.analysis.core.analysis_controller.open_scale_dialog") as dialog_mock:
+                result = controller._capture_scale_selection()
+
+    assert result is None
+    dialog_mock.assert_not_called()
+    assert remembered_paths == []
+
+
+def test_capture_scale_change_image_applies_mismatch_policy(tmp_path):
+    app_root = tmp_path / "app"
+    app_root.mkdir()
+    initial_path = tmp_path / "split_slice.png"
+    replacement_path = tmp_path / "combined_slices.png"
+    initial_path.write_bytes(b"not-an-image")
+    replacement_path.write_bytes(b"not-an-image")
+
+    controller = _make_controller(app_root=str(app_root), source_paths=[])
+    controller._load_image_u8_from_path = lambda path: (
+        np.zeros((8, 8), dtype=np.uint8)
+        if str(path) == str(initial_path)
+        else np.zeros((8, 16), dtype=np.uint8)
+    )
+    remembered_paths: list[str] = []
+    controller.set_last_scale_image_path = lambda path: remembered_paths.append(str(path))
+    replacement: dict[str, np.ndarray | None] = {}
+
+    def _open_dialog(**kwargs):
+        replacement["image"] = kwargs["pick_image_callback"]()
+        return None
+
+    with patch(
+        "swell.analysis.core.analysis_controller.filedialog.askopenfilename",
+        side_effect=[str(initial_path), str(replacement_path)],
+    ):
+        with patch("swell.analysis.core.analysis_controller.messagebox.askyesno", return_value=True):
+            with patch("swell.analysis.core.analysis_controller.open_scale_dialog", side_effect=_open_dialog):
+                controller._capture_scale_selection()
+
+    assert replacement["image"] is not None
+    assert replacement["image"].shape == (8, 16)
+    assert remembered_paths == [str(initial_path), str(replacement_path)]
 
 
 def test_capture_roi_selection_uses_image_picker_with_project_source_initialdir(tmp_path):
@@ -287,3 +366,54 @@ def test_capture_roi_selection_prefills_current_active_frame_name(tmp_path):
 
     assert Path(captured["initialdir"]).resolve() == stack_dir.resolve()
     assert captured["initialfile"] == "frame_002.tif"
+
+
+def test_capture_roi_selection_rejects_mismatched_image(tmp_path):
+    app_root = tmp_path / "app"
+    app_root.mkdir()
+    image_path = tmp_path / "combined_slices.png"
+    image_path.write_bytes(b"not-an-image")
+
+    controller = _make_controller(app_root=str(app_root), source_paths=[])
+    controller._load_image_u8_from_path = lambda _path: np.zeros((8, 16), dtype=np.uint8)
+
+    with patch("swell.analysis.core.analysis_controller.filedialog.askopenfilename", return_value=str(image_path)):
+        with patch("swell.analysis.core.analysis_controller.messagebox.showwarning") as warning_mock:
+            with patch("swell.analysis.core.analysis_controller.open_roi_dialog") as dialog_mock:
+                result = controller._capture_roi_selection()
+
+    assert result is None
+    dialog_mock.assert_not_called()
+    assert "ROI coordinates" in warning_mock.call_args.args[1]
+
+
+def test_capture_roi_change_image_rejects_mismatched_image(tmp_path):
+    app_root = tmp_path / "app"
+    app_root.mkdir()
+    initial_path = tmp_path / "split_slice.png"
+    replacement_path = tmp_path / "combined_slices.png"
+    initial_path.write_bytes(b"not-an-image")
+    replacement_path.write_bytes(b"not-an-image")
+
+    controller = _make_controller(app_root=str(app_root), source_paths=[])
+    controller._load_image_u8_from_path = lambda path: (
+        np.zeros((8, 8), dtype=np.uint8)
+        if str(path) == str(initial_path)
+        else np.zeros((8, 16), dtype=np.uint8)
+    )
+    replacement: dict[str, np.ndarray | None] = {}
+
+    def _open_dialog(**kwargs):
+        replacement["image"] = kwargs["pick_image_callback"]()
+        return None
+
+    with patch(
+        "swell.analysis.core.analysis_controller.filedialog.askopenfilename",
+        side_effect=[str(initial_path), str(replacement_path)],
+    ):
+        with patch("swell.analysis.core.analysis_controller.messagebox.showwarning") as warning_mock:
+            with patch("swell.analysis.core.analysis_controller.open_roi_dialog", side_effect=_open_dialog):
+                controller._capture_roi_selection()
+
+    assert replacement["image"] is None
+    assert "ROI coordinates" in warning_mock.call_args.args[1]

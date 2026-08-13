@@ -109,7 +109,8 @@ def onset_active_window(detrended: np.ndarray, start_idx: int, end_idx: int, par
 
     polarity = params.get("polarity", "positive")
     k_mad = float(params.get("diff_k_mad", 2.5))
-    persistence_frames = int(params.get("persistence_frames", 1))
+    fps = float(params.get("frames_per_sec", 1.0))
+    persistence_frames = _detector._sec_to_frames(params.get("persistence_sec", 1), fps)
 
     if polarity == "positive":
         active_diffs = diffs > (k_mad * mads[:, np.newaxis])
@@ -149,10 +150,11 @@ def active_cells_cache_key(
         int(start_idx),
         int(end_idx),
         float(params.get("coherence_active_threshold_mad", 10.0)),
-        int(params.get("quiet_pre_frames", 200)),
+        float(params.get("quiet_pre_sec", 200)),
         float(params.get("diff_k_mad", 2.5)),
         params.get("polarity", "positive"),
-        int(params.get("persistence_frames", 1)),
+        float(params.get("persistence_sec", 1)),
+        float(params.get("frames_per_sec", 1.0)),
         id(detrended),
         id(frame_indices),
     )
@@ -199,7 +201,8 @@ def active_cells_for_frame(
     cached = cache.get(cache_key)
     if cached is None:
         active_threshold = float(params.get("coherence_active_threshold_mad", 10.0))
-        quiet_pre_frames = int(params.get("quiet_pre_frames", 200))
+        fps = float(params.get("frames_per_sec", 1.0))
+        quiet_pre_frames = _detector._sec_to_frames(params.get("quiet_pre_sec", 200), fps)
         polarity = params.get("polarity", "positive")
         mad = _detector.quiet_mad(detrended, start_idx, quiet_pre_frames=quiet_pre_frames)
         norm = detrended[:, start_idx : end_idx + 1] / mad[:, np.newaxis]

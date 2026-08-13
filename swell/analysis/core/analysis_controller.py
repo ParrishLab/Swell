@@ -12,6 +12,7 @@ from swell.analysis.core.metrics import compute_scale
 from swell.analysis.ui.roi_dialog import _call_preserving_geometry, open_roi_dialog
 from swell.analysis.ui.scale_dialog import open_scale_dialog
 from swell.shared.metrics_defaults import DEFAULT_SCALE_AXIS_LOCK
+from swell.shared.metrics_reference_dimensions import assess_metrics_reference_dimensions
 from swell.shared.utils.paths import resolve_existing_directory
 
 
@@ -141,6 +142,43 @@ class AnalysisController:
             img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         img = img.astype(np.float32)
         return cv2.normalize(img, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
+
+    def _loaded_frame_shape(self) -> tuple[int, int] | None:
+        try:
+            current_idx = max(0, int(self.get_current_frame_idx()))
+        except Exception:
+            current_idx = 0
+        for frame_idx in dict.fromkeys((current_idx, 0)):
+            try:
+                frame = np.asarray(self.get_raw_frame(int(frame_idx)))
+            except Exception:
+                continue
+            if frame.ndim >= 2 and int(frame.shape[0]) > 0 and int(frame.shape[1]) > 0:
+                return int(frame.shape[0]), int(frame.shape[1])
+        return None
+
+    def _accept_metrics_reference_dimensions(self, img_u8, *, purpose: str, parent=None) -> bool:
+        decision = assess_metrics_reference_dimensions(
+            purpose=purpose,
+            expected_shape=self._loaded_frame_shape(),
+            actual_shape=np.asarray(img_u8).shape[:2],
+        )
+        if decision.action == "accept":
+            return True
+        if decision.action == "confirm":
+            return bool(
+                messagebox.askyesno(
+                    "Scale Reference Dimensions",
+                    decision.message,
+                    parent=parent or self.root,
+                )
+            )
+        messagebox.showwarning(
+            f"{str(purpose or 'ROI')} Image Dimensions",
+            decision.message,
+            parent=parent or self.root,
+        )
+        return False
 
     def _sample_line_profile(self, img_u8, p1, p2, linewidth=7):
         x1, y1 = float(p1[0]), float(p1[1])
@@ -345,6 +383,7 @@ class AnalysisController:
             return None
 
         image_path = ""
+        selected_from_picker = False
         last_scale_image_path = str(self.get_last_scale_image_path() or "").strip()
         if last_scale_image_path and os.path.isfile(last_scale_image_path):
             image_path = last_scale_image_path
@@ -380,12 +419,16 @@ class AnalysisController:
             )
             if not image_path:
                 return None
-            self.set_last_scale_image_path(image_path)
+            selected_from_picker = True
 
         img_u8 = self._load_image_u8_from_path(image_path)
         if img_u8 is None:
             messagebox.showwarning("Image Error", "Unable to read selected image for scale calibration.", parent=self.root)
             return None
+        if not self._accept_metrics_reference_dimensions(img_u8, purpose="Scale", parent=self.root):
+            return None
+        if selected_from_picker:
+            self.set_last_scale_image_path(image_path)
 
         initial_scale_points = []
         initial_length_mm = None
@@ -423,6 +466,8 @@ class AnalysisController:
             new_img = self._load_image_u8_from_path(path)
             if new_img is None:
                 messagebox.showwarning("Image Error", "Unable to read selected image.", parent=self.root)
+                return None
+            if not self._accept_metrics_reference_dimensions(new_img, purpose="Scale", parent=self.root):
                 return None
             self.set_last_scale_image_path(path)
             image_path_ref[0] = path
@@ -519,6 +564,8 @@ class AnalysisController:
         if img_u8 is None:
             messagebox.showwarning("Image Error", "Unable to read selected image for ROI.", parent=self.root)
             return None
+        if not self._accept_metrics_reference_dimensions(img_u8, purpose="ROI", parent=self.root):
+            return None
 
         def _pick_roi_image_for_dialog(parent=None):
             picker_parent = parent or self.root
@@ -540,6 +587,8 @@ class AnalysisController:
             new_img = self._load_image_u8_from_path(path)
             if new_img is None:
                 messagebox.showwarning("Image Error", "Unable to read selected image.", parent=self.root)
+                return None
+            if not self._accept_metrics_reference_dimensions(new_img, purpose="ROI", parent=picker_parent):
                 return None
             return new_img
 

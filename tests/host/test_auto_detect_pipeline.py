@@ -104,10 +104,11 @@ def test_auto_detect_active_cell_helper_uses_cache() -> None:
     frame_indices = np.arange(8)
     params = {
         "coherence_active_threshold_mad": 10.0,
-        "quiet_pre_frames": 2,
+        "quiet_pre_sec": 2,
         "diff_k_mad": 2.5,
         "polarity": "positive",
-        "persistence_frames": 1,
+        "persistence_sec": 1,
+        "frames_per_sec": 1.0,
     }
     cache: dict[tuple, tuple[int, int, np.ndarray]] = {}
     cand = {"start_frame": 2, "end_frame": 5}
@@ -942,6 +943,135 @@ def test_detector_negative_and_both_polarities_remain_available() -> None:
 
     assert detector.find_candidates(negative_trace, frame_indices, polarity="negative")
     assert detector.find_candidates(negative_trace, frame_indices, polarity="both")
+
+
+def test_sec_to_frames_scales_by_fps() -> None:
+    assert detector._sec_to_frames(50, 1.0) == 50
+    assert detector._sec_to_frames(50, 2.0) == 100
+    assert detector._sec_to_frames(1, 2.0) == 2
+    # None passes through (optional split_* overrides)
+    assert detector._sec_to_frames(None, 2.0) is None
+    # Floor keeps sub-frame durations at a usable minimum
+    assert detector._sec_to_frames(0.1, 1.0) == 1
+
+
+def test_detector_preset_timing_keys_are_seconds() -> None:
+    seconds_keys = {
+        "smoothing_window_sec",
+        "peak_distance_sec",
+        "lookback_sec",
+        "lookahead_sec",
+        "min_duration_sec",
+        "persistence_sec",
+        "quiet_pre_sec",
+    }
+    assert seconds_keys.issubset(detector.PRESET)
+    # No legacy frame-named timing keys remain
+    assert not any(key.endswith("_frames") for key in detector.PRESET)
+
+
+def test_detector_default_fps_matches_explicit_baseline() -> None:
+    # Default frames_per_sec is 1.0, so results are unchanged from the
+    # original frame-calibrated detector.
+    frame_indices = np.arange(120)
+    trace = _polarity_trace(+1)
+
+    default = detector.find_candidates(trace, frame_indices)
+    baseline = detector.find_candidates(trace, frame_indices, frames_per_sec=1.0)
+
+    assert default and baseline
+    assert [(c["start_frame"], c["end_frame"]) for c in default] == [
+        (c["start_frame"], c["end_frame"]) for c in baseline
+    ]
+
+
+def test_detector_fps_scales_duration_threshold() -> None:
+    # The ~60-frame event clears min_duration_sec (40) at 1 fps but not at 2 fps,
+    # where the seconds thresholds map to twice as many frames.
+    frame_indices = np.arange(120)
+    trace = _polarity_trace(+1)
+
+    assert detector.find_candidates(trace, frame_indices, frames_per_sec=1.0)
+    assert detector.find_candidates(trace, frame_indices, frames_per_sec=2.0) == []
+
+
+def test_auto_detect_inherits_project_frames_per_sec(tk_root) -> None:
+    app = _app(tk_root)
+    app.browser_controller = SimpleNamespace(
+        get_global_metrics_defaults=lambda: {"frames_per_sec": 3.0},
+    )
+    window = AutoDetectWindow(app)
+
+    window._load_project_fps()
+
+    assert window._fps == 3.0
+
+
+def test_auto_detect_fps_commit_persists_and_preserves_other_metrics(tk_root) -> None:
+    stored = {"frames_per_sec": 1.0, "scale_px_per_mm": 12.5, "roi_points": [[1, 2]]}
+    written: list[dict] = []
+    app = _app(tk_root)
+    app.browser_controller = SimpleNamespace(
+        get_global_metrics_defaults=lambda: dict(stored),
+        set_global_metrics_defaults=lambda payload: written.append(dict(payload)),
+    )
+    window = AutoDetectWindow(app)
+    _open_hidden(window)
+    try:
+        window._fps_var.set(2.0)
+        window._on_fps_commit()
+
+        assert window._fps == 2.0
+        assert written and written[-1]["frames_per_sec"] == 2.0
+        # Read-modify-write keeps scale/ROI intact
+        assert written[-1]["scale_px_per_mm"] == 12.5
+        assert written[-1]["roi_points"] == [[1, 2]]
+        # Detection is re-run because the seconds->frames mapping changed
+        assert window._dirty_find and window._dirty_gate
+    finally:
+        window._on_close()
+
+
+def test_auto_detect_fps_commit_rejects_nonpositive(tk_root) -> None:
+    written: list[dict] = []
+    app = _app(tk_root)
+    app.browser_controller = SimpleNamespace(
+        get_global_metrics_defaults=lambda: {"frames_per_sec": 4.0},
+        set_global_metrics_defaults=lambda payload: written.append(dict(payload)),
+    )
+    window = AutoDetectWindow(app)
+    _open_hidden(window)
+    try:
+        window._load_project_fps()  # window._fps == 4.0
+        window._fps_var.set(0.0)
+        window._on_fps_commit()
+
+        # Invalid input is ignored, field reverts, nothing persisted
+        assert window._fps == 4.0
+        assert window._fps_var.get() == 4.0
+        assert written == []
+    finally:
+        window._on_close()
+
+
+def test_auto_detect_accept_records_seconds_provenance(tk_root) -> None:
+    created: list[dict] = []
+    app = _app(tk_root)
+    app.browser_controller = SimpleNamespace(
+        create_event=lambda **kwargs: created.append(dict(kwargs)),
+        get_global_metrics_defaults=lambda: {"frames_per_sec": 2.0},
+    )
+    app._sync_event_projections = lambda: None
+    window = AutoDetectWindow(app)
+    window._load_project_fps()  # window._fps == 2.0
+
+    window._accept_candidate({"start_frame": 1, "end_frame": 3})
+
+    flags = created[0]["flags"]
+    assert flags["frames_per_sec"] == 2.0
+    assert flags["persistence_sec"] == 1.0
+    # persistence_sec (1) scaled by 2 fps -> 2 frames
+    assert flags["persistence_frames"] == 2
 
 
 def test_detail_window_clamps_at_stack_edges(tk_root) -> None:

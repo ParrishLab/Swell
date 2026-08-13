@@ -6,6 +6,14 @@ Before saving, configure quantitative parameters in the right dock's **Event Met
 * **Physical Scale**: Pixel-to-physical size calibration, stored as pixels per millimeter. Click the ruler icon to draw a two-point line across a known physical distance, or enter pixels/mm manually.
 * **Region of Interest (ROI)**: Restrict measurements to one or more closed polygon regions. Multiple regions are combined into one ROI mask.
 
+A scale-bar reference may have different pixel dimensions from the loaded stack,
+such as an original image containing two slices that were later split into
+separate stacks. Swell asks for confirmation and measures the scale in the
+reference image's native pixels. Continue only when the images have the same
+pixel resolution and were cropped or split without resizing or resampling. ROI
+reference images must match the stack dimensions because their coordinates map
+directly onto the stack.
+
 ## Calibration and ROI Exercise
 
 Drag the purple scale-line endpoints across a known distance, then enter that

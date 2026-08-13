@@ -83,6 +83,58 @@ def test_pick_metrics_reference_image_validates_shape(monkeypatch, tmp_path: Pat
     assert warnings
 
 
+def test_pick_metrics_reference_scale_allows_shape_mismatch_after_confirmation(monkeypatch, tmp_path: Path) -> None:
+    input_dir = tmp_path / "input"
+    input_dir.mkdir(parents=True, exist_ok=True)
+    selected = input_dir / "combined_slices.tif"
+    selected.write_bytes(b"not-an-image")
+
+    app = SwellHostApp.__new__(SwellHostApp)
+    app.input_var = _Var(str(input_dir))
+    app.stack_info = SimpleNamespace(frame_height=8, frame_width=9)
+    app._last_scale_image_path = ""
+    app._show_warning = lambda *_args, **_kwargs: None
+    app._load_metrics_reference_image_u8 = lambda _path: np.zeros((8, 18), dtype=np.uint8)
+
+    monkeypatch.setattr("swell.host.event_gui.filedialog.askopenfilename", lambda **_kwargs: str(selected))
+    confirmations: list[str] = []
+    monkeypatch.setattr(
+        "swell.host.app.messagebox.askyesno",
+        lambda _title, message, **_kwargs: confirmations.append(str(message)) or True,
+    )
+
+    result = app._pick_metrics_reference_image_u8(parent=None, purpose="Scale")
+
+    assert result is not None
+    assert result[0].shape == (8, 18)
+    assert app._last_scale_image_path == str(selected)
+    assert len(confirmations) == 1
+    assert "cropped or split" in confirmations[0]
+
+
+def test_pick_metrics_reference_scale_decline_preserves_cached_path(monkeypatch, tmp_path: Path) -> None:
+    input_dir = tmp_path / "input"
+    input_dir.mkdir(parents=True, exist_ok=True)
+    selected = input_dir / "combined_slices.tif"
+    selected.write_bytes(b"not-an-image")
+    prior_path = str(tmp_path / "missing-prior-scale.tif")
+
+    app = SwellHostApp.__new__(SwellHostApp)
+    app.input_var = _Var(str(input_dir))
+    app.stack_info = SimpleNamespace(frame_height=8, frame_width=9)
+    app._last_scale_image_path = prior_path
+    app._show_warning = lambda *_args, **_kwargs: None
+    app._load_metrics_reference_image_u8 = lambda _path: np.zeros((8, 18), dtype=np.uint8)
+
+    monkeypatch.setattr("swell.host.event_gui.filedialog.askopenfilename", lambda **_kwargs: str(selected))
+    monkeypatch.setattr("swell.host.app.messagebox.askyesno", lambda *_args, **_kwargs: False)
+
+    result = app._pick_metrics_reference_image_u8(parent=None, purpose="Scale")
+
+    assert result is None
+    assert app._last_scale_image_path == prior_path
+
+
 def test_pick_metrics_reference_image_prefills_current_active_frame(monkeypatch, tmp_path: Path) -> None:
     input_dir = tmp_path / "input"
     input_dir.mkdir(parents=True, exist_ok=True)
