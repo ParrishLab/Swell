@@ -5,11 +5,9 @@ from pathlib import Path
 
 
 def detect_app_version() -> str:
-    try:
-        return importlib.metadata.version("swell")
-    except Exception:
-        pass
-
+    # In a source or editable checkout, pyproject.toml is authoritative. Package
+    # metadata can lag immediately after a release bump until the environment is
+    # reinstalled, which would otherwise give the running app the old version.
     pyproject_path = Path(__file__).resolve().parents[2] / "pyproject.toml"
     if pyproject_path.exists():
         try:
@@ -20,6 +18,11 @@ def detect_app_version() -> str:
             return str(payload.get("project", {}).get("version", "0.0.0"))
         except Exception:
             pass
+
+    try:
+        return importlib.metadata.version("swell")
+    except Exception:
+        pass
 
     return "0.0.0"
 

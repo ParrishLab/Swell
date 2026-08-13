@@ -2,6 +2,32 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.3.5] - 2026-08-13
+
+### Detection and metric calibration
+- Auto-detection timing windows are now defined in seconds and converted to frames using the project's **Frames per second** value. The Auto-Detect window exposes that shared FPS setting, so smoothing, lookback, lookahead, event duration, persistence, splitting, and coherence baselines retain their intended real-time durations across acquisition rates.
+- Scale calibration can use a reference image with different pixel dimensions after an explicit warning, supporting uncropped or unsplit references from the same acquisition. ROI reference images still require an exact stack-dimension match because their coordinates map directly onto the loaded stack.
+- The event-metrics guide now explains when a differently sized scale reference is valid and when resizing or resampling would make the calibration unsafe.
+
+### Release reliability
+- Packaged macOS and Windows ZIPs are uploaded directly to an idempotent draft GitHub release instead of passing large build directories through GitHub Actions artifact storage. Final compatibility metadata and checksums are assembled from those release assets, avoiding organization storage-quota failures while preserving rerun safety.
+- Source and editable checkouts now read the application version from `pyproject.toml` before installed package metadata, preventing a stale environment from reporting the previous release immediately after a version bump.
+
+### Model/checkpoint compatibility
+- No checkpoint format, catalog, model-selection, or SAM2 inference change in this release; existing managed and local SAM2 selections remain compatible.
+
+### Platform/backend limitations
+- Differently sized scale references are valid only when they preserve the loaded stack's pixel resolution, such as an image cropped or split without resizing. References that were resampled or acquired at another resolution can produce incorrect pixels-per-millimeter calibration.
+- ROI reference images must still match the loaded stack dimensions exactly. CPU fallback behavior is unchanged and remains substantially slower than accelerated SAM2 inference on large stacks.
+
+### .swell/migration notes
+- No schema-number change is required. Existing `.swell` projects remain compatible, and their stored project FPS continues to drive time-based metrics and now also scales Auto-Detect timing windows.
+
+### Known segmentation caveats/regressions
+- Mask-generation thresholds are still not persisted in `.swell` files. Restored masks begin with an unknown threshold and are treated as fresh until regenerated during the current session.
+- Changing **Mask Threshold** still re-thresholds prompted frames on slider release; propagated frames remain visibly stale until propagation is rerun. Ground-truth and manually painted frames are never marked stale.
+- At 1 frame per second, Auto-Detect retains the original calibrated frame counts. At other acquisition rates, candidate windows can differ from earlier Swell versions because timing now preserves seconds rather than fixed frame counts; no known SAM2 inference or stored-mask regression is introduced.
+
 ## [0.3.4] - 2026-08-05
 
 ### Documentation and guided workflows
