@@ -106,3 +106,67 @@ def test_get_processed_frame_uses_raw_normalization_before_baseline_and_cache_af
     assert first is processed
     assert second is processed
     assert engine_calls == [4]
+
+
+class _PackTracker:
+    def __init__(self, mapped: bool = False) -> None:
+        self.mapped = mapped
+        self.pack_kwargs: dict[str, object] | None = None
+
+    def winfo_ismapped(self) -> bool:
+        return self.mapped
+
+    def pack(self, **kwargs) -> None:
+        self.pack_kwargs = dict(kwargs)
+        self.mapped = True
+
+    def pack_forget(self) -> None:
+        self.mapped = False
+
+    def start(self, _interval: int) -> None:
+        return
+
+    def stop(self) -> None:
+        return
+
+
+class _Overlay:
+    def winfo_exists(self) -> bool:
+        return True
+
+
+def _loading_app(overlay) -> SimpleNamespace:
+    popup = _Popup()
+    popup.update_idletasks = lambda: None
+    return SimpleNamespace(
+        _popup=SimpleNamespace(
+            mark_popup=popup,
+            mark_overlay=overlay,
+            mark_loading_var=_Var(""),
+            mark_loading_label=_PackTracker(),
+            mark_loading_bar=_PackTracker(),
+        )
+    )
+
+
+def test_loading_row_is_packed_above_the_frame_overlay() -> None:
+    overlay = _Overlay()
+    app = _loading_app(overlay)
+    controller = PopupProcessingController(app, SimpleNamespace())
+
+    controller.set_loading(True, "Computing...")
+
+    # Without `before`, pack appends the row below the Confirm/Cancel buttons.
+    assert app._popup.mark_loading_label.pack_kwargs["before"] is overlay
+    assert app._popup.mark_loading_bar.pack_kwargs["before"] is overlay
+    assert app._popup.mark_loading_var.get() == "Computing..."
+
+
+def test_loading_row_packs_without_anchor_when_overlay_is_missing() -> None:
+    app = _loading_app(None)
+    controller = PopupProcessingController(app, SimpleNamespace())
+
+    controller.set_loading(True, "Computing...")
+
+    assert "before" not in app._popup.mark_loading_label.pack_kwargs
+    assert app._popup.mark_loading_bar.mapped is True

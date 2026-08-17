@@ -2,6 +2,33 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.3.6] - 2026-08-17
+
+### Preview and window layout
+- The Host frame viewer and Mark/Edit Event preview now constrain rendered images to the available window area instead of allowing tall frames to push sliders, navigation, baseline controls, or confirmation buttons below the screen edge.
+- Main and popup previews re-fit after their containers are resized, using debounced rerenders to avoid repeated work during active window resizing.
+- Mark/Edit Event windows clamp their initial and minimum sizes to the available display area, and loading progress is placed directly below the preview rather than after the bottom action controls.
+- Shared window centering now accounts for reserved operating-system screen space and relaxes minimum sizes that exceed the usable display area.
+
+### Release packaging
+- macOS and Windows release archives now include the application version in their download names, for example `swell-0.3.6-macos-arm64.zip` and `swell-0.3.6-windows-x64.zip`. Release assembly, checksums, updater feeds, and the release checklist use the same versioned names.
+
+### Model/checkpoint compatibility
+- No checkpoint format, catalog, model-selection, or SAM2 inference change in this release; existing managed and local SAM2 selections remain compatible.
+
+### Platform/backend limitations
+- Usable display bounds are derived from Tk's screen dimensions with reserved margins for operating-system chrome because Tk does not expose a portable work-area API. Window-manager placement may still vary slightly across desktop environments.
+- CPU fallback behavior is unchanged and remains substantially slower than accelerated SAM2 inference on large stacks.
+
+### .swell/migration notes
+- No schema-number change is required. Existing `.swell` projects, embedded images, event ranges, metric settings, and saved analysis data remain compatible.
+
+### Known segmentation caveats/regressions
+- Preview resizing changes display geometry only; it does not resample source frames, masks, prompts, or exported measurements.
+- Mask-generation thresholds are still not persisted in `.swell` files. Restored masks begin with an unknown threshold and are treated as fresh until regenerated during the current session.
+- Changing **Mask Threshold** still re-thresholds prompted frames on slider release; propagated frames remain visibly stale until propagation is rerun. Ground-truth and manually painted frames are never marked stale.
+- No known SAM2 inference or stored-mask regression is introduced by this release.
+
 ## [0.3.5] - 2026-08-13
 
 ### Detection and metric calibration

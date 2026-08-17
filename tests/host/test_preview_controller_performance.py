@@ -279,3 +279,33 @@ def test_overlay_click_log_uses_visible_event_label() -> None:
     assert active == ["event_0001"]
     assert selections == ["event_0001"]
     assert logs[-1] == "Overlay click: selected Visible Event and jumped to frame 1."
+
+
+class _UnmeasuredLabel:
+    def __init__(self, window_w: int, window_h: int) -> None:
+        self._window = SimpleNamespace(
+            winfo_width=lambda: int(window_w),
+            winfo_height=lambda: int(window_h),
+        )
+
+    def winfo_toplevel(self):
+        return self._window
+
+
+def test_unmeasured_preview_size_is_bounded_by_the_window() -> None:
+    # An 850px-tall window cannot show a 700px-tall preview without clipping the controls.
+    max_w, max_h = HostPreviewController.unmeasured_preview_size(_UnmeasuredLabel(1200, 850), (1000, 700))
+
+    assert (max_w, max_h) == (1000, 467)
+
+
+def test_unmeasured_preview_size_keeps_fallback_when_window_is_larger() -> None:
+    max_w, max_h = HostPreviewController.unmeasured_preview_size(_UnmeasuredLabel(2400, 1600), (1000, 700))
+
+    assert (max_w, max_h) == (1000, 700)
+
+
+def test_unmeasured_preview_size_falls_back_when_window_is_unmapped() -> None:
+    label = _UnmeasuredLabel(1, 1)
+
+    assert HostPreviewController.unmeasured_preview_size(label, (1000, 700)) == (1000, 700)

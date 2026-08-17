@@ -80,10 +80,17 @@ class PopupProcessingController:
             return
         if loading:
             self.app._popup.mark_loading_var.set(text)
+            # Pack ahead of the frame overlay so the loading row appears under the preview
+            # rather than below the Confirm/Cancel buttons at the bottom of the window.
+            anchor = getattr(self.app._popup, "mark_overlay", None)
+            try:
+                place_before = {"before": anchor} if anchor is not None and anchor.winfo_exists() else {}
+            except Exception:
+                place_before = {}
             if not self.app._popup.mark_loading_label.winfo_ismapped():
-                self.app._popup.mark_loading_label.pack(anchor="w", pady=(0, 2))
+                self.app._popup.mark_loading_label.pack(anchor="w", pady=(0, 2), **place_before)
             if not self.app._popup.mark_loading_bar.winfo_ismapped():
-                self.app._popup.mark_loading_bar.pack(fill="x", pady=(0, 4))
+                self.app._popup.mark_loading_bar.pack(fill="x", pady=(0, 4), **place_before)
             self.app._popup.mark_loading_bar.start(8)
             if self.app._popup.mark_popup is not None and self.app._popup.mark_popup.winfo_exists():
                 self.app._popup.mark_popup.update_idletasks()

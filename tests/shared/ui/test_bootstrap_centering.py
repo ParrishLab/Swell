@@ -79,3 +79,49 @@ def test_center_window_on_screen_clears_placeholder_geometry():
     # y = (1080 - 350) // 2 = 365
     assert window.geometry_value == "680x350+620+365"
 
+
+
+class _FakeWindowWithMinsize(_FakeWindow):
+    def __init__(self, min_w: int, min_h: int, *, screen: tuple[int, int] = (1366, 768)) -> None:
+        super().__init__()
+        self.min_size = (int(min_w), int(min_h))
+        self.screen = screen
+
+    def winfo_screenwidth(self) -> int:
+        return self.screen[0]
+
+    def winfo_screenheight(self) -> int:
+        return self.screen[1]
+
+    def minsize(self, width: int | None = None, height: int | None = None):
+        if width is None and height is None:
+            return self.min_size
+        self.min_size = (int(width), int(height))
+        return None
+
+
+def test_center_window_on_screen_clamps_request_to_screen():
+    # 850 tall does not fit a 768px display once OS chrome is accounted for.
+    window = _FakeWindowWithMinsize(0, 0)
+
+    center_window_on_screen(window, width=1200, height=850)
+
+    assert window.geometry_value == "1200x688+83+40"
+
+
+def test_center_window_on_screen_relaxes_minsize_larger_than_screen():
+    window = _FakeWindowWithMinsize(1200, 850)
+
+    center_window_on_screen(window, width=1200, height=850)
+
+    assert window.min_size == (1200, 688)
+    assert window.geometry_value == "1200x688+83+40"
+
+
+def test_center_window_on_screen_leaves_fitting_minsize_alone():
+    window = _FakeWindowWithMinsize(1000, 620, screen=(1920, 1080))
+
+    center_window_on_screen(window, width=1200, height=850)
+
+    assert window.min_size == (1000, 620)
+    assert window.geometry_value == "1200x850+360+115"

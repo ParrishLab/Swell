@@ -128,9 +128,30 @@ class HostPreviewController:
         max_w = label.winfo_width() - 12
         max_h = label.winfo_height() - 12
         if max_w < 120 or max_h < 120:
-            max_w, max_h = fallback_size
+            max_w, max_h = self.unmeasured_preview_size(label, fallback_size)
         img.thumbnail((max_w, max_h), Image.Resampling.BILINEAR)
         return ImageTk.PhotoImage(img)
+
+    @staticmethod
+    def unmeasured_preview_size(label: ttk.Label, fallback_size: tuple[int, int]) -> tuple[int, int]:
+        """Cap for a preview whose label has no usable geometry yet.
+
+        The caller-supplied fallback is a fixed guess that can exceed the space the window
+        actually has, so bound it by the containing window when that size is known.
+        """
+        max_w, max_h = int(fallback_size[0]), int(fallback_size[1])
+        try:
+            window = label.winfo_toplevel()
+            window_w = int(window.winfo_width())
+            window_h = int(window.winfo_height())
+        except Exception:
+            return max_w, max_h
+        if window_w > 120:
+            max_w = min(max_w, window_w - 40)
+        if window_h > 120:
+            # Non-preview rows (controls, slider, buttons) take roughly a third of the window.
+            max_h = min(max_h, int(window_h * 0.55))
+        return max(120, max_w), max(120, max_h)
 
     def cache_main_render(self, key: tuple[int, int, int], image: ImageTk.PhotoImage) -> None:
         self.app._main_render_cache[key] = image  # LRUCache auto-promotes and evicts
@@ -143,7 +164,7 @@ class HostPreviewController:
         max_w = self.app.preview_label.winfo_width() - 12
         max_h = self.app.preview_label.winfo_height() - 12
         if max_w < 120 or max_h < 120:
-            max_w, max_h = (1100, 800)
+            max_w, max_h = self.unmeasured_preview_size(self.app.preview_label, (1100, 800))
         cache_key = (int(frame_idx), int(max_w), int(max_h))
         cache = self.app._main_render_cache
         image = cache.get(cache_key)
@@ -200,10 +221,38 @@ class HostPreviewController:
                 return
         self.app.tk_preview_image = image
         self.app.preview_label.configure(image=image)
+        self.app._main_preview_rendered_size = (
+            int(self.app.preview_label.winfo_width()),
+            int(self.app.preview_label.winfo_height()),
+        )
 
         frame_name = self.app.reader.get_frame_name(frame_idx)
         self.app.preview_label_info.set(f"Frame {frame_idx + 1}")
         self.app.preview_label_meta.set(str(frame_name or "No file loaded"))
+
+    def on_main_preview_resize(self) -> None:
+        """Re-fit the main preview when its label changes size."""
+        label = getattr(self.app, "preview_label", None)
+        if label is None or self.app.reader is None:
+            return
+        if (int(label.winfo_width()), int(label.winfo_height())) == getattr(self.app, "_main_preview_rendered_size", None):
+            return
+        after_id = getattr(self.app, "_main_preview_resize_after_id", None)
+        if after_id is not None:
+            try:
+                self.app.root.after_cancel(after_id)
+            except Exception:
+                pass
+        self.app._main_preview_resize_after_id = self.app.root.after(120, self.flush_main_preview_resize)
+
+    def flush_main_preview_resize(self) -> None:
+        self.app._main_preview_resize_after_id = None
+        label = getattr(self.app, "preview_label", None)
+        if label is None or self.app.reader is None:
+            return
+        if (int(label.winfo_width()), int(label.winfo_height())) == getattr(self.app, "_main_preview_rendered_size", None):
+            return
+        self.update_preview(int(self.app.current_frame_idx))
 
     def scale_value_to_x(
         self,
@@ -389,6 +438,10 @@ class HostPreviewController:
         )
         self.app._popup.mark_popup_image = image
         self.app._popup.mark_preview_label.configure(image=image)
+        self.app._popup.mark_preview_rendered_size = (
+            int(self.app._popup.mark_preview_label.winfo_width()),
+            int(self.app._popup.mark_preview_label.winfo_height()),
+        )
 
         self.update_popup_mini_raw(frame_idx)
 

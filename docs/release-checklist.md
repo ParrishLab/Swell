@@ -79,7 +79,7 @@ Run this on a machine with no existing managed model directory before publishing
   ```
 - [ ] Wait for the `release-phase3-tag` workflow to finish.
 - [ ] Open GitHub Releases and verify the draft:
-  - [ ] Assets attached: `swell-macos-arm64.zip`, `swell-windows-x64.zip`, `compatibility.json`, `SHA256SUMS.txt`.
+  - [ ] Assets attached: `swell-X.Y.Z-macos-arm64.zip`, `swell-X.Y.Z-windows-x64.zip`, `compatibility.json`, `SHA256SUMS.txt`.
   - [ ] Release body matches the `CHANGELOG.md` section for this version.
   - [ ] `compatibility.json` version field matches `pyproject.toml`.
 - [ ] Publish the draft manually.

@@ -101,6 +101,16 @@ def test_release_workflow_uses_draft_release_assets_instead_of_actions_storage()
     assert "publish-draft:" not in workflow
 
 
+def test_release_workflow_names_download_archives_with_app_version() -> None:
+    workflow = (ROOT / ".github" / "workflows" / "release_phase3_tag.yml").read_text(encoding="utf-8")
+
+    assert 'RELEASE_VERSION: ${{ needs.release-validate.outputs.release_version }}' in workflow
+    assert 'VERSIONED_ZIP="dist/swell-${RELEASE_VERSION}-macos-arm64.zip"' in workflow
+    assert '$versionedZip = "dist/swell-$env:RELEASE_VERSION-windows-x64.zip"' in workflow
+    assert '--pattern "swell-${RELEASE_VERSION}-macos-arm64.zip"' in workflow
+    assert '--pattern "swell-${RELEASE_VERSION}-windows-x64.zip"' in workflow
+
+
 def test_release_workflow_explicit_bash_blocks_are_syntactically_valid() -> None:
     bash = shutil.which("bash")
     if bash is None:

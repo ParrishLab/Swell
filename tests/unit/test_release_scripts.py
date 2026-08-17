@@ -98,9 +98,10 @@ def test_generate_appcasts_script_writes_platform_feeds(tmp_path: Path) -> None:
     version = str(pyproject["project"]["version"])
     dist_dir = tmp_path / "dist"
     dist_dir.mkdir(parents=True, exist_ok=True)
-    (dist_dir / "swell-macos-arm64.zip").write_bytes(b"mac")
+    macos_archive = f"swell-{version}-macos-arm64.zip"
+    (dist_dir / macos_archive).write_bytes(b"mac")
     (dist_dir / "swell-macos-arm64-signature.json").write_text(
-        json.dumps({"archive": "swell-macos-arm64.zip", "ed_signature": "abc123=", "length": 3}),
+        json.dumps({"archive": macos_archive, "ed_signature": "abc123=", "length": 3}),
         encoding="utf-8",
     )
     (dist_dir / f"Swell-Setup-{version}.exe").write_bytes(b"win")
@@ -135,7 +136,7 @@ def test_generate_appcasts_script_writes_platform_feeds(tmp_path: Path) -> None:
     ]
 
     assert windows_url.endswith(f"/Swell-Setup-{version}.exe")
-    assert mac_url.endswith("/swell-macos-arm64.zip")
+    assert mac_url.endswith(f"/{macos_archive}")
     assert mac_sig == "abc123="
 
 

@@ -99,13 +99,18 @@ def generate_appcasts(
     download_base_url = f"https://github.com/{github_repo}/releases/download/{stable_tag}"
     published = published_at or datetime.now(timezone.utc).strftime("%a, %d %b %Y %H:%M:%S %z")
     windows_installer = next(iter(sorted(dist_dir.glob("Swell-Setup-*.exe"))), None)
+    macos_archive = dist_dir / f"swell-{version}-macos-arm64.zip"
+    if not macos_archive.exists():
+        # Retain compatibility with release directories produced before
+        # versioned download names were introduced.
+        macos_archive = dist_dir / "swell-macos-arm64.zip"
 
     specs = [
         ArtifactSpec(
             platform="macos",
-            artifact_path=dist_dir / "swell-macos-arm64.zip",
+            artifact_path=macos_archive,
             output_path=output_dir / "appcast-macos.xml",
-            download_url=f"{download_base_url}/swell-macos-arm64.zip",
+            download_url=f"{download_base_url}/{macos_archive.name}",
             signature_path=dist_dir / "swell-macos-arm64-signature.json",
         ),
         ArtifactSpec(

@@ -113,6 +113,8 @@ class SwellHostApp:
         self._normalized_frame_u8_cache: LRUCache[tuple[int, str], np.ndarray] = LRUCache(max_items=64, max_bytes=160 * 1024 * 1024, gc_min_keep=16)
         self._pending_main_frame_idx: int | None = None
         self._pending_main_after_id: str | None = None
+        self._main_preview_rendered_size: tuple[int, int] | None = None
+        self._main_preview_resize_after_id: str | None = None
         self._last_log_msg: str = ""
         self._last_log_time: float = 0.0
         self._cache_gc_after_id: str | None = None
@@ -199,13 +201,17 @@ class SwellHostApp:
         viewer_shell.columnconfigure(0, weight=1)
         viewer_shell.rowconfigure(0, weight=1)
 
-        canvas_shell = ttk.Frame(viewer_shell, style="AppInset.TFrame")
+        canvas_shell = ttk.Frame(viewer_shell, style="AppInset.TFrame", width=640, height=320)
         canvas_shell.grid(row=0, column=0, sticky="nsew")
         canvas_shell.columnconfigure(0, weight=1)
         canvas_shell.rowconfigure(0, weight=1)
+        # Keep the rendered frame from inflating the viewer's requested size, which would
+        # squeeze the slider and nav rows below it out of the window.
+        canvas_shell.grid_propagate(False)
 
         self.preview_label = ttk.Label(canvas_shell, anchor="center")
         self.preview_label.grid(row=0, column=0, sticky="nsew", padx=SPACING.gap, pady=SPACING.gap)
+        self.preview_label.bind("<Configure>", self._on_preview_label_resize)
 
         self.preview_label_info = tk.StringVar(value="Frame -")
         preview_overlay_frame = ttk.Frame(canvas_shell, padding=(8, 6), style="AppOverlay.TFrame")
@@ -1386,6 +1392,9 @@ class SwellHostApp:
 
     def _cache_main_render(self, key: tuple[int, int, int], image: ImageTk.PhotoImage) -> None:
         return self._get_preview_controller().cache_main_render(key, image)
+
+    def _on_preview_label_resize(self, _event=None) -> None:
+        return self._get_preview_controller().on_main_preview_resize()
 
     def _update_preview(self, frame_idx: int) -> None:
         return self._get_preview_controller().update_preview(frame_idx)

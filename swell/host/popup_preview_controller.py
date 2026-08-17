@@ -42,6 +42,31 @@ class PopupPreviewController:
         self.update_preview(idx)
         self.redraw_overlay()
 
+    def on_preview_resize(self, _event: Any = None) -> None:
+        """Re-fit the rendered frame when the preview area changes size."""
+        popup = self.app._popup.mark_popup
+        label = self.app._popup.mark_preview_label
+        if popup is None or label is None or not popup.winfo_exists():
+            return
+        if (int(label.winfo_width()), int(label.winfo_height())) == self.app._popup.mark_preview_rendered_size:
+            return
+        if self.app._popup.mark_preview_resize_after_id is not None:
+            try:
+                popup.after_cancel(self.app._popup.mark_preview_resize_after_id)
+            except Exception:
+                pass
+        self.app._popup.mark_preview_resize_after_id = popup.after(120, self.flush_preview_resize)
+
+    def flush_preview_resize(self) -> None:
+        self.app._popup.mark_preview_resize_after_id = None
+        popup = self.app._popup.mark_popup
+        label = self.app._popup.mark_preview_label
+        if popup is None or label is None or not popup.winfo_exists():
+            return
+        if (int(label.winfo_width()), int(label.winfo_height())) == self.app._popup.mark_preview_rendered_size:
+            return
+        self.update_preview(int(self.app._popup.mark_popup_current_idx))
+
     def set_start_current(self) -> None:
         if self.app._popup.mark_start_var is None:
             return

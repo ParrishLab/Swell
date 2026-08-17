@@ -179,9 +179,12 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ needs.release-validate.outputs.release_tag }}
+          RELEASE_VERSION: ${{ needs.release-validate.outputs.release_version }}
         shell: bash
         run: |
-          FILES=(dist/swell-macos-arm64.zip)
+          VERSIONED_ZIP="dist/swell-${RELEASE_VERSION}-macos-arm64.zip"
+          mv dist/swell-macos-arm64.zip "$VERSIONED_ZIP"
+          FILES=("$VERSIONED_ZIP")
           if [ "${SWELL_ENABLE_UPDATER_ARTIFACTS}" = "true" ]; then
             FILES+=(dist/swell-macos-arm64-signature.json)
           fi
@@ -286,9 +289,12 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ needs.release-validate.outputs.release_tag }}
+          RELEASE_VERSION: ${{ needs.release-validate.outputs.release_version }}
         shell: pwsh
         run: |
-          $files = @("dist/swell-windows-x64.zip")
+          $versionedZip = "dist/swell-$env:RELEASE_VERSION-windows-x64.zip"
+          Move-Item "dist/swell-windows-x64.zip" $versionedZip
+          $files = @($versionedZip)
           if ("${{ env.SWELL_ENABLE_UPDATER_ARTIFACTS }}" -eq "true") {
             $installers = Get-ChildItem "dist/Swell-Setup-*.exe" | ForEach-Object { $_.FullName }
             $files += $installers
@@ -319,13 +325,14 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ needs.release-validate.outputs.release_tag }}
+          RELEASE_VERSION: ${{ needs.release-validate.outputs.release_version }}
         shell: bash
         run: |
           mkdir -p dist
           gh release download "$RELEASE_TAG" \
             --dir dist \
-            --pattern swell-macos-arm64.zip \
-            --pattern swell-windows-x64.zip
+            --pattern "swell-${RELEASE_VERSION}-macos-arm64.zip" \
+            --pattern "swell-${RELEASE_VERSION}-windows-x64.zip"
           if [ "${SWELL_ENABLE_UPDATER_ARTIFACTS}" = "true" ]; then
             gh release download "$RELEASE_TAG" \
               --dir dist \
@@ -356,9 +363,11 @@ jobs:
         run: ./scripts/release/generate_checksums.sh
 
       - name: Verify assembled release outputs
+        env:
+          RELEASE_VERSION: ${{ needs.release-validate.outputs.release_version }}
         run: |
-          test -f dist/swell-macos-arm64.zip
-          test -f dist/swell-windows-x64.zip
+          test -f "dist/swell-${RELEASE_VERSION}-macos-arm64.zip"
+          test -f "dist/swell-${RELEASE_VERSION}-windows-x64.zip"
           if [ "${SWELL_ENABLE_UPDATER_ARTIFACTS}" = "true" ]; then
             test -f dist/swell-macos-arm64-signature.json
             ls dist/Swell-Setup-*.exe

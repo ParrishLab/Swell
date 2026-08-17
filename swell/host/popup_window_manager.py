@@ -41,6 +41,9 @@ class PopupWindowManager:
         self.mark_loading_label: ttk.Label | None = None
         self.mark_loading_bar: ttk.Progressbar | None = None
         self.mark_main_view_shell: ttk.Frame | None = None
+        # Label size the current preview image was rendered for, used to re-fit on resize.
+        self.mark_preview_rendered_size: tuple[int, int] | None = None
+        self.mark_preview_resize_after_id: str | None = None
         self.mark_mini_frame: ttk.Frame | None = None
         self.mark_mini_canvas: tk.Canvas | None = None
         self.mark_mini_grip: tk.Label | None = None

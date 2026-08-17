@@ -9,7 +9,12 @@ from swell.host.popup_processing_controller import PopupProcessingController
 from swell.host.popup_preview_controller import PopupPreviewController
 from swell.host.popup_range_controller import PopupRangeController
 from swell.host.ui_geometry import clamp_popup_range
-from swell.shared.ui.bootstrap import center_window_on_screen as center_window, semantic_button_options, ttk
+from swell.shared.ui.bootstrap import (
+    center_window_on_screen as center_window,
+    clamp_to_work_area,
+    semantic_button_options,
+    ttk,
+)
 
 
 class MarkPopupController:
@@ -140,7 +145,7 @@ class MarkPopupController:
         popup.withdraw()
         self.app._popup.mark_popup = popup
         popup.title("Mark Event" if mode == "new" else f"Edit Event ({self._event_display_name(event_id)})")
-        popup.minsize(1200, 850)
+        popup.minsize(*clamp_to_work_area(popup, 1000, 620))
         popup.transient(self.app.root)
         apply_theme(popup)
 
@@ -162,10 +167,16 @@ class MarkPopupController:
             **semantic_button_options("secondary"),
         ).pack(side="right")
 
-        self.app._popup.mark_main_view_shell = ttk.Frame(content, padding=SPACING.card, style="AppSurface.TFrame")
+        self.app._popup.mark_main_view_shell = ttk.Frame(
+            content, padding=SPACING.card, style="AppSurface.TFrame", width=640, height=260
+        )
         self.app._popup.mark_main_view_shell.pack(fill="both", expand=True, pady=(6, 6))
+        # The preview image must never dictate the window's requested size: a tall frame
+        # would otherwise push the nav/baseline/confirm rows past the bottom edge.
+        self.app._popup.mark_main_view_shell.pack_propagate(False)
         self.app._popup.mark_preview_label = ttk.Label(self.app._popup.mark_main_view_shell, anchor="center", style="AppCard.TLabel")
         self.app._popup.mark_preview_label.pack(fill="both", expand=True)
+        self.app._popup.mark_preview_label.bind("<Configure>", self.preview_controller.on_preview_resize)
 
         self.app._popup.mark_mini_frame = ttk.Frame(self.app._popup.mark_main_view_shell, width=180, height=180, style="AppPreview.TFrame")
         self.app._popup.mark_mini_frame.pack_propagate(False)
@@ -293,7 +304,8 @@ class MarkPopupController:
         popup.bind("<Destroy>", self.on_destroy)
         self.app._bind_popup_keys(popup)
 
-        center_window(popup, width=1200, height=850)
+        popup_w, popup_h = clamp_to_work_area(popup, 1200, 850)
+        center_window(popup, width=popup_w, height=popup_h)
         popup.deiconify()
         popup.update_idletasks()
         self._begin_popup_session(
@@ -318,6 +330,14 @@ class MarkPopupController:
                 popup_ref.after_cancel(self.app._popup.pending_popup_after_id)
             except Exception:
                 pass
+        resize_after_id = getattr(self.app._popup, "mark_preview_resize_after_id", None)
+        if resize_after_id is not None and popup_ref is not None:
+            try:
+                popup_ref.after_cancel(resize_after_id)
+            except Exception:
+                pass
+        self.app._popup.mark_preview_resize_after_id = None
+        self.app._popup.mark_preview_rendered_size = None
         self.app._popup.mark_recompute_after_id = None
         self.app._popup.pending_popup_after_id = None
         self.app._popup.pending_popup_frame_idx = None
