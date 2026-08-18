@@ -1770,7 +1770,7 @@ wheels = [
 
 [[package]]
 name = "swell"
-version = "0.3.6"
+version = "0.3.7"
 source = { editable = "." }
 dependencies = [
     { name = "h5py" },

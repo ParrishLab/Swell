@@ -18,7 +18,17 @@ from swell.host.exporter import analysis_image_cache_key, export_analysis
 from swell.shared.metrics_defaults import DEFAULT_SCALE_AXIS_LOCK
 from swell.shared.models import clone_analysis_payload
 from swell.shared.services import MetricsSettingsResolver
-from swell.shared.ui.bootstrap import center_window_on_screen as center_window, semantic_button_options, ttk
+from swell.shared.ui.bootstrap import (
+    build_scrollable_body,
+    center_window_on_screen as center_window,
+    scrollable_body_budget,
+    semantic_button_options,
+    ttk,
+)
+
+# Vertical room a dialog needs outside its scrolling body: outer padding plus the
+# pinned action-button row.
+_DIALOG_CHROME_HEIGHT = 140
 
 
 class HostWindowController:
@@ -530,9 +540,14 @@ class HostWindowController:
 
         shell = ttk.Frame(dialog, padding=SPACING.outer, style="AppShell.TFrame")
         shell.pack(fill="both", expand=True)
-        ttk.Label(shell, text=f"Choose export items for {len(event_ids)} event(s)", style="AppSectionTitle.TLabel").pack(anchor="w")
+        # The checkbox list is long enough to outgrow a laptop screen, so it scrolls
+        # while the action buttons stay pinned.
+        scroll_container, body, refresh_scroll = build_scrollable_body(
+            shell, max_height=scrollable_body_budget(dialog, chrome_height=_DIALOG_CHROME_HEIGHT)
+        )
+        ttk.Label(body, text=f"Choose export items for {len(event_ids)} event(s)", style="AppSectionTitle.TLabel").pack(anchor="w")
 
-        output_row = ttk.Frame(shell, padding=SPACING.card, style="AppSurface.TFrame")
+        output_row = ttk.Frame(body, padding=SPACING.card, style="AppSurface.TFrame")
         output_row.pack(fill="x", pady=(6, 10))
         ttk.Label(output_row, text="Output Folder", style="AppMeta.TLabel").pack(side="left")
         output_entry = ttk.Entry(output_row, textvariable=output_dir_var, style="AppCompact.TEntry")
@@ -546,7 +561,7 @@ class HostWindowController:
 
         ttk.Button(output_row, text="Browse...", command=_browse_output_dir, **semantic_button_options("secondary")).pack(side="left")
 
-        checks = ttk.Frame(shell, padding=SPACING.card, style="AppSurface.TFrame")
+        checks = ttk.Frame(body, padding=SPACING.card, style="AppSurface.TFrame")
         checks.pack(fill="x", pady=(0, 10))
         ttk.Label(checks, text="Include", style="AppSectionTitle.TLabel").pack(anchor="w", pady=(0, SPACING.gap))
         ttk.Checkbutton(checks, text="Event Images", variable=include_event_var).pack(anchor="w")
@@ -701,8 +716,10 @@ class HostWindowController:
         _refresh_combined_metrics_spreadsheet_state()
         _refresh_lineage_tables_state()
 
+        # Packed before the scroll container so the buttons always claim their space.
         buttons = ttk.Frame(shell, style="AppShell.TFrame")
-        buttons.pack(fill="x")
+        buttons.pack(side="bottom", fill="x")
+        scroll_container.pack(fill="both", expand=True)
 
         def _cancel() -> None:
             dialog.destroy()
@@ -754,6 +771,7 @@ class HostWindowController:
         ttk.Button(buttons, text="Cancel", command=_cancel, **semantic_button_options("secondary")).pack(side="right")
         ttk.Button(buttons, text="Export", command=_confirm, **semantic_button_options("primary")).pack(side="right", padx=(0, 8))
         dialog.protocol("WM_DELETE_WINDOW", _cancel)
+        refresh_scroll()
         self.center_window_on_screen(dialog, width=680)
         dialog.deiconify()
         dialog.grab_set()
@@ -783,11 +801,17 @@ class HostWindowController:
         dialog.withdraw()
         dialog.title("Propagation Speed Warning")
         dialog.transient(self.app.root)
-        dialog.resizable(False, False)
+        # One row is rendered per detected gap range and the count is unbounded, so the
+        # dialog scrolls and resizes instead of pushing rows past its fixed height.
+        dialog.resizable(True, True)
+        dialog.minsize(720, 420)
         apply_theme(dialog)
 
         shell = ttk.Frame(dialog, padding=SPACING.outer, style="AppShell.TFrame")
         shell.pack(fill="both", expand=True)
+        # Everything above the footer lives in `body`; the container is packed after the
+        # footer below so the pinned footer claims its space first.
+        scroll_container, body, refresh_scroll = build_scrollable_body(shell)
         event_name = self._propagation_gap_event_name(payload)
         action_specs = self._propagation_action_specs(warning_kind)
         preview_frame_indices, preview_values = self._preview_series_from_payload(payload)
@@ -807,11 +831,11 @@ class HostWindowController:
                 f"{range_count} affected {range_word} found. Each can use its own handling: "
                 "leave blank, smooth across, or end the speed trace at that range."
             )
-        summary = ttk.Frame(shell, padding=SPACING.card, style="AppInset.TFrame")
+        summary = ttk.Frame(body, padding=SPACING.card, style="AppInset.TFrame")
         summary.pack(fill="x", pady=(0, SPACING.gap))
         ttk.Label(summary, text=heading, justify="left", style="AppSectionTitle.TLabel").pack(anchor="w")
         ttk.Label(
-            shell,
+            body,
             text=detail,
             justify="left",
             style="AppMeta.TLabel",
@@ -819,11 +843,11 @@ class HostWindowController:
         ).pack(anchor="w", pady=(0, SPACING.card))
 
         ttk.Label(
-            shell,
+            body,
             text="Preview — click a button below a graph to apply that action to every range",
             style="AppSectionTitle.TLabel",
         ).pack(anchor="w", pady=(0, SPACING.gap))
-        previews = ttk.Frame(shell, style="AppShell.TFrame")
+        previews = ttk.Frame(body, style="AppShell.TFrame")
         previews.pack(fill="x", pady=(0, SPACING.card))
         preview_colors = {
             "ignore": APP_COLORS["purple"],
@@ -862,11 +886,11 @@ class HostWindowController:
             ).pack(anchor="center")
 
         ttk.Label(
-            shell,
+            body,
             text="Per-range selection",
             style="AppSectionTitle.TLabel",
         ).pack(anchor="w", pady=(SPACING.gap, SPACING.gap))
-        rows_frame = ttk.Frame(shell, style="AppShell.TFrame")
+        rows_frame = ttk.Frame(body, style="AppShell.TFrame")
         rows_frame.pack(fill="x", pady=(0, SPACING.card))
 
         row_buttons: list[dict[str, ttk.Button]] = []
@@ -933,8 +957,10 @@ class HostWindowController:
 
         _refresh_rows()
 
+        # Packed before the scroll container so the footer keeps its space no matter
+        # how many ranges the body holds.
         footer = ttk.Frame(shell, style="AppShell.TFrame")
-        footer.pack(fill="x", pady=(SPACING.gap, 0))
+        footer.pack(side="bottom", fill="x", pady=(SPACING.gap, 0))
         ttk.Button(footer, text="Cancel", command=_cancel, **semantic_button_options("secondary")).pack(side="right")
         ttk.Button(
             footer,
@@ -942,11 +968,13 @@ class HostWindowController:
             command=_confirm,
             **semantic_button_options("primary"),
         ).pack(side="right", padx=(0, SPACING.gap))
+        scroll_container.pack(fill="both", expand=True)
 
         dialog.protocol("WM_DELETE_WINDOW", _cancel)
         row_height = 56
         base_height = 560
         height = min(840, base_height + max(0, range_count - 1) * row_height)
+        refresh_scroll()
         self.center_window_on_screen(dialog, width=900, height=height)
         dialog.deiconify()
         dialog.grab_set()
@@ -984,13 +1012,16 @@ class HostWindowController:
 
         shell = ttk.Frame(dialog, padding=SPACING.outer, style="AppShell.TFrame")
         shell.pack(fill="both", expand=True)
+        scroll_container, body, refresh_scroll = build_scrollable_body(
+            shell, max_height=scrollable_body_budget(dialog, chrome_height=_DIALOG_CHROME_HEIGHT)
+        )
         ttk.Label(
-            shell,
+            body,
             text="Configure global Frames/sec, Scale, and ROI defaults for this project.",
             style="AppMeta.TLabel",
         ).pack(anchor="w")
 
-        fps_row = ttk.Frame(shell, padding=SPACING.card, style="AppSurface.TFrame")
+        fps_row = ttk.Frame(body, padding=SPACING.card, style="AppSurface.TFrame")
         fps_row.pack(fill="x", pady=(10, 6))
         ttk.Label(fps_row, text="Frames/sec", style="AppSectionTitle.TLabel").pack(side="left")
         fps_var = tk.StringVar(value=f"{fps_initial:.6g}")
@@ -1019,7 +1050,7 @@ class HostWindowController:
 
         self.app._refresh_open_metrics_dialog = _refresh_from_host
 
-        controls = ttk.Frame(shell, style="AppShell.TFrame")
+        controls = ttk.Frame(body, style="AppShell.TFrame")
         controls.pack(fill="x", pady=(6, 6))
 
         def _set_scale() -> None:
@@ -1130,12 +1161,14 @@ class HostWindowController:
         ttk.Button(controls, text="Set Scale", command=_set_scale, **semantic_button_options("secondary")).pack(side="left")
         ttk.Button(controls, text="Draw ROI", command=_set_roi, **semantic_button_options("secondary")).pack(side="left", padx=(8, 0))
 
-        ttk.Label(shell, textvariable=scale_status_var, style="AppMeta.TLabel").pack(anchor="w", pady=(2, 2))
-        ttk.Label(shell, textvariable=roi_status_var, style="AppMeta.TLabel").pack(anchor="w", pady=(0, 8))
+        ttk.Label(body, textvariable=scale_status_var, style="AppMeta.TLabel").pack(anchor="w", pady=(2, 2))
+        ttk.Label(body, textvariable=roi_status_var, style="AppMeta.TLabel").pack(anchor="w", pady=(0, 8))
         _refresh_labels()
 
+        # Packed before the scroll container so the buttons always claim their space.
         actions = ttk.Frame(shell, style="AppShell.TFrame")
-        actions.pack(fill="x")
+        actions.pack(side="bottom", fill="x")
+        scroll_container.pack(fill="both", expand=True)
 
         def _cancel() -> None:
             dialog.destroy()
@@ -1190,6 +1223,7 @@ class HostWindowController:
                 self.app._refresh_open_metrics_dialog = None
 
         dialog.bind("<Destroy>", _on_destroy)
+        refresh_scroll()
         self.center_window_on_screen(dialog, width=560)
         dialog.deiconify()
         dialog.grab_set()

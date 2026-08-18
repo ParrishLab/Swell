@@ -15,7 +15,16 @@ from swell.shared.ui.theme import APP_COLORS, SPACING, apply_theme
 from swell.host.dc_trace import WaveSurferH5Adapter
 from swell.shared.trace import TimeAlignment, TraceAttachment, TraceRecord
 from swell.shared.ui import BackgroundTaskRunner
-from swell.shared.ui.bootstrap import center_window_on_screen, semantic_button_options, ttk
+from swell.shared.ui.bootstrap import (
+    build_scrollable_body,
+    center_window_on_screen,
+    scrollable_body_budget,
+    semantic_button_options,
+    ttk,
+)
+
+# Vertical room outside the scrolling body: outer padding plus the pinned action row.
+_DIALOG_CHROME_HEIGHT = 140
 
 TRACE_EVENT_SPAN_COLOR = APP_COLORS["purple"]
 TRACE_DISPLAY_LOWPASS_HZ = 10.0
@@ -393,9 +402,12 @@ class HostDCTraceController:
 
         shell = ttk.Frame(dialog, padding=SPACING.outer, style="AppShell.TFrame")
         shell.pack(fill="both", expand=True)
-        ttk.Label(shell, text=f"File: {Path(str(metadata.get('source_path', ''))).name}", style="AppSectionTitle.TLabel").pack(anchor="w")
+        scroll_container, body, refresh_scroll = build_scrollable_body(
+            shell, max_height=scrollable_body_budget(dialog, chrome_height=_DIALOG_CHROME_HEIGHT)
+        )
+        ttk.Label(body, text=f"File: {Path(str(metadata.get('source_path', ''))).name}", style="AppSectionTitle.TLabel").pack(anchor="w")
         ttk.Label(
-            shell,
+            body,
             text=(
                 f"Sweeps: {int(metadata.get('sweep_count', 0) or 0)}    "
                 f"Sample rate: {self._format_float(metadata.get('sample_rate_hz'))} Hz    "
@@ -408,7 +420,7 @@ class HostDCTraceController:
         channel_var = tk.StringVar(value=str(channel_names[0] if channel_names else ""))
         channel_name_var = tk.StringVar(value=str(channel_names[0] if channel_names else ""))
         offset_var = tk.StringVar(value="0")
-        row = ttk.Frame(shell, padding=SPACING.card, style="AppSurface.TFrame")
+        row = ttk.Frame(body, padding=SPACING.card, style="AppSurface.TFrame")
         row.pack(fill="x", pady=(0, 8))
         ttk.Label(row, text="Channel", style="AppMeta.TLabel").pack(side="left")
         combo = ttk.Combobox(row, textvariable=channel_var, values=channel_names, state="readonly", width=28)
@@ -432,10 +444,10 @@ class HostDCTraceController:
             unit_var.set(str(units[idx] if idx < len(units) else ""))
 
         combo.bind("<<ComboboxSelected>>", _sync_channel_preview, add="+")
-        ttk.Label(shell, textvariable=channel_name_var, style="AppMeta.TLabel").pack(anchor="w", pady=(0, 2))
-        ttk.Label(shell, textvariable=unit_var, style="AppMeta.TLabel").pack(anchor="w", pady=(0, 8))
+        ttk.Label(body, textvariable=channel_name_var, style="AppMeta.TLabel").pack(anchor="w", pady=(0, 2))
+        ttk.Label(body, textvariable=unit_var, style="AppMeta.TLabel").pack(anchor="w", pady=(0, 8))
 
-        offset_row = ttk.Frame(shell, padding=SPACING.card, style="AppSurface.TFrame")
+        offset_row = ttk.Frame(body, padding=SPACING.card, style="AppSurface.TFrame")
         offset_row.pack(fill="x", pady=(0, 8))
         ttk.Label(offset_row, text="Trace time at video frame 0 (s)", style="AppMeta.TLabel").pack(side="left")
         ttk.Entry(offset_row, textvariable=offset_var, width=12, style="AppCompact.TEntry").pack(side="left", padx=(8, 0))
@@ -456,10 +468,13 @@ class HostDCTraceController:
             result["offset_s"] = float(offset_s)
             dialog.destroy()
 
+        # Packed before the scroll container so the buttons always claim their space.
         actions = ttk.Frame(shell, style="AppShell.TFrame")
-        actions.pack(fill="x")
+        actions.pack(side="bottom", fill="x")
+        scroll_container.pack(fill="both", expand=True)
         ttk.Button(actions, text="Cancel", command=_cancel, **semantic_button_options("secondary")).pack(side="right")
         ttk.Button(actions, text="Import", command=_apply, **semantic_button_options("primary")).pack(side="right", padx=(0, 8))
+        refresh_scroll()
         center_window_on_screen(dialog, width=620)
         dialog.deiconify()
         dialog.grab_set()

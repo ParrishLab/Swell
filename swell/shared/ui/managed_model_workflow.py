@@ -74,6 +74,22 @@ class ManagedModelWorkflow:
         if callable(method):
             method(*args)
 
+    @staticmethod
+    def _make_treeview_scroll_setter(scrollbar):
+        """Drive `scrollbar` from a Treeview, hiding it while every row already fits."""
+
+        def _set(first, last) -> None:
+            try:
+                scrollbar.set(first, last)
+                if float(first) <= 0.0 and float(last) >= 1.0:
+                    scrollbar.grid_remove()
+                else:
+                    scrollbar.grid()
+            except Exception:
+                return
+
+        return _set
+
     def open_dialog(self, *, required: bool = False) -> dict[str, object]:
         from swell.shared.ui.theme import SPACING, apply_theme
 
@@ -105,6 +121,11 @@ class ManagedModelWorkflow:
 
         tree_container = ttk.Frame(shell, style="AppInset.TFrame", padding=1)
         tree_container.pack(fill="both", expand=True)
+        tree_container.columnconfigure(0, weight=1)
+        # The themed scrollbar reports a 1px requested width, so reserve the track
+        # width the theme intends (see `width=12` in theme._configure_scrollbar_style).
+        tree_container.columnconfigure(1, weight=0, minsize=12)
+        tree_container.rowconfigure(0, weight=1)
 
         tree = ttk.Treeview(
             tree_container,
@@ -116,7 +137,15 @@ class ManagedModelWorkflow:
         tree.heading("status", text="STATUS")
         tree.column("filename", width=320, anchor="w")
         tree.column("status", width=140, anchor="center")
-        tree.pack(fill="both", expand=True)
+        tree.grid(row=0, column=0, sticky="nsew")
+
+        # The row height is capped at 8, so a longer catalog needs a scrollbar to be
+        # reachable at all. It is hidden while every model already fits.
+        tree_scroll = ttk.Scrollbar(
+            tree_container, orient="vertical", command=tree.yview, style="Vertical.TScrollbar"
+        )
+        tree_scroll.grid(row=0, column=1, sticky="ns")
+        tree.configure(yscrollcommand=self._make_treeview_scroll_setter(tree_scroll))
 
         status_var = tk.StringVar(value=self._options.selection_prompt)
         ttk.Label(shell, textvariable=status_var, style="AppMeta.TLabel").pack(anchor="w", pady=(SPACING.inner, 0))

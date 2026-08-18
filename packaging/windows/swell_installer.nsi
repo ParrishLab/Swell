@@ -2,7 +2,7 @@ Unicode true
 RequestExecutionLevel user
 
 !define APP_NAME "Swell"
-!define APP_VERSION "0.3.6"
+!define APP_VERSION "0.3.7"
 !define APP_EXE "Swell.exe"
 !define APP_PROG_ID "Swell.Project"
 

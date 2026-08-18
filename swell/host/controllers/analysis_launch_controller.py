@@ -18,7 +18,17 @@ from swell.shared.frame_source import (
 from swell.shared.frame_source.launch_preparation import build_launch_preparation_cache_key
 from swell.shared.menu.factory import build_shared_menu
 from swell.shared.ui import BackgroundTaskRunner
-from swell.shared.ui.bootstrap import center_window_on_screen as center_window, semantic_button_options, ttk
+from swell.shared.ui.bootstrap import (
+    build_scrollable_body,
+    center_window_on_screen as center_window,
+    scrollable_body_budget,
+    semantic_button_options,
+    ttk,
+)
+
+# Vertical room outside the scrolling body: outer padding plus the pinned status
+# line and action-button row.
+_DIALOG_CHROME_HEIGHT = 180
 from swell.shared.diagnostics import OpenPerfTrace, get_active as get_active_trace, set_active as set_active_trace, stage as perf_stage
 from swell.shared.frame_source.preprocessing import compute_visualization_stats
 
@@ -370,8 +380,11 @@ class AnalysisLaunchController:
         shell = ttk.Frame(dialog, padding=SPACING.outer, style="AppShell.TFrame")
         shell.pack(fill="both", expand=True)
         shell.columnconfigure(0, weight=1)
+        scroll_container, body, refresh_scroll = build_scrollable_body(
+            shell, max_height=scrollable_body_budget(dialog, chrome_height=_DIALOG_CHROME_HEIGHT)
+        )
 
-        summary = ttk.Frame(shell, padding=SPACING.card, style="AppSurface.TFrame")
+        summary = ttk.Frame(body, padding=SPACING.card, style="AppSurface.TFrame")
         summary.pack(fill="x", pady=(0, SPACING.inner))
         summary.columnconfigure(0, weight=1)
         summary.columnconfigure(1, weight=0)
@@ -387,7 +400,7 @@ class AnalysisLaunchController:
         baseline_entry = ttk.Entry(baseline_row, textvariable=baseline_var, width=6, style="AppCompact.TEntry")
         baseline_entry.pack(side="left", padx=(SPACING.gap, 0))
 
-        checks = ttk.Frame(shell, padding=SPACING.card, style="AppSurface.TFrame")
+        checks = ttk.Frame(body, padding=SPACING.card, style="AppSurface.TFrame")
         checks.pack(fill="x", pady=(0, SPACING.inner))
         checks.columnconfigure(0, weight=1)
         checks.columnconfigure(1, weight=1)
@@ -417,7 +430,7 @@ class AnalysisLaunchController:
             row=2, column=0, sticky="w", pady=(2, 0), padx=(0, SPACING.inner)
         )
 
-        preview_frame = ttk.Frame(shell, padding=SPACING.card, style="AppSurface.TFrame", width=460, height=260)
+        preview_frame = ttk.Frame(body, padding=SPACING.card, style="AppSurface.TFrame", width=460, height=260)
         preview_frame.pack(fill="both", expand=True, pady=(0, SPACING.gap))
         preview_frame.pack_propagate(False)
         ttk.Label(preview_frame, text="Preview", style="AppSectionTitle.TLabel").pack(anchor="w", pady=(0, SPACING.gap))
@@ -428,7 +441,6 @@ class AnalysisLaunchController:
         preview_label.configure(text="Click 'Show Preview' to compute a preview.")
 
         footer = ttk.Frame(shell, style="AppShell.TFrame")
-        footer.pack(fill="x", pady=(8, 0))
         status_var = tk.StringVar(value="Adjust settings, then click 'Show Preview'.")
         ttk.Label(footer, textvariable=status_var, style="AppMeta.TLabel").pack(side="left")
 
@@ -555,8 +567,12 @@ class AnalysisLaunchController:
         for evt in ("<KeyRelease>", "<FocusOut>", "<Return>", "<MouseWheel>", "<ButtonRelease-1>"):
             baseline_entry.bind(evt, lambda _e: _mark_preview_stale())
 
+        # Buttons first, then the status line above them, then the scrolling body:
+        # with side="bottom" the earliest pack sits lowest.
         buttons = ttk.Frame(shell, style="AppShell.TFrame")
-        buttons.pack(fill="x", pady=(8, 0))
+        buttons.pack(side="bottom", fill="x", pady=(8, 0))
+        footer.pack(side="bottom", fill="x", pady=(8, 0))
+        scroll_container.pack(fill="both", expand=True)
 
         def _cancel() -> None:
             state["closed"] = True
@@ -601,6 +617,7 @@ class AnalysisLaunchController:
         ttk.Button(buttons, text="Open Analysis", command=_open, **semantic_button_options("primary")).pack(side="right", padx=(0, 8))
         ttk.Button(buttons, text="Show Preview", command=_refresh_preview, **semantic_button_options("secondary")).pack(side="left")
 
+        refresh_scroll()
         self.center_window_on_screen(dialog, width=640)
         dialog.deiconify()
         dialog.lift()

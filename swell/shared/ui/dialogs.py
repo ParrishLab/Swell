@@ -5,7 +5,20 @@ import threading
 import tkinter as tk
 from tkinter import ttk
 
+from swell.shared.ui.bootstrap import build_scrollable_body, clamp_to_work_area, scrollable_body_budget
 from swell.shared.ui.theme import APP_COLORS, apply_theme, _theme_palette
+
+
+# Floor for the dialog size, also used as the minimum when centering.
+_MIN_DIALOG_SIZE = (420, 150)
+
+# Horizontal room taken by the scroll canvas border and scrollbar, subtracted from
+# the canvas width when recomputing the message wraplength.
+_MESSAGE_WRAP_INSET = 24
+
+# Vertical room outside the message area (padding, entry, separator, button row),
+# reserved when deciding how tall the message may grow before it scrolls.
+_DIALOG_CHROME_HEIGHT = 240
 
 
 def _get_parent_and_verify(parent=None):
@@ -36,7 +49,11 @@ class CustomDialog(tk.Toplevel):
         super().__init__(parent)
         self.withdraw()
         self.title(title)
-        self.resizable(False, False)
+        # Messages can be arbitrarily long (many call sites pass a raw exception
+        # string), so the dialog stays resizable and scrolls rather than growing
+        # past the screen edge and taking its buttons with it.
+        self.resizable(True, True)
+        self.minsize(*_MIN_DIALOG_SIZE)
 
         self.parent = parent
         self.result = None
@@ -66,8 +83,10 @@ class CustomDialog(tk.Toplevel):
         body_frame = ttk.Frame(shell, style="AppShell.TFrame")
         body_frame.grid(row=0, column=0, sticky="nsew", pady=(0, 15))
         body_frame.columnconfigure(1, weight=1)
+        body_frame.rowconfigure(0, weight=1)
 
-        # Draw icon
+        # Draw icon. It sits outside the scroll region so the severity cue stays
+        # visible while a long message is scrolled.
         icon_text, icon_color = self._get_icon_props(dialog_type, palette)
         if icon_text:
             icon_lbl = ttk.Label(
@@ -79,16 +98,31 @@ class CustomDialog(tk.Toplevel):
             )
             icon_lbl.grid(row=0, column=0, sticky="nw", padx=(0, 15))
 
-        # Message Text
-        msg_lbl = ttk.Label(
+        # Message Text, inside a scroll region that only shows its scrollbar when
+        # the message overflows.
+        msg_container, msg_body, refresh_message_scroll = build_scrollable_body(
             body_frame,
+            canvas_bg=palette.get("app_bg", APP_COLORS["app_bg"]),
+            max_height=self._message_height_budget(),
+        )
+        msg_container.grid(row=0, column=1, sticky="nsew")
+        self._message_scroll_canvas = msg_container.winfo_children()[0]
+
+        msg_lbl = ttk.Label(
+            msg_body,
             text=message,
             wraplength=380,
             style="TLabel",
             justify="left",
             anchor="nw",
         )
-        msg_lbl.grid(row=0, column=1, sticky="nsew")
+        msg_lbl.pack(fill="both", expand=True)
+        self._message_label = msg_lbl
+
+        # The dialog is resizable now, so the wrap width has to follow the canvas
+        # instead of staying pinned at its initial value.
+        self._message_scroll_canvas.bind("<Configure>", self._on_message_canvas_configure, add="+")
+        self._refresh_message_scroll = refresh_message_scroll
 
         # Input Prompt Field
         if has_input:
@@ -140,6 +174,7 @@ class CustomDialog(tk.Toplevel):
             self.protocol("WM_DELETE_WINDOW", lambda: self._on_button_click(None))
 
         # Center, display and make modal
+        self._refresh_message_scroll()
         self._center_window()
         self.deiconify()
 
@@ -171,13 +206,42 @@ class CustomDialog(tk.Toplevel):
     def _on_close(self):
         self._on_button_click(None)
 
+    def _message_height_budget(self) -> int:
+        """Tallest the message area may grow before it starts scrolling."""
+        return scrollable_body_budget(self, chrome_height=_DIALOG_CHROME_HEIGHT)
+
+    def _on_message_canvas_configure(self, event=None):
+        label = getattr(self, "_message_label", None)
+        if label is None:
+            return
+        try:
+            width = int(getattr(event, "width", 0)) or int(self._message_scroll_canvas.winfo_width())
+            wraplength = max(200, width - _MESSAGE_WRAP_INSET)
+            # Re-wrapping reflows the label and schedules another relayout, so skip
+            # the work when the width has not actually changed.
+            if wraplength == getattr(self, "_message_wraplength", None):
+                return
+            self._message_wraplength = wraplength
+            label.configure(wraplength=wraplength)
+        except Exception:
+            return
+
     def _center_window(self):
         self.update_idletasks()
         w = self.winfo_reqwidth()
         h = self.winfo_reqheight()
 
-        w = max(420, w)
-        h = max(150, h)
+        min_w, min_h = _MIN_DIALOG_SIZE
+        w = max(min_w, w)
+        h = max(min_h, h)
+
+        # A long message can request a height taller than the display. Clamp before
+        # positioning so the button row can never land below the screen edge.
+        w, h = clamp_to_work_area(self, w, h)
+        if w < min_w or h < min_h:
+            # Relax the minsize when the display cannot even fit the floor, otherwise
+            # the window manager overrides the clamp we just applied.
+            self.minsize(min(min_w, w), min(min_h, h))
 
         parent = self.parent
         if parent is not None and parent.winfo_viewable():
@@ -192,6 +256,16 @@ class CustomDialog(tk.Toplevel):
             sh = self.winfo_screenheight()
             x = (sw - w) // 2
             y = (sh - h) // 2
+
+        # Centering on a parent near a screen edge can still push the dialog partly
+        # off-screen, so pin both edges inside the display.
+        try:
+            sw = int(self.winfo_screenwidth())
+            sh = int(self.winfo_screenheight())
+            x = min(int(x), max(0, sw - w))
+            y = min(int(y), max(0, sh - h))
+        except Exception:
+            pass
 
         x = max(0, x)
         y = max(0, y)

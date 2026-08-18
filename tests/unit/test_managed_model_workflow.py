@@ -49,6 +49,15 @@ class _FakeWidget:
     def pack(self, **_kwargs) -> None:
         return None
 
+    def grid(self, **_kwargs) -> None:
+        return None
+
+    def columnconfigure(self, *_args, **_kwargs) -> None:
+        return None
+
+    def rowconfigure(self, *_args, **_kwargs) -> None:
+        return None
+
     def configure(self, **_kwargs) -> None:
         return None
 
@@ -100,6 +109,26 @@ class _FakeTreeview(_FakeWidget):
 
     def focus(self, _item: str) -> None:
         return None
+
+    def yview(self, *_args):
+        return (0.0, 1.0)
+
+
+class _FakeScrollbar(_FakeWidget):
+    """Records the auto-hide calls the workflow drives it with."""
+
+    def __init__(self, *_args, **_kwargs) -> None:
+        self.fractions: tuple[str, str] | None = None
+        self.gridded = True
+
+    def set(self, first, last) -> None:
+        self.fractions = (first, last)
+
+    def grid(self, **_kwargs) -> None:
+        self.gridded = True
+
+    def grid_remove(self) -> None:
+        self.gridded = False
 
 
 class _FakeButton(_FakeWidget):
@@ -181,6 +210,7 @@ def _patch_ui(monkeypatch, root: _FakeRoot) -> None:
     monkeypatch.setattr(workflow_module.ttk, "Frame", _FakeFrame)
     monkeypatch.setattr(workflow_module.ttk, "Label", _FakeLabel)
     monkeypatch.setattr(workflow_module.ttk, "Treeview", _FakeTreeview)
+    monkeypatch.setattr(workflow_module.ttk, "Scrollbar", _FakeScrollbar)
     monkeypatch.setattr(workflow_module.ttk, "Button", lambda *args, **kwargs: _FakeButton(root, *args, **kwargs))
 
 

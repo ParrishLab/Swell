@@ -2,6 +2,34 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.3.7] - 2026-08-17
+
+### Dialog accessibility and navigation
+- Long messages and content-heavy workflows now use auto-sizing, scrollable dialog bodies with pinned action rows, keeping confirmation and cancellation controls reachable on short displays. This applies to application alerts, propagation-gap warnings, export options, metrics generation, DC-trace import, and Analysis launch options.
+- Dialog scrollbars appear only when content overflows, while shorter dialogs retain their natural height instead of expanding to the full screen budget.
+- The Model Manager now provides a vertical scrollbar for catalogs that exceed the visible rows, so every available checkpoint remains reachable.
+- ROI and scale dialogs now share the same navigation behavior: hold **Shift** or **Space** while dragging to pan. Both dialogs display the navigation hint alongside their zoom controls.
+
+### Window behavior
+- Shared UI sizing helpers now keep scrollable content within the usable display area while allowing footer controls and status rows to remain fixed and visible.
+- Host dialog controllers use the shared overflow layout consistently, reducing platform-specific clipping when fonts, display scaling, or content length increase a dialog's requested height.
+
+### Model/checkpoint compatibility
+- No checkpoint format, catalog, model-selection, or SAM2 inference change in this release; existing managed and local SAM2 selections remain compatible.
+
+### Platform/backend limitations
+- Dialog work-area budgets still rely on Tk's screen dimensions and reserved margins because Tk does not expose a portable operating-system work-area API. Exact window placement can vary slightly across desktop environments and display-scaling configurations.
+- CPU fallback behavior is unchanged and remains substantially slower than accelerated SAM2 inference on large stacks.
+
+### .swell/migration notes
+- No schema-number change is required. Existing `.swell` projects, model selections, DC-trace attachments, metric settings, and saved analysis data remain compatible.
+
+### Known segmentation caveats/regressions
+- The dialog and navigation changes affect presentation and input handling only; they do not alter source images, ROI coordinates, scale calculations, masks, prompts, or exported measurements.
+- Mask-generation thresholds are still not persisted in `.swell` files. Restored masks begin with an unknown threshold and are treated as fresh until regenerated during the current session.
+- Changing **Mask Threshold** still re-thresholds prompted frames on slider release; propagated frames remain visibly stale until propagation is rerun. Ground-truth and manually painted frames are never marked stale.
+- No known SAM2 inference or stored-mask regression is introduced by this release.
+
 ## [0.3.6] - 2026-08-17
 
 ### Preview and window layout

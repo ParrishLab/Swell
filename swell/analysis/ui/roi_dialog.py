@@ -19,7 +19,13 @@ from swell.analysis.core.viewport import (
     pan_viewport,
 )
 from swell.shared.ui.theme import APP_COLORS, SPACING, apply_theme
-from swell.shared.ui.bootstrap import center_window_on_screen, semantic_button_options, ttk
+from swell.shared.ui.bootstrap import (
+    VIEW_NAVIGATION_HINT,
+    pan_modifier_active,
+    center_window_on_screen,
+    semantic_button_options,
+    ttk,
+)
 
 ROI_ICON_LABELS = {
     "zoom_in": "Zoom In",
@@ -698,7 +704,9 @@ def open_roi_dialog(
         return "break"
 
     def start_pan(event):
-        if not bool(state["space_pan_requested"]):
+        # Shift is accepted alongside Space so this matches the Set Scale dialog,
+        # which has always supported both.
+        if not pan_modifier_active(event, space_requested=state["space_pan_requested"]):
             return None
         refocus_canvas()
         state["pan_active"] = True
@@ -979,6 +987,12 @@ def open_roi_dialog(
     fit_btn = ttk.Button(zoom_row, text=ROI_ICON_LABELS["fit"], width=10, command=reset_view, **semantic_button_options("secondary"))
     fit_btn.pack(side="left")
     _attach_tooltip(fit_btn, "Fit image")
+
+    # Its own label rather than an addition to instruction_var, which is rewritten
+    # on every refresh and would drop the hint on the first click.
+    ttk.Label(side, text=VIEW_NAVIGATION_HINT, style="AppMeta.TLabel", wraplength=250).pack(
+        anchor="w", pady=(SPACING.inner, 0)
+    )
 
     actions = ttk.Frame(shell, style="AppShell.TFrame")
     actions.grid(row=2, column=0, sticky="ew", pady=(SPACING.inner, 0))

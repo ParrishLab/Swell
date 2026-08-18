@@ -235,6 +235,55 @@ def test_metrics_apply_closes_dialog_after_unsuccessful_save(monkeypatch) -> Non
         def pack(self, *_args, **_kwargs):
             return self
 
+        def grid(self, *_args, **_kwargs):
+            return self
+
+        def columnconfigure(self, *_args, **_kwargs):
+            return None
+
+        def rowconfigure(self, *_args, **_kwargs):
+            return None
+
+        def bind(self, *_args, **_kwargs):
+            return None
+
+        def winfo_children(self):
+            return []
+
+        def update_idletasks(self):
+            return None
+
+        def configure(self, *_args, **_kwargs):
+            return None
+
+    class _Canvas(_Widget):
+        """Stands in for the scroll region's canvas."""
+
+        def create_window(self, *_args, **_kwargs):
+            return 1
+
+        def itemconfigure(self, *_args, **_kwargs):
+            return None
+
+        def bbox(self, *_args):
+            return (0, 0, 10, 10)
+
+        def winfo_height(self):
+            return 10
+
+        def yview(self, *_args, **_kwargs):
+            return (0.0, 1.0)
+
+        def yview_moveto(self, *_args):
+            return None
+
+    class _Scrollbar(_Widget):
+        def set(self, *_args):
+            return None
+
+        def grid_remove(self):
+            return None
+
     class _Button(_Widget):
         def __init__(self, *_args, text="", command=None, **_kwargs) -> None:
             super().__init__()
@@ -298,6 +347,10 @@ def test_metrics_apply_closes_dialog_after_unsuccessful_save(monkeypatch) -> Non
     monkeypatch.setattr(host_window_controller.ttk, "Label", _Widget)
     monkeypatch.setattr(host_window_controller.ttk, "Entry", _Widget)
     monkeypatch.setattr(host_window_controller.ttk, "Button", _Button)
+    # `ttk`/`tk` here are the real tkinter modules, so these patches also cover the
+    # widgets build_scrollable_body creates inside swell.shared.ui.bootstrap.
+    monkeypatch.setattr(host_window_controller.ttk, "Scrollbar", _Scrollbar)
+    monkeypatch.setattr(host_window_controller.tk, "Canvas", _Canvas)
     monkeypatch.setattr(host_window_controller, "apply_theme", lambda _dialog: None)
     monkeypatch.setattr(controller, "center_window_on_screen", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(

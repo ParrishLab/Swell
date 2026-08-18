@@ -125,3 +125,40 @@ def test_center_window_on_screen_leaves_fitting_minsize_alone():
 
     assert window.min_size == (1000, 620)
     assert window.geometry_value == "1200x850+360+115"
+
+
+class _TallWindow(_FakeWindow):
+    """A window whose natural height exceeds the usable screen area."""
+
+    def winfo_reqheight(self) -> int:
+        return 4000
+
+    def minsize(self, *args):
+        return (0, 0)
+
+
+def test_center_window_on_screen_clamps_height_to_work_area():
+    window = _TallWindow()
+
+    center_window_on_screen(window)
+
+    width, rest = window.geometry_value.split("x", 1)
+    height = int(rest.split("+", 1)[0])
+
+    # 1080 screen height minus SCREEN_MARGIN_H (80).
+    assert height == 1000
+    assert int(width) == 480
+
+
+def test_center_window_on_screen_keeps_clamped_window_fully_on_screen():
+    window = _TallWindow()
+
+    center_window_on_screen(window)
+
+    _, rest = window.geometry_value.split("x", 1)
+    height, offsets = rest.split("+", 1)
+    x_str, y_str = offsets.split("+")
+
+    assert int(y_str) >= 0
+    assert int(y_str) + int(height) <= window.winfo_screenheight()
+    assert int(x_str) >= 0

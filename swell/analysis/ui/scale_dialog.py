@@ -7,7 +7,13 @@ from PIL import Image, ImageTk
 
 from swell.shared.metrics_defaults import DEFAULT_SCALE_AXIS_LOCK
 from swell.shared.ui.theme import APP_COLORS, SPACING, apply_theme
-from swell.shared.ui.bootstrap import center_window_on_screen, semantic_button_options, ttk
+from swell.shared.ui.bootstrap import (
+    VIEW_NAVIGATION_HINT,
+    pan_modifier_active,
+    center_window_on_screen,
+    semantic_button_options,
+    ttk,
+)
 
 
 def _scale_save_actions(context: str, allow_reset_local: bool) -> list[tuple[str, str, str]]:
@@ -353,7 +359,7 @@ def open_scale_dialog(
                 )
 
     def on_click(event):
-        if bool(int(getattr(event, "state", 0)) & 0x0001) or bool(state["space_pan_requested"]):
+        if pan_modifier_active(event, space_requested=state["space_pan_requested"]):
             state["is_panning"] = True
             canvas.scan_mark(event.x, event.y)
             return "break"
@@ -649,6 +655,9 @@ def open_scale_dialog(
     ttk.Button(zoom_row, text="Zoom In", width=10, command=zoom_in, **semantic_button_options("secondary")).pack(side="left", padx=(0, SPACING.gap))
     ttk.Button(zoom_row, text="Zoom Out", width=10, command=zoom_out, **semantic_button_options("secondary")).pack(side="left", padx=(0, SPACING.gap))
     ttk.Button(zoom_row, text="Fit", width=5, command=reset_view, **semantic_button_options("secondary")).pack(side="left")
+    ttk.Label(side, text=VIEW_NAVIGATION_HINT, style="AppMeta.TLabel", wraplength=250).pack(
+        anchor="w", pady=(SPACING.inner, 0)
+    )
 
     # 2. Bottom Action Bar
     actions = ttk.Frame(shell, style="AppShell.TFrame")
