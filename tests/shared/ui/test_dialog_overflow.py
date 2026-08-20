@@ -213,11 +213,12 @@ def test_propagation_warning_hides_scrollbar_with_one_range(tk_root):
     assert not captured["scrollbar_shown"]
 
 
-def test_dialogs_are_transparent_during_tests(tk_root):
-    """Guard the conftest isolation without forcing non-production geometry."""
+def test_dialogs_are_invisibly_mapped_during_tests(tk_root):
+    """Guard both the fixture's isolation and production-like mapped geometry."""
     dlg = _make_dialog(tk_root, "short message")
     try:
         dlg.update_idletasks()
-        assert float(dlg.attributes("-alpha")) == 0.0
+        assert dlg.winfo_ismapped(), "dialog geometry is not trustworthy while unmapped"
+        assert float(dlg.attributes("-alpha")) <= 0.01
     finally:
         dlg.destroy()
