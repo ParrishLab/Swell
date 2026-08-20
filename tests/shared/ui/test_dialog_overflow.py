@@ -213,16 +213,11 @@ def test_propagation_warning_hides_scrollbar_with_one_range(tk_root):
     assert not captured["scrollbar_shown"]
 
 
-def test_dialogs_never_map_during_tests(tk_root):
-    """Guards the conftest suppression: a test run must not flash windows on screen.
-
-    Uses update_idletasks rather than update: Tk spins forever on idle events for a
-    canvas window item inside a withdrawn toplevel, which is plain Tk behaviour and
-    reproduces with no Swell code involved.
-    """
+def test_dialogs_are_transparent_during_tests(tk_root):
+    """Guard the conftest isolation without forcing non-production geometry."""
     dlg = _make_dialog(tk_root, "short message")
     try:
         dlg.update_idletasks()
-        assert not dlg.winfo_ismapped(), "dialog became visible during the test run"
+        assert float(dlg.attributes("-alpha")) == 0.0
     finally:
         dlg.destroy()
