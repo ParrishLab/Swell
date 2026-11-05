@@ -6,23 +6,9 @@ This guide walks you through the complete, end-to-end workflow of using Swell, f
 
 The core Swell workflow consists of two main stages: event cataloging in the **Host Window** and pixel-level segmentation in the **Analysis Window**.
 
-```mermaid
-sequenceDiagram
-    participant User
-    participant Host as Host Window
-    participant Ana as Analysis Window
-    participant Disk as Storage
-
-    User->>Host: 1. Create New Project (Select image folder)
-    User->>Host: 2. Scrub frames & click "Mark Event"
-    User->>Host: 3. Select event & click "Open Analysis"
-    Host->>Ana: 4. Launch workspace with event payload
-    User->>Ana: 5. Place points/brush/fill & run propagation
-    User->>Ana: 6. Adjust metrics settings & save masks
-    Ana->>Host: 7. Sync masks back to active session
-    User->>Host: 8. Save Swell Project (.swell)
-    User->>Host: 9. Export Selected / Export All results
-```
+1. **Host Window:** Create a project, select the stack folder, and mark an event.
+2. **Analysis Window:** Open the event, segment and review its masks, set any event-specific metrics, then choose **Save Current Masks**.
+3. **Host Window:** Save the project to disk and export the selected events or the entire project.
 
 ## Tutorial Steps
 

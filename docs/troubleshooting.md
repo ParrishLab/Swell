@@ -14,8 +14,8 @@ For each issue, map the **Symptom** to its **Root Cause**, apply the **Fix**, an
 |---|---|---|---|
 | **`ModuleNotFoundError: No module named 'torch'`** | PyTorch was not installed in the active virtual environment, or the installation is corrupt. | Run `pip install -e ".[model]"` inside your active virtual environment. | Always use `.[model]` or `.[dev,docs,model]` when installing from source if you need automated propagation. |
 | **C compiler errors during `sam-2` install** | A working C++ compilation toolchain is missing on your system. | Install compiler tools: Xcode Command Line Tools on macOS (`xcode-select --install`) or MSVC Build Tools on Windows. | Verify compilation tools are installed before running `pip install`. |
-| **`Failed to load model checkpoint`** | The SAM-2 weight files are missing or have mismatched SHA-256 hashes. | Open the Model Manager under **Model → Manage Models...** and click **Yes** to re-download. | Do not manually rename or tamper with files inside the managed models folder. |
-| **macOS blocks application launch** | The packaged application is unsigned and not notarized (Gatekeeper security block). | Right-click `Swell.app`, choose **Open**, and click **Open Anyway**. | Refer to the [Installation](installation.md#packaged-desktop-release-recommended) guide for Gatekeeper overrides. |
+| **`Failed to load model checkpoint`** | The SAM-2 weight files are missing or have mismatched SHA-256 hashes. | Open the Model Manager under **Model → Manage Models...** and choose **Download Selected** for the managed checkpoint. | Do not manually rename or tamper with files inside the managed models folder. |
+| **macOS blocks application launch** | The packaged application is unsigned and not notarized (Gatekeeper security block). | Follow the [Gatekeeper instructions](installation.md#packaged-desktop-release-recommended). | Refer to the [Installation](installation.md#packaged-desktop-release-recommended) guide for Gatekeeper overrides. |
 
 ### Project & State Sync
 
@@ -32,7 +32,7 @@ For each issue, map the **Symptom** to its **Root Cause**, apply the **Fix**, an
 | Symptom | Likely Root Cause | Fix | Prevention |
 |---|---|---|---|
 | **Propagation outputs blank or incorrect masks** | Low mask threshold or poor initial anchor-frame prompt guidance. | Adjust **Mask Threshold** in the propagation panel and add more positive/negative prompts on problem frames. Rerun propagation if amber stale-mask indicators appear. | Ensure anchor masks are high quality and propagated frames use the current threshold before export. |
-| **`Inference Fallback: GPU Out of Memory`** | The active GPU does not have enough VRAM to handle the image dimensions or sequence length. | The app will automatically fall back to CPU mode. Close other GPU-intensive apps to free up VRAM. | Downsample large image dimensions or process shorter event ranges. |
+| **`Inference Fallback: GPU Out of Memory`** | The active GPU does not have enough VRAM to handle the image dimensions or sequence length. | Close GPU-intensive apps and choose **Wait for RAM** to retry SAM-2, or choose **Use CPU Fallback** for a session-only predictor that carries forward seeded masks without tracking image changes. | Downsample large image dimensions or process shorter event ranges. |
 | **Accelerator crashes or rendering artifacts** | Hardware accelerator (MPS/CUDA) driver conflict or hardware instability. | Force CPU execution by setting the `SWELL_DEVICE=cpu` environment variable in your terminal before launching. | Set environment variable defaults in your shell config if your machine has unstable GPU drivers. |
 | **UI freezes during long propagation runs** | Large image stacks exceeding available system RAM cache limits. | Break massive image sequences into smaller folders and process as separate projects. | Monitor system RAM usage in Task Manager / Activity Monitor during propagation. |
 

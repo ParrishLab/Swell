@@ -68,26 +68,51 @@ Stores event catalog bounds:
 * `flags` (object): Dictionary for custom plugin/analysis tags.
 
 ### D. Event Prompts & Regions (`events/<event_dir>/prompts.json`)
-Stores all interactive labels and annotations for a single event.
-* **Logical Schema Version**: `6` (defined as `SCHEMA_VERSION = 6` in `project_schema.py`). Supports additive migration from v1–v5.
-* **Structure**:
-    * `schema_version` (int): Must be `6`.
-    * `points` (list of objects): Coordinate prompts.
-        * `frame` (int): Event-relative frame index.
-        * `x`, `y` (float): Image-space canvas coordinates.
-        * `label` (int): `1` for positive prompt, `0` for negative prompt.
-    * `boxes` (list of objects): Bounding boxes.
-        * `frame` (int): Event-relative frame index.
-        * `box` (list of float): Bounding rectangle `[ymin, xmin, ymax, xmax]`.
-    * `paint_layers` (list of objects): Brush and eraser edits.
-    * `persistent_regions` (list of objects): Include/exclude polygons.
-        * `id` (str): Unique region ID.
-        * `mode` (str): `"include"` or `"exclude"`.
-        * `enabled` (bool): Active state toggle.
-        * `visible` (bool): Canvas rendering toggle.
-        * `start_frame`, `end_frame` (int): Frame ranges where the polygon applies.
-        * `vertices` (list of lists): Vertex coordinate pairs `[[x1, y1], [x2, y2], ...]`.
-    * `ground_truth_frames` (list of int): Optional list of frames marked as manual ground-truth baseline references.
+
+An event's entry in `analysis_sidecar.json` points to its prompt file through
+`prompts_ref`. The prompt payload itself has no `schema_version` field.
+
+```json
+{
+  "event_id": "event_001",
+  "frames": {
+    "7": {
+      "points": [{"x": 14.0, "y": 20.0, "label": 1}],
+      "box": [10.0, 16.0, 28.0, 36.0]
+    }
+  },
+  "ground_truth_frames": [7],
+  "persistent_regions": [
+    {
+      "id": "region_1",
+      "mode": "exclude",
+      "enabled": true,
+      "visible": true,
+      "frame_start": 7,
+      "frame_end": 12,
+      "polygon": [[32.0, 20.0], [38.0, 20.0], [38.0, 30.0]]
+    }
+  ]
+}
+```
+
+* **Frame indices:** The keys in `frames` are strings representing zero-based
+  frame indices. Read `prompts_frame_origin` from the event's sidecar entry
+  before mapping indices to the source stack. Current Analysis saves use
+  `analysis_scope_local`: index 0 is the first frame of the analysis scope,
+  which can include baseline frames before the event.
+* **Point and box prompts:** Points use image-space `x` and `y` coordinates.
+  A point's `label` is 1 for positive and 0 for negative. A frame can contain
+  one `box` in `[xmin, ymin, xmax, ymax]` order.
+* **Paint edits:** Optional `paint_plus_rle` and `paint_minus_rle` fields in
+  each frame store add and erase masks as `{"shape": [height, width], "runs": [[start, length], ...]}`.
+  Each run uses a zero-based offset into the row-major flattened mask.
+* **Ground truth:** `ground_truth_frames` lists frames locked as ground-truth
+  masks.
+* **Persistent regions:** Each region has an `id`, a `mode` of `include` or
+  `exclude`, and separate `enabled` and `visible` flags. The inclusive
+  `frame_start` and `frame_end` use the prompt payload's frame origin.
+  `polygon` is a list of `[x, y]` vertices in image coordinates.
 
 ### E. Embedded Source Images (`images_embedded.json` + `images/`) — *Optional, schema 3*
 Present only when the project was saved with `metadata.embed_source_images = true`. Lets a `.swell` carry its own source frames so it remains usable after the original stack folder is moved or deleted.
@@ -101,87 +126,108 @@ Present only when the project was saved with `metadata.embed_source_images = tru
 
 ## 3. Export Directory Layout
 
-When exporting results in the Host Window, Swell creates a structured directory using the event's user-assigned label:
+The Host Window creates one folder per exported event, using the sanitized
+event label (or the event ID if the label is empty). Outputs depend on your
+export selections. This example uses the label `event_A`:
 
 ```text
 my_export_output/
-├── event_A/                     # Named after event label
-│   ├── baseline/                # Event-preceding baseline PNG images
-│   │   ├── 000089_baseline.png
-│   │   └── ...
-│   ├── event_extent/            # Raw event extent PNG images
-│   │   ├── 000090_event.png
-│   │   └── ...
-│   ├── analysis_images/         # Grayscale-normalized/processed frames (PNG)
-│   ├── analysis_mask_overlays/  # Masks overlaid on normalized frames (PNG)
-│   ├── binary_masks/            # Single-channel 8-bit binary TIFF masks
-│   │   ├── 000090_event_mask.tiff  # 255 = wavefront, 0 = background
-│   │   └── ...
-│   ├── binary_masks_roi_cropped/ # Optional ROI-constrained masks cropped to the ROI bounding box
-│   │   ├── roi_crop_metadata.json # Full-frame shape and crop bounds
-│   │   └── 000090_event_mask_roi_cropped.tiff
-│   ├── mask_overlays/           # Masks overlaid on raw input frames (PNG)
-│   ├── contour_map/             # Visual contour outlines superimposed on canvas (PNG)
-│   ├── metrics/                 # Quantitative spreadsheets
-│   │   ├── propagation_speed.csv
-│   │   ├── propagation_speed.png
-│   │   ├── area_recruited.csv
-│   │   ├── area_recruited.png
-│   │   ├── intensity.csv         # Mean ROI pixel intensity over time
-│   │   ├── intensity_delta_i_over_baseline_i.png # Relative intensity changes plot
-│   │   ├── track_propagation_speed.csv # Per-object propagation speed
-│   │   ├── track_area_recruited.csv     # Per-object recruited area
-│   │   ├── track_relative_area_recruited.csv
-│   │   ├── lineage_weighted_propagation_speed.csv
-│   │   ├── object_lineage_summary.json  # Tracking configuration and aggregate counts
-│   │   ├── object_tracks.csv            # Optional per-frame object table
-│   │   ├── object_lineage.csv           # Optional split/merge lineage table
-│   │   ├── object_lineage_overview.png  # Optional overview montage
-│   │   ├── object_lineage_frames/       # Optional per-frame overlays
-│   │   ├── frame_metrics.csv
-│   │   ├── summary_metrics.csv
-│   │   ├── summary_metrics.json
-│   │   └── metrics_combined.xlsx # Consolidated multi-sheet Excel file
-│   ├── plots/                   # Diagnostic matplotlib charts
-│   │   ├── propagation_speed.png
-│   │   ├── area_mm2.png
-│   │   └── intensity_delta_i_over_baseline_i.png # Relative intensity change graph
-│   ├── event_summary.json       # Raw metrics parameters metadata
-│   └── event_summary.md         # Readable event markdown report
-└── trace_data.csv               # electrophysiological DC trace (if loaded)
+├── events_manifest.csv
+├── trace_data.csv                           # When a DC trace is loaded
+└── event_A/
+    ├── baseline/                            # Pre-event source frames
+    ├── event_extent/                        # Source frames within the event
+    ├── analysis_images/                     # Processed analysis frames
+    ├── analysis_mask_overlays/               # Masks over processed frames
+    ├── binary_masks/                        # TIFF masks: 255 foreground, 0 background
+    ├── binary_masks_roi_cropped/
+    │   └── roi_crop_metadata.json            # Full-frame shape and crop bounds
+    ├── mask_overlays/                       # Masks over source frames
+    ├── contour_map/                         # Contour overview image
+    ├── event_summary.json
+    ├── event_summary.md
+    └── metrics/
+        ├── propagation_speed_event_A.csv
+        ├── propagation_speed.png
+        ├── area_recruited_event_A.csv
+        ├── area_recruited.png
+        ├── relative_area_recruited_event_A.csv
+        ├── relative_area_recruited.png
+        ├── intensity_event_A.csv
+        ├── intensity_delta_i_over_baseline_i.png
+        ├── metrics_combined_event_A.xlsx     # When combined export is enabled
+        ├── metrics_summary.json
+        └── metrics_summary.md
 ```
+
+Optional object-lineage outputs also go in `metrics/`:
+
+* `track_propagation_speed_<event>.csv`, `track_area_recruited_<event>.csv`,
+  `track_relative_area_recruited_<event>.csv`, and
+  `lineage_weighted_propagation_speed_<event>.csv`
+* `object_lineage_summary.json` for tracking settings and aggregate counts
+* `object_tracks_<event>.csv` and `object_lineage_<event>.csv` for optional
+  per-frame object and split/merge tables
+* `object_lineage_frames/` and `object_lineage_overview.png` for optional
+  visualizations
 
 ---
 
 ## 4. Metrics & Calculations Reference
 
-### Column Dictionary (`frame_metrics.csv`)
-* `frame_idx` (int): 0-indexed absolute frame position in the source stack.
-* `time_sec` (float): Time position, calculated as:
-  $$time\_sec = \frac{frame\_idx}{FPS}$$
-* `area_px` (int): Number of positive pixels in the final composed mask.
-* `area_mm2` (float): Area of the segmented mask in square millimeters:
-  $$area\_mm2 = area\_px \times \left(\frac{1.0}{scale\_px\_per\_mm}\right)^2$$
-* `speed_um_per_sec` (float): Wavefront propagation speed in micrometers per second. Calculated as the average distance shift ($avg\_dist\_px$) of the primary mask boundary contour between consecutive frames:
-  $$speed\_um\_per\_sec = \frac{avg\_dist\_px \times \left(\frac{1000.0}{scale\_px\_per\_mm}\right)}{sec\_per\_frame}$$
-  Boundary displacements smaller than `0.015 mm` are filtered after converting that physical threshold to pixels with the dataset calibration. When no valid pixels-per-millimeter calibration is available, Swell retains the legacy `2 px` threshold.
-* `relative_area_pct` (float): Composed mask area divided by total ROI area (or total frame area if no ROI is specified).
+### Per-event metric CSVs
+
+The speed, recruited area, and relative recruited area CSVs each contain
+one value column plus these frame columns:
+
+| Column | Meaning |
+|---|---|
+| `frame_index` | Zero-based frame index in the source stack. |
+| `frame_display` | One-based frame number shown in the app: `frame_index + 1`. |
+| `time_sec` | Seconds from the event start: `(frame_index − event_start_index) / FPS`. The first event frame is at zero. |
+
+The values below describe the **event-level** metrics. Per-object tables
+report separate tracked objects.
+
+| Value column | Calculation | Requirements |
+|---|---|---|
+| `speed_um_per_sec` | `mean_outward_displacement_px × 1000 × FPS / scale_px_per_mm` | Frame rate and scale; uses the full mask if no ROI is set. |
+| `area_mm2` | `contour_area_sq_px / scale_px_per_mm²` | Frame rate, scale, and a valid ROI. |
+| `relative_area_pct` | `100 × contour_area_sq_px / ROI_pixel_count` | Frame rate and a valid ROI. No full-frame denominator is substituted. |
+
+Swell clips the final mask to the ROI when one is available. It uses the
+largest external contour in each frame and smooths it when there are enough
+contour points. Recruited area is the area enclosed by that contour in square
+pixels. It is not a count of foreground pixels: holes are not subtracted and
+disconnected components outside the largest contour are not summed.
+
+Speed averages the outward displacement of the current contour relative to
+the previous contour, using only displacements greater than 0.015 mm after
+conversion to pixels at the configured scale. When a value is unavailable,
+the CSV cell is empty.
 
 ### Object-Lineage Thresholds
 
-Object-lineage metrics use physical defaults that are converted to pixels for each calibrated dataset: minimum component area `0.00025 mm²`, maximum centroid distance `0.10 mm`, and maximum boundary distance `0.05 mm`. Tracks must persist for at least two frames. `object_lineage_summary.json`, `event_summary.json`, `event_summary.md`, and the combined workbook record the physical settings and their pixel equivalents so an export can be audited independently of image resolution.
+Object-lineage metrics use physical defaults that are converted to pixels for
+each calibrated dataset: minimum component area 0.00025 mm², maximum centroid
+distance 0.10 mm, and maximum boundary distance 0.05 mm. Tracks must persist
+for at least two frames. The tracking summary records the physical settings
+and their pixel equivalents.
 
-### Column Dictionary & Formulas (`intensity.csv`)
-* `frame_index` (int): 0-indexed absolute frame position in the source stack.
-* `frame_display` (int): 1-indexed display frame position (`frame_index + 1`).
-* `time_sec` (float): Event-relative time in seconds. Calculated relative to the start of the event ($start\_idx$):
-  $$time\_sec = (frame\_index - start\_idx) \times sec\_per\_frame$$
-* `phase` (str): `"baseline"` (for event-preceding frames) or `"event"` (for frames within the active event range).
-* `intensity` (float): Mean pixel intensity value within the ROI mask area for the active frame.
-* `baseline_intensity` ($I_0$) (float): Mean pixel intensity within the ROI mask area averaged across all event-preceding baseline frames:
-  $$I_0 = \frac{1}{N_{baseline}} \sum_{t \in \text{baseline}} I(t)$$
-* `delta_i_over_baseline_i` ($\Delta I / I_0$) (float): Relative change in mean pixel intensity compared to the baseline intensity:
-  $$\Delta I / I_0 = \frac{I - I_0}{I_0}$$
+### Intensity CSV
+
+`intensity_<event>.csv` includes the same frame columns. Baseline frames have
+negative `time_sec` values because time is relative to event onset.
+
+| Additional column | Meaning |
+|---|---|
+| `phase` | `baseline` for selected pre-event frames or `event` for frames inside the event. |
+| `intensity` | Mean source-image intensity within the ROI on that frame. |
+| `baseline_intensity` | Mean of the ROI intensity values from the selected baseline frames. |
+| `delta_i_over_baseline_i` | Fractional change: `(intensity − baseline_intensity) / baseline_intensity`. |
+
+Intensity export requires a valid ROI, a positive frame rate, and at least one
+pre-event baseline frame with a finite, nonzero mean baseline intensity.
 
 ---
 
@@ -190,7 +236,7 @@ Object-lineage metrics use physical defaults that are converted to pixels for ea
 * **Image Formats**: `.tif`, `.tiff`, `.png`, `.jpg`, `.jpeg`, `.bmp`.
 * **Multi-Page TIFF**: Multi-page tiff sequences are unpacked automatically into frame sequences.
 * **Orientation & Axes**: EXIF/TIFF orientation is applied before dimensions are compared. TIFF `Y`, `X`, sample/channel, and frame axes are used when available to distinguish planar color from frame sequences.
-* **RGB Conversion**: RGB channels are flattened to grayscale. The app default calculates luma averages ($Y = 0.299R + 0.587G + 0.114B$) or extracts the first channel (configurable).
+* **RGB Conversion**: RGB channels are flattened to grayscale. The app default calculates weighted luma (`Y = 0.299R + 0.587G + 0.114B`) or extracts the first channel (configurable).
 * **Dimension Policy**: All decoded frames must have one common oriented size. A mismatch rejects the entire open operation and preserves the previously loaded stack.
 * **Floating-Point Policy**: Non-finite pixels are ignored when calculating percentile bounds and replaced with a finite median (or zero when no finite pixels exist) before filtering and analysis.
 * **Sorting Policy**: Naturally sorted by filename sequence to ensure frame coherence.

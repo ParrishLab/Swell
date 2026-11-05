@@ -2,7 +2,7 @@
 
 To segment an event:
 
-1. Select the event in the Host Window's **Event List**.
+1. Select the event in the Host Window's **Marked Events**.
 2. Click the **Open Analysis...** button.
 3. Review the **Open Analysis Options** dialog.
 4. Optionally click **Show Preview** to inspect the prepared frame with the current settings.

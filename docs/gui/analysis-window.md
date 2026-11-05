@@ -16,8 +16,8 @@ The toolbar floats on the left side of the main canvas. You can select tools by 
 | 📦 | **Box** | `K` | Draws a bounding box prompt enclosing the target object (limit one per frame). |
 | 🖌️ | **Brush** | `B` | Manually paints mask pixels. |
 | 🧽 | **Eraser** | `E` | Manually removes mask pixels. |
-| 🪣 | **Fill** | `G` | Flood-fills closed regions or pixel intensities. |
-| ⬡ | **Region** | `R` | Draws persistent include/exclude polygon regions across a frame range. |
+| 🪣 | **Fill + / Fill −** | `G` / `Shift+G` | Adds a filled area or removes a connected mask component. |
+| ⬡ | **Include / Exclude Region** | `R` / `Shift+R` | Draws persistent polygon regions across a frame range. |
 
 ---
 
@@ -26,14 +26,12 @@ The toolbar floats on the left side of the main canvas. You can select tools by 
 Located below the status bar, the options bar dynamically displays parameters based on the active tool:
 
 * **Brush Size Slider** (Brush & Eraser modes): Sets the brush radius in pixels (1–50 px, defaults to 10 px). Can also be adjusted using **Shift + Mouse Wheel**.
-* **Fill Mode Controls** (Fill mode):
-    * **Add/Remove toggle**: Set whether click flood-fills or flood-erases.
+* **Fill options** (Fill + or Fill −): The selected tool determines whether a click adds or removes mask pixels.
     * **Tolerance Slider**: Set the intensity boundary threshold for flood-filling.
     * **Fill Holes button**: Fills all enclosed negative areas (holes) within the active mask.
-* **Region Options** (Region mode):
-    * **Include/Exclude mode toggle**: Include or exclude pixels.
+* **Region options** (Include or Exclude Region): The selected tool sets the region mode.
     * **Frame Range inputs**: Define the start and end frame bounds where the region is active.
-    * **Close Polygon / Cancel / Commit Region**: Vertex editing operations.
+    * **Close Shape / Discard / Add Region**: Close the polygon, abandon the draft, or save it.
 
 ---
 
@@ -58,7 +56,7 @@ Configure parameters that override project-level defaults:
 
 ### D. View settings (Overlays)
 * **Ghost Outlines Toggle**: Superimposes mask outlines from neighboring frames.
-* **Ghost Frame Range Slider**: Configure the sliding window range ($\pm N$ frames) for showing ghosts.
+* **Ghost Frame Range Slider**: Configure the sliding window range (±N frames) for showing ghosts.
 * **Leverage Visibility Toggle**: Shows or hides the timeline leverage heatmap and correction indicators.
 * **Jump to Suggested Correction**: Seeks the playhead to the worst-scoring troubled frame.
 * **Lock current frame as ground truth**: Available when the current frame has a nonempty mask. Protects that reviewed mask as a propagation seed until it is unlocked.
@@ -95,8 +93,8 @@ The timeline at the bottom of the canvas combines a frame scrubber with three di
 * `K`: Box Tool
 * `B`: Brush Tool
 * `E`: Eraser Tool
-* `G`: Fill Tool
-* `R`: Region Tool
+* `G` / `Shift+G`: Fill + / Fill −
+* `R` / `Shift+R`: Include / Exclude Region
 * `P` (Held or Toggled): Peek Mask Overlay
 
 ### Viewport Control
@@ -114,6 +112,6 @@ The timeline at the bottom of the canvas combines a frame scrubber with three di
 
 ## 6. Known Limitations
 
-* **SAM2 CPU Fallback**: If PyTorch or CUDA/MPS libraries are missing, or if you run out of VRAM, the app falls back to a deterministic CPU predictor. While functional, propagation speed will be significantly slower. You can force a specific device (e.g. `cpu`, `mps`, or `cuda`) using the `SWELL_DEVICE` environment variable.
+* **CPU options**: With the model dependencies installed, `SWELL_DEVICE=cpu` runs SAM-2 on CPU. Missing PyTorch or SAM-2 disables model initialization. After an accelerator runs out of memory, **Wait for RAM** retries SAM-2 when memory becomes available; **Use CPU Fallback** uses a simpler predictor for the session. It carries the last seeded mask across frames without tracking image changes. Review fallback masks before using them for measurements.
 * **Native C Extensions Warning**: A warning log about missing native `_C` extension libraries may appear on start. This is normal in environments without fully compiled C++ bindings and does not block segmentation.
 * **Timeline Redraw Optimization**: The timeline is cached to avoid rendering lag. Under heavy editing, manually scrubbing the timeline will refresh all visual overlays.

@@ -13,20 +13,24 @@
 [![Release](https://img.shields.io/github/v/release/ParrishLab/Swell?sort=semver)](https://github.com/ParrishLab/Swell/releases/latest)
 [![License](https://img.shields.io/badge/license-BSD%203--Clause-blue.svg)](LICENSE)
 
+**Start here: [Installation and setup](docs/installation.md) · [Step-by-step user guide](docs/user-guide/index.md)**
+
+**Using Swell in your research? Please cite the [methods preprint on Research Square](https://www.researchsquare.com/article/rs-10856711/v1) and the software version you used.** See [citation details](docs/citation.md).
+
 Swell is an open-source desktop application for intrinsic optical signal
 imaging analysis, focused on identifying spreading depolarization, cortical
 spreading depression, and spreading depression (SD) events in image stacks and
 producing event-level segmentation and metrics outputs.
 
-## Download
+## Download and setup
 
 Download the latest packaged desktop build from the
 [GitHub Releases page](https://github.com/ParrishLab/Swell/releases/latest).
 
-Packaged builds do not require a local Python setup. Choose the macOS or
-Windows archive for your platform, then see [Installation](docs/installation.md)
-for first-run model setup, platform notes, and source installation
-instructions.
+The packaged downloads are for Apple Silicon Macs and Windows x64 and do not
+require a local Python setup. Follow the [installation and model setup
+instructions](docs/installation.md) for your platform, then open the
+[step-by-step user guide](docs/user-guide/index.md) to analyze your first event.
 
 The app is organized around a two-window workflow:
 

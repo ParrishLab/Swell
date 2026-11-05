@@ -55,8 +55,8 @@ When the user clicks **Save Current Masks**, the analysis window compiles a sync
 * `analysis`: Contains the committed binary mask byte arrays (`masks_committed` encoded as `npz_uint8_3d`), draft masks (`masks_draft`), user prompts (`prompts` encoded as `portable_prompts_json`), and export directories.
 * `ui_hints`: Playback playhead location (`last_frame`) and `active_tool`.
 
-> [!IMPORTANT]
-> **Conflict Policy**: The Host Window owns event identity and bounds. The Analysis Window never regenerates `event_id` or modifies event frame boundaries directly. If a sync payload's `stack_id` or `session_id` does not match the active host state, the sync is immediately rejected to prevent project corruption.
+!!! important "Conflict policy"
+    The Host Window owns event identity and bounds. The Analysis Window never regenerates `event_id` or modifies event frame boundaries directly. If a sync payload's `stack_id` or `session_id` does not match the active host state, the sync is immediately rejected to prevent project corruption.
 
 ---
 
@@ -69,7 +69,7 @@ Swell relies on a series of singleton-like services located under `swell/shared/
     1. Stored project-recorded model metadata.
     2. Managed app-data default directory.
     3. Explicit manual override paths.
-    It also handles secure Hugging Face downloads, verifying file hashes using SHA-256 digests.
+    It also downloads catalog checkpoints and checks the SHA-256 digest when the catalog provides an expected hash.
 * **`SingleInstanceBridge`**: Restricts the application to a single instance. When a packaged app is launched by double-clicking a `.swell` file, the bridge detects if another instance is already running and sends an IPC file-open request to the active instance before exiting.
 * **`torch_device` (`swell/shared/torch_device.py`)**: Resolves the torch execution device across both host analysis pipelines (model propagation and grid median trace calculations). Auto-detects in the order of Apple MPS → NVIDIA CUDA → CPU fallback, and supports forcing a specific device via the `SWELL_DEVICE` environment override.
 
@@ -81,16 +81,21 @@ To support fast rendering across different zoom levels, Swell uses a pipeline of
 
 * **`StackReaderFrameSource`**: Wraps the raw `StackReader` to yield raw image arrays.
 * **`PreparedFrameSource`**: Handles contrast normalization, channel reduction, and caches rendered canvases.
-* **`DownsampledFrameSource`**: Computes approximate preview-only rendering stats at $0.25\times$ resolution, then converts baseline arrays and stabilization offsets back to full-resolution coordinates. Preview stats are not reused as canonical model input.
+* **`DownsampledFrameSource`**: Computes approximate preview-only rendering stats at 0.25× resolution, then converts baseline arrays and stabilization offsets back to full-resolution coordinates. Preview stats are not reused as canonical model input.
 * **`EventScopedFrameSource`**: Scopes frame index queries to the bounds of a specific event.
 
 ---
 
 ## 5. Model Predictor & CPU Fallback
 
-Segmentation is handled by the `SAM2Runtime` class.
-* **GPU/MPS Acceleration**: PyTorch attempts to initialize CUDA (Windows) or MPS (macOS).
-* **`CPUFallbackPredictor`**: If PyTorch imports fail, or if VRAM allocations hit Out-of-Memory (OOM) limits, the system initializes a deterministic CPU-based fallback. This ensures brush, eraser, and manual edit tools remain fully functional.
+With PyTorch, SAM-2, and a checkpoint available, Swell runs SAM-2 on the
+selected device. Missing runtime dependencies disable model initialization.
+
+On accelerator out-of-memory errors, users can wait for memory to free up
+or select **Use CPU Fallback** for the session. The
+`DeterministicCpuFallbackPredictor` copies the last seeded mask across
+frames; it does not track changes in the recording. This is distinct from
+running SAM-2 on CPU via `SWELL_DEVICE=cpu`.
 
 ---
 
@@ -104,7 +109,7 @@ The exporter located in `swell/host/exporter.py` is designed for parallel proces
 
 ## 7. Testing Strategy
 
-Swell has a comprehensive test suite of 876 tests covering all architectural layers. Run tests locally using:
+Swell has tests for the application, persistence, release tooling, and documentation. Run tests locally using:
 
 ```bash
 pytest
@@ -117,9 +122,7 @@ pytest
 * `tests/integration/`: Validates host-to-analysis handoff payload sync, round-trip reproducibility, and contract conformance.
 * `tests/migration/`: Asserts schema upgrades and file-store migrations from legacy formats.
 
-### CI Validation Gates (PR PRs)
-Pull Requests run automated checks under `.github/workflows/release_phase2_pr.yml` across Linux, macOS, and Windows. Each runner validates:
-1. Complete `pytest` test suite.
-2. Startup smoke check (`python -m swell.main --smoke-test` returns `SMOKE_TEST:PASS`).
-3. Model and workflow smoke checks (`run_model_smoke.py` and `run_segmentation_workflow_smoke.py`).
-4. Packaged binary build success.
+### CI validation on pull requests
+
+- The general CI workflow runs the full application suite and smoke checks on Linux, browser tests for the docs, and a focused image and persistence suite on macOS and Windows.
+- The release PR workflow runs the full application suite and segmentation workflow smoke check on Linux and Windows. Its macOS jobs validate startup and model runtime, build each app bundle, and check the packaged app. Linux builds Python distribution artifacts; Windows also builds and tests its app package.

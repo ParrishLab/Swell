@@ -1,47 +1,42 @@
 # Citing Swell
 
-If Swell contributed to your research, please cite both the methods paper and the archived software release.
+**If Swell contributed to your research, please cite the methods preprint and
+the specific software release you used.**
 
-## Methods paper
+## Methods preprint
 
-The methods paper citation is pending publication. Until the final citation is
-available, cite the archived software release used for your analysis.
-
-> Dunford, C. et al. *Manuscript title*. Journal (Year). DOI: `10.xxxx/xxxxxx`
-
-BibTeX:
+Dunford C, Withers PC, Nevers DS, Shafer TL, Parrish RR (2026). *Swell
+application reveals and quantifies wavefront propagation of
+halorhodopsin-induced spreading depolarization*. Research Square, version 1.
+[Read the preprint](https://www.researchsquare.com/article/rs-10856711/v1) ·
+[DOI: 10.21203/rs.3.rs-10856711/v1](https://doi.org/10.21203/rs.3.rs-10856711/v1).
 
 ```bibtex
-@article{swell_methods,
-  author  = {Dunford, Clay and others},
-  title   = {Manuscript title},
-  journal = {Journal},
-  year    = {YYYY},
-  doi     = {10.xxxx/xxxxxx}
+@misc{dunford2026swell,
+  author       = {Dunford, Clayton and Withers, Preston C. and Nevers, Dallin S. and Shafer, T. Luke and Parrish, R. Ryley},
+  title        = {Swell application reveals and quantifies wavefront propagation of halorhodopsin-induced spreading depolarization},
+  howpublished = {Research Square preprint, version 1},
+  year         = {2026},
+  doi          = {10.21203/rs.3.rs-10856711/v1},
+  url          = {https://www.researchsquare.com/article/rs-10856711/v1}
 }
 ```
 
 ## Software release
 
-Each tagged release is archived on Zenodo with its own DOI. Cite the specific version you used.
-
-The project-level Zenodo DOI is pending. Replace the placeholder DOI below with
-the versioned DOI for the release used in your analysis once it is available.
+Cite the version used for your analysis. Use its version-specific DOI if
+available, or link to its [tagged GitHub release](https://github.com/ParrishLab/Swell/releases).
+For example, for [Swell v0.3.7](https://github.com/ParrishLab/Swell/releases/tag/v0.3.7):
 
 ```bibtex
-@software{swell_software,
+@software{swell_037,
   author  = {Dunford, Clay},
   title   = {Swell: intrinsic optical signal imaging analysis for spreading depolarization event identification and segmentation},
-  year    = {YYYY},
-  version = {vX.Y.Z},
-  doi     = {10.5281/zenodo.xxxxxxx},
-  url     = {https://github.com/ParrishLab/Swell}
+  year    = {2026},
+  version = {0.3.7},
+  url     = {https://github.com/ParrishLab/Swell/releases/tag/v0.3.7}
 }
 ```
 
-## Reproducing manuscript results
-
-Example datasets, expected outputs, and the exact release tag used for
-manuscript figures will be linked when the manuscript materials are finalized.
-
-The manuscript figures were produced with Swell version `vX.Y.Z` using the default metrics settings documented in [GUI reference](gui/analysis-window.md#metrics-settings).
+For reproducibility, also report the checkpoint, frame rate, scale, and ROI
+settings used for your analysis.

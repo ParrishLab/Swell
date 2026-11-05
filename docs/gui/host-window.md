@@ -2,29 +2,8 @@
 
 The **Host Window** is the primary hub of Swell, controlling project lifecycle, event cataloging, and data export.
 
-```text
-+-----------------------------------------------------------------------------------+
-|  File  |  Model                                                                   |
-+-----------------------------------------------------------------------------------+
-|  [Sidebar Panel]                 |  [Main Viewer Canvas]                          |
-|  * [New Project]                 |                                                |
-|  * [Open Swell Project...]          |  Displays active frame in the loaded stack     |
-|  * [Save Swell Project]             |  (Supports zoom, pan, and manual marking)      |
-|                                  |                                                |
-|  [Event Catalog Table]           |                                                |
-|  +---------------------------+   |                                                |
-|  | ID | Label | Start | End  |   |                                                |
-|  +----+-------+-------+------+   |                                                |
-|  |001 |Evt_A  | 100   | 250  |   |                                                |
-|  +---------------------------+   |                                                |
-|  * [Open Analysis...]            |                                                |
-|  * [Metrics Defaults...]         |                                                |
-|  * [Export Selected / All]       |                                                |
-+-----------------------------------------------------------------------------------+
-|  [Timeline Scrubber & Playback Controls]                                          |
-|  [===|=== Event Ranges Overlay Heatmap =========================================] |
-+-----------------------------------------------------------------------------------+
-```
+The frame viewer is on the left; **Marked Events**, **Event Actions**, and
+the log are on the right. Use the **File** menu to create, open, or save projects.
 
 ---
 
@@ -35,12 +14,13 @@ The **Host Window** is the primary hub of Swell, controlling project lifecycle, 
 * **Open Swell Project...**: Opens a file browser to load an existing `.swell` project package.
 * **Save Swell Project**: Persists the active session state, marked events, and analysis masks back into the active `.swell` file.
 * **Save Swell Project As...**: Saves the active project package under a new filename or directory.
+* **Embed Source Images In Project File**: Includes the source images the next time you save.
 * **Import DC Trace...**: Imports an external electrophysiological DC trace (e.g., from an iOS DC recording) and maps it to the timeline.
 * **Remove DC Trace**: Discards the mapped DC trace from the active project.
 * **Exit**: Terminates the application.
 
 ### Model Menu
-* **Manage Models...**: Launches the Model Manager window to inspect, download, or delete SAM-2 model checkpoints in your managed app-data directory.
+* **Manage Models...**: Launches the Model Manager window to inspect, download, or select SAM-2 model checkpoints in your managed app-data directory.
 * **Set Model Path...**: Browses for a local model weights file (`.pt`) to use as a manual override.
 * **Load Model**: Manually forces the application to load the selected model weights file into VRAM or system RAM.
 * **Update Project Model**: Updates the project's metadata to record the active model's path and SHA-256 hash.
@@ -50,12 +30,11 @@ The **Host Window** is the primary hub of Swell, controlling project lifecycle, 
 
 ## 2. Panels & UI Elements
 
-### Sidebar Control Panel
-* **New Project / Open Project**: Project loading triggers.
-* **Save Project**: Fast project write.
-* **Event Table**: Lists all cataloged events. Double-clicking an event name highlights it in the stack viewer.
+### Right sidebar
+* **Marked Events**: Lists the cataloged events.
+* **Edit Selected / Delete Selected**: Edits the selected event bounds or removes selected events.
 * **Open Analysis...**: Launches the child event segmentation workspace for the selected event.
-* **Metrics Defaults...**: Configures global default frames per second, pixel-to-physical scale calibration, and Region of Interest (ROI) settings applied to newly created events.
+* **Open Metrics...**: Configures global default frames per second, pixel-to-physical scale calibration, and Region of Interest (ROI) settings used by events without local overrides.
 * **Export Buttons**:
     * **Export Selected**: Writes images, masks, and metrics for highlighted events.
     * **Export All**: Exports all cataloged events in the project.
@@ -69,17 +48,17 @@ The **Host Window** is the primary hub of Swell, controlling project lifecycle, 
 ## 3. Important Dialogs
 
 ### Scale Calibration Dialog
-Opened via **Metrics Defaults... → Calibrate Scale**:
+Opened via **Open Metrics... → Set Scale**:
 * Click and drag a line on the reference image over a known physical distance.
 * Enter the physical length (e.g., in millimeters) to compute the pixels-per-unit ratio.
 * **Axis-Lock**: Toggle this option to snap the drawn line to strict horizontal or vertical axes, ensuring clean calibration.
 
 ### ROI Defaults Dialog
-Opened via **Metrics Defaults... → Set ROI**:
-* Allows drawing a bounding box or polygon on the canvas to define the default Region of Interest (ROI). Only pixels inside the ROI are calculated in area recruitment metrics.
+Opened via **Open Metrics... → Draw ROI**:
+* Draw one or more polygons to define the default region of interest (ROI). Recruited-area metrics use the mask clipped to this ROI.
 
 ### Auto-Detect Event Window
-Opened via the **Auto-Detect SD** button in the sidebar:
+Opened via the **Autodetect** button below the frame viewer:
 * Launches an automated temporal grid coherence pipeline that analyzes frame intensity changes.
 * **Dual-Pane Timeline**: Renders a high-level overview timeline and a detail timeline showing grid subsection activity.
 * **Opacity & Border Controls**: Adjust the visibility of subsection overlays.

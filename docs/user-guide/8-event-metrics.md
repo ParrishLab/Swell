@@ -26,10 +26,11 @@ mask pixels remain in the measurement.
 </div>
 
 **Simulated measurement preview — no project data is changed.** Swell computes
-pixels/mm as the drawn line length divided by its known length. Physical area
-therefore changes with the square of the scale, while propagation speed uses
-both scale and FPS. The example boundary shift and mask geometry above are fixed
-teaching data, not measurements from SAM 2.1.
+pixels/mm as the drawn line length divided by its known length. At a fixed
+pixel area, doubling pixels/mm quarters the area in mm²; propagation speed
+also depends on FPS. This exercise counts the selected mask pixels to show
+how calibration and ROI selection work. The [exported area metrics](../file-formats.md#4-metrics-calculations-reference)
+use contour area and require an ROI.
 
 ## Choosing Global or Local Settings
 

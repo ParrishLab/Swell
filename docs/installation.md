@@ -9,7 +9,7 @@ This page covers system requirements, installation steps for both packaged binar
 * **Operating System**: macOS 13+ (Apple Silicon or Intel), Windows 10/11 (x64).
 * **Python (Source Install)**: Python 3.12 or newer.
 * **Hardware Acceleration**:
-    * **CPU**: Always supported and serves as the guaranteed fallback.
+    * **CPU**: Can run SAM-2 when PyTorch, SAM-2, and a compatible checkpoint are installed.
     * **Apple Silicon (macOS)**: Uses Metal Performance Shaders (MPS) automatically when available.
     * **NVIDIA GPU (Windows/Linux source only)**: Can run on CUDA if PyTorch is installed with CUDA support. Packaged Windows binaries default to CPU execution.
 * **Disk Space**: ~1.5 GB for dependencies and model checkpoints.
@@ -22,18 +22,20 @@ Packaged builds allow you to run Swell without setting up Python locally.
 
 1. Download the latest release zip for your platform from the [GitHub Releases](https://github.com/ParrishLab/Swell/releases) page.
 2. Extract the archive contents:
-    * **macOS**: Extract `swell-macos-arm64.zip` (Apple Silicon) or `swell-macos-x86_64.zip` (Intel). Move `Swell.app` to your `/Applications` directory.
-    * **Windows**: Extract `swell-windows-x64.zip` to a folder of your choice.
+    * **macOS (Apple Silicon)**: Extract the archive ending in `-macos-arm64.zip`. Move `Swell.app` to your `/Applications` directory.
+    * **Windows**: Extract the archive ending in `-windows-x64.zip` to a folder of your choice.
 3. Launch the application:
     * **macOS**: Double-click `Swell.app`.
     * **Windows**: Double-click `Swell.exe`.
 
-> [!WARNING]
-> **macOS Gatekeeper Warning**
-> Packaged macOS builds are unsigned and not notarized. Upon first launch, macOS will block execution. To bypass:
-> 1. Right-click (or Control-click) `Swell.app` and choose **Open**.
-> 2. In the warning dialog that appears, click **Open** again.
-> 3. Alternatively, navigate to **System Settings → Privacy & Security**, scroll down, and select **Open Anyway** under the security section.
+The current release does not include an Intel Mac package. On Intel, follow
+[Installing from Source](#installing-from-source).
+
+!!! warning "macOS Gatekeeper"
+    The macOS package is unsigned and not notarized. If macOS blocks it,
+    confirm that you downloaded it from the official Swell release, then
+    follow [Apple's instructions for opening an app from an unidentified
+    developer](https://support.apple.com/en-us/102445).
 
 ---
 
@@ -70,8 +72,8 @@ To include the SAM-2 automated segmentation engine (which installs PyTorch):
 pip install -e ".[model]"
 ```
 
-> [!NOTE]
-> The `sam-2` package is compiled from a specific commit. If compilation fails, ensure you have a working C compiler toolchain installed (`clang` or Xcode Command Line Tools on macOS, MSVC Build Tools on Windows).
+!!! note "Building SAM-2 from source"
+    The `sam-2` dependency is pinned to a specific source commit. If compilation fails, ensure you have a working C compiler toolchain installed (`clang` or Xcode Command Line Tools on macOS, MSVC Build Tools on Windows).
 
 For developers wanting to run tests and build documentation:
 ```bash
@@ -89,7 +91,7 @@ python -m swell.main
 
 Swell requires weights (checkpoints) for the SAM-2 model to propagate segmentations. To prevent bloated downloads, these weights are **not** bundled with the application.
 
-On your very first launch (or when opening the Analysis Window without a resolved checkpoint), you will be prompted with the **Model Onboarding Dialog**:
+If Swell cannot resolve a local checkpoint at startup, it shows the **Model Onboarding Dialog**:
 
 ```text
 No local SAM2 model file is available.
@@ -100,30 +102,30 @@ Cancel = Keep model-based tools disabled
 ```
 
 ### Option A: Automatic Download (Recommended)
-Click **Yes**. Swell will automatically fetch the default model (`sam2.1_hiera_base_plus.pt`) from Hugging Face and verify its SHA-256 integrity hash (`1620c3a8...`).
+Click **Yes** to download the default model, `sam2.1_hiera_base_plus.pt`, from the configured checkpoint catalog.
 * **Download Directory**:
-    * macOS: `~/Library/Application Support/swell/models/`
+    * macOS: `~/Library/Application Support/Swell/models/`
     * Windows: `%APPDATA%\swell\models\`
 * **Custom Models Directory**: You can override the download path by setting the `SWELL_MODELS_DIR` environment variable before starting the application.
 
 ### Option B: Local File Association
-If you are working offline, click **No** and select a pre-downloaded `.pt` file on your filesystem. 
+If you are working offline, click **No** and select a pre-downloaded `.pt` file on your filesystem.
 
 ### Option C: Review-Only Mode
-Click **Cancel** to keep the model disabled. You will still be able to open projects, view frames, draw manual masks, and export existing data, but automated propagation will be unavailable.
+Click **Cancel** to keep the model disabled. You can still open projects, view frames, and export existing data in the Host Window. Opening Analysis, including for manual mask editing, requires a configured checkpoint. To set one up later, choose **Model → Manage Models...**.
 
 ---
 
 ## Verifying the Installation
 
-To run a non-interactive startup check that verifies all modules load correctly:
+Run the startup smoke check to verify that key application modules import:
 
 ```bash
 python -m swell.main --smoke-test
 ```
 
-If the environment is fully working, it will print:
+If the selected imports succeed, it prints:
 ```text
 SMOKE_TEST:PASS
 ```
-If a dependency is missing or corrupt, it will print a traceback and exit with code `1`.
+On failure it prints `SMOKE_TEST:FAIL:...` and exits with code `1`. To include the PyTorch and SAM-2 imports, run `python -m swell.main --smoke-test --smoke-model-runtime`.

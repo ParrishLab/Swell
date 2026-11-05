@@ -2,7 +2,7 @@
 
 All work in Swell begins by importing an image sequence.
 
-1. Click **New Project** in the Host Window's left panel or choose **File → New Project** from the menu.
+1. Choose **File → New Project** in the Host Window.
 2. In the folder browser, select the directory containing your image sequence.
 
 ## Image Folder Requirements
